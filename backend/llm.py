@@ -4,7 +4,7 @@ from typing import Dict, Any
 from openai import OpenAI
 import os
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
 
 SYSTEM_PROMPT = '''You are an expert production planner for a glass factory.
 You convert pasted order text (copied from a PDF) into STRICT JSON rows.
