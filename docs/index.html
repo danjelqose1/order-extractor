@@ -57,8 +57,12 @@
   <div id="error" class="error" style="display:none"></div>
 
 <script>
-const API_BASE = "http://127.0.0.1:5055";
-// --- data URL <-> bytes helpers for logo storage ---
+const API_BASE = (location.hostname.endsWith('github.io') || location.hostname.endsWith('onrender.com'))
+  ? 'https://order-extractor-kdih.onrender.com'
+  : (location.hostname === 'localhost' || location.hostname === '127.0.0.1'
+      ? 'http://127.0.0.1:5055'
+      : `${location.origin}`);
+  
 function dataURLToBytes(dataUrl){
   try{
     const base64 = (dataUrl.split(',')[1] || '');
