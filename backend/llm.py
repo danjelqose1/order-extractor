@@ -201,6 +201,7 @@ def get_client() -> OpenAI:
     key = os.getenv("OPENAI_API_KEY")
     if not key:
         raise RuntimeError("OPENAI_API_KEY not set")
+    # NOTE: Removed 'proxies' argument for compatibility with new OpenAI SDK on Render
     return OpenAI(api_key=key)
 
 def build_messages(pasted_text: str):
