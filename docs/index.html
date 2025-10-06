@@ -21,6 +21,8 @@
     .spinner{display:inline-block;width:16px;height:16px;border:2px solid #ccc;border-top-color:#777;border-radius:50%;animation:spin 1s linear infinite;vertical-align:middle}
     @keyframes spin{to{transform:rotate(360deg)}}
     .error{background:#fff0f0;border:1px solid #ffd6d6;padding:8px;border-radius:6px;margin-top:8px}
+    .dropzone{margin:12px 0;padding:22px;border:2px dashed #cdd2e8;border-radius:10px;text-align:center;color:#555;cursor:pointer;user-select:none}
+    .dropzone.hover{background:#f6f7ff;border-color:#b9c3f0}
   </style>
 </head>
 <body>
@@ -47,13 +49,15 @@
     </details>
     <span id="status" class="muted"></span>
   </div>
+  <input type="file" id="pdfInput" accept="application/pdf" style="display:none" />
+  <div id="pdfDropZone" class="dropzone">Drop PDF here or click to upload.</div>
   <div id="orderInfo" class="muted"></div>
   <div id="summary" class="summary"></div>
   <div id="tableWrap"></div>
   <div id="error" class="error" style="display:none"></div>
 
 <script>
-const API_BASE = "https://order-extractor-kdih.onrender.com";
+const API_BASE = "http://127.0.0.1:5055";
 // --- data URL <-> bytes helpers for logo storage ---
 function dataURLToBytes(dataUrl){
   try{
@@ -303,6 +307,18 @@ function render(rows){
   tableWrap.innerHTML = html;
 }
 
+function applyExtractionResult(data){
+  const rows = (data && data.rows) ? data.rows : [];
+  window.__rows = rows;
+  render(rows);
+  const uniqOrders = Array.from(new Set(rows.map(r => (r.order_number || '').trim()).filter(Boolean)));
+  const orderInfoEl = document.getElementById('orderInfo');
+  if (!orderInfoEl) return;
+  orderInfoEl.textContent = uniqOrders.length
+    ? (uniqOrders.length === 1 ? ('Order: ' + uniqOrders[0]) : ('Orders: ' + uniqOrders.join(', ')))
+    : 'Order number not detected.';
+}
+
 async function callAPI(text){
   const status = document.getElementById('status');
   const errEl = document.getElementById('error');
@@ -329,18 +345,56 @@ async function callAPI(text){
   }
 }
 
+async function callPdfAPI(file){
+  const status = document.getElementById('status');
+  const errEl = document.getElementById('error');
+  errEl.style.display='none';
+  status.innerHTML = '<span class="spinner"></span> Extracting PDF…';
+  const formData = new FormData();
+  formData.append('file', file, file.name || 'upload.pdf');
+  try{
+    const res = await fetch(API_BASE + '/extract_pdf', {
+      method: 'POST',
+      body: formData
+    });
+    if(!res.ok){
+      const t = await res.text();
+      throw new Error(t || ('HTTP '+res.status));
+    }
+    const data = await res.json();
+    status.textContent = 'Done.';
+    return data;
+  }catch(e){
+    status.textContent = '';
+    errEl.style.display='block';
+    errEl.textContent = 'Error: ' + e.message;
+    throw e;
+  }
+}
+
+async function handleTextExtraction(text){
+  const value = (text || '').trim();
+  if(!value) return;
+  try{
+    const data = await callAPI(value);
+    applyExtractionResult(data);
+  }catch(e){}
+}
+
+async function handlePdfExtraction(file){
+  if(!file) return;
+  try{
+    const data = await callPdfAPI(file);
+    applyExtractionResult(data);
+  }catch(e){}
+}
+
 document.getElementById('extract').addEventListener('click', async ()=>{
   const text = document.getElementById('input').value.trim();
   if(!text){ return; }
   try{
     const data = await callAPI(text);
-    const rows = data.rows || [];
-    window.__rows = rows;
-    render(rows);
-    const uniqOrders = Array.from(new Set((rows || []).map(r => (r.order_number || '').trim()).filter(Boolean)));
-    document.getElementById('orderInfo').textContent = uniqOrders.length
-      ? (uniqOrders.length === 1 ? ('Order: ' + uniqOrders[0]) : ('Orders: ' + uniqOrders.join(', ')))
-      : 'Order number not detected.';
+    applyExtractionResult(data);
   }catch(e){}
 });
 
@@ -369,6 +423,88 @@ document.getElementById('groupToggle').addEventListener('change', ()=>{
   const rows = window.__rows || [];
   render(rows);
 });
+
+function isPdfFile(file){
+  if(!file) return false;
+  const type = (file.type || '').toLowerCase();
+  const name = (file.name || '').toLowerCase();
+  return type === 'application/pdf' || name.endsWith('.pdf');
+}
+
+function isPlainTextFile(file){
+  if(!file) return false;
+  const type = (file.type || '').toLowerCase();
+  const name = (file.name || '').toLowerCase();
+  return type.startsWith('text/') || name.endsWith('.txt');
+}
+
+(function(){
+  const dropZone = document.getElementById('pdfDropZone');
+  const fileInput = document.getElementById('pdfInput');
+  if(!dropZone || !fileInput) return;
+  const status = document.getElementById('status');
+  const errEl = document.getElementById('error');
+  const clearError = () => { if(errEl){ errEl.style.display='none'; errEl.textContent=''; } };
+  const setStatus = (msg) => { if(status) status.textContent = msg || ''; };
+  const prevent = (e) => { e.preventDefault(); e.stopPropagation(); };
+
+  ['dragenter','dragover'].forEach(name => {
+    dropZone.addEventListener(name, (e)=>{
+      prevent(e);
+      dropZone.classList.add('hover');
+      if(e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    });
+  });
+  ['dragleave','dragend'].forEach(name => {
+    dropZone.addEventListener(name, (e)=>{
+      prevent(e);
+      dropZone.classList.remove('hover');
+    });
+  });
+
+  dropZone.addEventListener('drop', async (e)=>{
+    prevent(e);
+    dropZone.classList.remove('hover');
+    clearError();
+    const files = e.dataTransfer && e.dataTransfer.files;
+    if(files && files.length){
+      const file = files[0];
+      if(isPdfFile(file)){
+        await handlePdfExtraction(file);
+        return;
+      }
+      if(isPlainTextFile(file)){
+        const text = await file.text();
+        if(text && text.trim()){
+          document.getElementById('input').value = text;
+          await handleTextExtraction(text);
+          return;
+        }
+      }
+    }
+    const textData = e.dataTransfer ? e.dataTransfer.getData('text') : '';
+    if(textData && textData.trim()){
+      document.getElementById('input').value = textData;
+      await handleTextExtraction(textData);
+      return;
+    }
+    setStatus('Unsupported drop. Use a PDF or text.');
+  });
+
+  dropZone.addEventListener('click', ()=> fileInput.click());
+
+  fileInput.addEventListener('change', async (e)=>{
+    clearError();
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if(!file) return;
+    if(!isPdfFile(file)){
+      setStatus('Please choose a PDF file.');
+      return;
+    }
+    await handlePdfExtraction(file);
+  });
+})();
 
 // Print Labels button handler
 document.getElementById('printLabels').addEventListener('click', async ()=>{
