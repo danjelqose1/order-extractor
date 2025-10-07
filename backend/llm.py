@@ -203,13 +203,6 @@ def _prepare_text(raw_text: str) -> str:
     processed = _insert_dim_breaks(processed)
     return processed.strip()
 
-def get_client() -> OpenAI:
-    """Return an OpenAI client using the OPENAI_API_KEY env var."""
-    key = os.getenv("OPENAI_API_KEY")
-    if not key:
-        raise RuntimeError("OPENAI_API_KEY not set")
-    # NOTE: Removed 'proxies' argument for compatibility with new OpenAI SDK on Render
-    return OpenAI(api_key=key)
 
 def build_messages(pasted_text: str):
     return [
