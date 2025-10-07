@@ -8,6 +8,8 @@ from pydantic import BaseModel, ValidationError
 from schema import ExtractionResult
 from llm import call_llm_for_extraction, call_llm_for_extraction_multi
 from dotenv import load_dotenv
+import traceback
+import openai as openai_pkg
 load_dotenv()
 
 try:
@@ -25,12 +27,7 @@ app = FastAPI(title="LLM Order Extractor (Local)", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://127.0.0.1:8000",
-        "http://localhost:8000",
-        "https://danjelqose1.github.io",
-        "https://danjelqose1.github.io/order-extractor",
-    ],
+    allow_origins=[FRONTEND_ORIGIN] if FRONTEND_ORIGIN != "*" else ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -102,6 +99,7 @@ def extract(inb: PasteIn, x_app_key: Optional[str] = Header(default=None)) -> Di
     except ValidationError as ve:
         raise HTTPException(status_code=422, detail=f"Validation error: {ve.errors()}")
     except Exception as e:
+        print("[extract] fatal error:\n" + "".join(traceback.format_exc()))
         raise HTTPException(status_code=500, detail=f"Extraction failed: {str(e)}")
 
 def extract_pages_text(pdf_bytes: bytes) -> list[str]:
@@ -162,9 +160,22 @@ async def extract_pdf(file: UploadFile = File(...), x_app_key: Optional[str] = H
     except ValidationError as ve:
         raise HTTPException(status_code=422, detail=f"Validation error: {ve.errors()}")
     except Exception as e:
+        print("[extract_pdf] fatal error:\n" + "".join(traceback.format_exc()))
         raise HTTPException(status_code=500, detail=f"Extraction failed: {str(e)}")
 
 
 @app.post("/extract-pdf")
 async def extract_pdf_dash_alias(file: UploadFile = File(...), x_app_key: Optional[str] = Header(default=None)) -> Dict[str, Any]:
     return await extract_pdf(file=file, x_app_key=x_app_key)
+
+@app.get("/diag")
+def diag():
+    try:
+        sdk_ver = getattr(openai_pkg, "__version__", "unknown")
+    except Exception:
+        sdk_ver = "unknown"
+    return {
+        "status": "ok",
+        "openai_sdk_version": sdk_ver,
+        "env_has_api_key": bool(os.getenv("OPENAI_API_KEY")),
+    }
