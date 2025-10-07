@@ -179,3 +179,11 @@ def diag():
         "openai_sdk_version": sdk_ver,
         "env_has_api_key": bool(os.getenv("OPENAI_API_KEY")),
     }
+
+@app.get("/")
+def root():
+    return {
+        "name": "order-extractor",
+        "status": "ok",
+        "endpoints": ["/healthz", "/extract", "/extract_pdf"]
+    }
