@@ -3,6 +3,13 @@ from typing import Dict, Any, List
 import os, json, re
 from openai import OpenAI
 
+def get_client() -> OpenAI:
+    key = os.getenv("OPENAI_API_KEY")
+    if not key:
+        raise RuntimeError("OPENAI_API_KEY not set")
+    # IMPORTANT: no 'proxies', no 'timeout', no 'max_retries', no 'http_client'
+    return OpenAI(api_key=key)
+
 SYSTEM_PROMPT = '''You are an expert production planner for a glass factory.
 You convert pasted order text (copied from PDFs) into STRICT JSON rows for manufacturing.
 
