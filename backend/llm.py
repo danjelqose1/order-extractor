@@ -1,14 +1,13 @@
 from __future__ import annotations
-from typing import Dict, Any, List
-import os, json, re
+from typing import Dict, Any, List, Tuple, Optional
+import base64
+import json
+import os
+import re
+import fitz  # PyMuPDF
 from openai import OpenAI
-
-def get_client() -> OpenAI:
-    key = os.getenv("OPENAI_API_KEY")
-    if not key:
-        raise RuntimeError("OPENAI_API_KEY not set")
-    # IMPORTANT: no 'proxies', no 'timeout', no 'max_retries', no 'http_client'
-    return OpenAI(api_key=key)
+from utils_text import build_signature, parse_declared_totals
+from db import find_similar_corrections, bump_correction_hit
 
 SYSTEM_PROMPT = '''You are an expert production planner for a glass factory.
 You convert pasted order text (copied from PDFs) into STRICT JSON rows for manufacturing.
@@ -124,7 +123,12 @@ _NAME_SUFFIX_RE = re.compile(r'^/[A-Za-zÀ-ÿ.\-]+$')
 _DECIMAL_COMMA_RE = re.compile(r'(\d),(?=\d{2,3}\b)')
 _THOUSANDS_CHAIN_RE = re.compile(r'(\d)\.(\d{3})\.(\d)')
 _DIM_ORDER_STUCK_RE = re.compile(r'(?P<dim>\d{3,4}\s*[xX×]\s*\d{3,4})(?=R-?\d{2}-\d{4}/)', re.IGNORECASE)
+_DIM_AREA_STUCK_RE = re.compile(
+    r'(?P<dim>\d{3,4}\s*[xX×]\s*\d{3,4})\s+(?P<area>\d+(?:[.,]\d+)?)\s+(?P<qty>\d+)\s+(?P<area2>\d+(?:[.,]\d+)?)',
+    re.IGNORECASE,
+)
 _TYPE_LINE_RE = re.compile(r'^\d+\s+VETRI\s+.*mm$', re.IGNORECASE)
+_AREA_QTY_LINE_RE = re.compile(r'^\s*\d+(?:[.,]\d+)?\s+\d+\s+\d+(?:[.,]\d+)?\s*$', re.IGNORECASE)
 
 
 def normalize_and_stitch(raw_text: str) -> str:
@@ -153,6 +157,14 @@ def normalize_and_stitch(raw_text: str) -> str:
         i = 0
         while i < len(lines):
             line = lines[i]
+            if i + 2 < len(lines):
+                nxt = lines[i + 1]
+                third = lines[i + 2]
+                if _DIM_ONLY_RE.match(line) and _POSITION_LINE_RE.match(nxt) and _AREA_QTY_LINE_RE.match(third):
+                    new_lines.append(f"{line} {nxt} {third}")
+                    i += 3
+                    changed = True
+                    continue
             if i + 1 < len(lines):
                 nxt = lines[i + 1]
                 if _DIM_ONLY_RE.match(line) and _ORDER_PREFIX_RE.match(nxt):
@@ -195,7 +207,9 @@ def normalize_and_stitch(raw_text: str) -> str:
 
 
 def _insert_dim_breaks(text: str) -> str:
-    return _DIM_ORDER_STUCK_RE.sub(lambda m: f"{m.group('dim')}\n", text)
+    text = _DIM_ORDER_STUCK_RE.sub(lambda m: f"{m.group('dim')}\n", text)
+    text = _DIM_AREA_STUCK_RE.sub(lambda m: f"{m.group('dim')}\n{m.group('area')} {m.group('qty')} {m.group('area2')}", text)
+    return text
 
 
 def _prepare_text(raw_text: str) -> str:
@@ -203,21 +217,95 @@ def _prepare_text(raw_text: str) -> str:
     processed = _insert_dim_breaks(processed)
     return processed.strip()
 
+def pdf_to_png_pages(pdf_bytes: bytes, dpi: int = 200) -> List[bytes]:
+    """Render each PDF page to PNG bytes (no alpha channel)."""
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        images: List[bytes] = []
+        for page in doc:
+            pix = page.get_pixmap(dpi=dpi, alpha=False)
+            images.append(pix.tobytes("png"))
+        return images
+    finally:
+        doc.close()
 
-def build_messages(pasted_text: str):
-    return [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": pasted_text},
-    ]
+
+def ocr_png_with_openai(image_bytes: bytes, model: Optional[str] = None) -> str:
+    """OCR a single PNG using OpenAI Vision; return plain text."""
+    client = get_client()
+    b64 = base64.b64encode(image_bytes).decode("ascii")
+    data_url = f"data:image/png;base64,{b64}"
+    system_prompt = "You are a strict OCR engine. Output only the exact text you see. Preserve line breaks; no commentary."
+    model = model or os.getenv("OCR_MODEL", "gpt-4o-mini")
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Transcribe all legible text exactly; keep layout line breaks."},
+                    {"type": "image_url", "image_url": {"url": data_url}},
+                ],
+            },
+        ],
+        temperature=0.0,
+    )
+    return (response.choices[0].message.content or "").strip()
+
+
+_CLIENT_LINE_RE = re.compile(r"^\s*CLIENTE\s+(.+)$", re.IGNORECASE)
+
+
+def extract_client_name(full_text: str) -> str:
+    """Best-effort: pick first 'CLIENTE ...' line text after the keyword."""
+    for line in (full_text or "").splitlines():
+        match = _CLIENT_LINE_RE.search(line)
+        if match:
+            name = match.group(1).strip()
+            return re.sub(r"\s{2,}.*$", "", name)
+    return ""
+
+
+def get_client() -> OpenAI:
+    """Return an OpenAI client using the OPENAI_API_KEY env var."""
+    key = os.getenv("OPENAI_API_KEY")
+    if not key:
+        raise RuntimeError("OPENAI_API_KEY not set")
+    # NOTE: Removed 'proxies' argument for compatibility with new OpenAI SDK on Render
+    return OpenAI(api_key=key)
+
+def build_messages(pasted_text: str, corrections: List[Dict[str, Any]]):
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    for correction in corrections or []:
+        if not correction.get("pattern_text") or not correction.get("after_json"):
+            continue
+        example_input = correction["pattern_text"]
+        example_output = correction["after_json"]
+        messages.append(
+            {
+                "role": "user",
+                "content": f"EXAMPLE INPUT\n{example_input.strip()[:1800]}",
+            }
+        )
+        messages.append(
+            {
+                "role": "assistant",
+                "content": example_output,
+            }
+        )
+    messages.append({"role": "user", "content": pasted_text})
+    return messages
 
 def call_llm_for_extraction(pasted_text: str) -> Dict[str, Any]:
     client = get_client()
     prepared_text = _prepare_text(pasted_text) or pasted_text.strip()
-    messages = build_messages(prepared_text)
+    corrections = find_similar_corrections(prepared_text, top_k=3)
+    messages = build_messages(prepared_text, corrections)
 
     preferred_models = [
-        "gpt-4o-2024-08-06",
-        "gpt-4o-mini-2024-07-18",
+        "gpt-4o-turbo",
+        "gpt-4o-mini",
     ]
 
     completion = None
@@ -258,6 +346,16 @@ def call_llm_for_extraction(pasted_text: str) -> Dict[str, Any]:
         if first_newline != -1 and content[:first_newline].lower().startswith('json'):
             content = content[first_newline+1:]
 
+    usage = getattr(completion, "usage", None)
+    if usage:
+        try:
+            print(
+                f"tokens prompt={usage.prompt_tokens} completion={usage.completion_tokens} total={usage.total_tokens}"
+            )
+        except Exception:
+            pass
+
+    raw_payload = json.loads(content)
     data = json.loads(content)
 
     # Log which model actually produced the result (non-breaking; payload is unchanged)
@@ -266,7 +364,22 @@ def call_llm_for_extraction(pasted_text: str) -> Dict[str, Any]:
     except Exception:
         pass
 
-    return data
+    data, applied = _apply_post_corrections(data, prepared_text, corrections)
+    declared_units_raw, declared_area_raw = parse_declared_totals(pasted_text)
+    declared_units_prepared, declared_area_prepared = parse_declared_totals(prepared_text)
+    declared_units = declared_units_prepared if declared_units_prepared is not None else declared_units_raw
+    declared_area = declared_area_prepared if declared_area_prepared is not None else declared_area_raw
+
+    return {
+        "data": data,
+        "raw": raw_payload,
+        "prepared_text": prepared_text,
+        "model_used": model_used,
+        "applied_corrections": applied,
+        "corrections": corrections,
+        "declared_units": declared_units,
+        "declared_area": declared_area,
+    }
 
 
 def _merge_and_dedupe(all_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -296,7 +409,33 @@ def _merge_and_dedupe(all_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return out
 
 
-def _page_messages(page_text: str, carry: Dict[str, str]) -> List[Dict[str, str]]:
+def _apply_post_corrections(
+    payload: Dict[str, Any],
+    prepared_text: str,
+    corrections: List[Dict[str, Any]],
+) -> Tuple[Dict[str, Any], List[int]]:
+    if not payload.get("rows"):
+        return payload, []
+    signature = build_signature(prepared_text or "", payload.get("rows"))
+    applied: List[int] = []
+    for correction in corrections or []:
+        if correction.get("pattern_hash") != signature["pattern_hash"]:
+            continue
+        after_json = correction.get("after_json")
+        if not after_json:
+            continue
+        try:
+            parsed = json.loads(after_json)
+            if isinstance(parsed, dict) and parsed.get("rows"):
+                payload["rows"] = parsed.get("rows")
+                applied.append(correction["id"])
+                bump_correction_hit(correction["id"])
+        except Exception:
+            continue
+    return payload, applied
+
+
+def _page_messages(page_text: str, carry: Dict[str, str], corrections: List[Dict[str, Any]]) -> List[Dict[str, str]]:
     carry_note = ""
     if carry.get("order_number") or carry.get("glass_type"):
         carry_note = (
@@ -309,10 +448,19 @@ def _page_messages(page_text: str, carry: Dict[str, str]) -> List[Dict[str, str]
         "\n\nIMPORTANT (page mode): Only extract rows that appear on THIS page. "
         "Do not re-output rows from previous pages. Preserve the same rules."
     )
-    return [
-        {"role": "system", "content": page_instructions},
-        {"role": "user", "content": page_text},
-    ]
+    messages: List[Dict[str, str]] = [{"role": "system", "content": page_instructions}]
+    for correction in corrections or []:
+        if not correction.get("pattern_text") or not correction.get("after_json"):
+            continue
+        messages.append(
+            {
+                "role": "user",
+                "content": f"EXAMPLE INPUT\n{correction['pattern_text'].strip()[:1400]}",
+            }
+        )
+        messages.append({"role": "assistant", "content": correction["after_json"]})
+    messages.append({"role": "user", "content": page_text})
+    return messages
 
 
 def _update_carry_from_rows(rows: List[Dict[str, Any]], carry: Dict[str, str]) -> None:
@@ -329,20 +477,34 @@ def _update_carry_from_rows(rows: List[Dict[str, Any]], carry: Dict[str, str]) -
 
 def call_llm_for_extraction_multi(pages_text: List[str]) -> Dict[str, Any]:
     client = get_client()
-    preferred = ["gpt-4o-2024-08-06", "gpt-4o-mini-2024-07-18"]
+    preferred = ["gpt-4o-turbo", "gpt-4o-mini"]
     carry: Dict[str, str] = {"order_number": "", "glass_type": ""}
     all_rows: List[Dict[str, Any]] = []
     all_warnings: List[str] = []
+    prepared_segments: List[str] = []
+    prepared_pages: List[str] = []
 
-    for i, page_text in enumerate(pages_text, start=1):
-        prepared_page = _prepare_text(page_text) or page_text.strip()
+    for page in pages_text:
+        processed = (_prepare_text(page) if page else "") or ""
+        prepared = processed.strip()
+        if not prepared:
+            prepared = ((page or "")).strip()
+        prepared_pages.append(prepared)
+        if prepared:
+            prepared_segments.append(prepared)
+    prepared_full = "\n\n".join(prepared_segments)
+    corrections = find_similar_corrections(prepared_full, top_k=3)
+    model_used_global: Optional[str] = None
+
+    for i, prepared_page in enumerate(prepared_pages, start=1):
         if not prepared_page:
             continue
 
-        messages = _page_messages(prepared_page, carry)
+        messages = _page_messages(prepared_page, carry, corrections)
         completion = None
         last_err: Exception | None = None
         model_used = None
+        usage_info = None
 
         for model_name in preferred:
             try:
@@ -353,6 +515,8 @@ def call_llm_for_extraction_multi(pages_text: List[str]) -> Dict[str, Any]:
                     temperature=0.0,
                 )
                 model_used = model_name
+                model_used_global = model_used
+                usage_info = getattr(completion, "usage", None)
                 break
             except Exception as e:
                 last_err = e
@@ -368,6 +532,14 @@ def call_llm_for_extraction_multi(pages_text: List[str]) -> Dict[str, Any]:
             first_newline = content.find("\n")
             if first_newline != -1 and content[:first_newline].lower().startswith("json"):
                 content = content[first_newline + 1:]
+
+        if usage_info:
+            try:
+                print(
+                    f"tokens page={i} prompt={usage_info.prompt_tokens} completion={usage_info.completion_tokens} total={usage_info.total_tokens}"
+                )
+            except Exception:
+                pass
 
         try:
             data = json.loads(content)
@@ -388,4 +560,20 @@ def call_llm_for_extraction_multi(pages_text: List[str]) -> Dict[str, Any]:
             main_order = candidate
             break
 
-    return {"order_number": main_order, "rows": merged, "warnings": all_warnings}
+    payload = {"order_number": main_order, "rows": merged, "warnings": all_warnings}
+    raw_payload = json.loads(json.dumps(payload))
+    payload, applied = _apply_post_corrections(payload, prepared_full, corrections)
+    declared_units_raw, declared_area_raw = parse_declared_totals("\n".join(pages_text))
+    declared_units_prepared, declared_area_prepared = parse_declared_totals(prepared_full)
+    declared_units = declared_units_prepared if declared_units_prepared is not None else declared_units_raw
+    declared_area = declared_area_prepared if declared_area_prepared is not None else declared_area_raw
+    return {
+        "data": payload,
+        "raw": raw_payload,
+        "prepared_text": prepared_full,
+        "model_used": model_used_global,
+        "applied_corrections": applied,
+        "corrections": corrections,
+        "declared_units": declared_units,
+        "declared_area": declared_area,
+    }

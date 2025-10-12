@@ -13,6 +13,8 @@ class Row(BaseModel):
     position: str = Field(..., description="Position code as seen")
     quantity: int = Field(ge=1, default=1)
     area: float = Field(ge=0.0, description="Area in square meters")
+    computed_area: Optional[float] = Field(default=None, description="Computed area from dimension (m²)")
+    area_mismatch: Optional[bool] = Field(default=None, description="True when provided area deviates from computed area")
 
 class ExtractionResult(BaseModel):
     order_number: str = Field(default="", description="Main order number detected")
