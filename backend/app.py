@@ -41,7 +41,12 @@ app = FastAPI(title="LLM Order Extractor (Local)", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONTEND_ORIGIN] if FRONTEND_ORIGIN != "*" else ["*"],
+    allow_origins=[
+        "https://danjelqose1.github.io",  # your GitHub Pages frontend
+        "https://order-extractor-kdih.onrender.com",  # backend self-origin
+        "http://127.0.0.1:5055",  # local dev
+        "http://localhost:5055"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
