@@ -5,564 +5,3755 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Order Extractor — Local</title>
   <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Helvetica,Arial,sans-serif;margin:24px;line-height:1.4}
-    h1{font-size:20px;margin:0 0 12px}
-    textarea{width:min(900px,100%);height:240px;padding:12px;border:1px solid #ddd;border-radius:8px}
-    button{border:1px solid #ccc;background:#fafafa;padding:10px 14px;border-radius:8px;cursor:pointer}
-    button.primary{background:#f4f6ff;border-color:#cad2ff}
-    .controls{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 8px}
-    .summary{margin:12px 0;font-weight:600}
-    table{border-collapse:collapse;margin-top:8px;width:min(1100px,100%);}
-    th,td{border:1px solid #e7e7e7;padding:6px 8px;font-size:14px}
-    th{background:#fbfbfb;text-align:left}
-    .muted{color:#777}
-    .pill{display:inline-block;padding:2px 8px;border-radius:999px;background:#f1f1f1;font-size:12px}
+    :root{
+      --bg:#f5f6fb;
+      --card-bg:#ffffff;
+      --border:#dfe3eb;
+      --border-dark:#ccd2df;
+      --text:#1c2434;
+      --muted:#6b7280;
+      --primary:#4c5cff;
+      --primary-soft:#eef1ff;
+      --danger:#f87171;
+      --shadow:0 6px 20px rgba(20,34,66,0.08);
+    }
+    *,*::before,*::after{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,Ubuntu,Helvetica,Arial,sans-serif;line-height:1.5}
+    main.app{max-width:1100px;margin:0 auto;padding:24px 18px 48px}
+    .app-header h1{margin:0;font-size:24px;font-weight:600}
+    .app-header p{margin:6px 0 0;color:var(--muted);font-size:14px}
+    .tab-bar{display:flex;gap:8px;margin:24px 0 16px;background:rgba(255,255,255,0.6);padding:4px;border-radius:12px;border:1px solid rgba(207,215,231,0.6);backdrop-filter:blur(6px)}
+    .tab-bar button{flex:1;border:none;background:none;padding:10px 14px;border-radius:10px;font-weight:600;color:var(--muted);cursor:pointer;transition:all .2s ease}
+    .tab-bar button.active{background:var(--card-bg);color:var(--text);box-shadow:var(--shadow)}
+    .tab-panel{display:none}
+    .tab-panel.active{display:block}
+    .card{background:var(--card-bg);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow);padding:18px;margin-bottom:18px}
+    .card h2{margin:0;font-size:18px;font-weight:600}
+    textarea{width:100%;min-height:220px;padding:14px 16px;border:1px solid var(--border-dark);border-radius:12px;font-size:14px;resize:vertical;background:#fbfcff}
+    textarea:focus{outline:2px solid var(--primary-soft);border-color:var(--primary)}
+    .controls{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+    button{font:inherit}
+    .btn{border:1px solid var(--border-dark);background:#f9fafe;color:var(--text);padding:8px 14px;border-radius:10px;cursor:pointer;transition:background .2s ease,transform .2s ease}
+    .btn:hover{background:#eef1ff10;transform:translateY(-1px)}
+    .btn.primary{background:var(--primary);border-color:var(--primary);color:#fff}
+    .btn.primary:hover{background:#4352ff}
+    .btn.success{background:#10b981;border-color:#0d946b;color:#fff}
+    .btn.success:hover{background:#0b8360}
+    .btn.small{padding:6px 10px;font-size:13px}
+    .btn.ghost{background:transparent;border:none;color:var(--primary)}
+    .btn.danger{border-color:#fca5a5;background:#fee2e2;color:#b91c1c}
+    .inline-toggle{display:flex;align-items:center;gap:6px;font-size:14px;color:var(--muted)}
+    [data-group-toggle]{width:18px;height:18px}
+    .status-row{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;margin-top:12px}
+    .muted{color:var(--muted)}
+    .small{font-size:13px}
+    .summary{margin:14px 0 10px;font-weight:600;font-size:15px;display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+    .pill{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:999px;background:var(--primary-soft);color:var(--primary);font-size:12px}
+    .pill.warn{background:#fef3c7;color:#b45309}
+    .table-responsive{width:100%;overflow-x:auto;border-radius:12px;border:1px solid var(--border);background:var(--card-bg)}
+    table{width:100%;border-collapse:collapse;min-width:640px}
+    th,td{padding:8px 10px;border-bottom:1px solid var(--border);font-size:14px;text-align:left;vertical-align:top}
+    th{background:#f4f6ff;color:#485163;font-weight:600}
+    tr:last-child td{border-bottom:none}
     .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
-    .spinner{display:inline-block;width:16px;height:16px;border:2px solid #ccc;border-top-color:#777;border-radius:50%;animation:spin 1s linear infinite;vertical-align:middle}
+    .dropzone{margin-top:12px;padding:26px;border:2px dashed #c9cfea;border-radius:14px;text-align:center;color:var(--muted);background:#fbfcff;cursor:pointer;transition:border-color .2s ease,background .2s ease}
+    .dropzone.hover{background:var(--primary-soft);border-color:var(--primary);color:var(--text)}
+    details{margin-left:auto;font-size:13px}
+    details summary{cursor:pointer;color:var(--muted)}
+    code{background:#f0f2f8;padding:2px 6px;border-radius:6px;font-size:12px}
+    .labels-controls{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0 10px}
+    .labels-summary{display:flex;flex-wrap:wrap;gap:10px;font-size:13px;color:var(--muted)}
+    .labels-empty{padding:24px;text-align:center;color:var(--muted)}
+    .alert{background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;padding:10px 12px;border-radius:10px;margin-top:14px}
+    .alert[hidden]{display:none}
+    .toast{display:flex;align-items:center;gap:8px;background:var(--primary-soft);border:1px solid var(--primary);color:var(--primary);padding:8px 12px;border-radius:10px;margin-bottom:16px}
+    .toast[hidden]{display:none}
+    .link-button{background:none;border:none;padding:0;color:var(--primary);cursor:pointer;font-weight:600}
+    .link-button.muted{color:var(--muted);font-weight:500}
+    .history-filters .filters-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;align-items:flex-end}
+    .history-filters label{display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:500;color:var(--muted)}
+    .history-filters input,.history-filters select{padding:8px 10px;border:1px solid var(--border-dark);border-radius:10px;font-size:14px}
+    .history-filters input:focus,.history-filters select:focus{outline:2px solid var(--primary-soft);border-color:var(--primary)}
+    .filter-actions{display:flex;align-items:center;gap:8px}
+    .history-pagination{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:14px}
+    .badge{display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;background:#f3f4f6;color:var(--muted);font-size:12px;font-weight:600}
+    .badge.offline{background:#fef3c7;color:#b45309}
+    .history-detail-header{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:12px}
+    .history-detail-actions{display:flex;gap:8px}
+    .history-detail-subheader{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:10px}
+    .history-empty,.empty-state{padding:16px;border-radius:12px;background:#f8f9ff;border:1px dashed var(--border);text-align:center;color:var(--muted);font-size:14px}
+    .actions-cell{display:flex;flex-wrap:wrap;gap:6px}
+    .actions-cell .btn.small{padding:5px 8px}
+    .spinner{display:inline-block;width:16px;height:16px;border:2px solid #d8ddf0;border-top-color:var(--primary);border-radius:50%;animation:spin 1s linear infinite;vertical-align:middle}
+    .warning-list{margin:12px 0;padding:12px;border-radius:10px;background:#fff8e1;border:1px solid #fde68a;color:#92400e;font-size:13px}
+    .warning-list h4{margin:0 0 6px;font-size:13px;font-weight:600}
+    .warning-list ul{margin:0;padding-left:18px}
+    .warning-badge{display:inline-flex;align-items:center;gap:6px;background:#fee2e2;color:#991b1b;padding:0 8px;border-radius:999px;font-size:11px}
+    .editable-table input,.editable-table select{width:100%;padding:6px 8px;border:1px solid var(--border-dark);border-radius:8px;font-size:13px;background:#fff}
+    .editable-table input:focus{outline:2px solid var(--primary-soft);border-color:var(--primary)}
+    .editable-badge{display:inline-flex;align-items:center;padding:2px 6px;border-radius:6px;background:#fee2e2;color:#9f1239;font-size:11px}
+    .notes-field{margin-top:12px;display:flex;flex-direction:column;gap:6px}
+    .notes-field textarea{width:100%;min-height:80px;padding:10px;border:1px solid var(--border-dark);border-radius:10px;font-size:13px;resize:vertical;background:#fff}
+    .processing-layout{display:grid;grid-template-columns:280px 1fr 280px;gap:18px;margin-top:12px}
+    .processing-sidebar,.processing-controls{display:flex;flex-direction:column;gap:12px}
+    .processing-order-list{border:1px solid var(--border);border-radius:12px;background:var(--card-bg);padding:12px;max-height:420px;overflow:auto;display:flex;flex-direction:column;gap:10px}
+    .processing-order-item{border:1px dashed var(--border-dark);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:6px;background:#f8f9ff}
+    .processing-order-item header{display:flex;justify-content:space-between;align-items:center;font-weight:600}
+    .processing-preview{border:1px solid var(--border);border-radius:12px;background:#1f2435;color:#f8f9ff;padding:16px;min-height:320px;max-height:560px;overflow:auto;font-family:"Courier New",Courier,monospace;font-size:14px;white-space:pre-wrap;line-height:1.35}
+    .processing-meta{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;font-size:13px;color:var(--muted)}
+    .processing-controls .card{padding:14px}
+    .processing-controls .toggle-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;font-size:13px}
+    .processing-controls .toggle-row:last-child{margin-bottom:0}
+    .processing-controls label{display:flex;justify-content:space-between;gap:8px;font-size:13px}
+    .processing-empty{border:1px dashed var(--border-dark);border-radius:12px;padding:16px;text-align:center;color:var(--muted)}
+    .processing-header-editor{display:flex;flex-direction:column;gap:8px}
+    .processing-header-editor select,.processing-header-editor input{padding:8px;border:1px solid var(--border-dark);border-radius:8px;font-size:13px;width:100%;background:#fff}
+    .processing-actions{display:flex;flex-direction:column;gap:8px}
+    .processing-actions .btn{width:100%}
+    .processing-warning{color:#facc15;font-size:12px;margin-top:6px}
     @keyframes spin{to{transform:rotate(360deg)}}
-    .error{background:#fff0f0;border:1px solid #ffd6d6;padding:8px;border-radius:6px;margin-top:8px}
-    .dropzone{margin:12px 0;padding:22px;border:2px dashed #cdd2e8;border-radius:10px;text-align:center;color:#555;cursor:pointer;user-select:none}
-    .dropzone.hover{background:#f6f7ff;border-color:#b9c3f0}
+    @media (max-width:900px){
+      table{min-width:520px}
+      textarea{min-height:180px}
+      .processing-layout{grid-template-columns:1fr;}
+      .processing-controls .card{order:-1}
+      .processing-order-list{max-height:none}
+    }
+    @media (max-width:600px){
+      main.app{padding:18px 12px 36px}
+      .tab-bar{flex-direction:column}
+      .tab-bar button{width:100%}
+      .controls,.filter-actions,.history-detail-actions{flex-direction:column;align-items:stretch}
+      .history-pagination{flex-direction:column;align-items:stretch}
+      .dropzone{padding:20px}
+      th,td{font-size:13px}
+    }
   </style>
 </head>
 <body>
-  <h1>Order Extractor — Local</h1>
-  <div class="muted">Paste the text you copied from the PDF, then click Extract.</div>
-  <textarea id="input" placeholder="Paste order text here…"></textarea>
-  <div class="controls">
-    <button id="extract" class="primary">Extract</button>
-    <button id="copyCsv">Copy CSV</button>
-    <button id="downloadCsv">Download CSV</button>
-    <label style="display:flex;align-items:center;gap:6px">
-      <input type="checkbox" id="groupToggle">
-      <span class="muted">Group identical sizes</span>
-    </label>
-    <button id="printLabels">Print Labels</button>
-    <details id="logoPanel" style="margin-left:8px">
-      <summary class="muted">Logos</summary>
-      <div style="display:flex;gap:12px;align-items:center;margin-top:6px;flex-wrap:wrap">
-        <label>logokeli.png <input type="file" id="logoKeli" accept="image/png" /></label>
-        <label>ce.png <input type="file" id="logoCe" accept="image/png" /></label>
-        <span class="muted" id="logoStatus"></span>
+  <main class="app">
+    <header class="app-header">
+      <h1>Order Extractor — Local</h1>
+      <p class="muted">Paste the text you copied from the PDF, then click Extract.</p>
+    </header>
+
+    <div id="saveToast" class="toast" hidden>
+      <span id="saveToastMessage"></span>
+      <button id="saveToastView" class="link-button">View</button>
+      <button id="saveToastDismiss" class="link-button muted" title="Dismiss">×</button>
+    </div>
+
+    <nav class="tab-bar">
+      <button class="tab active" data-tab="extract">Dashboard</button>
+      <button class="tab" data-tab="history">History</button>
+      <button class="tab" data-tab="processing">Processing</button>
+      <button class="tab" data-tab="labels">Labels</button>
+      <button class="tab" data-tab="settings">Settings</button>
+    </nav>
+
+    <section id="tabExtract" class="tab-panel active">
+      <div class="card">
+        <label for="input" class="muted small" style="display:block;margin-bottom:6px;font-weight:600">Order text</label>
+        <textarea id="input" placeholder="Paste order text here…"></textarea>
       </div>
-      <div class="muted" style="margin-top:4px">Tip: you can also place <code>logokeli.png</code> / <code>ce.png</code> next to this file or in <code>assets/</code>. These pickers store logos locally (browser only).</div>
-    </details>
-    <span id="status" class="muted"></span>
-  </div>
-  <input type="file" id="pdfInput" accept="application/pdf" style="display:none" />
-  <div id="pdfDropZone" class="dropzone">Drop PDF here or click to upload.</div>
-  <div id="orderInfo" class="muted"></div>
-  <div id="summary" class="summary"></div>
-  <div id="tableWrap"></div>
-  <div id="error" class="error" style="display:none"></div>
+
+      <div class="card">
+        <div class="controls">
+          <button id="extract" class="btn primary">Extract</button>
+          <button id="rerun" class="btn" disabled>Re-run</button>
+          <button id="approveSave" class="btn success" disabled>Approve & Save</button>
+          <button id="copyCsv" class="btn">Copy CSV</button>
+          <button id="downloadCsv" class="btn">Download CSV</button>
+          <button id="printLabels" class="btn">Print Labels</button>
+          <label class="inline-toggle">
+            <input type="checkbox" data-group-toggle id="groupToggle" disabled>
+            <span>Group identical sizes</span>
+          </label>
+          <details id="logoPanel">
+            <summary>Logos</summary>
+            <div style="display:flex;gap:12px;align-items:center;margin-top:8px;flex-wrap:wrap">
+              <label>logokeli.png <input type="file" id="logoKeli" accept="image/png" /></label>
+              <label>ce.png <input type="file" id="logoCe" accept="image/png" /></label>
+              <span class="muted small" id="logoStatus"></span>
+            </div>
+            <div class="muted small" style="margin-top:6px">Tip: place <code>logokeli.png</code> / <code>ce.png</code> alongside this file or in <code>assets/</code>. These pickers store logos locally (browser only).</div>
+          </details>
+        </div>
+
+        <div id="pdfDropZone" class="dropzone">Drop PDF here or click to upload.</div>
+        <div class="status-row">
+          <span id="status" class="muted small"></span>
+          <span id="orderInfo" class="muted small"></span>
+        </div>
+        <div id="declaredBanner" class="warning-list" hidden></div>
+        <div id="extractWarnings" class="warning-list" hidden>
+          <h4>Warnings</h4>
+          <ul></ul>
+        </div>
+        <div id="summary" class="summary"></div>
+        <div style="margin-bottom:12px"><button type="button" id="fixAllAreas" class="btn small" hidden>Fix all areas</button></div>
+        <div class="table-responsive" id="tableWrap"></div>
+        <div class="notes-field">
+          <label for="extractNotes" class="muted small">Approval notes (optional)</label>
+          <textarea id="extractNotes" placeholder="Add a note before approving…"></textarea>
+        </div>
+        <div id="error" class="alert" hidden></div>
+      </div>
+    </section>
+
+    <section id="tabHistory" class="tab-panel">
+      <div class="card history-filters">
+        <div class="filters-grid">
+          <label>
+            <span>Search</span>
+            <input type="search" id="historySearch" placeholder="Client or order number" />
+          </label>
+          <label>
+            <span>Status</span>
+            <select id="historyStatusFilter">
+              <option value="">All</option>
+              <option value="draft">Draft</option>
+              <option value="approved">Approved</option>
+            </select>
+          </label>
+          <label>
+            <span>Page size</span>
+            <select id="historyLimit">
+              <option value="10">10</option>
+              <option value="25" selected>25</option>
+              <option value="50">50</option>
+            </select>
+          </label>
+          <div class="filter-actions">
+            <button class="btn small" id="historyRefresh">Refresh</button>
+            <button class="btn small" id="historyDownloadAll">Export CSV</button>
+            <span id="historyOfflineBadge" class="badge offline" hidden>Offline cache</span>
+          </div>
+        </div>
+        <div id="historyStatus" class="muted small" style="margin-top:10px"></div>
+      </div>
+
+      <div class="card">
+        <div class="table-responsive" id="historyListWrap"></div>
+        <div class="history-pagination">
+          <button class="btn small" id="historyPrev">Previous</button>
+          <div class="muted small">Page <span id="historyPage">1</span></div>
+          <button class="btn small" id="historyNext">Next</button>
+        </div>
+      </div>
+
+      <div class="card history-detail" id="historyDetailCard">
+        <div class="history-detail-header">
+          <div>
+            <h2>Order Detail</h2>
+            <div id="historyMeta" class="muted small"></div>
+          </div>
+          <div class="history-detail-actions">
+            <button class="btn success" id="historyApprove" disabled>Approve & Save</button>
+            <button class="btn small" id="historyProcessing" disabled>Send to Processing</button>
+            <button class="btn small" id="historyPrint" disabled>Print Labels</button>
+            <button class="btn small" id="historyCsv" disabled>Download CSV</button>
+          </div>
+        </div>
+        <div class="history-detail-subheader">
+          <div class="muted small">Grouping toggle applies to both Extract and History views.</div>
+          <label class="inline-toggle">
+            <input type="checkbox" data-group-toggle id="historyGroupToggle">
+            <span>Group identical sizes</span>
+          </label>
+        </div>
+        <div id="historyOrderInfo" class="muted small"></div>
+        <div id="historyDeclaredBanner" class="warning-list" hidden></div>
+        <div id="historyWarnings" class="warning-list" hidden>
+          <h4>Warnings</h4>
+          <ul></ul>
+        </div>
+        <div id="historySummary" class="summary"></div>
+        <div style="margin-bottom:12px"><button type="button" id="historyFixAllAreas" class="btn small" hidden>Fix all areas</button></div>
+        <div class="table-responsive" id="historyTableWrap"></div>
+        <div class="notes-field">
+          <label for="historyNotes" class="muted small">Approval notes (optional)</label>
+          <textarea id="historyNotes" placeholder="Add a note before approving…"></textarea>
+        </div>
+        <div id="historyDetailEmpty" class="history-empty">Select an order from the list to view details.</div>
+      </div>
+    </section>
+
+    <section id="tabProcessing" class="tab-panel">
+      <div class="processing-layout">
+        <div class="card processing-sidebar">
+          <div>
+            <h2 style="margin:0 0 4px">Processing</h2>
+            <p class="muted small" style="margin:0">Send approved orders from History to build a combined Mother Sheet.</p>
+          </div>
+          <div id="processingOrderList" class="processing-order-list processing-empty">No orders added yet.</div>
+          <button id="processingClear" class="btn danger" disabled>Clear Sheet</button>
+        </div>
+        <div class="card processing-main">
+          <div id="processingMeta" class="processing-meta">
+            <span>Mother Sheet – Client: — | Orders: — | Date: —</span>
+            <span class="muted small">Rows: 0</span>
+          </div>
+          <div id="processingPreview" class="processing-preview">No orders added yet.</div>
+        </div>
+        <div class="processing-controls">
+          <div class="card">
+            <h3 style="margin:0 0 8px">Options</h3>
+            <label class="toggle-row">
+              <span>Restart numbering per group</span>
+              <input type="checkbox" id="processingRestartToggle">
+            </label>
+            <label class="toggle-row">
+              <span>Normalize LP → G</span>
+              <input type="checkbox" id="processingNormalizeToggle" checked>
+            </label>
+            <label class="toggle-row">
+              <span>Decimal separator</span>
+              <select id="processingDecimalSelect">
+                <option value="comma" selected>Comma (,)</option>
+                <option value="dot">Dot (.)</option>
+              </select>
+            </label>
+            <label class="toggle-row">
+              <span>Merge across orders</span>
+              <input type="checkbox" id="processingMergeOrdersToggle">
+            </label>
+          </div>
+          <div class="card processing-header-editor">
+            <h3 style="margin:0">Header Editor</h3>
+            <select id="processingHeaderSelect"></select>
+            <input type="text" id="processingHeaderInput" placeholder="Display header text…" />
+            <div class="processing-header-actions" style="display:flex;gap:8px">
+              <button class="btn small" id="processingHeaderApply">Apply</button>
+              <button class="btn small muted" id="processingHeaderReset">Reset</button>
+            </div>
+            <p class="processing-warning" id="processingHeaderHint" hidden></p>
+          </div>
+          <div class="card processing-actions">
+            <button class="btn" id="processingGroup">Group Dimensions</button>
+            <button class="btn" id="processingCopy">Copy Text</button>
+            <button class="btn" id="processingExportPdf">Export PDF</button>
+            <button class="btn" id="processingExportCsv">Export CSV</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="tabLabels" class="tab-panel">
+      <div class="card">
+        <h2 style="margin-top:0">Labels</h2>
+        <p class="muted small">Build reusable label jobs from your current extract or selected history order, then download PDFs when you’re ready to print.</p>
+        <div class="labels-controls">
+          <button class="btn small" id="labelsFromProcessing">Add from Processing</button>
+          <button class="btn small" id="labelsFromProcessingDownload">Add & Download</button>
+          <button class="btn small" id="labelsFromHistory">Add selected history order</button>
+          <button class="btn small muted" id="labelsClear" disabled>Clear jobs</button>
+        </div>
+        <div class="labels-summary" id="labelsSummary"></div>
+        <div id="labelsStatus" class="muted small"></div>
+        <p class="muted small" style="margin-top:12px">Tip: use the Logos picker in Dashboard to store <code>logokeli.png</code> and <code>ce.png</code> locally. They’ll be embedded automatically in label PDFs.</p>
+      </div>
+      <div class="card">
+        <div class="table-responsive" id="labelsJobsWrap">
+          <div class="labels-empty">No label jobs yet. Use the buttons above to add one.</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="tabSettings" class="tab-panel">
+      <div class="card">
+        <h2 style="margin-top:0">Settings</h2>
+        <p class="muted small">Settings and user preferences will appear here. Authentication rules from the backend remain enforced.</p>
+      </div>
+    </section>
+  </main>
+
+  <input type="file" id="pdfInput" accept="application/pdf" hidden />
 
 <script>
-const API_BASE = (location.hostname.endsWith('github.io') || location.hostname.endsWith('onrender.com'))
-  ? 'https://order-extractor-kdih.onrender.com'
-  : (location.hostname === 'localhost' || location.hostname === '127.0.0.1'
-      ? 'http://127.0.0.1:5055'
-      : `${location.origin}`);
-  
-function dataURLToBytes(dataUrl){
-  try{
-    const base64 = (dataUrl.split(',')[1] || '');
-    const bin = atob(base64);
-    const len = bin.length;
-    const bytes = new Uint8Array(len);
-    for(let i=0;i<len;i++) bytes[i] = bin.charCodeAt(i);
-    return bytes.buffer;
-  }catch(e){ return null; }
-}
-function fileToDataURL(file){
-  return new Promise((resolve,reject)=>{
-    const fr = new FileReader();
-    fr.onload = () => resolve(fr.result);
-    fr.onerror = reject;
-    fr.readAsDataURL(file);
+const API_BASE = "http://127.0.0.1:5055";
+const HISTORY_CACHE_KEY = "loe.history.cache.v1";
+const HISTORY_CACHE_LIMIT = 200;
+
+const renderTargets = {
+  extract: { tableId: "tableWrap", summaryId: "summary", orderInfoId: "orderInfo" },
+  history: { tableId: "historyTableWrap", summaryId: "historySummary", orderInfoId: "historyOrderInfo" }
+};
+
+const renderState = {
+  extract: { rows: [], displayed: [] },
+  history: { rows: [], displayed: [] }
+};
+
+let groupState = false;
+
+const historyState = {
+  query: "",
+  status: "",
+  limit: 25,
+  offset: 0,
+  hasMore: false,
+  items: [],
+  selectedOrder: null,
+  offline: false,
+  loading: false,
+  loadedOnce: false,
+  loadingPromise: Promise.resolve(),
+  needsRefresh: false
+};
+
+const appState = {
+  extract: {
+    rows: [],
+    rowWarnings: {},
+    warnings: [],
+    draftId: null,
+    status: "idle",
+    savedOrderId: null,
+    orderNumber: "",
+    appliedCorrections: [],
+    notes: "",
+    declaredUnits: null,
+    declaredArea: null,
+    parsedUnits: 0,
+    parsedArea: 0,
+    nextRid: 0,
+    client: "—",
+  },
+  historyDetail: {
+    order: null,
+    rows: [],
+    rowWarnings: {},
+    warnings: [],
+    notes: "",
+    declaredUnits: null,
+    declaredArea: null,
+    parsedUnits: 0,
+    parsedArea: 0,
+    nextRid: 0,
+  },
+  processing: {
+    cart: [],
+    rows: [],
+    preview: { text: "", groups: [], meta: {} },
+    grouped: false,
+    options: {
+      restartPerGroup: false,
+      decimalSeparator: "comma",
+      normalizeLPtoG: true,
+      mergeAcrossOrders: false,
+    },
+    headerOverrides: {},
+  },
+  labels: {
+    jobs: [],
+    nextId: 1,
+  },
+};
+
+const tabs = document.querySelectorAll(".tab-bar .tab");
+const panels = {
+  extract: document.getElementById("tabExtract"),
+  history: document.getElementById("tabHistory"),
+  processing: document.getElementById("tabProcessing"),
+  labels: document.getElementById("tabLabels"),
+  settings: document.getElementById("tabSettings")
+};
+
+const saveToast = document.getElementById("saveToast");
+const saveToastMessage = document.getElementById("saveToastMessage");
+const saveToastView = document.getElementById("saveToastView");
+const saveToastDismiss = document.getElementById("saveToastDismiss");
+let saveToastTimer = null;
+
+const statusEl = document.getElementById("status");
+const errorEl = document.getElementById("error");
+const historyStatusEl = document.getElementById("historyStatus");
+const historyOfflineBadge = document.getElementById("historyOfflineBadge");
+const historyPageEl = document.getElementById("historyPage");
+const historyDetailEmpty = document.getElementById("historyDetailEmpty");
+const historyPrintBtn = document.getElementById("historyPrint");
+const historyCsvBtn = document.getElementById("historyCsv");
+const historyMetaEl = document.getElementById("historyMeta");
+const historyProcessingBtn = document.getElementById("historyProcessing");
+const processingOrderList = document.getElementById("processingOrderList");
+const processingMetaEl = document.getElementById("processingMeta");
+const processingPreviewEl = document.getElementById("processingPreview");
+const processingClearBtn = document.getElementById("processingClear");
+const processingRestartToggle = document.getElementById("processingRestartToggle");
+const processingNormalizeToggle = document.getElementById("processingNormalizeToggle");
+const processingDecimalSelect = document.getElementById("processingDecimalSelect");
+const processingMergeOrdersToggle = document.getElementById("processingMergeOrdersToggle");
+const processingHeaderSelect = document.getElementById("processingHeaderSelect");
+const processingHeaderInput = document.getElementById("processingHeaderInput");
+const processingHeaderApply = document.getElementById("processingHeaderApply");
+const processingHeaderReset = document.getElementById("processingHeaderReset");
+const processingHeaderHint = document.getElementById("processingHeaderHint");
+const processingGroupBtn = document.getElementById("processingGroup");
+const processingCopyBtn = document.getElementById("processingCopy");
+const processingExportPdfBtn = document.getElementById("processingExportPdf");
+const processingExportCsvBtn = document.getElementById("processingExportCsv");
+const labelsJobsWrap = document.getElementById("labelsJobsWrap");
+const labelsSummaryEl = document.getElementById("labelsSummary");
+const labelsStatusEl = document.getElementById("labelsStatus");
+const labelsFromProcessingBtn = document.getElementById("labelsFromProcessing");
+const labelsFromProcessingDownloadBtn = document.getElementById("labelsFromProcessingDownload");
+const labelsFromHistoryBtn = document.getElementById("labelsFromHistory");
+const labelsClearBtn = document.getElementById("labelsClear");
+
+const groupToggles = document.querySelectorAll("[data-group-toggle]");
+
+function activateTab(name){
+  tabs.forEach(btn => {
+    const isTarget = btn.dataset.tab === name;
+    btn.classList.toggle("active", isTarget);
   });
-}
-// ---------- Label PDF: loader + helpers ----------
-async function ensurePdfLib(){
-  if (window.PDFLib) return;
-  await new Promise((resolve, reject) => {
-    const s = document.createElement('script');
-    s.src = 'https://cdn.jsdelivr.net/npm/pdf-lib/dist/pdf-lib.min.js';
-    s.onload = resolve;
-    s.onerror = () => reject(new Error('Failed to load pdf-lib'));
-    document.head.appendChild(s);
+  Object.entries(panels).forEach(([key, panel])=>{
+    panel.classList.toggle("active", key === name);
   });
+  if (name === "history"){
+    ensureHistoryLoaded();
+  }else if (name === "processing"){
+    ensureHistoryLoaded();
+    rebuildProcessingRows();
+    updateProcessingUI();
+  }else if (name === "labels"){
+    updateLabelsUI();
+  }
 }
-const mmToPt = 2.83464567;                               // points per mm
-const pageSize = { w: 100*mmToPt, h: 40*mmToPt };        // 100×40 mm label
-async function loadLogoCandidates(name){
-  const basePath = window.location.pathname.replace(/[^/]*$/, '');
-  const candidates = [
-    `${name}.png`, `${name}.PNG`,
-    `${basePath}${name}.png`, `${basePath}${name}.PNG`,
-    `assets/${name}.png`, `assets/${name}.PNG`
-  ];
-  for (const p of candidates){
-    try{
-      const res = await fetch(p, { cache:'no-cache' });
-      if (res.ok) return res.arrayBuffer();
-    }catch{/* ignore */}
+
+tabs.forEach(btn=>{
+  btn.addEventListener("click", ()=> activateTab(btn.dataset.tab));
+});
+
+function showSavedToast(orderId){
+  if (!orderId) return;
+  saveToast.dataset.orderId = orderId;
+  saveToastMessage.textContent = `Saved as #${orderId}`;
+  saveToast.hidden = false;
+  clearTimeout(saveToastTimer);
+  saveToastTimer = setTimeout(()=> hideSavedToast(), 6000);
+}
+
+function hideSavedToast(){
+  saveToast.hidden = true;
+  saveToastMessage.textContent = "";
+  delete saveToast.dataset.orderId;
+}
+
+saveToastDismiss.addEventListener("click", hideSavedToast);
+saveToastView.addEventListener("click", ()=>{
+  const id = Number(saveToast.dataset.orderId);
+  if (!id) return;
+  hideSavedToast();
+  activateTab("history");
+  ensureHistoryLoaded().then(()=> openOrderFromList(id));
+});
+
+function setGroupState(value){
+  groupState = !!value;
+  groupToggles.forEach(toggle => {
+    if (toggle.checked !== groupState){
+      toggle.checked = groupState;
+    }
+  });
+  updateExtractUI();
+  updateHistoryDetailUI();
+}
+
+groupToggles.forEach(toggle=>{
+  toggle.addEventListener("change", (event)=> setGroupState(event.target.checked));
+});
+
+setGroupState(false);
+
+function setStatusMessage(msg){
+  statusEl.innerHTML = msg || "";
+}
+
+function escapeHtml(value){
+  if (value === null || value === undefined) return "";
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function normalizeHeaderForDisplay(raw, enableLPtoG = true){
+  const base = (raw || "").trim().replace(/\s+/g, " ") || "(Header not set)";
+  if (!enableLPtoG) return base;
+  return base.replace(/\bLP\b/gi, "G");
+}
+
+function parseDimensionTokens(dimension){
+  const dim = (dimension || "").trim();
+  if (!dim) return { width: null, height: null, widthDisplay: "?", heightDisplay: "?", invalid: true };
+  const compact = dim.replace(/\s+/g, "");
+  const match = compact.match(/^(\d{1,5}(?:[.,]\d{1,3})?)(?:[xX×])(\d{1,5}(?:[.,]\d{1,3})?)$/);
+  if (match){
+    const parseToken = (value)=>{
+      const normalized = value.replace(",", ".");
+      const parsed = Number(normalized);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+    const widthNum = parseToken(match[1]);
+    const heightNum = parseToken(match[2]);
+    return {
+      width: widthNum,
+      height: heightNum,
+      widthDisplay: match[1],
+      heightDisplay: match[2],
+      invalid: !Number.isFinite(widthNum) || !Number.isFinite(heightNum),
+    };
+  }
+  const tokens = dim.split(/[xX×]/);
+  const widthDisplay = (tokens[0] || "?").trim() || "?";
+  const heightDisplay = (tokens[1] || "?").trim() || "?";
+  return {
+    width: null,
+    height: null,
+    widthDisplay,
+    heightDisplay,
+    invalid: true,
+  };
+}
+
+function formatProcessingNumber(value, fallback, separator){
+  if (value == null || Number.isNaN(value)){
+    return (fallback !== undefined && fallback !== null && String(fallback).length) ? String(fallback) : "?";
+  }
+  const str = String(value);
+  if (separator === "comma"){
+    return str.replace(".", ",");
+  }
+  return str;
+}
+
+const DIMENSION_TOLERANCE_MM = 1;
+const UNKNOWN_CLIENT_LABEL = "(Unknown Client)";
+
+function normalizeDimensionNumber(value){
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string"){
+    const normalized = Number(value.replace(",", "."));
+    if (Number.isFinite(normalized)) return normalized;
   }
   return null;
 }
-// --- Load logos via <img> (works with file://) ---
-function dataUrlFromImage(img){
-  try{
-    const canvas = document.createElement('canvas');
-    canvas.width = img.naturalWidth || img.width;
-    canvas.height = img.naturalHeight || img.height;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(img, 0, 0);
-    return canvas.toDataURL('image/png');
-  }catch(e){
-    return null;
-  }
+
+function decimalPlacesFromDisplay(display){
+  if (!display) return 0;
+  const normalized = String(display).trim().replace(",", ".");
+  if (!normalized.length) return 0;
+  const parts = normalized.split(".");
+  if (parts.length !== 2) return 0;
+  if (!/^\d+$/.test(parts[0]) || !/^\d+$/.test(parts[1])) return 0;
+  return parts[1].length;
 }
-async function loadLogoViaImage(name){
-  const basePath = window.location.pathname.replace(/[^/]*$/, '');
-  const candidates = [
-    `${name}.png`, `${name}.PNG`,
-    `${basePath}${name}.png`, `${basePath}${name}.PNG`,
-    `assets/${name}.png`, `assets/${name}.PNG`
-  ];
-  for (const src of candidates){
-    const ok = await new Promise((resolve)=>{
-      const img = new Image();
-      img.onload = ()=>{
-        const dataUrl = dataUrlFromImage(img);
-        if(!dataUrl) return resolve(false);
-        try{
-          const bytes = dataURLToBytes(dataUrl);
-          resolve(bytes);
-        }catch{ resolve(false); }
-      };
-      img.onerror = ()=>resolve(false);
-      img.src = src;
+
+function calculateRepresentativeNumber(values, decimals){
+  if (!values.length) return null;
+  const precision = Math.min(Number.isFinite(decimals) ? decimals : 0, 3);
+  const factor = Math.pow(10, precision);
+  if (!factor || !Number.isFinite(factor)) return values[values.length - 1];
+  const sum = values.reduce((acc, val)=> acc + val, 0);
+  return Math.round((sum / values.length) * factor) / factor;
+}
+
+function selectRepresentativeDisplay(displays, numericValue, decimals){
+  const cleaned = (displays || [])
+    .map(value => String(value || "").trim())
+    .filter(Boolean);
+  if (cleaned.length){
+    let winner = cleaned[0];
+    let best = 0;
+    const counts = new Map();
+    cleaned.forEach(value=>{
+      const count = (counts.get(value) || 0) + 1;
+      counts.set(value, count);
+      if (count > best){
+        best = count;
+        winner = value;
+      }
     });
-    if (ok && ok.byteLength) return ok;
+    return winner;
   }
-  return null;
+  if (numericValue != null){
+    const precision = Math.min(Number.isFinite(decimals) ? decimals : 0, 3);
+    if (precision > 0){
+      return numericValue.toFixed(precision);
+    }
+    return String(Math.round(numericValue));
+  }
+  return "?";
 }
-async function preloadLogos(){
-  // 1) localStorage (if user uploaded once)
-  let keliBytes = null, ceBytes = null;
-  const kB64 = localStorage.getItem('logo_keli_b64');
-  const cB64 = localStorage.getItem('logo_ce_b64');
-  if (kB64) keliBytes = dataURLToBytes(kB64);
-  if (cB64) ceBytes   = dataURLToBytes(cB64);
 
-  // 2) try loading via <img> (works for file:// when placed next to index.html or in assets/)
-  if (!keliBytes) keliBytes = await loadLogoViaImage('logokeli');
-  if (!ceBytes)   ceBytes   = await loadLogoViaImage('ce');
+function collapseGroupDimensions(items, tolerance = DIMENSION_TOLERANCE_MM){
+  const buckets = [];
+  items.forEach(item => {
+    const widthNum = normalizeDimensionNumber(item.width);
+    const heightNum = normalizeDimensionNumber(item.height);
+    const widthKey = (item.widthDisplay || "").trim().toLowerCase();
+    const heightKey = (item.heightDisplay || "").trim().toLowerCase();
+    const widthDecimals = decimalPlacesFromDisplay(item.widthDisplay);
+    const heightDecimals = decimalPlacesFromDisplay(item.heightDisplay);
 
-  // 3) final fallback: fetch() (works when served over http)
-  if (!keliBytes) keliBytes = await loadLogoCandidates('logokeli');
-  if (!ceBytes)   ceBytes   = await loadLogoCandidates('ce');
+    let bucket = null;
+    for (const candidate of buckets){
+      if (
+        candidate.hasNumeric &&
+        widthNum != null &&
+        heightNum != null &&
+        Math.abs(candidate.widthReference - widthNum) <= tolerance &&
+        Math.abs(candidate.heightReference - heightNum) <= tolerance
+      ){
+        bucket = candidate;
+        break;
+      }
+      if (
+        !candidate.hasNumeric &&
+        widthNum == null &&
+        heightNum == null &&
+        candidate.widthKey &&
+        candidate.widthKey === widthKey &&
+        candidate.heightKey &&
+        candidate.heightKey === heightKey
+      ){
+        bucket = candidate;
+        break;
+      }
+    }
 
-  return { keliBytes, ceBytes };
+    if (!bucket){
+      bucket = {
+        widthValues: [],
+        heightValues: [],
+        widthDisplays: [],
+        heightDisplays: [],
+        widthDecimals: 0,
+        heightDecimals: 0,
+        widthReference: widthNum != null ? widthNum : 0,
+        heightReference: heightNum != null ? heightNum : 0,
+        hasNumeric: widthNum != null && heightNum != null,
+        widthKey: widthKey || null,
+        heightKey: heightKey || null,
+        qty: 0,
+        invalid: false,
+        orderIds: new Set(),
+        clients: new Set(),
+      };
+      buckets.push(bucket);
+    }
+
+    if (widthNum != null){
+      bucket.widthValues.push(widthNum);
+      bucket.widthDecimals = Math.max(bucket.widthDecimals, widthDecimals);
+      bucket.widthReference = calculateRepresentativeNumber(bucket.widthValues, bucket.widthDecimals);
+    }
+    if (heightNum != null){
+      bucket.heightValues.push(heightNum);
+      bucket.heightDecimals = Math.max(bucket.heightDecimals, heightDecimals);
+      bucket.heightReference = calculateRepresentativeNumber(bucket.heightValues, bucket.heightDecimals);
+    }
+
+    if (widthNum != null && heightNum != null){
+      bucket.hasNumeric = true;
+    }
+
+    if (item.widthDisplay) bucket.widthDisplays.push(item.widthDisplay);
+    if (item.heightDisplay) bucket.heightDisplays.push(item.heightDisplay);
+    bucket.qty += Number(item.qty || 0);
+    bucket.invalid = bucket.invalid || !!item.invalidDimension;
+    if (item.orderId) bucket.orderIds.add(item.orderId);
+    if (item.client) bucket.clients.add(item.client);
+  });
+
+  return buckets.map(bucket => {
+    const widthNumeric = bucket.widthValues.length ? calculateRepresentativeNumber(bucket.widthValues, bucket.widthDecimals) : null;
+    const heightNumeric = bucket.heightValues.length ? calculateRepresentativeNumber(bucket.heightValues, bucket.heightDecimals) : null;
+    const widthDisplay = selectRepresentativeDisplay(bucket.widthDisplays, widthNumeric, bucket.widthDecimals);
+    const heightDisplay = selectRepresentativeDisplay(bucket.heightDisplays, heightNumeric, bucket.heightDecimals);
+    const orderIdsList = Array.from(bucket.orderIds).filter(Boolean);
+    const clientsList = Array.from(bucket.clients).filter(Boolean);
+    const orderId = orderIdsList.join(", ");
+    const client = clientsList.length === 1 ? clientsList[0] : (clientsList.length ? "(Mixed)" : "—");
+    return {
+      width: widthNumeric,
+      height: heightNumeric,
+      widthDisplay,
+      heightDisplay,
+      qty: bucket.qty,
+      invalid: bucket.invalid,
+      orderId,
+      client,
+      sortWidth: Number.isFinite(widthNumeric) ? widthNumeric : Number.POSITIVE_INFINITY,
+      sortHeight: Number.isFinite(heightNumeric) ? heightNumeric : Number.POSITIVE_INFINITY,
+      sortWidthKey: String(widthDisplay || "").toLowerCase(),
+      sortHeightKey: String(heightDisplay || "").toLowerCase(),
+    };
+  });
 }
-async function generateLabelsPdf(rows){
-  await ensurePdfLib();
-  const { PDFDocument, StandardFonts } = PDFLib;
-  const pdfDoc = await PDFDocument.create();
-  const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-  const reg  = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const { keliBytes, ceBytes } = await preloadLogos();
-  let keliImg, ceImg;
-  if (keliBytes) keliImg = await pdfDoc.embedPng(keliBytes);
-  if (ceBytes)   ceImg   = await pdfDoc.embedPng(ceBytes);
-  const today = new Date().toLocaleDateString('en-GB').replaceAll('/','.');
-  for (const r of rows){
-    const qty = Number(r.quantity||0) || 1; // default to 1
-    for (let i=0;i<qty;i++){
-      const page = pdfDoc.addPage([pageSize.w, pageSize.h]);
-      const margin = 16, spacing = 12;
-      let y = pageSize.h - margin;
-      if (keliImg) page.drawImage(keliImg, { x: margin, y: y-20, width: 60, height: 20 });
-      if (ceImg)   page.drawImage(ceImg,   { x: (pageSize.w-30)/2, y: y-18, width: 30, height: 18 });
-      page.drawText(today, { x: pageSize.w - margin - 60, y: y-14, size: 10, font: bold });
-      page.drawLine({ start:{x:margin,y:y-24}, end:{x:pageSize.w-margin,y:y-24}, thickness: 0.8 });
-      y -= (24 + spacing);
-      const dim = (r.dimension && r.dimension.length) ? r.dimension : '—';
-      const pos = r.position || '—';
-      const ord = r.order_number || '—';
-      const type = r.type || '';
-      page.drawText(`Order No.: ${ord}   Pos: ${pos}   Dim: ${dim}`, { x: margin, y, size: 9, font: bold, maxWidth: pageSize.w - margin*2 });
-      y -= 14;
-      page.drawText(`Glass Type: ${type}`, { x: margin, y, size: 10, font: bold, maxWidth: pageSize.w - margin*2 });
-      y -= 16;
-      page.drawText('KELI ALBANIA PVC', { x: margin, y, size: 10, font: reg });
+
+function generateMotherSheet(rows, options){
+  const {
+    restartPerGroup,
+    decimalSeparator,
+    normalizeLPtoG,
+    headerOverrides = {},
+    groupDimensions = false,
+    mergeAcrossOrders = false,
+  } = options;
+  const grouped = new Map();
+  const orderSet = new Set();
+  const clientSet = new Set();
+  (rows || []).forEach(row => {
+    if (!row) return;
+    const key = (row.composition_raw || row.composition || "").trim() || "(Header not set)";
+    if (!grouped.has(key)) grouped.set(key, []);
+    const normalizedRow = {
+      ...row,
+      widthDisplay: row.widthDisplay ?? (Number.isFinite(row.width) ? String(row.width) : row.widthDisplay),
+      heightDisplay: row.heightDisplay ?? (Number.isFinite(row.height) ? String(row.height) : row.heightDisplay),
+    };
+    grouped.get(key).push(normalizedRow);
+    if (row.orderId) orderSet.add(row.orderId);
+    const clientValue = row.client && String(row.client).trim();
+    if (clientValue) clientSet.add(clientValue);
+  });
+
+  const sortCollapsedEntries = (entries)=>{
+    return entries.sort((a, b)=>{
+      const aWidthFinite = Number.isFinite(a.sortWidth);
+      const bWidthFinite = Number.isFinite(b.sortWidth);
+      if (aWidthFinite && bWidthFinite && a.sortWidth !== b.sortWidth){
+        return a.sortWidth - b.sortWidth;
+      }
+      if (aWidthFinite && !bWidthFinite) return -1;
+      if (!aWidthFinite && bWidthFinite) return 1;
+
+      const aHeightFinite = Number.isFinite(a.sortHeight);
+      const bHeightFinite = Number.isFinite(b.sortHeight);
+      if (aHeightFinite && bHeightFinite && a.sortHeight !== b.sortHeight){
+        return a.sortHeight - b.sortHeight;
+      }
+      if (aHeightFinite && !bHeightFinite) return -1;
+      if (!aHeightFinite && bHeightFinite) return 1;
+
+      if (a.sortWidthKey !== b.sortWidthKey){
+        return a.sortWidthKey.localeCompare(b.sortWidthKey);
+      }
+      if (a.sortHeightKey !== b.sortHeightKey){
+        return a.sortHeightKey.localeCompare(b.sortHeightKey);
+      }
+      return 0;
+    });
+  };
+
+  const groups = [];
+  let runningIndex = 1;
+  let totalLines = 0;
+
+  for (const [raw, items] of grouped.entries()){
+    const override = headerOverrides[raw];
+    const display = override && override.trim().length ? override.trim() : normalizeHeaderForDisplay(raw, normalizeLPtoG);
+    let localIndex = restartPerGroup ? 1 : runningIndex;
+    const assignIndex = ()=> restartPerGroup ? localIndex++ : runningIndex++;
+
+    const groupLines = [];
+    const sections = [];
+
+    if (mergeAcrossOrders){
+      let working = [];
+      if (groupDimensions){
+        working = collapseGroupDimensions(items, DIMENSION_TOLERANCE_MM);
+        sortCollapsedEntries(working);
+      }else{
+        working = items.map(item => ({
+          width: item.width,
+          height: item.height,
+          widthDisplay: item.widthDisplay,
+          heightDisplay: item.heightDisplay,
+          qty: item.qty ?? 0,
+          invalid: !!item.invalidDimension,
+          orderId: item.orderId || "",
+          client: item.client && String(item.client).trim().length ? item.client : UNKNOWN_CLIENT_LABEL,
+          sortWidth: Number.isFinite(item.width) ? item.width : Number.POSITIVE_INFINITY,
+          sortHeight: Number.isFinite(item.height) ? item.height : Number.POSITIVE_INFINITY,
+          sortWidthKey: String(item.widthDisplay || "").toLowerCase(),
+          sortHeightKey: String(item.heightDisplay || "").toLowerCase(),
+        }));
+      }
+
+      working.forEach(entry => {
+        const idx = assignIndex();
+        const line = {
+          idx,
+          width: entry.width,
+          height: entry.height,
+          widthDisplay: entry.widthDisplay,
+          heightDisplay: entry.heightDisplay,
+          qty: entry.qty ?? 0,
+          orderId: entry.orderId || "",
+          client: entry.client || UNKNOWN_CLIENT_LABEL,
+          composition_raw: raw,
+          composition_display: display,
+          invalid: !!entry.invalid,
+        };
+        groupLines.push(line);
+      });
+
+      if (restartPerGroup) runningIndex = localIndex;
+      totalLines += groupLines.length;
+      groups.push({ raw, display, lines: groupLines, sections: null });
+      continue;
+    }
+
+    const orderBuckets = new Map();
+    items.forEach(item => {
+      const orderKey = (item.orderId || "").trim() || "—";
+      if (!orderBuckets.has(orderKey)) orderBuckets.set(orderKey, []);
+      orderBuckets.get(orderKey).push(item);
+    });
+
+    for (const [orderKey, orderItems] of orderBuckets.entries()){
+      const clientName = orderItems.find(row => row.client && String(row.client).trim().length)?.client || "";
+      const clientDisplay = clientName && clientName.trim().length ? clientName.trim() : UNKNOWN_CLIENT_LABEL;
+      let entryList = [];
+      if (groupDimensions){
+        entryList = collapseGroupDimensions(orderItems, DIMENSION_TOLERANCE_MM).map(entry => {
+          entry.orderId = orderKey;
+          entry.client = clientDisplay;
+          return entry;
+        });
+        sortCollapsedEntries(entryList);
+      }else{
+        entryList = orderItems.map(item => ({
+          width: item.width,
+          height: item.height,
+          widthDisplay: item.widthDisplay,
+          heightDisplay: item.heightDisplay,
+          qty: item.qty ?? 0,
+          invalid: !!item.invalidDimension,
+          orderId: item.orderId || orderKey,
+          client: item.client && String(item.client).trim().length ? item.client : clientDisplay,
+          sortWidth: Number.isFinite(item.width) ? item.width : Number.POSITIVE_INFINITY,
+          sortHeight: Number.isFinite(item.height) ? item.height : Number.POSITIVE_INFINITY,
+          sortWidthKey: String(item.widthDisplay || "").toLowerCase(),
+          sortHeightKey: String(item.heightDisplay || "").toLowerCase(),
+        }));
+      }
+
+      const section = {
+        orderId: orderKey,
+        client: clientDisplay,
+        lines: [],
+      };
+
+      entryList.forEach(entry => {
+        const idx = assignIndex();
+        const line = {
+          idx,
+          width: entry.width,
+          height: entry.height,
+          widthDisplay: entry.widthDisplay,
+          heightDisplay: entry.heightDisplay,
+          qty: entry.qty ?? 0,
+          orderId: entry.orderId || orderKey,
+          client: entry.client || clientDisplay,
+          composition_raw: raw,
+          composition_display: display,
+          invalid: !!entry.invalid,
+        };
+        section.lines.push(line);
+        groupLines.push(line);
+      });
+      sections.push(section);
+    }
+
+    if (restartPerGroup) runningIndex = localIndex;
+    totalLines += groupLines.length;
+    groups.push({ raw, display, lines: groupLines, sections });
+  }
+
+  const orders = Array.from(orderSet).filter(Boolean);
+  const clients = Array.from(clientSet);
+  const clientLabel = clients.length === 1 ? clients[0] : (clients.length ? "(Mixed)" : UNKNOWN_CLIENT_LABEL);
+  const today = new Date();
+  const headerLine = `Mother Sheet – Client: ${clientLabel || UNKNOWN_CLIENT_LABEL} | Orders: ${orders.length ? orders.join(", ") : "—"} | Date: ${today.toLocaleDateString()}`;
+
+  const linesOut = [headerLine, ""];
+  groups.forEach((group, groupIndex) => {
+    linesOut.push(group.display || "(Header not set)");
+    if (!mergeAcrossOrders && group.sections && group.sections.length){
+      group.sections.forEach((section, sectionIndex) => {
+        const orderLabel = section.orderId && section.orderId.trim().length ? section.orderId : "—";
+        const clientLabelForSection = section.client && section.client.trim().length ? section.client : UNKNOWN_CLIENT_LABEL;
+        linesOut.push(`[Order ${orderLabel} — ${clientLabelForSection}]`);
+        section.lines.forEach(line => {
+          const widthText = formatProcessingNumber(line.width, line.widthDisplay, decimalSeparator);
+          const heightText = formatProcessingNumber(line.height, line.heightDisplay, decimalSeparator);
+          const qtyText = Number(line.qty || 0);
+          const warning = line.invalid ? "  ⚠" : "";
+          linesOut.push(`${line.idx} ${widthText} × ${heightText} × ${qtyText}${warning}`);
+        });
+        if (sectionIndex < group.sections.length - 1){
+          linesOut.push("");
+        }
+      });
+    }else{
+      group.lines.forEach(line => {
+        const widthText = formatProcessingNumber(line.width, line.widthDisplay, decimalSeparator);
+        const heightText = formatProcessingNumber(line.height, line.heightDisplay, decimalSeparator);
+        const qtyText = Number(line.qty || 0);
+        const warning = line.invalid ? "  ⚠" : "";
+        linesOut.push(`${line.idx} ${widthText} × ${heightText} × ${qtyText}${warning}`);
+      });
+    }
+    if (groupIndex < groups.length - 1){
+      linesOut.push("");
+    }
+  });
+
+  const meta = {
+    clientLabel,
+    orders,
+    date: today,
+    rows: totalLines,
+    decimalSeparator,
+  };
+
+  return {
+    text: linesOut.join("\n").trim(),
+    groups,
+    meta,
+  };
+}
+
+function convertOrderToProcessingEntry(order){
+  const id = Number(order.id) || order.id;
+  const orderLabel = (Array.isArray(order.order_numbers) && order.order_numbers.length)
+    ? order.order_numbers.join(", ")
+    : (order.order_number || `#${order.id}`);
+  const client = order.client || order.client_hint || "—";
+  const rows = (order.rows || []).map((row, idx) => {
+    const parsed = parseDimensionTokens(row.dimension || "");
+    const positionValue = [
+      row.position,
+      row.position_label,
+      row.positionLabel,
+      row.pos,
+      row.position_display,
+    ].map(value => (value == null ? "" : String(value).trim())).find(value => value.length) || "";
+    return {
+      key: row.id || `${order.id}-${idx}`,
+      composition_raw: (row.type || "").trim() || "(Header not set)",
+      width: parsed.width,
+      height: parsed.height,
+      widthDisplay: parsed.widthDisplay,
+      heightDisplay: parsed.heightDisplay,
+      qty: Number(row.quantity || 0) || 0,
+      orderId: orderLabel,
+      client,
+      position: positionValue,
+      invalidDimension: parsed.invalid,
+    };
+  });
+  return {
+    id,
+    orderLabel,
+    client,
+    createdAt: order.created_at || null,
+    rows,
+  };
+}
+
+function rebuildProcessingRows(){
+  const combined = [];
+  appState.processing.cart.forEach(entry => {
+    entry.rows.forEach(row => combined.push({ ...row }));
+  });
+  appState.processing.rows = combined;
+  const validKeys = new Set(combined.map(row => (row.composition_raw || "").trim() || "(Header not set)"));
+  Object.keys(appState.processing.headerOverrides).forEach(key => {
+    if (!validKeys.has(key)){
+      delete appState.processing.headerOverrides[key];
+    }
+  });
+  if (combined.length){
+    const preview = generateMotherSheet(combined, {
+      restartPerGroup: appState.processing.options.restartPerGroup,
+      decimalSeparator: appState.processing.options.decimalSeparator,
+      normalizeLPtoG: appState.processing.options.normalizeLPtoG,
+      headerOverrides: appState.processing.headerOverrides,
+      groupDimensions: appState.processing.grouped,
+      mergeAcrossOrders: appState.processing.options.mergeAcrossOrders,
+    });
+    appState.processing.preview = preview;
+  }else{
+    appState.processing.preview = { text: "", groups: [], meta: { clientLabel: "—", orders: [], date: new Date(), rows: 0 } };
+  }
+}
+
+function formatProcessingMeta(meta){
+  const dateStr = meta.date ? new Date(meta.date).toLocaleDateString() : new Date().toLocaleDateString();
+  const ordersPart = (meta.orders && meta.orders.length) ? meta.orders.join(", ") : "—";
+  const clientPart = meta.clientLabel || "—";
+  return `Mother Sheet – Client: ${clientPart} | Orders: ${ordersPart} | Date: ${dateStr}`;
+}
+
+function updateProcessingUI(){
+  const listEl = processingOrderList;
+  if (processingRestartToggle){
+    processingRestartToggle.checked = !!appState.processing.options.restartPerGroup;
+  }
+  if (processingNormalizeToggle){
+    processingNormalizeToggle.checked = !!appState.processing.options.normalizeLPtoG;
+  }
+  if (processingDecimalSelect){
+    processingDecimalSelect.value = appState.processing.options.decimalSeparator === "dot" ? "dot" : "comma";
+  }
+  if (processingMergeOrdersToggle){
+    processingMergeOrdersToggle.checked = !!appState.processing.options.mergeAcrossOrders;
+  }
+  if (listEl){
+    if (!appState.processing.cart.length){
+      listEl.classList.add("processing-empty");
+      listEl.innerHTML = "No orders added yet.";
+    }else{
+      listEl.classList.remove("processing-empty");
+      listEl.innerHTML = appState.processing.cart.map(entry => {
+        const created = entry.createdAt ? formatDate(entry.createdAt) : "—";
+        return `<div class="processing-order-item" data-id="${entry.id}">
+          <header>
+            <span>${escapeHtml(entry.orderLabel)}</span>
+            <button class="btn small danger" data-remove-processing="${entry.id}">Remove</button>
+          </header>
+          <div class="muted small">${escapeHtml(entry.client || "—")} • ${escapeHtml(created)}</div>
+        </div>`;
+      }).join("");
     }
   }
-  return pdfDoc.save();
+
+  if (processingClearBtn){
+    processingClearBtn.disabled = !appState.processing.cart.length;
+  }
+
+  if (processingGroupBtn){
+    const hasRows = appState.processing.rows && appState.processing.rows.length;
+    processingGroupBtn.disabled = !hasRows;
+    processingGroupBtn.textContent = appState.processing.grouped ? "Ungroup Dimensions" : "Group Dimensions";
+  }
+
+  const preview = appState.processing.preview;
+  if (processingMetaEl){
+    const metaLine = preview.text ? formatProcessingMeta(preview.meta || {}) : "Mother Sheet – Client: — | Orders: — | Date: —";
+    const rowsCount = preview.meta && preview.meta.rows ? preview.meta.rows : appState.processing.rows.length;
+    processingMetaEl.innerHTML = `<span>${escapeHtml(metaLine)}</span><span class="muted small">Rows: ${rowsCount}</span>`;
+  }
+
+  if (processingPreviewEl){
+    if (!preview.text){
+      processingPreviewEl.textContent = "No orders added yet.";
+    }else{
+      processingPreviewEl.textContent = preview.text;
+    }
+  }
+
+  if (processingHeaderSelect){
+    const groups = preview.groups || [];
+    if (!groups.length){
+      processingHeaderSelect.innerHTML = '<option value="" disabled selected>No groups available</option>';
+      processingHeaderSelect.disabled = true;
+      if (processingHeaderInput){
+        processingHeaderInput.value = "";
+        processingHeaderInput.disabled = true;
+      }
+      if (processingHeaderApply) processingHeaderApply.disabled = true;
+      if (processingHeaderReset) processingHeaderReset.disabled = true;
+      if (processingHeaderHint) processingHeaderHint.hidden = true;
+    }else{
+      processingHeaderSelect.disabled = false;
+      if (processingHeaderInput) processingHeaderInput.disabled = false;
+      if (processingHeaderApply) processingHeaderApply.disabled = false;
+      if (processingHeaderReset) processingHeaderReset.disabled = false;
+      const previousRaw = processingHeaderSelect.value;
+      const options = groups.map(group => {
+        const override = appState.processing.headerOverrides[group.raw] || "";
+        const display = override || group.display || "(Header not set)";
+        return `<option value="${escapeHtml(group.raw)}">${escapeHtml(display)}</option>`;
+      }).join("");
+      processingHeaderSelect.innerHTML = options;
+      const selectedRaw = groups.some(group => group.raw === previousRaw) ? previousRaw : groups[0].raw;
+      const override = appState.processing.headerOverrides[selectedRaw] || "";
+      processingHeaderSelect.value = selectedRaw;
+      if (processingHeaderInput){
+        const selectedGroup = groups.find(group => group.raw === selectedRaw) || groups[0];
+        processingHeaderInput.value = override || selectedGroup.display || "";
+      }
+      syncProcessingHeaderEditor();
+    }
+  }
 }
 
-// Group rows within each order by (order_number, type, dimension).
-// Sums quantity and area; position is set to "— (grouped)".
+function addOrderToProcessing(order){
+  const entry = convertOrderToProcessingEntry(order);
+  const entryKey = String(entry.id);
+  const existingIndex = appState.processing.cart.findIndex(item => String(item.id) === entryKey);
+  if (existingIndex >= 0){
+    appState.processing.cart.splice(existingIndex, 1, entry);
+  }else{
+    appState.processing.cart.push(entry);
+  }
+  rebuildProcessingRows();
+  updateProcessingUI();
+  updateLabelsUI();
+}
+
+function removeOrderFromProcessing(orderId){
+  const key = String(orderId);
+  appState.processing.cart = appState.processing.cart.filter(entry => String(entry.id) !== key);
+  rebuildProcessingRows();
+  updateProcessingUI();
+  updateLabelsUI();
+}
+
+function clearProcessing(){
+  appState.processing.cart = [];
+  appState.processing.rows = [];
+  appState.processing.headerOverrides = {};
+  appState.processing.grouped = false;
+  appState.processing.preview = { text: "", groups: [], meta: { clientLabel: "—", orders: [], date: new Date(), rows: 0 } };
+  updateProcessingUI();
+  updateLabelsUI();
+}
+
+function setLabelsStatus(msg){
+  if (labelsStatusEl){
+    labelsStatusEl.textContent = msg || "";
+  }
+}
+
+function deriveLabelDimension(row){
+  const candidates = [
+    row.dimension,
+    row.dimension_display,
+    row.dim,
+  ];
+  for (const candidate of candidates){
+    if (candidate && String(candidate).trim().length){
+      return String(candidate).trim().replace(/\s+/g, " ");
+    }
+  }
+  const widthDisplay = row.widthDisplay != null ? String(row.widthDisplay).trim() : "";
+  const heightDisplay = row.heightDisplay != null ? String(row.heightDisplay).trim() : "";
+  const widthNumeric = Number.isFinite(row.width) ? String(row.width) : "";
+  const heightNumeric = Number.isFinite(row.height) ? String(row.height) : "";
+  if (widthDisplay && heightDisplay){
+    return `${widthDisplay} × ${heightDisplay}`;
+  }
+  if (widthDisplay && heightNumeric){
+    return `${widthDisplay} × ${heightNumeric}`;
+  }
+  if (widthNumeric && heightDisplay){
+    return `${widthNumeric} × ${heightDisplay}`;
+  }
+  if (widthNumeric && heightNumeric){
+    return `${widthNumeric} × ${heightNumeric}`;
+  }
+  if (widthDisplay || widthNumeric){
+    return `${widthDisplay || widthNumeric} × ?`;
+  }
+  if (heightDisplay || heightNumeric){
+    return `? × ${heightDisplay || heightNumeric}`;
+  }
+  return "";
+}
+
+function sanitizeLabelRow(row){
+  if (!row) return null;
+  const quantitySources = [
+    row.quantity, row.qty, row.Qty, row.QTY, row.qty_total, row.total_qty, row.qtyTotal
+  ];
+  let quantity = quantitySources.reduce((acc, value)=>{
+    if (acc != null) return acc;
+    if (value == null) return acc;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : acc;
+  }, null);
+  if (!Number.isFinite(quantity) || quantity <= 0) quantity = 1;
+  const orderNumber = [
+    row.order_number, row.orderNumber, row.order_no, row.orderNo,
+    row.order, row.orderId, row.order_id, row.orderLabel, row.order_label
+  ].map(value => (value == null ? "" : String(value).trim())).find(value => value.length) || "";
+  const type = (row.type || row.composition_display || row.composition_raw || row.glass_type || row.glassType || "").toString().trim();
+  const dimension = deriveLabelDimension(row);
+  const position = [
+    row.position, row.position_label, row.positionLabel, row.pos, row.idx, row.index
+  ].map(value => (value == null ? "" : String(value).trim())).find(value => value.length) || "";
+  const areaValue = Number(row.area ?? row.computed_area ?? row.computedArea ?? 0);
+  const area = Number.isFinite(areaValue) ? areaValue : 0;
+  const client = [
+    row.client, row.client_name, row.clientName, row.clientLabel, row.client_label, row.client_hint, row.customer
+  ].map(value => (value == null ? "" : String(value).trim())).find(value => value.length) || "";
+  return {
+    order_number: orderNumber,
+    type,
+    dimension: dimension.length ? dimension : "—",
+    position: position.length ? position : "—",
+    quantity,
+    area,
+    client,
+  };
+}
+
+function createLabelJob(source, rows, options = {}){
+  if (!rows || !rows.length) return null;
+  const normalized = rows.map(sanitizeLabelRow).filter(Boolean);
+  if (!normalized.length) return null;
+  const totals = computeTotals(normalized);
+  const orders = collectOrderNumbers(normalized);
+  const clientSet = new Set(normalized.map(row => row.client).filter(Boolean));
+  const clientOverride = options.clientOverride && String(options.clientOverride).trim();
+  const clientLabel = clientOverride || (clientSet.size === 1 ? Array.from(clientSet)[0] : (clientSet.size ? "(Mixed)" : "—"));
+  const sourceLabel = options.sourceLabel || source;
+  const job = {
+    id: `lbl-${Date.now()}-${appState.labels.nextId++}`,
+    source: sourceLabel,
+    createdAt: new Date().toISOString(),
+    rows: normalized,
+    units: totals.units,
+    labels: normalized.reduce((acc,row)=> acc + Number(row.quantity || 0), 0),
+    area: totals.area,
+    orders,
+    clientLabel,
+  };
+  if (options.primaryOrderId){
+    job.primaryOrderId = String(options.primaryOrderId);
+    job.orderId = job.primaryOrderId;
+    if (!job.orders.includes(job.primaryOrderId)){
+      job.orders.unshift(job.primaryOrderId);
+    }
+  }
+  if (options.sourceDetail){
+    job.sourceDetail = options.sourceDetail;
+  }
+  return job;
+}
+
+function addLabelsJob(source, rows, options = {}){
+  const job = createLabelJob(source, rows, options);
+  if (!job){
+    setLabelsStatus(options.emptyMessage || "No printable rows found.");
+    return null;
+  }
+  appState.labels.jobs.unshift(job);
+  const labelCount = Number(job.labels || job.units || 0);
+  const labelWord = labelCount === 1 ? "label" : "labels";
+  let message = "";
+  if (typeof options.formatMessage === "function"){
+    message = options.formatMessage(job);
+  }
+  if (!message){
+    message = options.successMessage || `Added ${labelCount} ${labelWord} from ${source}.`;
+  }
+  setLabelsStatus(message);
+  updateLabelsUI();
+  return job;
+}
+
+function addLabelJobsFromProcessing(options = {}){
+  const { silent = false } = options;
+  const cart = appState.processing && Array.isArray(appState.processing.cart) ? appState.processing.cart : null;
+  if (!cart){
+    if (!silent) setLabelsStatus("Could not read Processing cart.");
+    return null;
+  }
+  if (!cart.length){
+    if (!silent) setLabelsStatus("Processing is empty.");
+    return { addedJobs: [], skipped: [], totalRows: 0 };
+  }
+
+  const existingKeys = new Set(
+    (appState.labels.jobs || [])
+      .map(job => (job.primaryOrderId || (Array.isArray(job.orders) && job.orders[0]) || "").trim())
+      .filter(Boolean)
+  );
+
+  const addedJobs = [];
+  const skipped = [];
+  let totalRows = 0;
+
+  cart.forEach(entry => {
+    if (!entry) return;
+    const orderKeyRaw = entry.orderLabel || entry.orderId || entry.id;
+    const orderKey = String(orderKeyRaw || "").trim();
+    if (!orderKey){
+      skipped.push("Unknown order");
+      return;
+    }
+    if (existingKeys.has(orderKey)){
+      skipped.push(orderKey);
+      return;
+    }
+    const baseRows = Array.isArray(entry.rows) ? entry.rows : [];
+    if (!baseRows.length){
+      skipped.push(`${orderKey} (no rows)`);
+      return;
+    }
+    const rowsWithClient = baseRows.map(row => ({
+      ...row,
+      client: row.client || entry.client || UNKNOWN_CLIENT_LABEL,
+      orderId: row.orderId || orderKey,
+    }));
+    const job = createLabelJob("Processing", rowsWithClient, {
+      primaryOrderId: orderKey,
+      clientOverride: entry.client,
+      sourceLabel: "Processing",
+      sourceDetail: orderKey,
+    });
+    if (!job){
+      skipped.push(orderKey);
+      return;
+    }
+    addedJobs.push(job);
+    existingKeys.add(orderKey);
+    totalRows += Array.isArray(job.rows) ? job.rows.length : 0;
+  });
+
+  if (!addedJobs.length){
+    const reason = skipped.length ? `Skipped: ${skipped.join(", ")}` : "No orders added.";
+    if (!silent) setLabelsStatus(reason);
+    return { addedJobs: [], skipped, totalRows: 0 };
+  }
+
+  addedJobs.reverse().forEach(job => appState.labels.jobs.unshift(job));
+  updateLabelsUI();
+
+  const skipNote = skipped.length ? ` Skipped: ${skipped.join(", ")}` : "";
+  if (!silent){
+    setLabelsStatus(`Added ${addedJobs.length} orders (${totalRows} rows) from Processing.${skipNote ? " " + skipNote : ""}`);
+  }
+  return { addedJobs, skipped, totalRows };
+}
+
+function updateLabelsSummary(){
+  if (!labelsSummaryEl) return;
+  const jobs = appState.labels.jobs || [];
+  if (!jobs.length){
+    labelsSummaryEl.innerHTML = "";
+    return;
+  }
+  const totalLabels = jobs.reduce((acc, job)=> acc + Number(job.labels || job.units || 0), 0);
+  const totalOrders = jobs.reduce((acc, job)=> acc + job.orders.length, 0);
+  labelsSummaryEl.innerHTML = `<span class="pill">Jobs: ${jobs.length}</span> <span class="pill">Labels: ${totalLabels}</span> <span class="pill muted">Orders: ${totalOrders}</span>`;
+}
+
+function updateLabelsUI(){
+  if (labelsFromProcessingBtn){
+    const hasProcessing = !!(appState.processing.cart && appState.processing.cart.length);
+    labelsFromProcessingBtn.disabled = !hasProcessing;
+  }
+  if (labelsFromProcessingDownloadBtn){
+    const processingCount = appState.processing.cart ? appState.processing.cart.length : 0;
+    labelsFromProcessingDownloadBtn.disabled = processingCount < 2;
+  }
+  if (labelsFromHistoryBtn){
+    const hasHistory = !!(appState.historyDetail.rows && appState.historyDetail.rows.length);
+    labelsFromHistoryBtn.disabled = !hasHistory;
+  }
+  if (labelsClearBtn){
+    labelsClearBtn.disabled = !(appState.labels.jobs && appState.labels.jobs.length);
+  }
+  if (labelsJobsWrap){
+    const jobs = appState.labels.jobs || [];
+    if (!jobs.length){
+      labelsJobsWrap.innerHTML = '<div class="labels-empty">No label jobs yet. Use the buttons above to add one.</div>';
+    }else{
+      let html = `<table><thead><tr>
+        <th>#</th>
+        <th>Created</th>
+        <th>Source</th>
+        <th>Orders</th>
+        <th>Client</th>
+        <th>Labels</th>
+        <th>Preview</th>
+        <th>Actions</th>
+      </tr></thead><tbody>`;
+      jobs.forEach((job, index)=>{
+        const created = formatDate(job.createdAt);
+        const orderSample = job.orders.slice(0,3).join(", ") || "—";
+        const extraOrders = job.orders.length > 3 ? ` +${job.orders.length - 3}` : "";
+        const previewRow = job.rows[0];
+        const previewLines = [];
+        if (previewRow){
+          const previewOrder = previewRow.order_number || "—";
+          const previewDim = previewRow.dimension || "—";
+          previewLines.push(`<div class="muted small mono">${escapeHtml(previewOrder)} • ${escapeHtml(previewDim)}</div>`);
+          previewLines.push(`<div class="muted small">${escapeHtml(previewRow.type || "—")} – Qty: ${previewRow.quantity}</div>`);
+          if (job.rows.length > 1){
+            previewLines.push(`<div class="muted small">+${job.rows.length - 1} more line(s)</div>`);
+          }
+        }
+        html += `<tr>
+          <td>${index + 1}</td>
+          <td>${escapeHtml(created)}</td>
+          <td>${escapeHtml(job.source || "—")}</td>
+          <td>${escapeHtml(orderSample + extraOrders)}</td>
+          <td>${escapeHtml(job.clientLabel || "—")}</td>
+          <td>${Number(job.labels || job.units || 0)}</td>
+          <td>${previewLines.join("") || "—"}</td>
+          <td>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <button class="btn small" data-action="labels-download" data-id="${escapeHtml(job.id)}">Download PDF</button>
+              <button class="btn small muted" data-action="labels-remove" data-id="${escapeHtml(job.id)}">Remove</button>
+            </div>
+          </td>
+        </tr>`;
+      });
+      html += "</tbody></table>";
+      labelsJobsWrap.innerHTML = html;
+    }
+  }
+  updateLabelsSummary();
+}
+
+async function sendOrderToProcessing(orderId){
+  const order = await fetchOrder(orderId);
+  if (!order || !order.rows || !order.rows.length){
+    throw new Error("Order has no rows");
+  }
+  addOrderToProcessing(order);
+  setStatusMessage("Order added to Processing.");
+  activateTab("processing");
+}
+
+function syncProcessingHeaderEditor(){
+  if (!processingHeaderSelect || processingHeaderSelect.disabled) return;
+  const raw = processingHeaderSelect.value;
+  const groups = appState.processing.preview.groups || [];
+  const group = groups.find(item => item.raw === raw);
+  if (!group){
+    if (processingHeaderInput) processingHeaderInput.value = "";
+    if (processingHeaderHint) processingHeaderHint.hidden = true;
+    return;
+  }
+  const override = appState.processing.headerOverrides[raw] || "";
+  if (processingHeaderInput) processingHeaderInput.value = override || group.display || "";
+  if (processingHeaderHint){
+    const invalidLines = group.lines.filter(line => line.invalid).length;
+    if (invalidLines){
+      processingHeaderHint.hidden = false;
+      processingHeaderHint.textContent = `${invalidLines} line(s) have invalid dimensions in this group.`;
+    }else{
+      processingHeaderHint.hidden = true;
+    }
+  }
+}
+
+async function copyProcessingText(){
+  const text = appState.processing.preview.text;
+  if (!text){
+    setStatusMessage("Nothing to copy.");
+    return;
+  }
+  try{
+    await navigator.clipboard.writeText(text);
+    setStatusMessage("Mother Sheet copied to clipboard.");
+  }catch(error){
+    setStatusMessage("Copy failed: " + (error.message || error));
+  }
+}
+
+async function exportProcessingPdf(){
+  if (!appState.processing.preview.text){
+    setStatusMessage("Nothing to export.");
+    return;
+  }
+  await ensurePdfLib();
+  const { PDFDocument, StandardFonts } = PDFLib;
+  const mmToPt = 2.83464567;
+  const pageWidth = 210 * mmToPt;
+  const pageHeight = 297 * mmToPt;
+  const marginX = 15 * mmToPt;
+  const marginTop = 20 * mmToPt;
+  const marginBottom = 20 * mmToPt;
+  const lineHeight = 16;
+  const headerSize = 14;
+  const bodySize = 13;
+  const pdfDoc = await PDFDocument.create();
+  const bold = await pdfDoc.embedFont(StandardFonts.CourierBold);
+  const regular = await pdfDoc.embedFont(StandardFonts.Courier);
+  let page = pdfDoc.addPage([pageWidth, pageHeight]);
+  let y = pageHeight - marginTop;
+  const maxWidth = pageWidth - marginX * 2;
+  const wrapText = (text, font, size) => {
+    const words = String(text || "").split(/\s+/);
+    const lines = [];
+    let current = "";
+    words.forEach(word => {
+      const tentative = current ? `${current} ${word}` : word;
+      const width = font.widthOfTextAtSize(tentative, size);
+      if (width > maxWidth && current){
+        lines.push(current);
+        current = word;
+      }else{
+        current = tentative;
+      }
+    });
+    if (current) lines.push(current);
+    return lines.length ? lines : [""];
+  };
+  const drawLine = (text, font, size, extraSpacing = 0) => {
+    const rows = wrapText(text, font, size);
+    rows.forEach((row, idx) => {
+      if (y - lineHeight < marginBottom){
+        page = pdfDoc.addPage([pageWidth, pageHeight]);
+        y = pageHeight - marginTop;
+      }
+      page.drawText(row, { x: marginX, y, size, font });
+      y -= lineHeight;
+    });
+    y -= extraSpacing;
+  };
+
+  const preview = appState.processing.preview;
+  drawLine(formatProcessingMeta(preview.meta || {}), bold, headerSize, 6);
+  drawLine("", regular, bodySize);
+  (preview.groups || []).forEach((group, idx) => {
+    drawLine(group.display || "(Header not set)", bold, headerSize, 4);
+    const sections = Array.isArray(group.sections) ? group.sections : [];
+    if (sections.length){
+      sections.forEach((section, sectionIndex) => {
+        const orderLabel = section.orderId && section.orderId.trim().length ? section.orderId : "—";
+        const clientLabel = section.client && section.client.trim().length ? section.client : UNKNOWN_CLIENT_LABEL;
+        drawLine(`[Order ${orderLabel} — ${clientLabel}]`, bold, bodySize, 2);
+        section.lines.forEach(line => {
+          const widthText = formatProcessingNumber(line.width, line.widthDisplay, preview.meta.decimalSeparator || "comma");
+          const heightText = formatProcessingNumber(line.height, line.heightDisplay, preview.meta.decimalSeparator || "comma");
+          const qtyText = Number(line.qty || 0);
+          const caution = line.invalid ? "  ⚠" : "";
+          drawLine(`${line.idx} ${widthText} × ${heightText} × ${qtyText}${caution}`, regular, bodySize);
+        });
+        if (sectionIndex < sections.length - 1){
+          drawLine("", regular, bodySize);
+        }
+      });
+    }else{
+      group.lines.forEach(line => {
+        const widthText = formatProcessingNumber(line.width, line.widthDisplay, preview.meta.decimalSeparator || "comma");
+        const heightText = formatProcessingNumber(line.height, line.heightDisplay, preview.meta.decimalSeparator || "comma");
+        const qtyText = Number(line.qty || 0);
+        const caution = line.invalid ? "  ⚠" : "";
+        drawLine(`${line.idx} ${widthText} × ${heightText} × ${qtyText}${caution}`, regular, bodySize);
+      });
+    }
+    if (idx < preview.groups.length - 1){
+      drawLine("", regular, bodySize);
+    }
+  });
+
+  const pdfBytes = await pdfDoc.save();
+  const blob = new Blob([pdfBytes], { type: "application/pdf" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "mother-sheet.pdf";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  setStatusMessage("Mother Sheet PDF exported.");
+}
+
+function exportProcessingCsv(){
+  const preview = appState.processing.preview;
+  if (!preview.groups || !preview.groups.length){
+    setStatusMessage("Nothing to export.");
+    return;
+  }
+  const header = ["nr","width","height","qty","composition_display","composition_raw","orderId","client"];
+  const rows = [header];
+  const separator = preview.meta?.decimalSeparator || appState.processing.options.decimalSeparator;
+  preview.groups.forEach(group => {
+    group.lines.forEach(line => {
+      rows.push([
+        line.idx,
+        formatProcessingNumber(line.width, line.widthDisplay, separator),
+        formatProcessingNumber(line.height, line.heightDisplay, separator),
+        line.qty ?? "",
+        group.display || "",
+        group.raw || "",
+        line.orderId || "",
+        line.client || "",
+      ]);
+    });
+  });
+  const csv = rows.map(columns => columns.map(value => {
+    const text = String(value ?? "");
+    if (/[",\n]/.test(text)){
+      return `"${text.replace(/"/g, '""')}"`;
+    }
+    return text;
+  }).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "mother-sheet.csv";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  setStatusMessage("Mother Sheet CSV exported.");
+}
+
+function renderWarningList(containerId, warnings){
+  const container = typeof containerId === "string" ? document.getElementById(containerId) : containerId;
+  if (!container) return;
+  const list = container.querySelector("ul");
+  const items = Array.isArray(warnings) ? warnings.filter(Boolean) : [];
+  if (!items.length){
+    container.hidden = true;
+    if (list) list.innerHTML = "";
+    return;
+  }
+  container.hidden = false;
+  if (list){
+    list.innerHTML = items.map(item => `<li>${escapeHtml(item)}</li>`).join("");
+  }
+}
+
+const cssEscape = (window.CSS && typeof window.CSS.escape === "function")
+  ? window.CSS.escape.bind(window.CSS)
+  : (value) => String(value).replace(/["\\#.;]/g, "\\$&");
+
+function withPreservedFocus(callback, options = {}){
+  const { focusKey: explicitKey = null, selection: explicitSelection = null } = options;
+  const active = document.activeElement;
+  const isEditable = active && active.classList && active.classList.contains("cell") && active.dataset.key;
+  let focusKey = explicitKey;
+  let selectionRange = explicitSelection;
+  if (isEditable && !focusKey){
+    focusKey = active.dataset.key;
+    selectionRange = [active.selectionStart ?? active.value.length, active.selectionEnd ?? active.value.length];
+  }
+  const scrollY = window.scrollY;
+  callback();
+  window.scrollTo(0, scrollY);
+  if (focusKey){
+    const selector = `[data-key="${cssEscape(focusKey)}"]`;
+    const next = document.querySelector(selector);
+    if (next){
+      next.focus();
+      if (selectionRange && typeof next.setSelectionRange === "function"){
+        next.setSelectionRange(selectionRange[0], selectionRange[1]);
+      }
+    }
+  }
+}
+
+function parseDim(dim){
+  const match = (dim || "").trim().match(/^(\d{2,4})\s*[xX×]\s*(\d{2,4})$/);
+  return match ? [Number(match[1]), Number(match[2])] : null;
+}
+
+function areaFromDim(dim){
+  const parsed = parseDim(dim);
+  if (!parsed) return null;
+  const [w, h] = parsed;
+  return Math.round(((w * h) / 1_000_000) * 1000) / 1000;
+}
+
+function cleanPosKey(position){
+  if (!position) return [0, 0, ""];
+  const [main, suffix = ""] = position.split("/");
+  const [first, second] = (main || "").split("-");
+  return [Number(first) || 0, Number(second) || 0, suffix];
+}
+
+function nextPositionForGroup(rows, order){
+  const list = rows.filter(r => (r.order_number || "") === order);
+  const maxFirst = Math.max(0, ...list.map(r => Number((r.position || "").split("-")[0]) || 0));
+  return `${maxFirst + 1}-1`;
+}
+
+function recalcParsedTotals(bucket){
+  const totals = computeTotals(bucket.rows || []);
+  bucket.parsedUnits = totals.units;
+  bucket.parsedArea = totals.area;
+}
+
+function addRowToGroup(scope, order){
+  const bucket = scope === "history" ? appState.historyDetail : appState.extract;
+  const rows = bucket.rows ? [...bucket.rows] : [];
+  const targetOrder = order || "";
+  const template = rows.filter(r => (r.order_number || "") === targetOrder);
+  const fallback = template.length ? template[template.length - 1] : rows[rows.length - 1] || {};
+  const rid = `${scope}-new-${bucket.nextRid++}`;
+  const newRow = {
+    order_number: targetOrder,
+    type: fallback?.type || "",
+    dimension: "",
+    position: nextPositionForGroup(rows, targetOrder),
+    quantity: 1,
+    area: 0,
+    computed_area: null,
+    area_mismatch: null,
+    _rid: rid,
+  };
+  rows.push(newRow);
+  rows.sort((a, b) => {
+    const orderCmp = (a.order_number || "").localeCompare(b.order_number || "");
+    if (orderCmp !== 0) return orderCmp;
+    const keyA = cleanPosKey(a.position || "0-0");
+    const keyB = cleanPosKey(b.position || "0-0");
+    if (keyA[0] !== keyB[0]) return keyA[0] - keyB[0];
+    if (keyA[1] !== keyB[1]) return keyA[1] - keyB[1];
+    return keyA[2].localeCompare(keyB[2]);
+  });
+  bucket.rows = rows;
+  bucket.rowWarnings = bucket.rowWarnings || {};
+  bucket.rowWarnings[newRow._rid] = [];
+  recalcParsedTotals(bucket);
+  if (scope === "history"){
+    updateHistoryDetailUI();
+  }else{
+    updateExtractUI();
+  }
+}
+
+function fixAreaForRow(scope, index){
+  const bucket = scope === "history" ? appState.historyDetail : appState.extract;
+  const rows = bucket.rows || [];
+  const row = rows[index];
+  if (!row) return;
+  const computed = typeof row.computed_area === "number" ? row.computed_area : areaFromDim(row.dimension);
+  if (computed == null) return;
+  row.area = computed;
+  row.computed_area = computed;
+  row.area_mismatch = false;
+  if (bucket.rowWarnings && row._rid && bucket.rowWarnings[row._rid]){
+    bucket.rowWarnings[row._rid] = bucket.rowWarnings[row._rid].filter(item => !item.includes("area"));
+  }
+  recalcParsedTotals(bucket);
+  if (scope === "history"){
+    updateHistoryDetailUI();
+  }else{
+    updateExtractUI();
+  }
+}
+
+function fixAllAreas(scope){
+  const bucket = scope === "history" ? appState.historyDetail : appState.extract;
+  let changed = false;
+  (bucket.rows || []).forEach((row, idx) => {
+    const computed = typeof row.computed_area === "number" ? row.computed_area : areaFromDim(row.dimension);
+    if (computed != null && Math.abs(Number(row.area || 0) - computed) > 0.01){
+      row.area = computed;
+      row.computed_area = computed;
+      row.area_mismatch = false;
+      if (bucket.rowWarnings && row._rid && bucket.rowWarnings[row._rid]){
+        bucket.rowWarnings[row._rid] = bucket.rowWarnings[row._rid].filter(item => !item.includes("area"));
+      }
+      changed = true;
+    }
+  });
+  if (!changed) return;
+  recalcParsedTotals(bucket);
+  if (scope === "history"){
+    updateHistoryDetailUI();
+  }else{
+    updateExtractUI();
+  }
+}
+
+function renderEditableTable(scope, containerId, rows, rowWarnings){
+  const container = typeof containerId === "string" ? document.getElementById(containerId) : containerId;
+  if (!container) return;
+  if (!Array.isArray(rows) || !rows.length){
+    container.innerHTML = '<div class="empty-state">No rows yet — run an extraction.</div>';
+    return;
+  }
+  const bucket = scope === "history" ? appState.historyDetail : appState.extract;
+  const indexMap = new Map((bucket.rows || []).map((row, idx) => [row._rid || `rid-${idx}`, idx]));
+  const groups = summarizeByOrder(rows);
+  let globalIndex = 0;
+  let html = "";
+  for (const [order, items] of groups.entries()){
+    const orderLabel = order || "—";
+    html += `<div class="group-header" data-order="${escapeHtml(order)}" style="display:flex;justify-content:space-between;align-items:center;margin:16px 0 6px">
+      <div style="font-weight:600">${orderLabel}</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button type="button" class="btn small" data-add-row="${escapeHtml(order)}">Add row</button>
+      </div>
+    </div>`;
+    html += `<table class="editable-table" data-order="${escapeHtml(order)}">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Warnings</th>
+          <th>Order</th>
+          <th>Type</th>
+          <th>Dimension</th>
+          <th>Position</th>
+          <th>Quantity</th>
+          <th>Area (m²)</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>`;
+    items.forEach(row => {
+      if (!row._rid){
+        row._rid = `${scope}-${Date.now()}-${globalIndex}`;
+      }
+      const rowIndex = indexMap.has(row._rid) ? indexMap.get(row._rid) : globalIndex;
+      const warns = rowWarnings && rowWarnings[row._rid] ? rowWarnings[row._rid] : [];
+      const hasSplit = warns.some(w => w.includes("possible_split_line"));
+      const warningBadges = [];
+      if (hasSplit){
+        warningBadges.push('<span class="editable-badge" title="Possible split line; please fix dimension/position wrap">⚠️</span>');
+      }
+      const computed = typeof row.computed_area === "number" ? row.computed_area : areaFromDim(row.dimension);
+      const providedArea = Number(row.area || 0);
+      const mismatch = computed != null && Math.abs(providedArea - computed) > 0.01;
+      if (mismatch){
+        const delta = (providedArea - computed).toFixed(3);
+        warningBadges.push(`<span class="pill warn" title="Provided ${providedArea.toFixed(3)} vs computed ${computed.toFixed(3)}">Δ ${delta} m²</span>`);
+      }
+      const otherWarnings = warns.filter(w => !w.includes("possible_split_line"));
+      if (otherWarnings.length){
+        warningBadges.push(`<span class="editable-badge" title="${escapeHtml(otherWarnings.join('; '))}">!</span>`);
+      }
+      const warningBadge = warningBadges.join(" ");
+      const inputBase = `data-scope="${scope}" data-index="${rowIndex}" autocomplete="off" class="cell"`;
+      const orderKey = `${row._rid}:order_number`;
+      const typeKey = `${row._rid}:type`;
+      const dimKey = `${row._rid}:dimension`;
+      const posKey = `${row._rid}:position`;
+      const qtyKey = `${row._rid}:quantity`;
+      const areaKey = `${row._rid}:area`;
+      const fixBtn = mismatch ? `<button type="button" class="btn small" data-fix-area="${rowIndex}" title="Set area to ${computed?.toFixed(3) ?? ''}">Fix</button>` : "";
+      html += `<tr data-index="${rowIndex}" data-order="${escapeHtml(order)}">
+        <td>${globalIndex + 1}</td>
+        <td>${warningBadge}</td>
+        <td><input ${inputBase} data-field="order_number" data-key="${orderKey}" value="${escapeHtml(row.order_number || "")}" /></td>
+        <td><input ${inputBase} data-field="type" data-key="${typeKey}" value="${escapeHtml(row.type || "")}" /></td>
+        <td><input ${inputBase} data-field="dimension" data-key="${dimKey}" inputmode="text" value="${escapeHtml(row.dimension || "")}" /></td>
+        <td><input ${inputBase} data-field="position" data-key="${posKey}" inputmode="text" value="${escapeHtml(row.position || "")}" /></td>
+        <td><input ${inputBase} data-field="quantity" data-key="${qtyKey}" type="number" inputmode="numeric" min="0" step="1" value="${escapeHtml(row.quantity ?? 0)}" /></td>
+        <td><input ${inputBase} data-field="area" data-key="${areaKey}" type="number" inputmode="decimal" min="0" step="0.001" value="${escapeHtml(row.area ?? 0)}" /></td>
+        <td>${fixBtn}</td>
+      </tr>`;
+      globalIndex += 1;
+    });
+    html += "</tbody></table>";
+  }
+  container.innerHTML = html;
+}
+
+function parseFieldValue(field, rawValue){
+  if (field === "quantity"){
+    const parsed = parseInt(rawValue, 10);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  if (field === "area"){
+    const parsed = parseFloat(rawValue);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return rawValue ?? "";
+}
+
+function updateRowValue(scope, index, field, value, options = {}){
+  const { commit = false } = options;
+  const bucket = scope === "history" ? appState.historyDetail : appState.extract;
+  const row = bucket.rows[index];
+  if (!row) return;
+  bucket.rows[index][field] = value;
+  const rid = row._rid;
+  if (bucket.rowWarnings && rid){
+    delete bucket.rowWarnings[rid];
+  }
+  if (field === "dimension" || field === "area"){
+    const computed = areaFromDim(row.dimension);
+    row.computed_area = computed;
+    if (computed != null){
+      row.area_mismatch = Math.abs(Number(row.area || 0) - computed) > 0.01;
+    }else{
+      row.area_mismatch = null;
+    }
+  }
+  if (field === "quantity"){
+    row.quantity = Math.max(0, Number(row.quantity || 0));
+  }
+  if (scope === "extract"){
+    window.__rows = bucket.rows;
+  }
+  if (commit){
+    recalcParsedTotals(bucket);
+    if (scope === "history"){
+      updateHistoryDetailUI();
+    }else{
+      updateExtractUI();
+    }
+  }else{
+    updateTotalsUI(scope);
+  }
+}
+
+function handleEditableInput(event){
+  const input = event.target;
+  if (!input.classList.contains("cell")) return;
+  const field = input.dataset.field;
+  const scope = input.dataset.scope;
+  const index = Number(input.dataset.index);
+  if (!field || !scope || Number.isNaN(index)) return;
+  const parsed = parseFieldValue(field, input.value);
+  updateRowValue(scope, index, field, parsed, { commit: false });
+}
+
+document.getElementById("tableWrap").addEventListener("input", handleEditableInput, true);
+document.getElementById("historyTableWrap").addEventListener("input", handleEditableInput, true);
+document.getElementById("extractNotes").addEventListener("input", (event)=>{
+  appState.extract.notes = event.target.value;
+});
+document.getElementById("historyNotes").addEventListener("input", (event)=>{
+  appState.historyDetail.notes = event.target.value;
+});
+
+document.getElementById("tableWrap").addEventListener("click", (event)=>{
+  const addBtn = event.target.closest("[data-add-row]");
+  if (addBtn){
+    addRowToGroup("extract", addBtn.dataset.addRow || "");
+    return;
+  }
+  const fixBtn = event.target.closest("[data-fix-area]");
+  if (fixBtn){
+    const idx = Number(fixBtn.dataset.fixArea);
+    if (!Number.isNaN(idx)) fixAreaForRow("extract", idx);
+  }
+});
+
+document.getElementById("historyTableWrap").addEventListener("click", (event)=>{
+  const addBtn = event.target.closest("[data-add-row]");
+  if (addBtn){
+    addRowToGroup("history", addBtn.dataset.addRow || "");
+    return;
+  }
+  const fixBtn = event.target.closest("[data-fix-area]");
+  if (fixBtn){
+    const idx = Number(fixBtn.dataset.fixArea);
+    if (!Number.isNaN(idx)) fixAreaForRow("history", idx);
+  }
+});
+
+const fixAllAreasBtn = document.getElementById("fixAllAreas");
+if (fixAllAreasBtn){
+  fixAllAreasBtn.addEventListener("click", ()=> fixAllAreas("extract"));
+}
+const historyFixAllAreasBtn = document.getElementById("historyFixAllAreas");
+if (historyFixAllAreasBtn){
+  historyFixAllAreasBtn.addEventListener("click", ()=> fixAllAreas("history"));
+}
+
+function normalizeDimensionInput(value){
+  if (!value) return "";
+  return value
+    .replace(/[×X]/g, "x")
+    .replace(/\s+/g, "")
+    .replace(/x+/g, "x");
+}
+
+function handleEditableBlur(event){
+  const input = event.target;
+  if (!input.classList.contains("cell")) return;
+  const field = input.dataset.field;
+  const scope = input.dataset.scope;
+  const index = Number(input.dataset.index);
+  if (!field || !scope || Number.isNaN(index)) return;
+  let value = input.value;
+  if (field === "dimension"){
+    value = normalizeDimensionInput(value);
+    input.value = value;
+  }else if (field === "position"){
+    value = value.trim();
+    input.value = value;
+  }else if (field === "quantity"){
+    const parsedQty = parseInt(value, 10);
+    value = Number.isFinite(parsedQty) ? String(parsedQty) : "0";
+    input.value = value;
+  }else if (field === "area"){
+    const parsedArea = parseFloat(value);
+    value = Number.isFinite(parsedArea) ? parsedArea.toFixed(3) : "0.000";
+    input.value = value;
+  }
+  const parsed = parseFieldValue(field, value);
+  updateRowValue(scope, index, field, parsed, { commit: true });
+}
+
+document.getElementById("tableWrap").addEventListener("blur", handleEditableBlur, true);
+document.getElementById("historyTableWrap").addEventListener("blur", handleEditableBlur, true);
+
+function setErrorMessage(msg){
+  if (!msg){
+    errorEl.hidden = true;
+    errorEl.textContent = "";
+  }else{
+    errorEl.hidden = false;
+    errorEl.textContent = msg;
+  }
+}
+
+function setHistoryStatus(msg){
+  historyStatusEl.textContent = msg || "";
+}
+
+function updateHistoryOfflineBadge(){
+  historyOfflineBadge.hidden = !historyState.offline;
+}
+
+function formatDate(value){
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString([], { dateStyle: "short", timeStyle: "short" });
+}
+
+function formatArea(value){
+  const num = Number(value || 0);
+  return num.toFixed(3);
+}
+
+// --- CSV + grouping helpers -------------------------------------------------
 function groupWithinOrders(rows){
-  const keyOf = (r) => `${(r.order_number||'').trim()}|${(r.type||'').trim()}|${(r.dimension||'').trim()}`;
+  const keyOf = (r) => `${(r.order_number||"").trim()}|${(r.type||"").trim()}|${(r.dimension||"").trim()}`;
   const map = new Map();
   for(const r of rows){
-    const k = keyOf(r);
-    if(!map.has(k)){
-      map.set(k, {
-        order_number: (r.order_number||'').trim(),
-        type: r.type || '',
-        dimension: r.dimension || '',
-        position: '— (grouped)',
+    const key = keyOf(r);
+    if (!map.has(key)){
+      map.set(key, {
+        order_number: (r.order_number||"").trim(),
+        type: r.type || "",
+        dimension: r.dimension || "",
+        position: "— (grouped)",
         quantity: 0,
         area: 0
       });
     }
-    const agg = map.get(k);
-    const qty = Number(r.quantity||0);
-    const a = Number(r.area||0);
+    const agg = map.get(key);
+    const qty = Number(r.quantity || 0);
+    const area = Number(r.area || 0);
     agg.quantity += qty;
-    // 'area' is already the TOTAL for the row; sum directly (don't multiply by qty again).
-    agg.area += a;
+    agg.area += area;
   }
   return Array.from(map.values());
 }
 
 function toCSV(rows){
-  const header = ['order_number','type','dimension','position','quantity','area'];
-  const out = [header.join(',')];
+  const header = ["order_number","type","dimension","position","quantity","area"];
+  const out = [header.join(",")];
   for(const r of rows){
-    const vals = header.map(k => {
-      let v = r[k];
-      if(typeof v === 'string'){
-        if(v.includes(',') || v.includes('"')) v = '"' + v.replace(/"/g,'""') + '"';
+    const vals = header.map(key=>{
+      let value = r[key];
+      if (typeof value === "string"){
+        if (value.includes(",") || value.includes("\"")){
+          value = "\"" + value.replace(/"/g, "\"\"") + "\"";
+        }
       }
-      return v;
+      return value;
     });
-    out.push(vals.join(','));
+    out.push(vals.join(","));
   }
-  return out.join('\n');
+  return out.join("\n");
 }
 
 function summarizeByOrder(rows){
-  const byOrder = new Map();
+  const map = new Map();
   for(const r of rows){
-    const key = (r.order_number || '').trim();
-    if(!byOrder.has(key)) byOrder.set(key, []);
-    byOrder.get(key).push(r);
+    const key = (r.order_number || "").trim();
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(r);
   }
-  return byOrder;
+  return map;
 }
 
-function totals(rows){
-  const units = rows.reduce((a,b)=>a + (b.quantity || 0), 0);
-  // 'area' is per-row TOTAL (ungrouped rows: already total; grouped rows: aggregated total)
-  const area  = rows.reduce((a,b)=>a + (Number(b.area) || 0), 0);
-  return {units, area};
+function computeTotals(rows){
+  const units = rows.reduce((acc,row)=> acc + Number(row.quantity || 0), 0);
+  const area = rows.reduce((acc,row)=> acc + Number(row.area || 0), 0);
+  return { units, area };
 }
 
-function render(rows){
-  const tableWrap = document.getElementById('tableWrap');
-  const summaryEl = document.getElementById('summary');
-  const orderInfo = document.getElementById('orderInfo');
-  if(!rows.length){ tableWrap.innerHTML=''; summaryEl.innerHTML=''; orderInfo.textContent=''; window.__rows_displayed = []; return; }
+function collectOrderNumbers(rows){
+  return Array.from(new Set(rows.map(row => (row.order_number || "").trim()).filter(Boolean)));
+}
 
-  const useGrouped = !!document.getElementById('groupToggle')?.checked;
-  const rowsForView = useGrouped ? groupWithinOrders(rows) : rows;
-  window.__rows_displayed = rowsForView;
-
-  // Group rows by order_number for rendering
-  const groups = summarizeByOrder(rowsForView);
-  const orderList = [...groups.keys()].filter(k => k && k.length).join(', ') || '—';
-  const grand = totals(rowsForView);
-
-  // Summary header (grand total)
-  let summaryHtml = `Totals — <span class="pill">Units: ${grand.units}</span> <span class="pill">Area: ${grand.area.toFixed(3)} m²</span>`;
-  if (groups.size > 1){
-    summaryHtml += `<div class="muted small">Multiple orders: ${orderList}</div>`;
-  }
-  summaryEl.innerHTML = summaryHtml;
-  orderInfo.textContent = groups.size === 1 ? `Order: ${orderList}` : `Orders: ${orderList}`;
-
-  // Build HTML per group
-  let html = '';
-  for(const [order, rowsForOrder] of groups.entries()){
-    const t = totals(rowsForOrder);
-    if (groups.size > 1){
-      html += `<h3 style="margin:16px 0 6px">${order || 'No order number'}</h3>`;
-      html += `<div class="muted small">Units: ${t.units} • Area: ${t.area.toFixed(3)} m²</div>`;
+function updateExtractSummary(){
+  const rows = appState.extract.rows || [];
+  const totals = computeTotals(rows);
+  const orderNumbers = collectOrderNumbers(rows);
+  const summaryEl = document.getElementById("summary");
+  const orderInfoEl = document.getElementById("orderInfo");
+  if (summaryEl){
+    if (!rows.length){
+      summaryEl.textContent = "";
+    }else{
+      summaryEl.innerHTML = `Totals — <span class="pill">Units: ${totals.units}</span> <span class="pill">Area: ${formatArea(totals.area)} m²</span>`;
     }
-    html += '<table><thead><tr>' +
-      '<th>#</th><th>order_number</th><th>type</th><th>dimension</th><th>position</th><th>quantity</th><th>area (m²)</th>' +
-      '</tr></thead><tbody>';
-    rowsForOrder.forEach((r,idx)=>{
+  }
+  if (orderInfoEl){
+    const parts = [];
+    if (appState.extract.draftId){
+      parts.push(`Draft #${appState.extract.draftId}`);
+    }
+    if (!appState.extract.draftId && appState.extract.savedOrderId){
+      parts.push(`Saved #${appState.extract.savedOrderId}`);
+    }
+    if (!orderNumbers.length){
+      parts.push("Order not detected");
+    }else if (orderNumbers.length === 1){
+      parts.push(`Order: ${orderNumbers[0]}`);
+    }else{
+      parts.push(`Orders: ${orderNumbers.join(", ")}`);
+    }
+    orderInfoEl.textContent = parts.join(" • ");
+  }
+}
+
+function updateHistorySummary(){
+  const rows = appState.historyDetail.rows || [];
+  const totals = computeTotals(rows);
+  const orderNumbers = collectOrderNumbers(rows);
+  const summaryEl = document.getElementById("historySummary");
+  const orderInfoEl = document.getElementById("historyOrderInfo");
+  if (summaryEl){
+    if (!rows.length){
+      summaryEl.textContent = "";
+    }else{
+      summaryEl.innerHTML = `Totals — <span class="pill">Units: ${totals.units}</span> <span class="pill">Area: ${formatArea(totals.area)} m²</span>`;
+    }
+  }
+  if (orderInfoEl){
+    if (!orderNumbers.length){
+      orderInfoEl.textContent = "Order not detected";
+    }else if (orderNumbers.length === 1){
+      orderInfoEl.textContent = `Order: ${orderNumbers[0]}`;
+    }else{
+      orderInfoEl.textContent = `Orders: ${orderNumbers.join(", ")}`;
+    }
+  }
+}
+
+function updateDeclaredBanner(elementId, declaredUnits, declaredArea, parsedUnits, parsedArea){
+  const el = document.getElementById(elementId);
+  if (!el) return;
+  const issues = [];
+  if (declaredUnits != null && parsedUnits != null && declaredUnits !== parsedUnits){
+    issues.push(`Declared ${declaredUnits}, Parsed ${parsedUnits}`);
+  }
+  if (
+    declaredArea != null && parsedArea != null &&
+    Math.abs(parseFloat(declaredArea) - parseFloat(parsedArea)) > 0.05
+  ){
+    const delta = (parseFloat(parsedArea) - parseFloat(declaredArea)).toFixed(3);
+    issues.push(`Declared ${Number(declaredArea).toFixed(3)} m², Parsed ${Number(parsedArea).toFixed(3)} m² → Δ ${delta} m²`);
+  }
+  if (!issues.length){
+    el.hidden = true;
+    el.innerHTML = "";
+    return;
+  }
+  el.hidden = false;
+  el.innerHTML = `<strong style="display:block;margin-bottom:4px">Declared totals mismatch</strong><div>${issues.map(escapeHtml).join('<br>')}</div>`;
+}
+
+function updateExtractUI(){
+  withPreservedFocus(() => {
+    const groupToggleEl = document.getElementById("groupToggle");
+    if (groupToggleEl){
+      groupToggleEl.disabled = false;
+      if (groupToggleEl.checked !== groupState){
+        groupToggleEl.checked = groupState;
+      }
+    }
+
+    recalcParsedTotals(appState.extract);
+
+    if (groupState){
+      render(appState.extract.rows, { scope: "extract" });
+    }else{
+      renderEditableTable("extract", "tableWrap", appState.extract.rows, appState.extract.rowWarnings || {});
+    }
+
+    renderWarningList("extractWarnings", appState.extract.warnings);
+    updateTotalsUI("extract");
+
+    const approveBtn = document.getElementById("approveSave");
+    if (approveBtn) approveBtn.disabled = !appState.extract.draftId || !(appState.extract.rows && appState.extract.rows.length);
+    const rerunBtn = document.getElementById("rerun");
+    if (rerunBtn) rerunBtn.disabled = !appState.extract.draftId;
+    const notesEl = document.getElementById("extractNotes");
+    if (notesEl && notesEl.value !== appState.extract.notes){
+      notesEl.value = appState.extract.notes || "";
+    }
+  });
+  window.__rows = appState.extract.rows;
+  updateLabelsUI();
+}
+
+function buildSummaryHtml(rows, totalsParam){
+  const totals = totalsParam || computeTotals(rows);
+  const groups = summarizeByOrder(rows);
+  let html = `Totals — <span class="pill">Units: ${totals.units}</span> <span class="pill">Area: ${formatArea(totals.area)} m²</span>`;
+  if (groups.size > 1){
+    const orderList = [...groups.keys()].filter(Boolean);
+    if (orderList.length){
+      html += ` <span class="muted small">Multiple orders: ${orderList.join(", ")}</span>`;
+    }
+  }
+  return html;
+}
+
+function updateOrderInfo(scope){
+  const bucket = scope === "history" ? appState.historyDetail : appState.extract;
+  const rows = bucket.rows || [];
+  const orderNumbers = collectOrderNumbers(rows);
+  const targetId = scope === "history" ? "historyOrderInfo" : "orderInfo";
+  const el = document.getElementById(targetId);
+  if (!el) return;
+  const pieces = [];
+  if (!orderNumbers.length){
+    pieces.push("Order number not detected.");
+  }else if (orderNumbers.length === 1){
+    pieces.push(`Order: ${orderNumbers[0]}`);
+  }else{
+    pieces.push(`Orders: ${orderNumbers.join(", ")}`);
+  }
+  const clientName = scope === "history"
+    ? (historyState.selectedOrder && (historyState.selectedOrder.client || historyState.selectedOrder.client_hint))
+    : appState.extract.client;
+  pieces.push(`Client: ${(clientName && clientName.trim()) ? clientName : "—"}`);
+  el.textContent = pieces.join(" • ");
+}
+
+function updateTotalsUI(scope){
+  const bucket = scope === "history" ? appState.historyDetail : appState.extract;
+  const rows = bucket.rows || [];
+  const summaryId = scope === "history" ? "historySummary" : "summary";
+  const summaryEl = document.getElementById(summaryId);
+  const totals = computeTotals(rows);
+  if (summaryEl){
+    summaryEl.innerHTML = buildSummaryHtml(rows, totals);
+  }
+  bucket.parsedUnits = totals.units;
+  bucket.parsedArea = totals.area;
+  if (scope === "history"){
+    updateDeclaredBanner("historyDeclaredBanner", bucket.declaredUnits, bucket.declaredArea, bucket.parsedUnits, bucket.parsedArea);
+  }else{
+    updateDeclaredBanner("declaredBanner", bucket.declaredUnits, bucket.declaredArea, bucket.parsedUnits, bucket.parsedArea);
+  }
+  updateOrderInfo(scope);
+  updateFixAllState(scope);
+}
+
+function updateFixAllState(scope){
+  if (scope === "history"){
+    const btn = document.getElementById("historyFixAllAreas");
+    if (!btn) return;
+    const order = appState.historyDetail.order;
+    const status = (order && order.status || "").toLowerCase();
+    const mismatchCount = (appState.historyDetail.rows || []).filter(row => {
+      const computed = typeof row.computed_area === "number" ? row.computed_area : areaFromDim(row.dimension);
+      if (computed == null) return false;
+      return Math.abs(Number(row.area || 0) - computed) > 0.01;
+    }).length;
+    btn.hidden = status !== "draft" || mismatchCount === 0;
+  }else{
+    const btn = document.getElementById("fixAllAreas");
+    if (!btn) return;
+    const mismatchCount = (appState.extract.rows || []).filter(row => {
+      const computed = typeof row.computed_area === "number" ? row.computed_area : areaFromDim(row.dimension);
+      if (computed == null) return false;
+      return Math.abs(Number(row.area || 0) - computed) > 0.01;
+    }).length;
+    btn.hidden = groupState || mismatchCount === 0;
+  }
+}
+
+function updateHistoryDetailUI(){
+  withPreservedFocus(() => {
+    const container = document.getElementById("historyTableWrap");
+    const empty = document.getElementById("historyDetailEmpty");
+    const approveBtn = document.getElementById("historyApprove");
+    const order = appState.historyDetail.order;
+    recalcParsedTotals(appState.historyDetail);
+    const fixAllBtn = document.getElementById("historyFixAllAreas");
+    if (!appState.historyDetail.order){
+      if (container) container.innerHTML = "";
+      renderWarningList("historyWarnings", []);
+      updateDeclaredBanner("historyDeclaredBanner", null, null, null, null);
+      if (approveBtn) approveBtn.disabled = true;
+      if (empty) empty.style.display = "block";
+      historyPrintBtn.disabled = true;
+      historyCsvBtn.disabled = true;
+      if (historyProcessingBtn) historyProcessingBtn.disabled = true;
+      historyMetaEl.textContent = "";
+      if (fixAllBtn) fixAllBtn.hidden = true;
+      updateTotalsUI("history");
+      return;
+    }
+    const status = (order.status || "").toLowerCase();
+    const clientName = order.client || order.client_hint || "—";
+    const client = `Client: ${clientName}`;
+    const metaPieces = [formatDate(order.created_at), client, `Source: ${order.source || "—"}`, `Status: ${status || "unknown"}`];
+    historyMetaEl.textContent = metaPieces.join(" • ");
+    historyPrintBtn.disabled = !(order.rows && order.rows.length);
+    historyCsvBtn.disabled = status !== "approved";
+    if (historyProcessingBtn) historyProcessingBtn.disabled = !(order.rows && order.rows.length);
+    if (status === "draft"){
+      renderEditableTable("history", "historyTableWrap", appState.historyDetail.rows, appState.historyDetail.rowWarnings || {});
+      if (approveBtn) approveBtn.disabled = !(appState.historyDetail.rows && appState.historyDetail.rows.length);
+      const toggle = document.getElementById("historyGroupToggle");
+      if (toggle){
+        toggle.checked = false;
+        toggle.disabled = true;
+      }
+    }else{
+      render(appState.historyDetail.rows, { scope: "history" });
+      if (approveBtn) approveBtn.disabled = true;
+      const toggle = document.getElementById("historyGroupToggle");
+      if (toggle) toggle.disabled = false;
+      if (!appState.historyDetail.rows || !appState.historyDetail.rows.length){
+        if (container) container.innerHTML = '<div class="empty-state">No rows saved for this order.</div>';
+      }
+    }
+    renderWarningList("historyWarnings", appState.historyDetail.warnings);
+    updateTotalsUI("history");
+    const notesEl = document.getElementById("historyNotes");
+    if (notesEl && notesEl.value !== appState.historyDetail.notes){
+      notesEl.value = appState.historyDetail.notes || "";
+    }
+    if (empty) empty.style.display = "none";
+  });
+  updateLabelsUI();
+}
+
+function render(rows, opts={}){
+  const scope = opts.scope || "extract";
+  if (!(scope in renderTargets)) return;
+  if (rows === undefined || rows === null){
+    rows = renderState[scope].rows || [];
+  }else{
+    renderState[scope].rows = Array.isArray(rows) ? rows : [];
+  }
+  const sourceRows = Array.isArray(rows) ? rows : [];
+  const useGrouped = groupState;
+  const rowsForView = useGrouped ? groupWithinOrders(sourceRows) : sourceRows;
+  renderState[scope].displayed = rowsForView;
+
+  const target = renderTargets[scope];
+  const tableWrap = document.getElementById(target.tableId);
+  const summaryEl = document.getElementById(target.summaryId);
+  const orderInfoEl = document.getElementById(target.orderInfoId);
+
+  if (!tableWrap) return;
+
+  if (!sourceRows.length){
+    tableWrap.innerHTML = "";
+    if (summaryEl) summaryEl.textContent = "";
+    if (orderInfoEl) orderInfoEl.textContent = "";
+    return;
+  }
+
+  const groups = summarizeByOrder(rowsForView);
+  const orderList = [...groups.keys()].filter(Boolean);
+  const totals = computeTotals(rowsForView);
+
+  if (summaryEl){
+    let html = `Totals — <span class="pill">Units: ${totals.units}</span> <span class="pill">Area: ${formatArea(totals.area)} m²</span>`;
+    if (groups.size > 1){
+      html += `<span class="muted small">Multiple orders: ${orderList.join(", ")}</span>`;
+    }
+    summaryEl.innerHTML = html;
+  }
+
+  if (orderInfoEl){
+    if (!orderList.length){
+      orderInfoEl.textContent = "Order number not detected.";
+    }else if (orderList.length === 1){
+      orderInfoEl.textContent = `Order: ${orderList[0]}`;
+    }else{
+      orderInfoEl.textContent = `Orders: ${orderList.join(", ")}`;
+    }
+  }
+
+  let html = "";
+  for(const [order, rowsForOrder] of groups.entries()){
+    const total = computeTotals(rowsForOrder);
+    if (groups.size > 1){
+      html += `<div style="padding:12px 14px"><div style="font-weight:600">${order || "No order number"}</div><div class="muted small">Units: ${total.units} • Area: ${formatArea(total.area)} m²</div></div>`;
+    }
+    html += `<table><thead><tr>
+      <th>#</th>
+      <th>Order</th>
+      <th>Type</th>
+      <th>Dimension</th>
+      <th>Position</th>
+      <th>Quantity</th>
+      <th>Area (m²)</th>
+    </tr></thead><tbody>`;
+    rowsForOrder.forEach((row, idx)=>{
       html += `<tr>
-        <td>${idx+1}</td>
-        <td class="mono">${r.order_number||''}</td>
-        <td>${r.type||''}</td>
-        <td class="mono">${(r.dimension && r.dimension.length) ? r.dimension : '—'}</td>
-        <td class="mono">${r.position}</td>
-        <td>${r.quantity}</td>
-        <td>${Number(r.area).toFixed(3)}</td>
+        <td>${idx + 1}</td>
+        <td class="mono">${row.order_number || ""}</td>
+        <td>${row.type || ""}</td>
+        <td class="mono">${row.dimension ? row.dimension : "—"}</td>
+        <td class="mono">${row.position || ""}</td>
+        <td>${row.quantity}</td>
+        <td>${formatArea(row.area)}</td>
       </tr>`;
     });
-    html += '</tbody></table>';
+    html += "</tbody></table>";
   }
   tableWrap.innerHTML = html;
 }
 
-function applyExtractionResult(data){
-  const rows = (data && data.rows) ? data.rows : [];
-  window.__rows = rows;
-  render(rows);
-  const uniqOrders = Array.from(new Set(rows.map(r => (r.order_number || '').trim()).filter(Boolean)));
-  const orderInfoEl = document.getElementById('orderInfo');
-  if (!orderInfoEl) return;
-  orderInfoEl.textContent = uniqOrders.length
-    ? (uniqOrders.length === 1 ? ('Order: ' + uniqOrders[0]) : ('Orders: ' + uniqOrders.join(', ')))
-    : 'Order number not detected.';
+function getDisplayedRows(scope="extract"){
+  if (scope === "extract"){
+    if (groupState){
+      return groupWithinOrders(appState.extract.rows || []);
+    }
+    return appState.extract.rows || [];
+  }
+  if (scope === "history"){
+    const status = (appState.historyDetail.order && appState.historyDetail.order.status || "").toLowerCase();
+    if (status === "draft"){
+      return appState.historyDetail.rows || [];
+    }
+    if (groupState){
+      return groupWithinOrders(appState.historyDetail.rows || []);
+    }
+    const state = renderState[scope];
+    if (state && state.displayed && state.displayed.length) return state.displayed;
+    return appState.historyDetail.rows || [];
+  }
+  return [];
 }
 
-async function callAPI(text){
-  const status = document.getElementById('status');
-  const errEl = document.getElementById('error');
-  errEl.style.display='none';
-  status.innerHTML = '<span class="spinner"></span> Extracting…';
+function ensureHistoryLoaded(){
+  if (historyState.loading){
+    return historyState.loadingPromise;
+  }
+  if (!historyState.loadedOnce || historyState.needsRefresh){
+    historyState.loadingPromise = loadHistory({ resetOffset: historyState.needsRefresh });
+    return historyState.loadingPromise;
+  }
+  return Promise.resolve();
+}
+
+function readHistoryCache(){
   try{
-    const res = await fetch(API_BASE + '/extract', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({text})
-    });
-    if(!res.ok){
-      const t = await res.text();
-      throw new Error(t || ('HTTP '+res.status));
-    }
-    const data = await res.json();
-    status.textContent = 'Done.';
-    return data;
-  }catch(e){
-    status.textContent = '';
-    errEl.style.display='block';
-    errEl.textContent = 'Error: ' + e.message;
-    throw e;
+    const raw = localStorage.getItem(HISTORY_CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  }catch{
+    return [];
   }
 }
 
-async function callPdfAPI(file){
-  const status = document.getElementById('status');
-  const errEl = document.getElementById('error');
-  errEl.style.display='none';
-  status.innerHTML = '<span class="spinner"></span> Extracting PDF…';
-  const formData = new FormData();
-  formData.append('file', file, file.name || 'upload.pdf');
+function writeHistoryCache(items){
   try{
-    const res = await fetch(API_BASE + '/extract_pdf', {
-      method: 'POST',
-      body: formData
+    localStorage.setItem(HISTORY_CACHE_KEY, JSON.stringify(items));
+  }catch{
+    /* ignore quota errors */
+  }
+}
+
+function updateHistoryCache(newItems){
+  const map = new Map();
+  const merged = [...newItems, ...readHistoryCache()];
+  merged.forEach(item=>{
+    if (!item || typeof item.id === "undefined") return;
+    map.set(item.id, item);
+  });
+  const sorted = Array.from(map.values()).sort((a,b)=>{
+    const da = new Date(a.created_at || 0).getTime();
+    const db = new Date(b.created_at || 0).getTime();
+    return db - da;
+  });
+  writeHistoryCache(sorted.slice(0, HISTORY_CACHE_LIMIT));
+}
+
+function removeFromHistoryCache(id){
+  const filtered = readHistoryCache().filter(item => item.id !== id);
+  writeHistoryCache(filtered);
+}
+
+async function fetchOrders(params){
+  const search = new URLSearchParams();
+  if (params.limit) search.set("limit", String(params.limit));
+  if (params.offset) search.set("offset", String(params.offset));
+  if (params.query) search.set("query", params.query);
+  if (params.status) search.set("status", params.status);
+  const url = API_BASE + "/orders" + (search.toString() ? "?" + search.toString() : "");
+  const res = await fetch(url);
+  if (!res.ok){
+    const text = await res.text();
+    throw new Error(text || ("HTTP " + res.status));
+  }
+  return res.json();
+}
+
+async function fetchOrder(id){
+  const res = await fetch(API_BASE + "/orders/" + id);
+  if (!res.ok){
+    const text = await res.text();
+    throw new Error(text || ("HTTP " + res.status));
+  }
+  return res.json();
+}
+
+async function deleteOrder(id){
+  const res = await fetch(API_BASE + "/orders/" + id, { method: "DELETE" });
+  if (!res.ok){
+    const text = await res.text();
+    throw new Error(text || ("HTTP " + res.status));
+  }
+}
+
+async function downloadOrderCsv(id){
+  const res = await fetch(API_BASE + "/orders/" + id + "/csv");
+  if (!res.ok){
+    const text = await res.text();
+    throw new Error(text || ("HTTP " + res.status));
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "order-" + id + ".csv";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function downloadAllCsv(){
+  const res = await fetch(API_BASE + "/orders/export.csv");
+  if (!res.ok){
+    const text = await res.text();
+    throw new Error(text || ("HTTP " + res.status));
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "orders-export.csv";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function loadHistory(opts={}){
+  const resetOffset = !!opts.resetOffset;
+  if (resetOffset) historyState.offset = 0;
+  historyState.loading = true;
+  setHistoryStatus("Loading history…");
+  updateHistoryOfflineBadge();
+  historyPageEl.textContent = String(Math.floor(historyState.offset / historyState.limit) + 1);
+
+  try{
+    const data = await fetchOrders({
+      query: historyState.query || undefined,
+      status: historyState.status || undefined,
+      limit: historyState.limit,
+      offset: historyState.offset
     });
-    if(!res.ok){
-      const t = await res.text();
-      throw new Error(t || ('HTTP '+res.status));
+    historyState.items = data.items || [];
+    historyState.hasMore = !!data.has_more;
+    historyState.offline = false;
+    historyState.loadedOnce = true;
+    historyState.needsRefresh = false;
+    updateHistoryCache(historyState.items);
+    renderOrdersList();
+    updateHistoryOfflineBadge();
+    setHistoryStatus(historyState.items.length ? "" : "No saved orders yet.");
+  }catch(error){
+    const cached = readHistoryCache();
+    if (cached.length){
+      historyState.items = historyState.status
+        ? cached.filter(item => (item.status || "").toLowerCase() === historyState.status.toLowerCase())
+        : cached;
+      historyState.hasMore = false;
+      historyState.offline = true;
+      historyState.loadedOnce = true;
+      historyState.needsRefresh = false;
+      renderOrdersList();
+      updateHistoryOfflineBadge();
+      setHistoryStatus("Offline mode — showing cached results.");
+    }else{
+      historyState.items = [];
+      renderOrdersList();
+      setHistoryStatus("Unable to load history: " + (error.message || error));
     }
-    const data = await res.json();
-    status.textContent = 'Done.';
-    return data;
-  }catch(e){
-    status.textContent = '';
-    errEl.style.display='block';
-    errEl.textContent = 'Error: ' + e.message;
-    throw e;
+  }finally{
+    historyState.loading = false;
+    historyPageEl.textContent = String(Math.floor(historyState.offset / historyState.limit) + 1);
+    updateHistoryControls();
+  }
+}
+
+function updateHistoryControls(){
+  document.getElementById("historyPrev").disabled = historyState.offset <= 0 || historyState.loading;
+  document.getElementById("historyNext").disabled = historyState.loading || !historyState.hasMore;
+}
+
+function renderOrdersList(){
+  const container = document.getElementById("historyListWrap");
+  if (!historyState.items.length){
+    container.innerHTML = '<div class="empty-state">No orders found.</div>';
+    return;
+  }
+  const rows = historyState.items.map(order=>{
+    const orderNumbers = (order.order_numbers || []).join(", ") || "—";
+    const client = order.client || order.client_hint || "—";
+    const source = order.source || "—";
+    const created = formatDate(order.created_at);
+    const status = (order.status || "").toUpperCase();
+    const csvDisabled = status !== "APPROVED" ? "disabled" : "";
+    return `<tr data-id="${order.id}">
+      <td>${created}</td>
+      <td>${orderNumbers}</td>
+      <td>${client}</td>
+      <td><span class="pill">${source}</span></td>
+      <td>${order.units_total || 0}</td>
+      <td>${formatArea(order.area_total)}</td>
+      <td><span class="pill ${status === 'APPROVED' ? '' : 'warn'}">${status || "—"}</span></td>
+      <td class="actions-cell">
+        <button class="btn small" data-action="open" data-id="${order.id}">Open</button>
+        <button class="btn small" data-action="processing" data-id="${order.id}">Processing</button>
+        <button class="btn small" data-action="csv" data-id="${order.id}" ${csvDisabled}>CSV</button>
+        <button class="btn small" data-action="print" data-id="${order.id}">Labels</button>
+        <button class="btn small danger" data-action="delete" data-id="${order.id}">Delete</button>
+      </td>
+    </tr>`;
+  }).join("");
+  container.innerHTML = `<table>
+    <thead>
+      <tr>
+        <th>Date / Time</th>
+        <th>Order Numbers</th>
+        <th>Client</th>
+        <th>Source</th>
+        <th>Units</th>
+        <th>Area</th>
+        <th>Status</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+async function openOrderFromList(id){
+  if (!id) return;
+  historyMetaEl.textContent = "Loading order…";
+  historyDetailEmpty.style.display = "none";
+  historyPrintBtn.disabled = true;
+  historyCsvBtn.disabled = true;
+  try{
+    const order = await fetchOrder(id);
+    historyState.selectedOrder = order;
+    renderOrderDetail();
+  }catch(error){
+    setHistoryStatus("Failed to load order: " + (error.message || error));
+  }
+}
+
+function renderOrderDetail(){
+  const order = historyState.selectedOrder;
+  if (!order){
+    appState.historyDetail.order = null;
+    appState.historyDetail.rows = [];
+    appState.historyDetail.rowWarnings = {};
+    appState.historyDetail.warnings = [];
+    appState.historyDetail.notes = "";
+    updateHistoryDetailUI();
+    return;
+  }
+
+  appState.historyDetail.order = order;
+  const rows = Array.isArray(order.rows) ? order.rows.map(row => ({ ...row })) : [];
+  const warningsSource = order.row_warnings || {};
+  const warningsMap = {};
+  appState.historyDetail.nextRid = 0;
+  const timestampBase = Date.now();
+  appState.historyDetail.rows = rows.map((row, idx) => {
+    const rid = row._rid || `hist-${timestampBase}-${appState.historyDetail.nextRid++}`;
+    const enriched = { ...row, _rid: rid };
+    const rowWarn = Array.isArray(warningsSource)
+      ? warningsSource[idx]
+      : warningsSource[idx] || warningsSource[rid];
+    if (rowWarn && rowWarn.length){
+      warningsMap[rid] = rowWarn;
+    }
+    return enriched;
+  });
+  appState.historyDetail.rowWarnings = warningsMap;
+  appState.historyDetail.warnings = order.warnings || [];
+  appState.historyDetail.notes = order.notes || "";
+  appState.historyDetail.declaredUnits = order.declared_units ?? null;
+  appState.historyDetail.declaredArea = order.declared_area ?? null;
+  appState.historyDetail.parsedUnits = order.parsed_units ?? null;
+  appState.historyDetail.parsedArea = order.parsed_area ?? null;
+  updateHistoryDetailUI();
+}
+
+document.getElementById("historyListWrap").addEventListener("click", async (event)=>{
+  const btn = event.target.closest("button[data-action]");
+  if (!btn) return;
+  const id = Number(btn.dataset.id);
+  if (!id) return;
+  const action = btn.dataset.action;
+  if (action === "open"){
+    await openOrderFromList(id);
+  }else if (action === "processing"){
+    try{
+      await sendOrderToProcessing(id);
+      setHistoryStatus("Added to Processing.");
+    }catch(error){
+      setHistoryStatus("Failed to add to Processing: " + (error.message || error));
+    }
+  }else if (action === "csv"){
+    try{
+      await downloadOrderCsv(id);
+      setHistoryStatus("");
+    }catch(error){
+      setHistoryStatus("Download failed: " + (error.message || error));
+    }
+  }else if (action === "print"){
+    try{
+      const order = await fetchOrder(id);
+      if (order.rows && order.rows.length){
+        await handlePrint(order.rows);
+        setHistoryStatus("Labels ready.");
+      }else{
+        setHistoryStatus("No rows to print for this order.");
+      }
+    }catch(error){
+      setHistoryStatus("Failed to generate labels: " + (error.message || error));
+    }
+  }else if (action === "delete"){
+    if (!confirm(`Delete order #${id}?`)) return;
+    setHistoryStatus("Deleting order…");
+    try{
+      await deleteOrder(id);
+      removeFromHistoryCache(id);
+      if (historyState.selectedOrder && historyState.selectedOrder.id === id){
+        historyState.selectedOrder = null;
+        renderOrderDetail();
+      }
+      historyState.needsRefresh = true;
+      await loadHistory({ resetOffset: false });
+      setHistoryStatus("Order deleted.");
+    }catch(error){
+      setHistoryStatus("Failed to delete order: " + (error.message || error));
+    }
+  }
+});
+
+document.getElementById("historyPrev").addEventListener("click", ()=>{
+  if (historyState.offset <= 0) return;
+  historyState.offset = Math.max(historyState.offset - historyState.limit, 0);
+  loadHistory();
+});
+
+document.getElementById("historyNext").addEventListener("click", ()=>{
+  if (!historyState.hasMore) return;
+  historyState.offset += historyState.limit;
+  loadHistory();
+});
+
+document.getElementById("historyRefresh").addEventListener("click", ()=>{
+  loadHistory();
+});
+
+document.getElementById("historyDownloadAll").addEventListener("click", async ()=>{
+  setHistoryStatus("Preparing CSV export…");
+  try{
+    await downloadAllCsv();
+    setHistoryStatus("Export ready.");
+  }catch(error){
+    setHistoryStatus("Failed to export: " + (error.message || error));
+  }
+});
+
+document.getElementById("historyCsv").addEventListener("click", async ()=>{
+  const order = historyState.selectedOrder;
+  if (!order) return;
+  try{
+    await downloadOrderCsv(order.id);
+    setHistoryStatus("");
+  }catch(error){
+    setHistoryStatus("Download failed: " + (error.message || error));
+  }
+});
+
+document.getElementById("historyProcessing").addEventListener("click", async ()=>{
+  const order = historyState.selectedOrder;
+  if (!order) return;
+  try{
+    await sendOrderToProcessing(order.id);
+    setHistoryStatus("Added to Processing.");
+  }catch(error){
+    setHistoryStatus("Failed to add to Processing: " + (error.message || error));
+  }
+});
+
+if (processingOrderList){
+  processingOrderList.addEventListener("click", (event)=>{
+    const btn = event.target.closest("[data-remove-processing]");
+    if (!btn) return;
+    const id = btn.dataset.removeProcessing;
+    if (!id) return;
+    removeOrderFromProcessing(id);
+    setStatusMessage("Order removed from Processing.");
+  });
+}
+
+if (processingClearBtn){
+  processingClearBtn.addEventListener("click", ()=>{
+    clearProcessing();
+    setStatusMessage("Processing sheet cleared.");
+  });
+}
+
+if (processingGroupBtn){
+  processingGroupBtn.addEventListener("click", ()=>{
+    appState.processing.grouped = !appState.processing.grouped;
+    rebuildProcessingRows();
+    updateProcessingUI();
+    setStatusMessage(appState.processing.grouped ? "Dimensions grouped." : "Grouping disabled.");
+  });
+}
+
+if (processingRestartToggle){
+  processingRestartToggle.addEventListener("change", (event)=>{
+    appState.processing.options.restartPerGroup = !!event.target.checked;
+    rebuildProcessingRows();
+    updateProcessingUI();
+  });
+}
+
+if (processingNormalizeToggle){
+  processingNormalizeToggle.addEventListener("change", (event)=>{
+    appState.processing.options.normalizeLPtoG = !!event.target.checked;
+    rebuildProcessingRows();
+    updateProcessingUI();
+  });
+}
+
+if (processingDecimalSelect){
+  processingDecimalSelect.addEventListener("change", (event)=>{
+    appState.processing.options.decimalSeparator = event.target.value === "dot" ? "dot" : "comma";
+    rebuildProcessingRows();
+    updateProcessingUI();
+  });
+}
+
+if (processingMergeOrdersToggle){
+  processingMergeOrdersToggle.addEventListener("change", (event)=>{
+    appState.processing.options.mergeAcrossOrders = !!event.target.checked;
+    rebuildProcessingRows();
+    updateProcessingUI();
+  });
+}
+
+if (processingHeaderSelect){
+  processingHeaderSelect.addEventListener("change", ()=>{
+    syncProcessingHeaderEditor();
+  });
+}
+
+if (processingHeaderApply){
+  processingHeaderApply.addEventListener("click", ()=>{
+    if (!processingHeaderSelect || processingHeaderSelect.disabled) return;
+    if (!processingHeaderInput) return;
+    const raw = processingHeaderSelect.value;
+    if (!raw) return;
+    const value = (processingHeaderInput.value || "").trim();
+    if (value){
+      appState.processing.headerOverrides[raw] = value;
+    }else{
+      delete appState.processing.headerOverrides[raw];
+    }
+    rebuildProcessingRows();
+    updateProcessingUI();
+  });
+}
+
+if (processingHeaderReset){
+  processingHeaderReset.addEventListener("click", ()=>{
+    if (!processingHeaderSelect || processingHeaderSelect.disabled) return;
+    const raw = processingHeaderSelect.value;
+    if (!raw) return;
+    delete appState.processing.headerOverrides[raw];
+    rebuildProcessingRows();
+    updateProcessingUI();
+  });
+}
+
+if (processingCopyBtn){
+  processingCopyBtn.addEventListener("click", ()=>{ copyProcessingText(); });
+}
+
+if (processingExportPdfBtn){
+  processingExportPdfBtn.addEventListener("click", async ()=>{
+    try{
+      await exportProcessingPdf();
+    }catch(error){
+      setStatusMessage("PDF export failed: " + (error.message || error));
+    }
+  });
+}
+
+if (processingExportCsvBtn){
+  processingExportCsvBtn.addEventListener("click", ()=>{
+    try{
+      exportProcessingCsv();
+    }catch(error){
+      setStatusMessage("CSV export failed: " + (error.message || error));
+    }
+  });
+}
+
+if (labelsFromProcessingBtn){
+  labelsFromProcessingBtn.addEventListener("click", ()=>{
+    addLabelJobsFromProcessing();
+  });
+}
+
+if (labelsFromProcessingDownloadBtn){
+  labelsFromProcessingDownloadBtn.addEventListener("click", async ()=>{
+    const processingCount = appState.processing.cart ? appState.processing.cart.length : 0;
+    if (!processingCount){
+      setLabelsStatus("Processing is empty.");
+      return;
+    }
+    if (processingCount < 2){
+      setLabelsStatus("Add at least two orders in Processing to download combined labels.");
+      return;
+    }
+    const result = addLabelJobsFromProcessing({ silent: true }) || { addedJobs: [], skipped: [], totalRows: 0 };
+    if (!result.addedJobs.length){
+      if (!result.skipped.length){
+        setLabelsStatus("No orders added from Processing.");
+      }else{
+        setLabelsStatus(`Skipped: ${result.skipped.join(", ")}`);
+      }
+      return;
+    }
+    const combinedRows = result.addedJobs.flatMap(job => Array.isArray(job.rows) ? job.rows : []);
+    if (!combinedRows.length){
+      const skipNote = result.skipped.length ? ` Skipped: ${result.skipped.join(", ")}` : "";
+      setLabelsStatus(`Added ${result.addedJobs.length} orders but no rows available.${skipNote}`);
+      return;
+    }
+    try{
+      await handlePrint(combinedRows);
+      const skipNote = result.skipped.length ? ` Skipped: ${result.skipped.join(", ")}` : "";
+      setLabelsStatus(`Added ${result.addedJobs.length} orders (${result.totalRows} rows) and downloaded combined labels.${skipNote}`);
+    }catch(error){
+      console.error("Combined labels download failed", error);
+      setLabelsStatus("Error generating combined labels.");
+    }
+  });
+}
+
+if (labelsFromHistoryBtn){
+  labelsFromHistoryBtn.addEventListener("click", ()=>{
+    const rows = appState.historyDetail.rows || [];
+    if (!rows.length){
+      setLabelsStatus("Select an order in History first.");
+      return;
+    }
+    const sourceLabel = historyState.selectedOrder
+      ? `History #${historyState.selectedOrder.id}`
+      : "History selection";
+    addLabelsJob(sourceLabel, rows, {
+      formatMessage: (job)=>{
+        const orders = job.orders.length ? job.orders.join(", ") : "no order number";
+        const labelWord = job.labels === 1 ? "label" : "labels";
+        return `Added ${job.labels} ${labelWord} from history (${orders}).`;
+      }
+    });
+  });
+}
+
+if (labelsClearBtn){
+  labelsClearBtn.addEventListener("click", ()=>{
+    if (!appState.labels.jobs.length){
+      setLabelsStatus("No label jobs to clear.");
+      return;
+    }
+    appState.labels.jobs = [];
+    setLabelsStatus("Cleared label jobs.");
+    updateLabelsUI();
+  });
+}
+
+if (labelsJobsWrap){
+  labelsJobsWrap.addEventListener("click", async (event)=>{
+    const btn = event.target.closest("button[data-action]");
+    if (!btn) return;
+    const id = btn.dataset.id;
+    const action = btn.dataset.action;
+    if (!id || !action) return;
+    const index = appState.labels.jobs.findIndex(job => job.id === id);
+    if (index < 0){
+      setLabelsStatus("Label job not found.");
+      return;
+    }
+    const job = appState.labels.jobs[index];
+    if (action === "labels-download"){
+      try{
+        await handlePrint(job.rows);
+        setLabelsStatus("Labels ready (downloaded).");
+      }catch(error){
+        console.error("Label download failed", error);
+        setLabelsStatus("Error generating labels.");
+      }
+    }else if (action === "labels-remove"){
+      appState.labels.jobs.splice(index, 1);
+      setLabelsStatus("Label job removed.");
+      updateLabelsUI();
+    }
+  });
+}
+
+document.getElementById("historyApprove").addEventListener("click", async ()=>{
+  const order = historyState.selectedOrder;
+  if (!order) return;
+  if ((order.status || "").toLowerCase() !== "draft"){
+    setHistoryStatus("This order is already approved.");
+    return;
+  }
+  const rows = (appState.historyDetail.rows || []).map(row => ({
+    order_number: row.order_number || "",
+    type: row.type || "",
+    dimension: row.dimension || "",
+    position: row.position || "",
+    quantity: Number(row.quantity || 0),
+    area: Number(row.area || 0),
+  }));
+  setHistoryStatus("Approving draft…");
+  try{
+    const resp = await approveDraft(order.id, rows, appState.historyDetail.notes);
+    setHistoryStatus("Order approved.");
+    historyState.needsRefresh = true;
+    try{
+      await loadHistory({ resetOffset: false });
+    }catch(err){
+      console.warn("History refresh failed after approval", err);
+    }
+    try{
+      const refreshed = await fetchOrder(order.id);
+      historyState.selectedOrder = refreshed;
+      renderOrderDetail();
+    }catch(err){
+      console.warn("Failed to reload approved order", err);
+    }
+    showSavedToast(resp?.saved_order_id || order.id);
+  }catch(error){
+    console.error("Order approval failed", error);
+    let fallbackHandled = false;
+    // Try to reload the order detail directly
+    try{
+      const snapshot = await fetchOrder(order.id);
+      if (snapshot && (snapshot.status || "").toLowerCase() === "approved"){
+        historyState.selectedOrder = snapshot;
+        renderOrderDetail();
+        historyState.needsRefresh = true;
+        try{
+          await loadHistory({ resetOffset: false });
+        }catch(loadErr){
+          console.warn("History refresh failed after fallback", loadErr);
+        }
+        setHistoryStatus("Order approved (auto-recovered).");
+        showSavedToast(snapshot.id || order.id);
+        fallbackHandled = true;
+      }
+    }catch(fallbackErr){
+      console.warn("Fallback approval fetch failed", fallbackErr);
+    }
+
+    // If direct fetch failed, see whether the history list already shows the order as approved
+    if (!fallbackHandled){
+      try{
+        await loadHistory({ resetOffset: false });
+        const inHistory = historyState.items.find(item => item.id === order.id);
+        if (inHistory && (inHistory.status || "").toLowerCase() === "approved"){
+          historyState.selectedOrder = await fetchOrder(order.id).catch(()=> ({ ...order, status: "approved" }));
+          renderOrderDetail();
+          setHistoryStatus("Order approved (history shows success).");
+          showSavedToast(order.id);
+          fallbackHandled = true;
+        }
+      }catch(historyErr){
+        console.warn("History reload after approval error failed", historyErr);
+      }
+    }
+
+    if (!fallbackHandled){
+      setHistoryStatus("Approval failed: " + (error && error.message ? error.message : String(error)));
+    }
+  }
+});
+
+document.getElementById("historyPrint").addEventListener("click", async ()=>{
+  const rows = getDisplayedRows("history");
+  if (!rows.length){
+    setHistoryStatus("No rows to print.");
+    return;
+  }
+  setHistoryStatus("Generating labels…");
+  try{
+    await handlePrint(rows);
+    setHistoryStatus("Labels ready.");
+  }catch(error){
+    setHistoryStatus("Failed to generate labels: " + (error.message || error));
+  }
+});
+
+document.getElementById("historyLimit").addEventListener("change", (event)=>{
+  historyState.limit = Number(event.target.value) || 25;
+  historyState.offset = 0;
+  loadHistory({ resetOffset: true });
+});
+
+document.getElementById("historyStatusFilter").addEventListener("change", (event)=>{
+  historyState.status = event.target.value || "";
+  historyState.offset = 0;
+  loadHistory({ resetOffset: true });
+});
+
+let historySearchTimer = null;
+document.getElementById("historySearch").addEventListener("input", (event)=>{
+  const value = event.target.value.trim();
+  historyState.query = value;
+  historyState.offset = 0;
+  clearTimeout(historySearchTimer);
+  historySearchTimer = setTimeout(()=> loadHistory({ resetOffset: true }), 250);
+});
+
+// ---------- LLM extraction + PDF handling -----------------------------------
+async function callAPI(text){
+  setErrorMessage("");
+  setStatusMessage('<span class="spinner"></span> Extracting…');
+  const res = await fetch(API_BASE + "/extract", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text })
+  });
+  if (!res.ok){
+    const message = await res.text();
+    throw new Error(message || ("HTTP " + res.status));
+  }
+  const data = await res.json();
+  setStatusMessage("Done.");
+  return data;
+}
+
+async function callPdfAPI(file){
+  setErrorMessage("");
+  setStatusMessage('<span class="spinner"></span> Extracting PDF…');
+  const formData = new FormData();
+  formData.append("file", file, file.name || "upload.pdf");
+  const res = await fetch(API_BASE + "/extract_pdf", {
+    method: "POST",
+    body: formData
+  });
+  if (!res.ok){
+    const message = await res.text();
+    throw new Error(message || ("HTTP " + res.status));
+  }
+  const data = await res.json();
+  setStatusMessage("Done.");
+  return data;
+}
+
+async function approveDraft(orderId, rows, notes){
+  const res = await fetch(`${API_BASE}/orders/${orderId}/approve`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rows, notes: notes || undefined })
+  });
+  if (!res.ok){
+    const text = await res.text();
+    throw new Error(text || (`HTTP ${res.status}`));
+  }
+  return res.json();
+}
+
+function applyExtractionResult(data){
+  const rows = Array.isArray(data?.rows) ? data.rows.map(row => ({ ...row })) : [];
+  const warningsSource = data?.row_warnings || {};
+  appState.extract.nextRid = 0;
+  const warningsMap = {};
+  const timestampBase = Date.now();
+  appState.extract.rows = rows.map((row, idx) => {
+    const rid = row._rid || `ex-${timestampBase}-${appState.extract.nextRid++}`;
+    const enriched = { ...row, _rid: rid };
+    const rowWarn = Array.isArray(warningsSource)
+      ? warningsSource[idx]
+      : warningsSource[idx] || warningsSource[rid];
+    if (rowWarn && rowWarn.length){
+      warningsMap[rid] = rowWarn;
+    }
+    return enriched;
+  });
+  appState.extract.rowWarnings = warningsMap;
+  appState.extract.warnings = data?.warnings || [];
+  appState.extract.draftId = data?.draft_order_id || null;
+  appState.extract.status = data?.status || (data?.saved_order_id ? "approved" : "draft");
+  appState.extract.savedOrderId = data?.saved_order_id || null;
+  appState.extract.orderNumber = data?.order_number || "";
+  appState.extract.appliedCorrections = data?.applied_corrections || [];
+  appState.extract.notes = "";
+  appState.extract.declaredUnits = data?.declared_units ?? null;
+  appState.extract.declaredArea = data?.declared_area ?? null;
+  appState.extract.parsedUnits = data?.parsed_units ?? null;
+  appState.extract.parsedArea = data?.parsed_area ?? null;
+  appState.extract.client = data?.client || "—";
+  historyState.needsRefresh = true;
+  updateExtractUI();
+  if (data?.saved_order_id){
+    showSavedToast(data.saved_order_id);
   }
 }
 
 async function handleTextExtraction(text){
-  const value = (text || '').trim();
-  if(!value) return;
+  const value = (text || "").trim();
+  if (!value) return;
   try{
     const data = await callAPI(value);
     applyExtractionResult(data);
-  }catch(e){}
+  }catch(error){
+    setStatusMessage("");
+    setErrorMessage("Error: " + (error.message || error));
+  }
 }
 
 async function handlePdfExtraction(file){
-  if(!file) return;
+  if (!file) return;
   try{
     const data = await callPdfAPI(file);
     applyExtractionResult(data);
-  }catch(e){}
+  }catch(error){
+    setStatusMessage("");
+    setErrorMessage("Error: " + (error.message || error));
+  }
 }
 
-document.getElementById('extract').addEventListener('click', async ()=>{
-  const text = document.getElementById('input').value.trim();
-  if(!text){ return; }
-  try{
-    const data = await callAPI(text);
-    applyExtractionResult(data);
-  }catch(e){}
+document.getElementById("extract").addEventListener("click", async ()=>{
+  const text = document.getElementById("input").value.trim();
+  if (!text) return;
+  await handleTextExtraction(text);
 });
 
-document.getElementById('copyCsv').addEventListener('click', async ()=>{
-  const rows = window.__rows_displayed && window.__rows_displayed.length ? window.__rows_displayed : (window.__rows || []);
-  const csv = toCSV(rows);
+document.getElementById("rerun").addEventListener("click", async ()=>{
+  const text = document.getElementById("input").value.trim();
+  if (!text) return;
+  await handleTextExtraction(text);
+});
+
+document.getElementById("approveSave").addEventListener("click", async ()=>{
+  const draftId = appState.extract.draftId;
+  if (!draftId){
+    setStatusMessage("No draft to approve yet.");
+    return;
+  }
+  const rows = (appState.extract.rows || []).map(row => ({
+    order_number: row.order_number || "",
+    type: row.type || "",
+    dimension: row.dimension || "",
+    position: row.position || "",
+    quantity: Number(row.quantity || 0),
+    area: Number(row.area || 0),
+  }));
+  setStatusMessage("Approving draft…");
   try{
-    await navigator.clipboard.writeText(csv);
-    document.getElementById('status').textContent = 'CSV copied.';
-  }catch(e){
-    document.getElementById('status').textContent = 'Copy failed. Select and copy manually.';
+    const resp = await approveDraft(draftId, rows, appState.extract.notes);
+    const updatedRows = Array.isArray(resp?.order?.rows) ? resp.order.rows.map(r => ({ ...r })) : rows;
+    const warningsSource = resp?.row_warnings || {};
+    const warningsMap = {};
+    const timestampBase = Date.now();
+    appState.extract.nextRid = 0;
+    appState.extract.rows = updatedRows.map((row, idx) => {
+      const rid = row._rid || `ex-${timestampBase}-${appState.extract.nextRid++}`;
+      const enriched = { ...row, _rid: rid };
+      const rowWarn = Array.isArray(warningsSource)
+        ? warningsSource[idx]
+        : warningsSource[idx] || warningsSource[rid];
+      if (rowWarn && rowWarn.length){
+        warningsMap[rid] = rowWarn;
+      }
+      return enriched;
+    });
+    appState.extract.rowWarnings = warningsMap;
+    appState.extract.warnings = resp?.warnings || [];
+    appState.extract.draftId = null;
+    appState.extract.status = "approved";
+    appState.extract.savedOrderId = resp?.saved_order_id || draftId;
+    appState.extract.declaredUnits = resp?.declared_units ?? appState.extract.declaredUnits;
+    appState.extract.declaredArea = resp?.declared_area ?? appState.extract.declaredArea;
+    appState.extract.parsedUnits = resp?.parsed_units ?? appState.extract.parsedUnits;
+    appState.extract.parsedArea = resp?.parsed_area ?? appState.extract.parsedArea;
+    updateExtractUI();
+    historyState.needsRefresh = true;
+    loadHistory();
+    setStatusMessage("Order approved.");
+    if (resp?.saved_order_id){
+      showSavedToast(resp.saved_order_id);
+    }
+  }catch(error){
+    setStatusMessage("Approval failed.");
+    setErrorMessage("Approval error: " + (error.message || error));
   }
 });
 
-document.getElementById('downloadCsv').addEventListener('click', ()=>{
-  const rows = window.__rows_displayed && window.__rows_displayed.length ? window.__rows_displayed : (window.__rows || []);
+document.getElementById("copyCsv").addEventListener("click", async ()=>{
+  const rows = getDisplayedRows("extract");
+  if (!rows.length){
+    setStatusMessage("Nothing to copy.");
+    return;
+  }
   const csv = toCSV(rows);
-  const blob = new Blob([csv], {type:'text/csv'});
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'order.csv';
-  a.click();
+  try{
+    await navigator.clipboard.writeText(csv);
+    setStatusMessage("CSV copied.");
+  }catch{
+    setStatusMessage("Copy failed — select and copy manually.");
+  }
 });
 
-document.getElementById('groupToggle').addEventListener('change', ()=>{
-  const rows = window.__rows || [];
-  render(rows);
+document.getElementById("downloadCsv").addEventListener("click", ()=>{
+  const rows = getDisplayedRows("extract");
+  if (!rows.length){
+    setStatusMessage("Nothing to download.");
+    return;
+  }
+  const csv = toCSV(rows);
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "order.csv";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+});
+
+async function handlePrint(rows){
+  if (!rows || !rows.length){
+    throw new Error("No rows to print.");
+  }
+  const pdfBytes = await generateLabelsPdf(rows);
+  const blob = new Blob([pdfBytes], { type: "application/pdf" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "labels.pdf";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+document.getElementById("printLabels").addEventListener("click", async ()=>{
+  const rows = getDisplayedRows("extract");
+  if (!rows.length){
+    setStatusMessage("No rows to print — extract first.");
+    return;
+  }
+  setStatusMessage("Generating labels…");
+  try{
+    await handlePrint(rows);
+    setStatusMessage("Labels ready (downloaded).");
+  }catch(error){
+    console.error(error);
+    setStatusMessage("Error generating labels.");
+  }
 });
 
 function isPdfFile(file){
-  if(!file) return false;
-  const type = (file.type || '').toLowerCase();
-  const name = (file.name || '').toLowerCase();
-  return type === 'application/pdf' || name.endsWith('.pdf');
+  if (!file) return false;
+  const type = (file.type || "").toLowerCase();
+  const name = (file.name || "").toLowerCase();
+  return type === "application/pdf" || name.endsWith(".pdf");
 }
 
 function isPlainTextFile(file){
-  if(!file) return false;
-  const type = (file.type || '').toLowerCase();
-  const name = (file.name || '').toLowerCase();
-  return type.startsWith('text/') || name.endsWith('.txt');
+  if (!file) return false;
+  const type = (file.type || "").toLowerCase();
+  const name = (file.name || "").toLowerCase();
+  return type.startsWith("text/") || name.endsWith(".txt");
 }
 
 (function(){
-  const dropZone = document.getElementById('pdfDropZone');
-  const fileInput = document.getElementById('pdfInput');
-  if(!dropZone || !fileInput) return;
-  const status = document.getElementById('status');
-  const errEl = document.getElementById('error');
-  const clearError = () => { if(errEl){ errEl.style.display='none'; errEl.textContent=''; } };
-  const setStatus = (msg) => { if(status) status.textContent = msg || ''; };
-  const prevent = (e) => { e.preventDefault(); e.stopPropagation(); };
+  const dropZone = document.getElementById("pdfDropZone");
+  const fileInput = document.getElementById("pdfInput");
+  if (!dropZone || !fileInput) return;
 
-  ['dragenter','dragover'].forEach(name => {
-    dropZone.addEventListener(name, (e)=>{
-      prevent(e);
-      dropZone.classList.add('hover');
-      if(e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
-    });
-  });
-  ['dragleave','dragend'].forEach(name => {
-    dropZone.addEventListener(name, (e)=>{
-      prevent(e);
-      dropZone.classList.remove('hover');
+  const prevent = (event)=>{
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  ["dragenter","dragover"].forEach(evt=>{
+    dropZone.addEventListener(evt, (event)=>{
+      prevent(event);
+      dropZone.classList.add("hover");
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
     });
   });
 
-  dropZone.addEventListener('drop', async (e)=>{
-    prevent(e);
-    dropZone.classList.remove('hover');
-    clearError();
-    const files = e.dataTransfer && e.dataTransfer.files;
-    if(files && files.length){
+  ["dragleave","dragend"].forEach(evt=>{
+    dropZone.addEventListener(evt, (event)=>{
+      prevent(event);
+      dropZone.classList.remove("hover");
+    });
+  });
+
+  dropZone.addEventListener("drop", async (event)=>{
+    prevent(event);
+    dropZone.classList.remove("hover");
+    setErrorMessage("");
+    const files = event.dataTransfer && event.dataTransfer.files;
+    if (files && files.length){
       const file = files[0];
-      if(isPdfFile(file)){
+      if (isPdfFile(file)){
         await handlePdfExtraction(file);
         return;
       }
-      if(isPlainTextFile(file)){
+      if (isPlainTextFile(file)){
         const text = await file.text();
-        if(text && text.trim()){
-          document.getElementById('input').value = text;
+        if (text && text.trim()){
+          document.getElementById("input").value = text;
           await handleTextExtraction(text);
           return;
         }
       }
     }
-    const textData = e.dataTransfer ? e.dataTransfer.getData('text') : '';
-    if(textData && textData.trim()){
-      document.getElementById('input').value = textData;
+    const textData = event.dataTransfer ? event.dataTransfer.getData("text") : "";
+    if (textData && textData.trim()){
+      document.getElementById("input").value = textData;
       await handleTextExtraction(textData);
       return;
     }
-    setStatus('Unsupported drop. Use a PDF or text.');
+    setStatusMessage("Unsupported drop. Use a PDF or text.");
   });
 
-  dropZone.addEventListener('click', ()=> fileInput.click());
-
-  fileInput.addEventListener('change', async (e)=>{
-    clearError();
-    const file = e.target.files && e.target.files[0];
-    e.target.value = '';
-    if(!file) return;
-    if(!isPdfFile(file)){
-      setStatus('Please choose a PDF file.');
+  dropZone.addEventListener("click", ()=> fileInput.click());
+  fileInput.addEventListener("change", async (event)=>{
+    const file = event.target.files && event.target.files[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!isPdfFile(file)){
+      setStatusMessage("Please choose a PDF file.");
       return;
     }
     await handlePdfExtraction(file);
   });
 })();
 
-// Print Labels button handler
-document.getElementById('printLabels').addEventListener('click', async ()=>{
-  const rows = (window.__rows_displayed && window.__rows_displayed.length)
-    ? window.__rows_displayed
-    : (window.__rows || []);
-  if (!rows.length){
-    document.getElementById('status').textContent = 'No rows to print — extract first.';
-    return;
-  }
-  document.getElementById('status').textContent = 'Generating labels…';
+// --------- Label helper utilities (unchanged core) -------------------------
+function dataURLToBytes(dataUrl){
   try{
-    const pdfBytes = await generateLabelsPdf(rows);
-    const blob = new Blob([pdfBytes], { type: 'application/pdf' });
-    const url  = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = 'labels.pdf';
-    document.body.appendChild(a); a.click(); a.remove();
-    document.getElementById('status').textContent = 'Labels ready (downloaded).';
-  }catch(e){
-    console.error(e);
-    document.getElementById('status').textContent = 'Error generating labels (see console).';
+    const base64 = (dataUrl.split(",")[1] || "");
+    const bin = atob(base64);
+    const len = bin.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes.buffer;
+  }catch{
+    return null;
   }
-});
+}
 
-// Logo pickers -> store as DataURL in localStorage
+function fileToDataURL(file){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function ensurePdfLib(){
+  if (window.PDFLib) return;
+  await new Promise((resolve, reject)=>{
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/pdf-lib/dist/pdf-lib.min.js";
+    script.onload = resolve;
+    script.onerror = ()=> reject(new Error("Failed to load pdf-lib"));
+    document.head.appendChild(script);
+  });
+}
+
+const mmToPt = 2.83464567;
+const pageSize = { w: 100 * mmToPt, h: 40 * mmToPt };
+
+async function loadLogoCandidates(name){
+  const basePath = window.location.pathname.replace(/[^/]*$/, "");
+  const candidates = [
+    `${name}.png`, `${name}.PNG`,
+    `${basePath}${name}.png`, `${basePath}${name}.PNG`,
+    `assets/${name}.png`, `assets/${name}.PNG`
+  ];
+  for (const path of candidates){
+    try{
+      const res = await fetch(path, { cache: "no-cache" });
+      if (res.ok) return res.arrayBuffer();
+    }catch{/* ignore */}
+  }
+  return null;
+}
+
+function dataUrlFromImage(img){
+  try{
+    const canvas = document.createElement("canvas");
+    canvas.width = img.naturalWidth || img.width;
+    canvas.height = img.naturalHeight || img.height;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(img, 0, 0);
+    return canvas.toDataURL("image/png");
+  }catch{
+    return null;
+  }
+}
+
+async function loadLogoViaImage(name){
+  const basePath = window.location.pathname.replace(/[^/]*$/, "");
+  const candidates = [
+    `${name}.png`, `${name}.PNG`,
+    `${basePath}${name}.png`, `${basePath}${name}.PNG`,
+    `assets/${name}.png`, `assets/${name}.PNG`
+  ];
+  for (const src of candidates){
+    const found = await new Promise((resolve)=>{
+      const img = new Image();
+      img.onload = ()=>{
+        const dataUrl = dataUrlFromImage(img);
+        if (!dataUrl) return resolve(null);
+        try{
+          const bytes = dataURLToBytes(dataUrl);
+          resolve(bytes);
+        }catch{
+          resolve(null);
+        }
+      };
+      img.onerror = ()=> resolve(null);
+      img.src = src;
+    });
+    if (found && found.byteLength) return found;
+  }
+  return null;
+}
+
+async function preloadLogos(){
+  let keliBytes = null;
+  let ceBytes = null;
+  const localKeli = localStorage.getItem("logo_keli_b64");
+  const localCe = localStorage.getItem("logo_ce_b64");
+  if (localKeli) keliBytes = dataURLToBytes(localKeli);
+  if (localCe) ceBytes = dataURLToBytes(localCe);
+  if (!keliBytes) keliBytes = await loadLogoViaImage("logokeli");
+  if (!ceBytes) ceBytes = await loadLogoViaImage("ce");
+  if (!keliBytes) keliBytes = await loadLogoCandidates("logokeli");
+  if (!ceBytes) ceBytes = await loadLogoCandidates("ce");
+  return { keliBytes, ceBytes };
+}
+
+async function generateLabelsPdf(rows){
+  await ensurePdfLib();
+  const { PDFDocument, StandardFonts } = PDFLib;
+  const pdfDoc = await PDFDocument.create();
+  const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const regular = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const { keliBytes, ceBytes } = await preloadLogos();
+  let keliImg, ceImg;
+  if (keliBytes) keliImg = await pdfDoc.embedPng(keliBytes);
+  if (ceBytes) ceImg = await pdfDoc.embedPng(ceBytes);
+  const today = new Date().toLocaleDateString("en-GB").replaceAll("/", ".");
+  for (const row of rows){
+    const qty = Number(row.quantity || 0) || 1;
+    for (let i = 0; i < qty; i++){
+      const page = pdfDoc.addPage([pageSize.w, pageSize.h]);
+      const margin = 16;
+      const spacing = 12;
+      let y = pageSize.h - margin;
+      if (keliImg) page.drawImage(keliImg, { x: margin, y: y - 20, width: 60, height: 20 });
+      if (ceImg) page.drawImage(ceImg, { x: (pageSize.w - 30) / 2, y: y - 18, width: 30, height: 18 });
+      page.drawText(today, { x: pageSize.w - margin - 60, y: y - 14, size: 10, font: bold });
+      page.drawLine({ start: { x: margin, y: y - 24 }, end: { x: pageSize.w - margin, y: y - 24 }, thickness: 0.8 });
+      y -= (24 + spacing);
+      const dimension = row.dimension && row.dimension.length ? row.dimension : "—";
+      const position = row.position || "—";
+      const orderNo = row.order_number || "—";
+      const type = row.type || "";
+      page.drawText(`Order No.: ${orderNo}   Pos: ${position}   Dim: ${dimension}`, {
+        x: margin, y, size: 9, font: bold, maxWidth: pageSize.w - margin * 2
+      });
+      y -= 14;
+      page.drawText(`Glass Type: ${type}`, { x: margin, y, size: 10, font: bold, maxWidth: pageSize.w - margin * 2 });
+      y -= 16;
+      page.drawText("KELI ALBANIA PVC", { x: margin, y, size: 10, font: regular });
+    }
+  }
+  return pdfDoc.save();
+}
+
 (function(){
-  const statusEl = document.getElementById('logoStatus');
-  const setStatus = (msg) => { if(statusEl) statusEl.textContent = msg; };
-  const keliInput = document.getElementById('logoKeli');
-  const ceInput   = document.getElementById('logoCe');
+  const statusEl = document.getElementById("logoStatus");
+  const setStatus = (msg)=> { if (statusEl) statusEl.textContent = msg; };
+  const keliInput = document.getElementById("logoKeli");
+  const ceInput = document.getElementById("logoCe");
   if (keliInput){
-    keliInput.addEventListener('change', async (e)=>{
-      const f = e.target.files && e.target.files[0];
-      if(!f) return;
+    keliInput.addEventListener("change", async (event)=>{
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
       try{
-        const dataUrl = await fileToDataURL(f);
-        localStorage.setItem('logo_keli_b64', dataUrl);
-        setStatus('Saved logokeli.png ✔');
-      }catch(err){ setStatus('Failed to save logokeli'); }
+        const dataUrl = await fileToDataURL(file);
+        localStorage.setItem("logo_keli_b64", dataUrl);
+        setStatus("Saved logokeli.png ✔");
+      }catch{
+        setStatus("Failed to save logokeli.");
+      }
     });
   }
   if (ceInput){
-    ceInput.addEventListener('change', async (e)=>{
-      const f = e.target.files && e.target.files[0];
-      if(!f) return;
+    ceInput.addEventListener("change", async (event)=>{
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
       try{
-        const dataUrl = await fileToDataURL(f);
-        localStorage.setItem('logo_ce_b64', dataUrl);
-        setStatus('Saved ce.png ✔');
-      }catch(err){ setStatus('Failed to save ce'); }
+        const dataUrl = await fileToDataURL(file);
+        localStorage.setItem("logo_ce_b64", dataUrl);
+        setStatus("Saved ce.png ✔");
+      }catch{
+        setStatus("Failed to save ce.");
+      }
     });
   }
 })();
+
+updateExtractUI();
+updateHistoryDetailUI();
+updateProcessingUI();
+updateLabelsUI();
 </script>
 </body>
 </html>
