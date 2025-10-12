@@ -17,6 +17,7 @@ from llm import (
 )
 from dotenv import load_dotenv
 import traceback
+import httpx
 import openai as openai_pkg
 from db import (
     init_db,
@@ -39,14 +40,21 @@ APP_KEY = os.getenv("APP_KEY")  # optional shared secret
 
 app = FastAPI(title="LLM Order Extractor (Local)", version="1.0.0")
 
+# Configure CORS: accept comma‑separated FRONTEND_ORIGINS; fall back to safe defaults
+_frontend_origins_env = os.getenv("FRONTEND_ORIGINS") or os.getenv("FRONTEND_ORIGIN")
+if _frontend_origins_env:
+    _ALLOWED_ORIGINS = [o.strip() for o in _frontend_origins_env.split(",") if o.strip()]
+else:
+    _ALLOWED_ORIGINS = [
+        "https://danjelqose1.github.io",          # GitHub Pages frontend
+        "https://order-extractor-kdih.onrender.com",  # Backend self-origin (for direct tests)
+        "http://localhost:5055",                  # local dev
+        "http://127.0.0.1:5055",
+    ]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://danjelqose1.github.io",  # your GitHub Pages frontend
-        "https://order-extractor-kdih.onrender.com",  # backend self-origin
-        "http://127.0.0.1:5055",  # local dev
-        "http://localhost:5055"
-    ],
+    allow_origins=_ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -432,7 +440,12 @@ def approve_order(order_id: int, payload: ApprovePayload) -> Dict[str, Any]:
         raise HTTPException(status_code=404, detail="Order not found")
 
     rows_dict = [row.model_dump(mode="python") for row in payload.rows]
-    validation = validate_rows(rows_dict, context={"prepared_text": snapshot.get("extraction", {}).get("prepared_text", "")})
+
+    # Ensure prepared_text is available BEFORE validation below
+    extraction = snapshot.get("extraction") or {}
+    prepared_text = extraction.get("prepared_text", "")
+
+    validation = validate_rows(rows_dict, context={"prepared_text": prepared_text})
     final_rows = validation.get("rows", rows_dict)
     row_warnings = validation.get("row_warnings", {})
 
@@ -576,8 +589,15 @@ def diag():
         sdk_ver = getattr(openai_pkg, "__version__", "unknown")
     except Exception:
         sdk_ver = "unknown"
+    try:
+        httpx_ver = getattr(httpx, "__version__", "unknown")
+    except Exception:
+        httpx_ver = "unknown"
     return {
         "status": "ok",
         "openai_sdk_version": sdk_ver,
+        "httpx_version": httpx_ver,
         "env_has_api_key": bool(os.getenv("OPENAI_API_KEY")),
+        "has_http_proxy_env": bool(os.getenv("HTTP_PROXY") or os.getenv("http_proxy")),
+        "has_https_proxy_env": bool(os.getenv("HTTPS_PROXY") or os.getenv("https_proxy")),
     }
