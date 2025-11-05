@@ -72,11 +72,14 @@ else:
         "http://127.0.0.1:5500",                       # Local frontend (Python http.server)
         "null",                                        # file:// origin for local testing
     ]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_ALLOWED_ORIGINS,
-    allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?$",
+    allow_origins=[
+        "https://danjelqose1.github.io",   # your frontend
+        "https://order-extractor-kdih.onrender.com",
+        "http://127.0.0.1:5055",
+        "http://localhost:5055",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
