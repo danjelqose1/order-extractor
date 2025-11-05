@@ -1,8 +1,11 @@
 from __future__ import annotations
 import csv, hashlib, json, os
+from copy import deepcopy
+from datetime import datetime
 from io import StringIO
-from typing import Any, Dict, List, Optional
-from fastapi import FastAPI, HTTPException, Header, UploadFile, File, Query
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+from fastapi import FastAPI, HTTPException, Header, UploadFile, File, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel, ValidationError
@@ -14,6 +17,7 @@ from llm import (
     ocr_png_with_openai,
     _prepare_text,
     extract_client_name,
+    get_client,
 )
 from dotenv import load_dotenv
 import traceback
@@ -33,10 +37,24 @@ from db import (
 )
 from validators import validate_rows
 from utils_text import parse_declared_totals
-load_dotenv()
+from prompts import PROMPTS
+ENV_PATH = Path(__file__).parent / ".env"
+load_dotenv(ENV_PATH, override=True)
 
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "*")
 APP_KEY = os.getenv("APP_KEY")  # optional shared secret
+
+ANALYSIS_MODEL = os.getenv("ANALYSIS_MODEL", "gpt-4o-mini")
+try:
+    ANALYSIS_DATASET_MAX_CHARS = int(os.getenv("ANALYSIS_MAX_DATASET_CHARS", "50000"))
+except ValueError:
+    ANALYSIS_DATASET_MAX_CHARS = 50000
+ANALYSIS_FALLBACK_ANSWER = "AI analysis is unavailable. The dashboard above still works offline."
+ANALYSIS_SYSTEM_PROMPT = PROMPTS["analysis"]["system"]
+ANALYSIS_STYLE_PROMPT = PROMPTS["analysis"].get("style", "")
+ANALYSIS_MAX_TURNS = 7
+
+analysis_memory: Dict[str, Dict[str, Any]] = {}
 
 app = FastAPI(title="LLM Order Extractor (Local)", version="1.0.0")
 
@@ -46,19 +64,28 @@ if _frontend_origins_env:
     _ALLOWED_ORIGINS = [o.strip() for o in _frontend_origins_env.split(",") if o.strip()]
 else:
     _ALLOWED_ORIGINS = [
-        "https://danjelqose1.github.io",          # GitHub Pages frontend
-        "https://order-extractor-kdih.onrender.com",  # Backend self-origin (for direct tests)
-        "http://localhost:5055",                  # local dev
-        "http://127.0.0.1:5055",
+        "https://danjelqose1.github.io",               # GitHub Pages frontend
+        "https://order-extractor-kdih.onrender.com",   # Backend self-origin
+        "http://localhost:5055",                       # Local backend
+        "http://127.0.0.1:5055",                       # Local backend
+        "http://localhost:5500",                       # Local frontend (VS Code Live Server)
+        "http://127.0.0.1:5500",                       # Local frontend (Python http.server)
+        "null",                                        # file:// origin for local testing
     ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_ALLOWED_ORIGINS,
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Root route for basic health/info, quiets 404s on /
+@app.get("/")
+def root():
+    return {"ok": True, "service": "order-extractor"}
 
 class PasteIn(BaseModel):
     text: str
@@ -67,6 +94,12 @@ class PasteIn(BaseModel):
 class ApprovePayload(BaseModel):
     rows: List[Row]
     notes: Optional[str] = None
+
+
+class AnalysisAskPayload(BaseModel):
+    question: str
+    dataset: Dict[str, Any]
+    settings: Optional[Dict[str, Any]] = None
 
 
 def _debug_log_rows(rows):
@@ -135,6 +168,104 @@ def _summarize_totals(rows: List[Dict[str, Any]]) -> Dict[str, float]:
         except Exception:
             pass
     return {"units": units, "area": round(area, 3)}
+
+
+def _parse_order_datetime(value: Any) -> datetime:
+    if value is None:
+        return datetime.min
+    if isinstance(value, (int, float)):
+        try:
+            return datetime.fromtimestamp(value)
+        except Exception:
+            return datetime.min
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return datetime.min
+        try:
+            # Handle trailing Z for UTC
+            if text.endswith("Z"):
+                return datetime.fromisoformat(text.replace("Z", "+00:00"))
+            return datetime.fromisoformat(text)
+        except ValueError:
+            pass
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%d/%m/%Y %H:%M:%S", "%d/%m/%Y"):
+            try:
+                return datetime.strptime(text, fmt)
+            except ValueError:
+                continue
+    return datetime.min
+
+
+def _sorted_orders_newest(items: Any) -> List[Dict[str, Any]]:
+    if not isinstance(items, list):
+        return []
+    decorated: List[Tuple[datetime, Dict[str, Any]]] = []
+    for item in items:
+        if isinstance(item, dict):
+            timestamp = _parse_order_datetime(item.get("created_at") or item.get("createdAt"))
+            decorated.append((timestamp, deepcopy(item)))
+    decorated.sort(key=lambda pair: pair[0], reverse=True)
+    return [item for _, item in decorated]
+
+
+def _prepare_analysis_dataset(dataset: Dict[str, Any], max_chars: int) -> Tuple[Dict[str, Any], str, bool, Dict[str, int]]:
+    payload = deepcopy(dataset) if isinstance(dataset, dict) else {}
+    orders = payload.get("orders")
+    if not isinstance(orders, list):
+        orders = []
+        payload["orders"] = orders
+    processing = payload.get("processing_orders")
+    if not isinstance(processing, list):
+        processing = []
+        payload["processing_orders"] = processing
+
+    meta = payload.get("meta")
+    if not isinstance(meta, dict):
+        meta = {}
+        payload["meta"] = meta
+    notes = meta.get("notes")
+    if not isinstance(notes, list):
+        notes = []
+        meta["notes"] = notes
+
+    original_orders = len(dataset.get("orders") or [])
+    original_processing = len(dataset.get("processing_orders") or [])
+
+    serialized = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    truncated = False
+    trimmed_orders = 0
+    while len(serialized) > max_chars and orders:
+        orders.pop()
+        trimmed_orders += 1
+        serialized = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    trimmed_processing = 0
+    while len(serialized) > max_chars and processing:
+        processing.pop()
+        trimmed_processing += 1
+        serialized = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    if len(serialized) > max_chars:
+        payload["orders"] = []
+        payload["processing_orders"] = []
+        serialized = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+    if trimmed_orders or trimmed_processing:
+        truncated = True
+        meta["truncated"] = True
+        if trimmed_orders:
+            note = f"orders list trimmed to newest {len(payload['orders'])} to fit token budget"
+            if note not in notes:
+                notes.append(note)
+        if trimmed_processing:
+            note = "processing orders trimmed to fit token budget"
+            if note not in notes:
+                notes.append(note)
+
+    meta["size"] = len(serialized)
+    return payload, serialized, truncated, {
+        "orders_total": original_orders,
+        "processing_total": original_processing,
+    }
 
 
 init_db()
@@ -582,6 +713,138 @@ def remove_correction(correction_id: int) -> Dict[str, bool]:
     if not deleted:
         raise HTTPException(status_code=404, detail="Correction not found")
     return {"ok": True}
+
+
+@app.post("/analysis/ask")
+def ask_analysis(request: Request, payload: AnalysisAskPayload) -> Dict[str, str]:
+    question = (payload.question or "").strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="Question cannot be empty.")
+
+    dataset = payload.dataset or {}
+    if not isinstance(dataset, dict):
+        raise HTTPException(status_code=400, detail="Dataset must be an object.")
+
+    settings = payload.settings or {}
+    if not isinstance(settings, dict):
+        settings = {}
+
+    try:
+        payload_dataset, serialized_dataset, truncated, totals = _prepare_analysis_dataset(
+            dataset,
+            ANALYSIS_DATASET_MAX_CHARS,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid dataset payload: {exc}") from exc
+
+    meta = payload_dataset.setdefault("meta", {})
+    notes = meta.setdefault("notes", []) if isinstance(meta, dict) else []
+    included_orders = len(payload_dataset.get("orders") or [])
+    included_processing = len(payload_dataset.get("processing_orders") or [])
+    meta.setdefault("payloadSize", len(serialized_dataset))
+    meta.setdefault("ordersIncluded", included_orders)
+    meta.setdefault("processingIncluded", included_processing)
+    meta.setdefault("ordersOriginal", totals.get("orders_total", included_orders))
+    meta.setdefault("processingOriginal", totals.get("processing_total", included_processing))
+    if truncated:
+        meta["truncated"] = True
+
+    try:
+        settings_json = json.dumps(settings, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    except TypeError:
+        settings = {}
+        settings_json = "{}"
+
+    dataset_hash = hashlib.sha1(serialized_dataset.encode("utf-8")).hexdigest()
+
+    session_id = request.headers.get("x-session-id") or "local"
+    session_id = session_id.strip() or "local"
+    state = analysis_memory.get(session_id)
+    if not state or state.get("dataset_hash") != dataset_hash:
+        base_messages = [{"role": "system", "content": ANALYSIS_SYSTEM_PROMPT}]
+    else:
+        base_messages = [msg.copy() for msg in state.get("messages", [])]
+        if not base_messages or base_messages[0].get("role") != "system":
+            base_messages.insert(0, {"role": "system", "content": ANALYSIS_SYSTEM_PROMPT})
+
+    if not base_messages:
+        base_messages = [{"role": "system", "content": ANALYSIS_SYSTEM_PROMPT}]
+
+    messages = base_messages[:]
+    if ANALYSIS_STYLE_PROMPT:
+        messages.append({"role": "system", "content": ANALYSIS_STYLE_PROMPT})
+
+    def _clip(text: str, limit: int = ANALYSIS_DATASET_MAX_CHARS) -> str:
+        return text if len(text) <= limit else text[:limit] + "… (truncated)"
+
+    ordered_dataset = {
+        "aggregates": payload_dataset.get("aggregates") or {},
+        "orders": payload_dataset.get("orders") or [],
+        "processing_orders": payload_dataset.get("processing_orders") or [],
+        "meta": payload_dataset.get("meta") or {},
+        "scope": payload_dataset.get("scope", "all-time"),
+    }
+    dataset_json = json.dumps(ordered_dataset, ensure_ascii=False, separators=(",", ":"))
+
+    user_content = (
+        f"Question:\n{question}\n\n"
+        f"Dataset (all-time):\n{_clip(dataset_json, ANALYSIS_DATASET_MAX_CHARS)}\n\n"
+        f"Settings:\n{settings_json}"
+    )
+
+    messages.append({"role": "user", "content": user_content})
+
+    try:
+        client = get_client()
+    except Exception as exc:
+        print(f"[analysis] client error: {exc}")
+        return {"answerMarkdown": ANALYSIS_FALLBACK_ANSWER}
+
+    included_orders = len(payload_dataset.get("orders") or [])
+    included_processing = len(payload_dataset.get("processing_orders") or [])
+
+    print(
+        "[analysis] dataset_chars="
+        f"{len(serialized_dataset)} truncated={truncated} orders={included_orders}/{totals.get('orders_total', included_orders)}"
+        f" processing={included_processing}/{totals.get('processing_total', included_processing)}"
+    )
+
+    try:
+        completion = client.chat.completions.create(
+            model=ANALYSIS_MODEL,
+            messages=messages,
+            temperature=0.3,
+        )
+    except Exception as exc:
+        print(f"[analysis] request failed: {exc}")
+        return {"answerMarkdown": ANALYSIS_FALLBACK_ANSWER}
+
+    choice = completion.choices[0] if completion and completion.choices else None
+    content = choice.message.content if choice and getattr(choice, "message", None) else None
+    if not content:
+        return {"answerMarkdown": ANALYSIS_FALLBACK_ANSWER}
+
+    answer = content.strip()
+    if not answer:
+        return {"answerMarkdown": ANALYSIS_FALLBACK_ANSWER}
+
+    session_messages = base_messages[:]
+    session_messages.append({"role": "user", "content": question})
+    session_messages.append({"role": "assistant", "content": answer})
+
+    while len(session_messages) > 1 and (len(session_messages) - 1) // 2 > ANALYSIS_MAX_TURNS:
+        if len(session_messages) > 2:
+            session_messages.pop(1)
+            session_messages.pop(1)
+        else:
+            break
+
+    analysis_memory[session_id] = {
+        "messages": session_messages,
+        "dataset_hash": dataset_hash,
+    }
+
+    return {"answerMarkdown": answer}
 
 @app.get("/diag")
 def diag():
