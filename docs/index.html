@@ -212,7 +212,14 @@
       margin: 16px 0 6px;
     }
     #motherSheet .ms-row, .mother-sheet .ms-row {
+      font-size: 16px;
+      line-height: 1.65;
+      margin: 2px 0;
       font-feature-settings: "tnum" 1, "liga" 0;
+    }
+    #motherSheet .ms-row-index, .mother-sheet .ms-row-index {
+      font-weight: 500;
+      margin-right: 4px;
     }
     @media print {
       #motherSheet, .mother-sheet {
@@ -2185,63 +2192,20 @@ function formatM2(value, separator){
   return separator === "comma" ? fixed.replace(".", ",") : fixed;
 }
 
+function toNumericArea(value){
+  if (value == null) return null;
+  const normalized = Number(String(value).replace(",", "."));
+  return Number.isFinite(normalized) ? normalized : null;
+}
+
 function computeGroupArea(rows){
   const safeRows = Array.isArray(rows) ? rows : [];
-  const parseNumeric = (value)=>{
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-    if (value == null) return NaN;
-    const match = String(value).replace(",", ".").match(/-?\d+(?:\.\d+)?/);
-    return match ? Number(match[0]) : NaN;
-  };
-  const pickNumeric = (...values)=>{
-    for (const value of values){
-      const parsed = parseNumeric(value);
-      if (Number.isFinite(parsed)) return parsed;
-    }
-    return NaN;
-  };
-
   let total = 0;
   safeRows.forEach(row => {
-    if (!row) return;
-    const qtyRaw = row.qty ?? row.quantity ?? row.count ?? 1;
-    let quantity = parseNumeric(qtyRaw);
-    if (!Number.isFinite(quantity)){
-      quantity = 1;
-    }
-
-    let area = pickNumeric(row.area, row.danko?.area, row.__original?.area);
-    if (!Number.isFinite(area)){
-      let width = pickNumeric(row.width, row.widthValue, row.__original?.width);
-      let height = pickNumeric(row.height, row.heightValue, row.__original?.height);
-      if (!Number.isFinite(width) || !Number.isFinite(height)){
-        const dimensionSources = [
-          row.dimension,
-          row.dim,
-          row.dimension_display,
-          row.dimensionDisplay,
-          row.__original?.dimension,
-          row.widthDisplay && row.heightDisplay ? `${row.widthDisplay}x${row.heightDisplay}` : null,
-        ];
-        const dimension = dimensionSources.find(value => value && String(value).trim().length);
-        if (dimension){
-          const match = String(dimension).match(/(\d+(?:[.,]\d+)?)[^\d]+(\d+(?:[.,]\d+)?)/);
-          if (match){
-            width = parseNumeric(match[1]);
-            height = parseNumeric(match[2]);
-          }
-        }
-      }
-      if (Number.isFinite(width) && Number.isFinite(height)){
-        area = (width * height) / 1_000_000;
-      }else{
-        area = 0;
-      }
-    }
-
-    const multiplier = Number.isFinite(quantity) ? quantity : 1;
-    if (Number.isFinite(area)){
-      total += area * multiplier;
+    const candidate = row && (row.area ?? row.area_m2 ?? row.areaM2);
+    const areaValue = toNumericArea(candidate);
+    if (areaValue != null){
+      total += areaValue;
     }
   });
   return Math.round(total * 1000) / 1000;
@@ -2359,6 +2323,7 @@ function collapseGroupDimensions(items, tolerance = DIMENSION_TOLERANCE_MM){
         invalid: false,
         orderIds: new Set(),
         clients: new Set(),
+        areaTotal: 0,
       };
       buckets.push(bucket);
     }
@@ -2384,6 +2349,10 @@ function collapseGroupDimensions(items, tolerance = DIMENSION_TOLERANCE_MM){
     bucket.invalid = bucket.invalid || !!item.invalidDimension;
     if (item.orderId) bucket.orderIds.add(item.orderId);
     if (item.client) bucket.clients.add(item.client);
+    const areaValue = toNumericArea(item.area ?? item.area_m2 ?? item.areaM2);
+    if (areaValue != null){
+      bucket.areaTotal += areaValue;
+    }
   });
 
   return buckets.map(bucket => {
@@ -2408,6 +2377,7 @@ function collapseGroupDimensions(items, tolerance = DIMENSION_TOLERANCE_MM){
       sortHeight: Number.isFinite(heightNumeric) ? heightNumeric : Number.POSITIVE_INFINITY,
       sortWidthKey: String(widthDisplay || "").toLowerCase(),
       sortHeightKey: String(heightDisplay || "").toLowerCase(),
+      area: Number.isFinite(bucket.areaTotal) ? Number(bucket.areaTotal.toFixed(3)) : null,
     };
   });
 }
@@ -2500,6 +2470,7 @@ function generateMotherSheet(rows, options){
           sortWidthKey: String(item.widthDisplay || "").toLowerCase(),
           sortHeightKey: String(item.heightDisplay || "").toLowerCase(),
           danko: item.danko || null,
+          area: toNumericArea(item.area ?? item.area_m2 ?? item.areaM2),
         }));
       }
 
@@ -2518,6 +2489,7 @@ function generateMotherSheet(rows, options){
           composition_display: display,
           invalid: !!entry.invalid,
           danko: entry.danko || null,
+          area: toNumericArea(entry.area ?? entry.area_m2 ?? entry.areaM2),
         };
         groupLines.push(line);
       });
@@ -2561,6 +2533,7 @@ function generateMotherSheet(rows, options){
           sortWidthKey: String(item.widthDisplay || "").toLowerCase(),
           sortHeightKey: String(item.heightDisplay || "").toLowerCase(),
           danko: item.danko || null,
+          area: toNumericArea(item.area ?? item.area_m2 ?? item.areaM2),
         }));
       }
 
@@ -2585,6 +2558,7 @@ function generateMotherSheet(rows, options){
           composition_display: display,
           invalid: !!entry.invalid,
           danko: entry.danko || null,
+          area: toNumericArea(entry.area ?? entry.area_m2 ?? entry.areaM2),
         };
         section.lines.push(line);
         groupLines.push(line);
@@ -2620,7 +2594,7 @@ function generateMotherSheet(rows, options){
           const qtyText = Number(line.qty || 0);
           const warning = line.invalid ? "  ⚠" : "";
           const approx = line.danko && line.danko.changed ? " ≈" : "";
-          linesOut.push(`${line.idx} ${widthText} × ${heightText}${approx} × ${qtyText}${warning}`);
+          linesOut.push(`${line.idx} – ${widthText} × ${heightText}${approx} × ${qtyText}${warning}`);
           if (line.danko && line.danko.changed && line.danko.original){
             linesOut.push(`   (Rounded from ${line.danko.original.replace(/x/g, "×")})`);
           }
@@ -2636,7 +2610,7 @@ function generateMotherSheet(rows, options){
         const qtyText = Number(line.qty || 0);
         const warning = line.invalid ? "  ⚠" : "";
         const approx = line.danko && line.danko.changed ? " ≈" : "";
-        linesOut.push(`${line.idx} ${widthText} × ${heightText}${approx} × ${qtyText}${warning}`);
+        linesOut.push(`${line.idx} – ${widthText} × ${heightText}${approx} × ${qtyText}${warning}`);
         if (line.danko && line.danko.changed && line.danko.original){
           linesOut.push(`   (Rounded from ${line.danko.original.replace(/x/g, "×")})`);
         }
@@ -3099,51 +3073,54 @@ function renderMotherSheetHTML(preview){
 }
 
 function buildGroupTable(lines, preview){
-  const table = document.createElement("table");
-  const tbody = document.createElement("tbody");
+  const container = document.createElement("div");
+  container.className = "ms-row-list";
   const safeLines = Array.isArray(lines) ? lines : [];
   const separator = (preview && preview.meta && preview.meta.decimalSeparator) || appState.processing.options.decimalSeparator;
 
   if (!safeLines.length){
-    const row = document.createElement("tr");
-    row.classList.add("ms-row");
-    const cell = document.createElement("td");
-    cell.colSpan = 3;
-    cell.className = "muted";
-    cell.textContent = "No line items.";
-    row.appendChild(cell);
-    tbody.appendChild(row);
-  }else{
-    safeLines.forEach(line => {
-      const tr = document.createElement("tr");
-      tr.classList.add("ms-row");
-
-      const idxCell = document.createElement("td");
-      idxCell.textContent = line && line.idx != null ? line.idx : "";
-      tr.appendChild(idxCell);
-
-      const dimCell = document.createElement("td");
-      const widthText = formatProcessingNumber(line?.width, line?.widthDisplay, separator);
-      const heightText = formatProcessingNumber(line?.height, line?.heightDisplay, separator);
-      if (line?.danko?.changed){
-        const tooltip = line.danko.tooltip || `Rounded from ${(line.danko.original || "").replace(/x/g, "×")}`;
-        dimCell.innerHTML = `${escapeHtml(widthText)} × ${escapeHtml(heightText)} <span title="${escapeHtml(tooltip)}">≈</span>`;
-      }else{
-        dimCell.textContent = `${widthText} × ${heightText}`;
-      }
-      dimCell.dataset.column = "dimension";
-      tr.appendChild(dimCell);
-
-      const qtyCell = document.createElement("td");
-      qtyCell.textContent = line && line.qty != null ? line.qty : "";
-      tr.appendChild(qtyCell);
-
-      tbody.appendChild(tr);
-    });
+    const emptyRow = document.createElement("div");
+    emptyRow.className = "ms-row muted";
+    emptyRow.textContent = "No line items.";
+    container.appendChild(emptyRow);
+    return container;
   }
 
-  table.appendChild(tbody);
-  return table;
+  safeLines.forEach(line => {
+    const rowEl = document.createElement("div");
+    rowEl.className = "ms-row";
+
+    const idxSpan = document.createElement("span");
+    idxSpan.className = "ms-row-index";
+    idxSpan.textContent = line && line.idx != null ? String(line.idx) : "";
+    rowEl.appendChild(idxSpan);
+
+    const textSpan = document.createElement("span");
+    textSpan.className = "ms-row-text";
+    const widthText = formatProcessingNumber(line?.width, line?.widthDisplay, separator);
+    const heightText = formatProcessingNumber(line?.height, line?.heightDisplay, separator);
+    const qtyText = line && line.qty != null ? String(line.qty) : "";
+    const rounded = line?.danko;
+
+    textSpan.append(" – ", widthText, " × ", heightText);
+    if (rounded?.changed){
+      const tooltip = rounded.tooltip || `Rounded from ${(rounded.original || "").replace(/x/g, "×")}`;
+      textSpan.append(" ");
+      const approxSpan = document.createElement("span");
+      approxSpan.textContent = "≈";
+      approxSpan.title = tooltip;
+      textSpan.append(approxSpan);
+    }
+    textSpan.append(" × ", qtyText);
+    if (line?.invalid){
+      textSpan.append(" ⚠");
+    }
+
+    rowEl.appendChild(textSpan);
+    container.appendChild(rowEl);
+  });
+
+  return container;
 }
 
 function addOrderToProcessing(order){
@@ -3532,7 +3509,7 @@ async function exportProcessingPdf(){
   const HEADER_SIZE = 20;
   const BODY_SIZE = 14;
   const HEADER_LINE_HEIGHT = HEADER_SIZE * 1.4;
-  const BODY_LINE_HEIGHT = BODY_SIZE * 1.6;
+  const BODY_LINE_HEIGHT = BODY_SIZE * 1.65;
   const ORDER_LINE_HEIGHT = BODY_SIZE * 1.4;
   const HEADER_GAP_PT = 6;
   const GROUP_GAP_PT = 16;
@@ -3628,7 +3605,7 @@ async function exportProcessingPdf(){
             const qtyText = line && line.qty != null ? String(line.qty) : "";
             const caution = line?.invalid ? " ⚠" : "";
             const approx = rounded?.changed ? " ≈" : "";
-            const message = `${idxText}  ${widthText} × ${heightText}${approx} × ${qtyText}${caution}`;
+            const message = `${idxText} – ${widthText} × ${heightText}${approx} × ${qtyText}${caution}`;
             drawBodyLine(message);
             if (rounded?.changed && rounded?.tooltip){
               drawBodyLine(`   (${rounded.tooltip})`);
@@ -3649,7 +3626,7 @@ async function exportProcessingPdf(){
           const caution = line?.invalid ? " ⚠" : "";
           const rounded = line?.danko;
           const approx = rounded?.changed ? " ≈" : "";
-          drawBodyLine(`${idxText}  ${widthText} × ${heightText}${approx} × ${qtyText}${caution}`);
+          drawBodyLine(`${idxText} – ${widthText} × ${heightText}${approx} × ${qtyText}${caution}`);
           if (rounded?.changed && rounded?.tooltip){
             drawBodyLine(`   (${rounded.tooltip})`);
           }
