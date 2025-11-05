@@ -10,6 +10,10 @@ from utils_text import build_signature, parse_declared_totals
 from db import find_similar_corrections, bump_correction_hit
 from prompts import PROMPTS
 
+API_KEY = os.getenv("OPENAI_API_KEY")
+if not API_KEY:
+    raise RuntimeError("OPENAI_API_KEY is not set. Configure it in Render → Environment.")
+
 SYSTEM_PROMPT = PROMPTS["extraction"]["system"]
 
 JSON_SCHEMA = {
@@ -195,6 +199,16 @@ def ocr_png_with_openai(image_bytes: bytes, model: Optional[str] = None) -> str:
     return (response.choices[0].message.content or "").strip()
 
 
+_client: Optional[OpenAI] = None
+
+
+def _create_openai_client() -> OpenAI:
+    try:
+        return OpenAI(api_key=API_KEY)
+    except Exception as exc:
+        raise RuntimeError("Failed to initialize OpenAI client") from exc
+
+
 _CLIENT_LINE_RE = re.compile(r"^\s*CLIENTE\s+(.+)$", re.IGNORECASE)
 
 
@@ -210,11 +224,10 @@ def extract_client_name(full_text: str) -> str:
 
 def get_client() -> OpenAI:
     """Return an OpenAI client using the OPENAI_API_KEY env var."""
-    key = os.getenv("OPENAI_API_KEY")
-    if not key:
-        raise RuntimeError("OPENAI_API_KEY not set")
-    # NOTE: Removed 'proxies' argument for compatibility with new OpenAI SDK on Render
-    return OpenAI(api_key=key)
+    global _client
+    if _client is None:
+        _client = _create_openai_client()
+    return _client
 
 def build_messages(pasted_text: str, corrections: List[Dict[str, Any]]):
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
