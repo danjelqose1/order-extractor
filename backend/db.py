@@ -25,7 +25,8 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, rela
 
 from utils_text import build_signature, extract_client_hint, normalize_order_number
 
-DB_DIR = "data"
+
+DB_DIR = os.getenv("DB_DIR", "data")  # fallback to local folder
 DB_FILENAME = "orders.db"
 DB_PATH = os.path.join(DB_DIR, DB_FILENAME)
 
