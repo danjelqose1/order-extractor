@@ -16,6 +16,16 @@
       --primary-soft:#eef1ff;
       --danger:#f87171;
       --shadow:0 6px 20px rgba(20,34,66,0.08);
+      --ms-sans-system:-apple-system,system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+      --ms-inter-stack:"Inter",var(--ms-sans-system);
+      --ms-roboto-stack:"Roboto",var(--ms-sans-system);
+      --ms-mono-stack:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+      --ms-header-size:20px;
+      --ms-subheader-size:14px;
+      --ms-body-size:12.5px;
+      --ms-body-line-height:1.4;
+      --ms-row-spacing-adjust:0px;
+      --ms-accent-color:#2F6BFF;
     }
     *,*::before,*::after{box-sizing:border-box}
     body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,Ubuntu,Helvetica,Arial,sans-serif;line-height:1.5}
@@ -70,6 +80,20 @@
     .toast[hidden]{display:none}
     .link-button{background:none;border:none;padding:0;color:var(--primary);cursor:pointer;font-weight:600}
     .link-button.muted{color:var(--muted);font-weight:500}
+    .settings-card h3{margin:0 0 12px;font-size:17px;font-weight:600}
+    .appearance-form{display:flex;flex-direction:column;gap:18px}
+    .appearance-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}
+    .appearance-field{display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--text)}
+    .appearance-label{font-weight:600;font-size:13px;color:var(--muted)}
+    .appearance-range{display:flex;align-items:center;gap:10px}
+    .appearance-range input[type=range]{flex:1}
+    .appearance-value{min-width:48px;text-align:right;font-variant-numeric:tabular-nums;color:var(--muted);font-size:13px}
+    .appearance-select{width:100%;padding:8px 12px;border:1px solid var(--border-dark);border-radius:10px;font-size:14px;background:#fbfcff;color:var(--text)}
+    .appearance-select:focus{outline:2px solid var(--primary-soft);border-color:var(--primary)}
+    .appearance-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+    .appearance-feedback{min-height:18px;font-size:13px;color:var(--muted)}
+    .appearance-hint{margin:0;font-size:12px;color:var(--muted)}
+    #appearanceForm .btn.ghost{color:var(--primary);border-color:transparent;background:none;padding-left:0;padding-right:0}
     .history-filters .filters-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;align-items:flex-end}
     .history-filters label{display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:500;color:var(--muted)}
     .history-filters input,.history-filters select{padding:8px 10px;border:1px solid var(--border-dark);border-radius:10px;font-size:14px}
@@ -99,7 +123,20 @@
     .processing-order-list{border:1px solid var(--border);border-radius:12px;background:var(--card-bg);padding:12px;max-height:420px;overflow:auto;display:flex;flex-direction:column;gap:10px}
     .processing-order-item{border:1px dashed var(--border-dark);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:6px;background:#f8f9ff}
     .processing-order-item header{display:flex;justify-content:space-between;align-items:center;font-weight:600}
-    .processing-preview{border:1px solid var(--border);border-radius:12px;background:#1f2435;color:#f8f9ff;padding:16px;min-height:320px;max-height:560px;overflow:auto;font-family:"Courier New",Courier,monospace;font-size:14px;white-space:pre-wrap;line-height:1.35}
+    .processing-preview{
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:#1f2435;
+      color:#f8f9ff;
+      padding:16px;
+      min-height:320px;
+      max-height:560px;
+      overflow:auto;
+      white-space:pre-wrap;
+      font-family:var(--ms-family-rows);
+      font-size:var(--ms-body-size);
+      line-height:var(--ms-body-line-height);
+    }
     .processing-meta{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;font-size:13px;color:var(--muted)}
     .processing-controls .card{padding:14px}
     .processing-controls .toggle-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;font-size:13px}
@@ -111,6 +148,32 @@
     .processing-actions{display:flex;flex-direction:column;gap:8px}
     .processing-actions .btn{width:100%}
     .processing-warning{color:#facc15;font-size:12px;margin-top:6px}
+    #motherSheet,.mother-sheet{--ms-family-base:var(--ms-sans-system);--ms-family-header:var(--ms-sans-system);--ms-family-rows:var(--ms-sans-system);background:#fff;color:#131722;font-family:var(--ms-family-base);line-height:var(--ms-body-line-height);font-size:var(--ms-body-size)}
+    #motherSheet h1,.mother-sheet h1{font-family:var(--ms-family-header);font-size:var(--ms-header-size);font-weight:700;margin:0 0 12px}
+    #motherSheet .ms-order-info,#motherSheet .order-info,#motherSheet .meta-line,.mother-sheet .ms-order-info,.mother-sheet .order-info,.mother-sheet .meta-line{font-family:var(--ms-family-header);font-size:var(--ms-subheader-size);font-weight:500;color:#444;margin:0 0 14px}
+    #motherSheet section > h2,#motherSheet .ms-section-title,.mother-sheet section > h2,.mother-sheet .ms-section-title{font-family:var(--ms-family-header);font-size:calc(var(--ms-subheader-size) + 2px);font-weight:600;margin:20px 0 10px}
+    #motherSheet table,.mother-sheet table{width:100%;border-collapse:collapse;font-size:var(--ms-body-size);line-height:var(--ms-body-line-height)}
+    #motherSheet th,#motherSheet td,.mother-sheet th,.mother-sheet td{padding:calc(6px + var(--ms-row-spacing-adjust));border-bottom:1px solid #e5e7eb;text-align:left;vertical-align:top;font-family:var(--ms-family-rows)}
+    #motherSheet th,.mother-sheet th{font-weight:600;color:#1f2937}
+    #motherSheet tr:last-child td,.mother-sheet tr:last-child td{border-bottom:none}
+    #motherSheet .ms-section,#motherSheet section,.mother-sheet .ms-section,.mother-sheet section{page-break-inside:avoid;break-inside:avoid}
+    #motherSheet .ms-section + .ms-section,#motherSheet section + section,.mother-sheet .ms-section + .ms-section,.mother-sheet section + section{margin-top:18px}
+    #motherSheet.font-system,.mother-sheet.font-system{--ms-family-base:var(--ms-sans-system);--ms-family-header:var(--ms-sans-system);--ms-family-rows:var(--ms-sans-system)}
+    #motherSheet.font-inter,.mother-sheet.font-inter{--ms-family-base:var(--ms-inter-stack);--ms-family-header:var(--ms-inter-stack);--ms-family-rows:var(--ms-inter-stack)}
+    #motherSheet.font-roboto,.mother-sheet.font-roboto{--ms-family-base:var(--ms-roboto-stack);--ms-family-header:var(--ms-roboto-stack);--ms-family-rows:var(--ms-roboto-stack)}
+    #motherSheet.font-mono-rows td[data-column="position"],#motherSheet.font-mono-rows td[data-column="dimension"],#motherSheet.font-mono-rows td[data-column="dim"],#motherSheet.font-mono-rows td[data-col="pos"],#motherSheet.font-mono-rows td[data-col="dim"],#motherSheet.font-mono-rows td.pos,#motherSheet.font-mono-rows td.dimension,#motherSheet.font-mono-rows td.dim,.mother-sheet.font-mono-rows td[data-column="position"],.mother-sheet.font-mono-rows td[data-column="dimension"],.mother-sheet.font-mono-rows td[data-column="dim"],.mother-sheet.font-mono-rows td[data-col="pos"],.mother-sheet.font-mono-rows td[data-col="dim"],.mother-sheet.font-mono-rows td.pos,.mother-sheet.font-mono-rows td.dimension,.mother-sheet.font-mono-rows td.dim{font-family:var(--ms-mono-stack)}
+    #motherSheet.density-compact,.mother-sheet.density-compact{--ms-row-spacing-adjust:-2px}
+    #motherSheet.density-normal,.mother-sheet.density-normal{--ms-row-spacing-adjust:0px}
+    #motherSheet.density-roomy,.mother-sheet.density-roomy{--ms-row-spacing-adjust:2px}
+    #motherSheet.accent-thinrule section > h2,#motherSheet.accent-thinrule .ms-section-title,.mother-sheet.accent-thinrule section > h2,.mother-sheet.accent-thinrule .ms-section-title{border-bottom:1px solid #e9e9e9;padding-bottom:6px;margin-bottom:12px}
+    #motherSheet.accent-leftbar section > h2,#motherSheet.accent-leftbar .ms-section-title,.mother-sheet.accent-leftbar section > h2,.mother-sheet.accent-leftbar .ms-section-title{border-left:2px solid var(--ms-accent-color);padding-left:10px;margin-left:-10px}
+    #motherSheet.accent-leftbar section > h2:first-child,#motherSheet.accent-leftbar .ms-section-title:first-child,.mother-sheet.accent-leftbar section > h2:first-child,.mother-sheet.accent-leftbar .ms-section-title:first-child{margin-top:0}
+    #motherSheet.accent-none section > h2,#motherSheet.accent-none .ms-section-title,.mother-sheet.accent-none section > h2,.mother-sheet.accent-none .ms-section-title{border:none;padding-left:0;padding-bottom:0;margin-left:0}
+    #motherSheet .ms-summary,.mother-sheet .ms-summary{font-size:var(--ms-subheader-size);font-family:var(--ms-family-header);margin:0 0 12px}
+    @media print{
+      @page{margin:18mm}
+      body{background:#fff}
+    }
     @keyframes spin{to{transform:rotate(360deg)}}
     @media (max-width:900px){
       table{min-width:520px}
@@ -127,6 +190,41 @@
       .history-pagination{flex-direction:column;align-items:stretch}
       .dropzone{padding:20px}
       th,td{font-size:13px}
+    }
+  </style>
+  <style>
+    /* Mother Sheet typography */
+    #motherSheet, .mother-sheet {
+      font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    #motherSheet .ms-title, .mother-sheet .ms-title {
+      font-size: 22px;
+      font-weight: 700;
+      line-height: 1.3;
+      letter-spacing: 0.2px;
+    }
+    #motherSheet .ms-group-title, .mother-sheet .ms-group-title {
+      font-size: 20px;
+      font-weight: 700;
+      line-height: 1.4;
+      margin: 16px 0 6px;
+    }
+    #motherSheet .ms-row, .mother-sheet .ms-row {
+      font-feature-settings: "tnum" 1, "liga" 0;
+    }
+    @media print {
+      #motherSheet, .mother-sheet {
+        font-size: 14px;
+        line-height: 1.6;
+      }
+      #motherSheet .ms-title, .mother-sheet .ms-title {
+        font-size: 22px;
+      }
+      #motherSheet .ms-group-title, .mother-sheet .ms-group-title {
+        font-size: 20px;
+      }
     }
   </style>
 </head>
@@ -148,7 +246,7 @@
       <button class="tab" data-tab="history">History</button>
       <button class="tab" data-tab="processing">Processing</button>
       <button class="tab" data-tab="labels">Labels</button>
-      <button class="tab" data-tab="settings">Settings</button>
+      <button class="tab" data-tab="analysis">Analysis</button>
     </nav>
 
     <section id="tabExtract" class="tab-panel active">
@@ -294,6 +392,13 @@
             <span>Mother Sheet – Client: — | Orders: — | Date: —</span>
             <span class="muted small">Rows: 0</span>
           </div>
+          <div class="muted small" style="margin:8px 0 6px;display:flex;align-items:center;gap:8px">
+            <label class="inline-toggle">
+              <input type="checkbox" id="processingWysiwygToggle">
+              <span>Live HTML preview (WYSIWYG)</span>
+            </label>
+          </div>
+          <div id="motherSheetPreview" class="mother-sheet" hidden></div>
           <div id="processingPreview" class="processing-preview">No orders added yet.</div>
         </div>
         <div class="processing-controls">
@@ -318,6 +423,10 @@
               <span>Merge across orders</span>
               <input type="checkbox" id="processingMergeOrdersToggle">
             </label>
+            <label class="toggle-row">
+              <span>Auto-apply Danko rounding</span>
+              <input type="checkbox" id="processingAutoDankoToggle">
+            </label>
           </div>
           <div class="card processing-header-editor">
             <h3 style="margin:0">Header Editor</h3>
@@ -329,12 +438,14 @@
             </div>
             <p class="processing-warning" id="processingHeaderHint" hidden></p>
           </div>
-          <div class="card processing-actions">
-            <button class="btn" id="processingGroup">Group Dimensions</button>
-            <button class="btn" id="processingCopy">Copy Text</button>
-            <button class="btn" id="processingExportPdf">Export PDF</button>
-            <button class="btn" id="processingExportCsv">Export CSV</button>
-          </div>
+      <div class="card processing-actions">
+        <button class="btn" id="processingRoundingToggle">Apply Danko Rounding</button>
+        <button class="btn" id="processingGroup">Group Dimensions</button>
+        <button class="btn" id="processingCopy">Copy Text</button>
+        <button class="btn" id="processingExportPdf">Export PDF</button>
+        <button class="btn" id="processingExportCsv">Export CSV</button>
+        <div id="processingRoundingStatus" class="muted small"></div>
+      </div>
         </div>
       </div>
     </section>
@@ -360,10 +471,109 @@
       </div>
     </section>
 
-    <section id="tabSettings" class="tab-panel">
+    <section id="tabAnalysis" class="tab-panel">
       <div class="card">
-        <h2 style="margin-top:0">Settings</h2>
-        <p class="muted small">Settings and user preferences will appear here. Authentication rules from the backend remain enforced.</p>
+        <h2 style="margin-top:0">Analysis</h2>
+        <p class="muted small">AI-assisted analytics on your orders.</p>
+        <div class="status-row">
+          <span id="analysisStatus" class="muted small"></span>
+        </div>
+        <button type="button" class="btn small" id="analysisDebugToggle" style="display:none;margin-top:8px">Log dataset rows</button>
+      </div>
+
+      <div class="card" id="analysisKpisCard">
+        <h3 style="margin-top:0">KPIs</h3>
+        <div class="summary" id="analysisKpis">
+          <span class="pill"><span class="muted small">Orders</span><strong id="analysisKpiOrders">0</strong></span>
+          <span class="pill"><span class="muted small">Units</span><strong id="analysisKpiUnits">0</strong></span>
+          <span class="pill"><span class="muted small">m²</span><strong id="analysisKpiArea">0</strong></span>
+          <span class="pill"><span class="muted small">Avg m²/order</span><strong id="analysisKpiAvgArea">0</strong></span>
+          <span class="pill"><span class="muted small">Avg units/order</span><strong id="analysisKpiAvgUnits">0</strong></span>
+        </div>
+      </div>
+
+      <div class="card" id="analysisTopClientsCard">
+        <h3 style="margin-top:0">Top Clients</h3>
+        <div class="table-responsive">
+          <table>
+            <thead>
+              <tr>
+                <th>Client</th>
+                <th>Orders</th>
+                <th>Units</th>
+                <th>Area (m²)</th>
+              </tr>
+            </thead>
+            <tbody id="analysisTopClientsBody">
+              <tr>
+                <td colspan="4" class="muted">No data.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card" id="analysisTopTypesCard">
+        <h3 style="margin-top:0">Top Glass Types</h3>
+        <div class="table-responsive">
+          <table>
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th>Lines</th>
+                <th>Units</th>
+              </tr>
+            </thead>
+            <tbody id="analysisTopTypesBody">
+              <tr>
+                <td colspan="3" class="muted">No data.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card" id="analysisDimensionsCard">
+        <div style="display:flex;gap:12px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap">
+          <h3 style="margin:0">Top Dimensions</h3>
+          <div class="controls" style="margin:0" id="analysisDimensionControls">
+            <label class="muted small" style="display:flex;flex-direction:column;gap:4px;min-width:120px">
+              <span>Tolerance (±mm)</span>
+              <input type="number" id="analysisTolerance" min="0" max="5" step="0.1" value="1" />
+            </label>
+            <label class="inline-toggle">
+              <input type="checkbox" id="analysisOrientation" checked />
+              <span>Orientation-agnostic</span>
+            </label>
+            <button type="button" class="btn small" id="analysisRecalc">Recalculate</button>
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table>
+            <thead>
+              <tr>
+                <th>Dimension</th>
+                <th>Qty</th>
+                <th>Orders</th>
+                <th>Clients</th>
+              </tr>
+            </thead>
+            <tbody id="analysisDimensionsBody">
+              <tr>
+                <td colspan="4" class="muted">No data.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card" id="analysisAiCard">
+        <h3 style="margin-top:0">AI Prompt</h3>
+        <div class="controls" style="align-items:stretch">
+          <input type="text" id="analysisQuestion" placeholder="e.g., Which client ordered the most units last month?" style="flex:1;min-width:200px;padding:8px 12px;border:1px solid var(--border-dark);border-radius:10px;background:#fbfcff" />
+          <button type="button" class="btn primary" id="analysisAsk">Ask</button>
+        </div>
+        <div id="analysisAnswer" class="muted small" style="margin-top:12px">Ask a question to see AI insights.</div>
       </div>
     </section>
   </main>
@@ -371,12 +581,41 @@
   <input type="file" id="pdfInput" accept="application/pdf" hidden />
 
 <script>
-const API_BASE =
-  location.hostname.includes("localhost") || location.hostname.includes("127.0.0.1")
-    ? "http://127.0.0.1:5055"
-    : "https://order-extractor-kdih.onrender.com";
+const API_BASE = "http://127.0.0.1:5055";
 const HISTORY_CACHE_KEY = "loe.history.cache.v1";
 const HISTORY_CACHE_LIMIT = 200;
+const DEFAULT_APPEARANCE_SETTINGS = Object.freeze({
+  headerFontSize: 20,
+  orderInfoFontSize: 14,
+  bodyFontSize: 12.5,
+  fontFamily: "system-sans",
+  rowDensity: "normal",
+  accentStyle: "none",
+});
+const MOTHER_SHEET_SELECTOR = "#motherSheet, .mother-sheet";
+const ANALYSIS_MAX_DATASET_CHARS = 50000;
+
+// ✅ Danko Rounding: Global functions for Processing + Mother Sheet
+window.dankoRound = function(valueMm) {
+  if (!Number.isFinite(valueMm)) return valueMm;
+  const lastDigit = valueMm % 10;
+  if (lastDigit === 1 || lastDigit === 2) return valueMm - lastDigit;        // → 0
+  if (lastDigit === 6 || lastDigit === 7) return valueMm - (lastDigit - 5);  // → 5
+  if (lastDigit === 4) return valueMm + (5 - lastDigit);                     // → 5
+  if (lastDigit === 9) return valueMm + (10 - lastDigit);                    // → next 0
+  return valueMm; // keep unchanged
+};
+
+window.applyDankoRuleToDim = function(dimStr) {
+  if (!dimStr || !/^\d+x\d+$/.test(dimStr)) {
+    return { w: null, h: null, text: dimStr, changed: false };
+  }
+  const [w0, h0] = dimStr.split("x").map(n => parseInt(n, 10));
+  const w = window.dankoRound(w0);
+  const h = window.dankoRound(h0);
+  const changed = (w !== w0) || (h !== h0);
+  return { w, h, text: `${w}x${h}`, changed, original: `${w0}x${h0}` };
+};
 
 const renderTargets = {
   extract: { tableId: "tableWrap", summaryId: "summary", orderInfoId: "orderInfo" },
@@ -389,6 +628,11 @@ const renderState = {
 };
 
 let groupState = false;
+let appearanceSettings = { ...DEFAULT_APPEARANCE_SETTINGS };
+let motherSheetObserver = null;
+
+setGlobalAppearanceVariables(appearanceSettings);
+ensureMotherSheetObserver();
 
 const historyState = {
   query: "",
@@ -445,13 +689,41 @@ const appState = {
       decimalSeparator: "comma",
       normalizeLPtoG: true,
       mergeAcrossOrders: false,
+      autoDanko: false,
     },
     headerOverrides: {},
+    rounding: {
+      manualApplied: false,
+      message: "",
+    },
   },
   labels: {
     jobs: [],
     nextId: 1,
   },
+};
+
+const analysisState = {
+  initialized: false,
+  loading: false,
+  dataset: null,
+  metrics: null,
+  topClients: [],
+  topTypes: [],
+  topDimensions: [],
+  tolerance: 1,
+  orientationAgnostic: true,
+  promise: Promise.resolve(),
+  sessionId: null,
+  allOrdersCache: [],
+  allOrdersPromise: null,
+  allOrdersDirty: true,
+  ai: {
+    loading: false,
+    lastQuestion: "",
+  },
+  orderRowCache: new Map(),
+  orderRowRequests: new Map(),
 };
 
 const tabs = document.querySelectorAll(".tab-bar .tab");
@@ -460,7 +732,7 @@ const panels = {
   history: document.getElementById("tabHistory"),
   processing: document.getElementById("tabProcessing"),
   labels: document.getElementById("tabLabels"),
-  settings: document.getElementById("tabSettings")
+  analysis: document.getElementById("tabAnalysis")
 };
 
 const saveToast = document.getElementById("saveToast");
@@ -492,10 +764,13 @@ const processingHeaderInput = document.getElementById("processingHeaderInput");
 const processingHeaderApply = document.getElementById("processingHeaderApply");
 const processingHeaderReset = document.getElementById("processingHeaderReset");
 const processingHeaderHint = document.getElementById("processingHeaderHint");
+const processingRoundingBtn = document.getElementById("processingRoundingToggle");
 const processingGroupBtn = document.getElementById("processingGroup");
 const processingCopyBtn = document.getElementById("processingCopy");
 const processingExportPdfBtn = document.getElementById("processingExportPdf");
 const processingExportCsvBtn = document.getElementById("processingExportCsv");
+const processingRoundingStatus = document.getElementById("processingRoundingStatus");
+const processingAutoDankoToggle = document.getElementById("processingAutoDankoToggle");
 const labelsJobsWrap = document.getElementById("labelsJobsWrap");
 const labelsSummaryEl = document.getElementById("labelsSummary");
 const labelsStatusEl = document.getElementById("labelsStatus");
@@ -503,6 +778,24 @@ const labelsFromProcessingBtn = document.getElementById("labelsFromProcessing");
 const labelsFromProcessingDownloadBtn = document.getElementById("labelsFromProcessingDownload");
 const labelsFromHistoryBtn = document.getElementById("labelsFromHistory");
 const labelsClearBtn = document.getElementById("labelsClear");
+const analysisStatusEl = document.getElementById("analysisStatus");
+const analysisKpiOrdersEl = document.getElementById("analysisKpiOrders");
+const analysisKpiUnitsEl = document.getElementById("analysisKpiUnits");
+const analysisKpiAreaEl = document.getElementById("analysisKpiArea");
+const analysisKpiAvgAreaEl = document.getElementById("analysisKpiAvgArea");
+const analysisKpiAvgUnitsEl = document.getElementById("analysisKpiAvgUnits");
+const analysisTopClientsBody = document.getElementById("analysisTopClientsBody");
+const analysisTopTypesBody = document.getElementById("analysisTopTypesBody");
+const analysisDimensionsBody = document.getElementById("analysisDimensionsBody");
+const analysisToleranceInput = document.getElementById("analysisTolerance");
+const analysisOrientationToggle = document.getElementById("analysisOrientation");
+const analysisRecalcBtn = document.getElementById("analysisRecalc");
+const analysisQuestionInput = document.getElementById("analysisQuestion");
+const analysisAskBtn = document.getElementById("analysisAsk");
+const analysisAnswerEl = document.getElementById("analysisAnswer");
+const analysisDebugToggle = document.getElementById("analysisDebugToggle");
+const wysiwygToggle = document.getElementById("processingWysiwygToggle");
+const wysiwygPreview = document.getElementById("motherSheetPreview");
 
 const groupToggles = document.querySelectorAll("[data-group-toggle]");
 
@@ -520,6 +813,11 @@ function activateTab(name){
     ensureHistoryLoaded();
     rebuildProcessingRows();
     updateProcessingUI();
+  }else if (name === "analysis"){
+    ensureAnalysisReady();
+    if (analysisState.initialized && analysisState.allOrdersDirty){
+      refreshAnalysis();
+    }
   }else if (name === "labels"){
     updateLabelsUI();
   }
@@ -569,6 +867,1253 @@ groupToggles.forEach(toggle=>{
 });
 
 setGroupState(false);
+
+function clampNumber(value, min, max, fallback){
+  const num = Number(value);
+  if (!Number.isFinite(num)) return fallback;
+  return Math.min(Math.max(num, min), max);
+}
+
+function setAnalysisStatus(message){
+  if (analysisStatusEl){
+    analysisStatusEl.textContent = message || "";
+  }
+}
+
+function pickFirstString(values, fallback = ""){
+  if (values == null) return fallback;
+  if (!Array.isArray(values)){
+    const str = String(values).trim();
+    return str || fallback;
+  }
+  for (const value of values){
+    if (Array.isArray(value)){
+      const nested = pickFirstString(value);
+      if (nested) return nested;
+    }else if (value != null){
+      const str = String(value).trim();
+      if (str) return str;
+    }
+  }
+  return fallback;
+}
+
+function pickFirstNumber(values){
+  if (values == null) return null;
+  if (!Array.isArray(values)){
+    const numeric = typeof values === "string" ? values.replace(",", ".") : values;
+    const num = Number(numeric);
+    return Number.isFinite(num) ? num : null;
+  }
+  for (const value of values){
+    if (Array.isArray(value)){
+      const nested = pickFirstNumber(value);
+      if (nested != null) return nested;
+    }else if (value != null && value !== ""){
+      const normalized = typeof value === "string" ? value.replace(",", ".") : value;
+      const num = Number(normalized);
+      if (Number.isFinite(num)) return num;
+    }
+  }
+  return null;
+}
+
+function findNumeric(values){
+  if (values == null) return null;
+  if (!Array.isArray(values)){
+    return normalizeDimensionNumber(values);
+  }
+  for (const value of values){
+    if (Array.isArray(value)){
+      const nested = findNumeric(value);
+      if (nested != null) return nested;
+    }else{
+      const parsed = normalizeDimensionNumber(value);
+      if (parsed != null) return parsed;
+    }
+  }
+  return null;
+}
+
+function extractOrderDate(order){
+  if (!order || typeof order !== "object") return null;
+  const candidates = [
+    order.created_at,
+    order.createdAt,
+    order.created,
+    order.inserted_at,
+    order.insertedAt,
+    order.timestamp,
+    order.date,
+  ];
+  for (const candidate of candidates){
+    if (candidate == null || candidate === "") continue;
+    if (typeof candidate === "number"){
+      const date = new Date(candidate);
+      if (!Number.isNaN(date.getTime())) return date;
+      continue;
+    }
+    const str = String(candidate).trim();
+    if (!str) continue;
+    const date = new Date(str);
+    if (!Number.isNaN(date.getTime())) return date;
+  }
+  return null;
+}
+
+function getOrderLabel(order){
+  if (!order) return "—";
+  const numbers = Array.isArray(order.order_numbers)
+    ? order.order_numbers.map(value => value == null ? "" : String(value).trim()).filter(Boolean)
+    : [];
+  if (numbers.length){
+    return numbers.join(", ");
+  }
+  const fallback = pickFirstString([
+    order.order_number,
+    order.orderNumber,
+    order.order_no,
+    order.orderNo,
+    order.order,
+    order.orderId,
+    order.order_id,
+    order.id,
+  ]);
+  if (fallback){
+    return fallback;
+  }
+  return order.id != null ? `#${order.id}` : "—";
+}
+
+function computeRowArea(row){
+  if (!row) return 0;
+  const directArea = pickFirstNumber([
+    row.area,
+    row.area_m2,
+    row.areaM2,
+    row.computed_area,
+    row.computedArea,
+  ]);
+  if (directArea != null) return directArea;
+  let width = normalizeDimensionNumber(row.width);
+  let height = normalizeDimensionNumber(row.height);
+  if (width == null || height == null){
+    const dimensionLabel = pickFirstString([
+      row.dimension,
+      row.dimension_display,
+      row.dim,
+      row.dimensionDisplay,
+    ]);
+    if (dimensionLabel){
+      const parsed = parseDimensionTokens(dimensionLabel);
+      if (width == null && parsed.width != null) width = parsed.width;
+      if (height == null && parsed.height != null) height = parsed.height;
+    }
+  }
+  if (width != null && height != null){
+    return (width * height) / 1000000;
+  }
+  return 0;
+}
+
+function mapRowForAnalysis(row, orderLabel, clientLabel){
+  if (!row) return null;
+  const dimensionDisplay = pickFirstString([
+    row.dimension,
+    row.dimension_display,
+    row.dim,
+    row.dimensionDisplay,
+  ]);
+  let width = findNumeric([
+    row.width,
+    row.width_mm,
+    row.width_mm_calc,
+    row.widthValue,
+    row.widthNumeric,
+  ]);
+  let height = findNumeric([
+    row.height,
+    row.height_mm,
+    row.height_mm_calc,
+    row.heightValue,
+    row.heightNumeric,
+  ]);
+  let widthDisplay = pickFirstString([
+    row.width_display,
+    row.widthDisplay,
+    row.width_text,
+  ]);
+  let heightDisplay = pickFirstString([
+    row.height_display,
+    row.heightDisplay,
+    row.height_text,
+  ]);
+  if ((width == null || height == null) && dimensionDisplay){
+    const parsed = parseDimensionTokens(dimensionDisplay);
+    if (width == null && parsed.width != null) width = parsed.width;
+    if (height == null && parsed.height != null) height = parsed.height;
+    if (!widthDisplay && parsed.widthDisplay) widthDisplay = parsed.widthDisplay;
+    if (!heightDisplay && parsed.heightDisplay) heightDisplay = parsed.heightDisplay;
+  }
+  if (!widthDisplay && width != null){
+    widthDisplay = String(width);
+  }
+  if (!heightDisplay && height != null){
+    heightDisplay = String(height);
+  }
+  const qty = Math.max(0, pickFirstNumber([
+    row.quantity,
+    row.qty,
+    row.Qty,
+    row.QTY,
+    row.qty_total,
+    row.total_qty,
+    row.quantity_total,
+    row.qtyTotal,
+  ]) || 0);
+  const type = pickFirstString([
+    row.type,
+    row.composition_raw,
+    row.composition,
+    row.composition_display,
+    row.glass_type,
+    row.glassType,
+    row.description,
+  ], "");
+  const widthNumeric = Number.isFinite(width) ? width : null;
+  const heightNumeric = Number.isFinite(height) ? height : null;
+  const widthDisplayValue = (() => {
+    const display = widthDisplay != null ? String(widthDisplay).trim() : "";
+    if (display) return display;
+    return widthNumeric != null ? String(widthNumeric) : null;
+  })();
+  const heightDisplayValue = (() => {
+    const display = heightDisplay != null ? String(heightDisplay).trim() : "";
+    if (display) return display;
+    return heightNumeric != null ? String(heightNumeric) : null;
+  })();
+  const orderIdValue = orderLabel && orderLabel.trim().length ? orderLabel.trim() : "—";
+  const clientValue = clientLabel && clientLabel.trim().length ? clientLabel.trim() : "—";
+  const dimensionLabel = dimensionDisplay && dimensionDisplay.trim().length ? dimensionDisplay.trim() : null;
+  return {
+    type,
+    width: widthNumeric,
+    height: heightNumeric,
+    widthDisplay: widthDisplayValue,
+    heightDisplay: heightDisplayValue,
+    qty,
+    orderId: orderIdValue,
+    client: clientValue,
+    dimensionDisplay: dimensionLabel,
+  };
+}
+
+function cloneRowArray(rows){
+  return Array.isArray(rows) ? rows.map(item => ({ ...item })) : [];
+}
+
+async function resolveOrderRowsForAnalysis(order){
+  if (!order || order.id == null){
+    return [];
+  }
+  if (Array.isArray(order.rows) && order.rows.length){
+    analysisState.orderRowCache.set(order.id, cloneRowArray(order.rows));
+    return cloneRowArray(order.rows);
+  }
+  if (analysisState.orderRowCache.has(order.id)){
+    return cloneRowArray(analysisState.orderRowCache.get(order.id));
+  }
+  if (analysisState.orderRowRequests.has(order.id)){
+    const pending = await analysisState.orderRowRequests.get(order.id);
+    return cloneRowArray(pending);
+  }
+  const fetchPromise = (async ()=>{
+    try{
+      const detail = await fetchOrder(order.id);
+      if (detail && Array.isArray(detail.rows) && detail.rows.length){
+        analysisState.orderRowCache.set(order.id, cloneRowArray(detail.rows));
+        return cloneRowArray(detail.rows);
+      }
+    }catch(error){
+      console.warn("Analysis: failed to fetch order rows", error);
+    }
+    const cachedItems = readHistoryCache();
+    const cachedOrder = cachedItems.find(item => item && item.id === order.id);
+    if (cachedOrder && Array.isArray(cachedOrder.rows) && cachedOrder.rows.length){
+      analysisState.orderRowCache.set(order.id, cloneRowArray(cachedOrder.rows));
+      return cloneRowArray(cachedOrder.rows);
+    }
+    return [];
+  })();
+  analysisState.orderRowRequests.set(order.id, fetchPromise);
+  try{
+    const result = await fetchPromise;
+    return cloneRowArray(result);
+  }finally{
+    analysisState.orderRowRequests.delete(order.id);
+  }
+}
+
+async function mapHistoryOrderForAnalysis(order){
+  const orderLabel = getOrderLabel(order);
+  const client = pickFirstString([
+    order.client,
+    order.client_hint,
+    order.client_name,
+    order.clientName,
+    order.customer,
+  ], "—");
+  const createdAt = pickFirstString([
+    order.created_at,
+    order.createdAt,
+    order.created,
+  ]) || null;
+  const parsedUnits = pickFirstNumber([
+    order.parsed_units,
+    order.units_total,
+    order.total_units,
+    order.units,
+  ]) || 0;
+  const parsedArea = pickFirstNumber([
+    order.parsed_area,
+    order.area_total,
+    order.total_area,
+    order.area,
+  ]) || 0;
+  const orderRows = await resolveOrderRowsForAnalysis(order);
+  const rows = orderRows
+    .map(row => mapRowForAnalysis(row, orderLabel, client))
+    .filter(Boolean);
+  return {
+    id: order.id,
+    order_numbers: Array.isArray(order.order_numbers)
+      ? order.order_numbers
+      : (orderLabel && orderLabel !== "—"
+        ? orderLabel.split(/\s*,\s*/).map(token => token.trim()).filter(Boolean)
+        : []),
+    order_number: pickFirstString([order.order_number, order.orderNumber]) || undefined,
+    client,
+    created_at: createdAt,
+    parsed_units: parsedUnits,
+    parsed_area: parsedArea,
+    rows,
+  };
+}
+
+function mapProcessingOrderForAnalysis(entry){
+  if (!entry) return null;
+  const label = entry.orderLabel || getOrderLabel(entry);
+  const client = pickFirstString([
+    entry.client,
+    entry.client_label,
+    entry.clientLabel,
+  ], "—");
+  const rows = Array.isArray(entry.rows)
+    ? entry.rows.map(row => mapRowForAnalysis(row, label, client)).filter(Boolean)
+    : [];
+  const units = rows.reduce((sum, row)=> sum + (Number(row.qty) || 0), 0);
+  const area = rows.reduce((sum, row)=> sum + computeRowArea(row), 0);
+  const orderNumbers = label ? label.split(/\s*,\s*/).map(token => token.trim()).filter(Boolean) : [];
+  return {
+    id: entry.id ?? label,
+    order_numbers: orderNumbers,
+    order_number: orderNumbers.length === 1 ? orderNumbers[0] : undefined,
+    client,
+    created_at: entry.createdAt || null,
+    parsed_units: units,
+    parsed_area: area,
+    rows,
+  };
+}
+
+function sortOrdersNewestFirst(items){
+  const list = Array.isArray(items) ? items.slice() : [];
+  return list.sort((a, b)=>{
+    const da = extractOrderDate(a);
+    const db = extractOrderDate(b);
+    const ta = da ? da.getTime() : 0;
+    const tb = db ? db.getTime() : 0;
+    return tb - ta;
+  });
+}
+
+async function fetchAllApprovedOrders(){
+  if (!analysisState.allOrdersDirty && Array.isArray(analysisState.allOrdersCache)){
+    return analysisState.allOrdersCache.slice();
+  }
+  if (analysisState.allOrdersPromise){
+    const cached = await analysisState.allOrdersPromise;
+    return cached.slice();
+  }
+  const task = (async ()=>{
+    const aggregated = [];
+    let offset = 0;
+    const limit = 100;
+    let hasMore = true;
+    while (hasMore){
+      const params = { limit, offset, status: "approved" };
+      let data;
+      try{
+        data = await fetchOrders(params);
+      }catch(error){
+        console.warn("Analysis: failed to fetch all orders batch", error);
+        break;
+      }
+      const items = Array.isArray(data?.items) ? data.items : [];
+      aggregated.push(...items);
+      hasMore = !!data?.has_more && items.length > 0;
+      offset += limit;
+      if (!hasMore){
+        break;
+      }
+    }
+    analysisState.allOrdersCache = aggregated;
+    analysisState.allOrdersDirty = false;
+    return aggregated.slice();
+  })();
+  analysisState.allOrdersPromise = task.finally(()=>{
+    analysisState.allOrdersPromise = null;
+  });
+  return task;
+}
+
+async function buildAllTimeAnalysisDataset(options = {}){
+  const tolerance = options.tolerance;
+  const orientationAgnostic = options.orientationAgnostic;
+  let approvedOrders = [];
+  try{
+    approvedOrders = await fetchAllApprovedOrders();
+  }catch(error){
+    console.warn("Analysis: unable to load all orders", error);
+    approvedOrders = [];
+  }
+  const sortedAll = sortOrdersNewestFirst(approvedOrders);
+  const orders = [];
+  for (const order of sortedAll){
+    orders.push(await mapHistoryOrderForAnalysis(order));
+  }
+  const processingOrders = Array.isArray(appState.processing.cart)
+    ? appState.processing.cart.map(mapProcessingOrderForAnalysis).filter(Boolean)
+    : [];
+  const aggregates = computeAggregatesForAllTime(orders, processingOrders, {
+    tolerance,
+    orientationAgnostic,
+  });
+  return {
+    scope: "all-time",
+    orders,
+    processing_orders: processingOrders,
+    aggregates,
+    meta: { truncated: false, notes: [] },
+  };
+}
+
+function mergeOrdersForAnalysis(dataset){
+  if (!dataset) return [];
+  const base = Array.isArray(dataset.orders) ? dataset.orders.map(order => JSON.parse(JSON.stringify(order))) : [];
+  if (Array.isArray(dataset.processing_orders)){
+    dataset.processing_orders.forEach(order => {
+      base.push(JSON.parse(JSON.stringify(order)));
+    });
+  }
+  return base;
+}
+
+function collectAnalysisRows(orders){
+  const rows = [];
+  orders.forEach(order => {
+    if (!order || !Array.isArray(order.rows)) return;
+    order.rows.forEach(row => {
+      if (row) rows.push({ ...row });
+    });
+  });
+  return rows;
+}
+
+function getOrderTimestampForAnalysis(order){
+  if (!order) return 0;
+  const created = order.created_at || order.createdAt || null;
+  if (created){
+    const date = new Date(created);
+    if (!Number.isNaN(date.getTime())) return date.getTime();
+  }
+  return 0;
+}
+
+function computeAggregatesForAllTime(orders, processing, options){
+  const tolerance = Number(options?.tolerance) || 0;
+  const orientationAgnostic = !!options?.orientationAgnostic;
+  const totals = { orders: (orders?.length || 0) + (processing?.length || 0), units: 0, area_m2: 0 };
+  const byClientMap = new Map();
+  const byTypeMap = new Map();
+  const dimensionRows = [];
+  const recentRows = [];
+
+  function addClientSample(order, units, area){
+    const clientName = (order.client || "—").trim() || "—";
+    if (!byClientMap.has(clientName)){
+      byClientMap.set(clientName, {
+        client: clientName,
+        units: 0,
+        area: 0,
+        orders: new Set(),
+      });
+    }
+    const entry = byClientMap.get(clientName);
+    entry.units += units;
+    entry.area += area;
+    const orderKey = order.id != null ? String(order.id) : (Array.isArray(order.order_numbers) && order.order_numbers.length ? order.order_numbers.join("|") : order.order_number || order.orderId || Math.random().toString(16).slice(2));
+    entry.orders.add(orderKey);
+  }
+
+  function foldOrder(order){
+    if (!order || !Array.isArray(order.rows)) return;
+    let orderUnits = 0;
+    let orderArea = 0;
+    order.rows.forEach(row => {
+      if (!row) return;
+      const qty = Number(row.qty) || 0;
+      orderUnits += qty;
+      const area = computeRowArea(row);
+      orderArea += area;
+      const typeKey = (row.type || "—").trim() || "—";
+      if (!byTypeMap.has(typeKey)){
+        byTypeMap.set(typeKey, { type: typeKey, lines: 0, units: 0, area: 0 });
+      }
+      const typeEntry = byTypeMap.get(typeKey);
+      typeEntry.lines += 1;
+      typeEntry.units += qty;
+      typeEntry.area += area;
+      dimensionRows.push({ ...row, orderId: row.orderId || getOrderLabel(order), client: row.client || order.client || "—" });
+      recentRows.push({
+        orderId: row.orderId || getOrderLabel(order),
+        client: row.client || order.client || "—",
+        type: row.type || "",
+        width: row.width ?? null,
+        height: row.height ?? null,
+        widthDisplay: row.widthDisplay || null,
+        heightDisplay: row.heightDisplay || null,
+        qty,
+        created_at: order.created_at || null,
+      });
+    });
+    totals.units += orderUnits;
+    totals.area_m2 += orderArea;
+    addClientSample(order, orderUnits, orderArea);
+  }
+
+  (orders || []).forEach(foldOrder);
+  (processing || []).forEach(foldOrder);
+
+  const by_client = Array.from(byClientMap.values()).map(entry => ({
+    client: entry.client,
+    orders: entry.orders.size,
+    units: entry.units,
+    area_m2: Number(entry.area.toFixed(3)),
+  })).sort((a, b)=>{
+    if (b.area_m2 !== a.area_m2) return b.area_m2 - a.area_m2;
+    return a.client.localeCompare(b.client);
+  }).slice(0, 25);
+
+  const by_type = Array.from(byTypeMap.values()).map(entry => ({
+    type: entry.type,
+    lines: entry.lines,
+    units: entry.units,
+    area_m2: Number(entry.area.toFixed(3)),
+  })).sort((a, b)=>{
+    if (b.units !== a.units) return b.units - a.units;
+    return a.type.localeCompare(b.type);
+  }).slice(0, 25);
+
+  const dimBuckets = buildDimensionBuckets(dimensionRows, tolerance, orientationAgnostic).map(bucket => ({
+    dim: bucket.dimension,
+    qty: bucket.qty,
+    orders: bucket.orders,
+    clients: bucket.clients,
+  }));
+
+  recentRows.sort((a, b)=>{
+    const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+    const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+    return tb - ta;
+  });
+
+  return {
+    totals: {
+      orders: totals.orders,
+      units: totals.units,
+      area_m2: Number(totals.area_m2.toFixed(3)),
+    },
+    by_client,
+    by_type,
+    by_dim: dimBuckets,
+    recent_samples: recentRows.slice(0, 50),
+  };
+}
+
+function prepareDatasetForTransmission(dataset, options){
+  const ordersSource = Array.isArray(dataset?.orders) ? dataset.orders : [];
+  const processingSource = Array.isArray(dataset?.processing_orders) ? dataset.processing_orders : [];
+  const aggregates = dataset?.aggregates
+    ? JSON.parse(JSON.stringify(dataset.aggregates))
+    : computeAggregatesForAllTime(ordersSource, processingSource, {
+        tolerance: options?.tolerance,
+        orientationAgnostic: options?.orientationAgnostic,
+      });
+  const payloadMeta = {
+    truncated: !!(dataset?.meta && dataset.meta.truncated),
+    notes: Array.isArray(dataset?.meta?.notes) ? dataset.meta.notes.slice() : [],
+  };
+  const payload = {
+    scope: dataset?.scope || "all-time",
+    meta: payloadMeta,
+    aggregates,
+    orders: ordersSource.map(order => JSON.parse(JSON.stringify(order))),
+    processing_orders: processingSource.map(order => JSON.parse(JSON.stringify(order))),
+  };
+
+  let serialized = JSON.stringify(payload);
+  if (serialized.length > ANALYSIS_MAX_DATASET_CHARS){
+    payload.meta.truncated = true;
+    let trimmedOrders = 0;
+    while (serialized.length > ANALYSIS_MAX_DATASET_CHARS && payload.orders.length > 0){
+      payload.orders.pop();
+      trimmedOrders += 1;
+      serialized = JSON.stringify(payload);
+    }
+    if (trimmedOrders > 0){
+      payload.meta.notes.push(`orders list trimmed to newest ${payload.orders.length} to fit token budget`);
+    }
+    let trimmedProcessing = 0;
+    while (serialized.length > ANALYSIS_MAX_DATASET_CHARS && payload.processing_orders.length > 0){
+      payload.processing_orders.pop();
+      trimmedProcessing += 1;
+      serialized = JSON.stringify(payload);
+    }
+    if (trimmedProcessing > 0){
+      payload.meta.notes.push("processing orders trimmed to fit token budget");
+    }
+    if (serialized.length > ANALYSIS_MAX_DATASET_CHARS){
+      payload.orders = [];
+      payload.processing_orders = [];
+      serialized = JSON.stringify(payload);
+    }
+  }
+
+  payload.meta.size = serialized.length;
+  return { dataset: payload, serialized, truncated: !!payload.meta.truncated };
+}
+
+function getAnalysisSessionId(){
+  if (analysisState.sessionId){
+    return analysisState.sessionId;
+  }
+  let sessionId = "local";
+  try{
+    const storage = window.localStorage;
+    if (storage){
+      const existing = storage.getItem("analysisSessionId");
+      if (existing && existing.trim().length){
+        sessionId = existing.trim();
+      }else{
+        const generated = (window.crypto && typeof window.crypto.randomUUID === "function")
+          ? window.crypto.randomUUID()
+          : `session-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        storage.setItem("analysisSessionId", generated);
+        sessionId = generated;
+      }
+    }
+  }catch{
+    sessionId = `session-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+  analysisState.sessionId = sessionId || "local";
+  return analysisState.sessionId;
+}
+
+function computeAnalysisMetrics(orders){
+  const count = orders.length;
+  const unitsSum = orders.reduce((sum, order)=> sum + (Number(order.parsed_units) || 0), 0);
+  const areaSum = orders.reduce((sum, order)=> sum + (Number(order.parsed_area) || 0), 0);
+  const avgArea = count ? areaSum / count : 0;
+  const avgUnits = count ? unitsSum / count : 0;
+  return {
+    ordersCount: count,
+    unitsSum,
+    areaSum,
+    avgArea,
+    avgUnits,
+  };
+}
+
+function formatNumber(value, { decimals = 0 } = {}){
+  const number = Number(value) || 0;
+  return number.toLocaleString(undefined, {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+}
+
+function formatAreaMetric(value, decimals = 3){
+  return `${formatNumber(value, { decimals })}\u202Fm²`;
+}
+
+function renderAnalysisKpis(metrics){
+  const safeMetrics = metrics || { ordersCount: 0, unitsSum: 0, areaSum: 0, avgArea: 0, avgUnits: 0 };
+  if (analysisKpiOrdersEl) analysisKpiOrdersEl.textContent = formatNumber(safeMetrics.ordersCount);
+  if (analysisKpiUnitsEl) analysisKpiUnitsEl.textContent = formatNumber(safeMetrics.unitsSum);
+  if (analysisKpiAreaEl) analysisKpiAreaEl.textContent = formatAreaMetric(safeMetrics.areaSum);
+  if (analysisKpiAvgAreaEl) analysisKpiAvgAreaEl.textContent = formatAreaMetric(safeMetrics.avgArea);
+  if (analysisKpiAvgUnitsEl) analysisKpiAvgUnitsEl.textContent = formatNumber(safeMetrics.avgUnits, { decimals: 1 });
+}
+
+function computeTopClients(orders){
+  const map = new Map();
+  orders.forEach(order => {
+    if (!order) return;
+    const client = (order.client && String(order.client).trim()) || "—";
+    if (!map.has(client)){
+      map.set(client, { client, units: 0, area: 0, orderIds: new Set() });
+    }
+    const entry = map.get(client);
+    entry.units += Number(order.parsed_units) || 0;
+    entry.area += Number(order.parsed_area) || 0;
+    if (order.id != null){
+      const key = String(order.id).trim();
+      if (key) entry.orderIds.add(key);
+    }else if (order.order_numbers && order.order_numbers.length){
+      order.order_numbers.forEach(num => {
+        const key = num != null ? String(num).trim() : "";
+        if (key) entry.orderIds.add(key);
+      });
+    }else if (order.order_number){
+      const key = String(order.order_number).trim();
+      if (key) entry.orderIds.add(key);
+    }
+  });
+  return Array.from(map.values()).map(entry => ({
+    client: entry.client,
+    units: entry.units,
+    area: entry.area,
+    orders: entry.orderIds.size || (entry.units > 0 ? 1 : 0),
+  })).sort((a, b)=>{
+    if (b.area !== a.area) return b.area - a.area;
+    if (b.units !== a.units) return b.units - a.units;
+    return a.client.localeCompare(b.client);
+  }).slice(0, 10);
+}
+
+function computeTopGlassTypes(orders){
+  const map = new Map();
+  orders.forEach(order => {
+    if (!order || !Array.isArray(order.rows)) return;
+    order.rows.forEach(row => {
+      if (!row) return;
+      const type = (row.type && String(row.type).trim()) || "—";
+      if (!map.has(type)){
+        map.set(type, { type, lines: 0, units: 0 });
+      }
+      const entry = map.get(type);
+      entry.lines += 1;
+      entry.units += Number(row.qty) || 0;
+    });
+  });
+  return Array.from(map.values()).sort((a, b)=>{
+    if (b.units !== a.units) return b.units - a.units;
+    if (b.lines !== a.lines) return b.lines - a.lines;
+    return a.type.localeCompare(b.type);
+  }).slice(0, 10);
+}
+
+function renderNoDataRow(bodyEl, colspan){
+  if (!bodyEl) return;
+  bodyEl.innerHTML = `<tr><td colspan="${colspan}" class="muted">No data.</td></tr>`;
+}
+
+function renderTopClients(rows){
+  if (!analysisTopClientsBody) return;
+  if (!rows.length){
+    renderNoDataRow(analysisTopClientsBody, 4);
+    return;
+  }
+  const html = rows.map(entry => `<tr>
+    <td>${escapeHtml(entry.client)}</td>
+    <td>${formatNumber(entry.orders)}</td>
+    <td>${formatNumber(entry.units)}</td>
+    <td>${formatAreaMetric(entry.area)}</td>
+  </tr>`).join("");
+  analysisTopClientsBody.innerHTML = html;
+}
+
+function renderTopTypes(rows){
+  if (!analysisTopTypesBody) return;
+  if (!rows.length){
+    renderNoDataRow(analysisTopTypesBody, 3);
+    return;
+  }
+  const html = rows.map(entry => `<tr>
+    <td>${escapeHtml(entry.type)}</td>
+    <td>${formatNumber(entry.lines)}</td>
+    <td>${formatNumber(entry.units)}</td>
+  </tr>`).join("");
+  analysisTopTypesBody.innerHTML = html;
+}
+
+function buildDimensionBuckets(rows, tolerance, orientationAgnostic){
+  const buckets = [];
+  const tol = Number.isFinite(tolerance) ? tolerance : 1;
+  rows.forEach(row => {
+    if (!row) return;
+    let width = normalizeDimensionNumber(row.width);
+    let height = normalizeDimensionNumber(row.height);
+    let widthDisplay = row.widthDisplay || null;
+    let heightDisplay = row.heightDisplay || null;
+    if ((width == null || height == null) && row.dimensionDisplay){
+      const parsed = parseDimensionTokens(row.dimensionDisplay);
+      if (width == null && parsed.width != null) width = parsed.width;
+      if (height == null && parsed.height != null) height = parsed.height;
+      if (!widthDisplay && parsed.widthDisplay) widthDisplay = parsed.widthDisplay;
+      if (!heightDisplay && parsed.heightDisplay) heightDisplay = parsed.heightDisplay;
+    }
+    if (!Number.isFinite(width) || !Number.isFinite(height)) return;
+    const qty = Number(row.qty) || 0;
+    if (qty <= 0) return;
+    let canonicalWidth = width;
+    let canonicalHeight = height;
+    let canonicalWidthDisplay = widthDisplay;
+    let canonicalHeightDisplay = heightDisplay;
+    if (orientationAgnostic && canonicalWidth > canonicalHeight){
+      [canonicalWidth, canonicalHeight] = [canonicalHeight, canonicalWidth];
+      [canonicalWidthDisplay, canonicalHeightDisplay] = [canonicalHeightDisplay, canonicalWidthDisplay];
+    }
+    let bucket = null;
+    for (const candidate of buckets){
+      if (Math.abs(candidate.widthRef - canonicalWidth) <= tol && Math.abs(candidate.heightRef - canonicalHeight) <= tol){
+        bucket = candidate;
+        break;
+      }
+    }
+    if (!bucket){
+      bucket = {
+        widthValues: [],
+        heightValues: [],
+        widthDisplays: [],
+        heightDisplays: [],
+        widthDecimals: 0,
+        heightDecimals: 0,
+        widthRef: canonicalWidth,
+        heightRef: canonicalHeight,
+        qty: 0,
+        orderIds: new Set(),
+        clients: new Set(),
+      };
+      buckets.push(bucket);
+    }
+    bucket.widthValues.push(canonicalWidth);
+    bucket.heightValues.push(canonicalHeight);
+    if (canonicalWidthDisplay) bucket.widthDisplays.push(canonicalWidthDisplay);
+    if (canonicalHeightDisplay) bucket.heightDisplays.push(canonicalHeightDisplay);
+    bucket.widthDecimals = Math.max(bucket.widthDecimals, decimalPlacesFromDisplay(canonicalWidthDisplay));
+    bucket.heightDecimals = Math.max(bucket.heightDecimals, decimalPlacesFromDisplay(canonicalHeightDisplay));
+    bucket.qty += qty;
+    const orderIdValue = row.orderId != null ? String(row.orderId).trim() : "";
+    if (orderIdValue && orderIdValue !== "—") bucket.orderIds.add(orderIdValue);
+    const clientValue = row.client != null ? String(row.client).trim() : "";
+    if (clientValue && clientValue !== "—") bucket.clients.add(clientValue);
+  });
+  return buckets.map(bucket => {
+    const widthNumeric = calculateRepresentativeNumber(bucket.widthValues, bucket.widthDecimals) ?? bucket.widthRef;
+    const heightNumeric = calculateRepresentativeNumber(bucket.heightValues, bucket.heightDecimals) ?? bucket.heightRef;
+    const widthDisplay = selectRepresentativeDisplay(bucket.widthDisplays, widthNumeric, bucket.widthDecimals);
+    const heightDisplay = selectRepresentativeDisplay(bucket.heightDisplays, heightNumeric, bucket.heightDecimals);
+    return {
+      dimension: `${widthDisplay} × ${heightDisplay}`,
+      qty: bucket.qty,
+      orders: bucket.orderIds.size,
+      clients: bucket.clients.size,
+      sortQty: bucket.qty,
+    };
+  }).sort((a, b)=>{
+    if (b.sortQty !== a.sortQty) return b.sortQty - a.sortQty;
+    return a.dimension.localeCompare(b.dimension);
+  }).slice(0, 20);
+}
+
+function renderTopDimensions(rows){
+  if (!analysisDimensionsBody) return;
+  if (!rows.length){
+    renderNoDataRow(analysisDimensionsBody, 4);
+    return;
+  }
+  const html = rows.map(entry => `<tr>
+    <td>${escapeHtml(entry.dimension)}</td>
+    <td>${formatNumber(entry.qty)}</td>
+    <td>${formatNumber(entry.orders)}</td>
+    <td>${formatNumber(entry.clients)}</td>
+  </tr>`).join("");
+  analysisDimensionsBody.innerHTML = html;
+}
+
+function readAnalysisSettings(){
+  let tolerance = analysisToleranceInput ? Number(analysisToleranceInput.value) : analysisState.tolerance;
+  tolerance = clampNumber(tolerance, 0, 5, analysisState.tolerance || 1);
+  if (analysisToleranceInput){
+    analysisToleranceInput.value = String(tolerance);
+  }
+  const orientationAgnostic = analysisOrientationToggle ? !!analysisOrientationToggle.checked : true;
+  analysisState.tolerance = tolerance;
+  analysisState.orientationAgnostic = orientationAgnostic;
+  return { tolerance, orientationAgnostic };
+}
+
+async function refreshAnalysis(){
+  const settings = readAnalysisSettings();
+  if (analysisState.loading){
+    return analysisState.promise;
+  }
+  analysisState.loading = true;
+  setAnalysisStatus("Loading analysis…");
+  const task = (async ()=>{
+    try{
+      await ensureHistoryLoaded();
+      const dataset = await buildAllTimeAnalysisDataset(settings);
+      analysisState.dataset = dataset;
+      const orders = mergeOrdersForAnalysis(dataset);
+      analysisState.metrics = computeAnalysisMetrics(orders);
+      analysisState.topClients = computeTopClients(orders);
+      analysisState.topTypes = computeTopGlassTypes(orders);
+      const rows = collectAnalysisRows(orders);
+      analysisState.topDimensions = buildDimensionBuckets(rows, analysisState.tolerance, analysisState.orientationAgnostic);
+      renderAnalysisKpis(analysisState.metrics);
+      renderTopClients(analysisState.topClients);
+      renderTopTypes(analysisState.topTypes);
+      renderTopDimensions(analysisState.topDimensions);
+      const truncatedNotice = dataset?.meta?.truncated ? " (dataset truncated for AI)" : "";
+      const message = orders.length ? `Updated ${new Date().toLocaleTimeString()}${truncatedNotice}` : "No analysis data available.";
+      setAnalysisStatus(message);
+      analysisState.loading = false;
+      return dataset;
+    }catch(error){
+      console.error("Analysis refresh failed:", error);
+      setAnalysisStatus("Analysis unavailable — check connection.");
+      analysisState.dataset = null;
+      analysisState.metrics = null;
+      analysisState.topClients = [];
+      analysisState.topTypes = [];
+      analysisState.topDimensions = [];
+      renderAnalysisKpis(null);
+      renderTopClients([]);
+      renderTopTypes([]);
+      renderTopDimensions([]);
+      analysisState.loading = false;
+      return null;
+    }
+  })();
+  analysisState.promise = task;
+  return task;
+}
+
+function recalculateDimensionBuckets(){
+  readAnalysisSettings();
+  if (!analysisState.dataset){
+    refreshAnalysis();
+    return;
+  }
+  const orders = mergeOrdersForAnalysis(analysisState.dataset);
+  const rows = collectAnalysisRows(orders);
+  analysisState.topDimensions = buildDimensionBuckets(rows, analysisState.tolerance, analysisState.orientationAgnostic);
+  renderTopDimensions(analysisState.topDimensions);
+  if (analysisState.dataset){
+    analysisState.dataset.aggregates = computeAggregatesForAllTime(
+      analysisState.dataset.orders || [],
+      analysisState.dataset.processing_orders || [],
+      {
+        tolerance: analysisState.tolerance,
+        orientationAgnostic: analysisState.orientationAgnostic,
+      }
+    );
+  }
+  setAnalysisStatus(orders.length ? "Dimensions recalculated." : "No analysis data available.");
+}
+
+function ensureAnalysisReady(){
+  if (!analysisState.initialized){
+    initAnalysis();
+  }
+}
+
+function initAnalysis(){
+  if (analysisState.initialized) return;
+  analysisState.initialized = true;
+  readAnalysisSettings();
+  renderAnalysisKpis(null);
+  renderTopClients([]);
+  renderTopTypes([]);
+  renderTopDimensions([]);
+  refreshAnalysis();
+  if (analysisToleranceInput){
+    analysisToleranceInput.addEventListener("change", ()=>{
+      readAnalysisSettings();
+      recalculateDimensionBuckets();
+    });
+    analysisToleranceInput.addEventListener("input", ()=> readAnalysisSettings());
+  }
+  if (analysisOrientationToggle){
+    analysisOrientationToggle.addEventListener("change", ()=>{
+      readAnalysisSettings();
+      recalculateDimensionBuckets();
+    });
+  }
+  if (analysisRecalcBtn){
+    analysisRecalcBtn.addEventListener("click", ()=> recalculateDimensionBuckets());
+  }
+  if (analysisAskBtn){
+    analysisAskBtn.addEventListener("click", ()=> submitAnalysisQuestion());
+  }
+  if (analysisQuestionInput){
+    analysisQuestionInput.addEventListener("keydown", event => {
+      if (event.key === "Enter"){
+        if (event.metaKey || event.ctrlKey){
+          event.preventDefault();
+          submitAnalysisQuestion();
+        }
+      }
+    });
+  }
+  if (analysisDebugToggle){
+    analysisDebugToggle.addEventListener("click", ()=>{
+      const dataset = analysisState.dataset;
+      if (!dataset){
+        console.log("[analysis debug] No dataset loaded.");
+        return;
+      }
+      const ordersCount = Array.isArray(dataset.orders) ? dataset.orders.length : 0;
+      const orderRows = Array.isArray(dataset.orders)
+        ? dataset.orders.reduce((sum, order)=> sum + (Array.isArray(order.rows) ? order.rows.length : 0), 0)
+        : 0;
+      const processingCount = Array.isArray(dataset.processing_orders) ? dataset.processing_orders.length : 0;
+      const processingRows = Array.isArray(dataset.processing_orders)
+        ? dataset.processing_orders.reduce((sum, order)=> sum + (Array.isArray(order.rows) ? order.rows.length : 0), 0)
+        : 0;
+      console.log(`[analysis debug] orders=${ordersCount} rows=${orderRows}, processing=${processingCount} rows=${processingRows}, truncated=${dataset.meta?.truncated ? "yes" : "no"}`);
+    });
+  }
+}
+
+function setAnalysisAnswerPlaceholder(message, muted = true){
+  if (!analysisAnswerEl) return;
+  analysisAnswerEl.textContent = message;
+  if (muted){
+    analysisAnswerEl.classList.add("muted");
+  }else{
+    analysisAnswerEl.classList.remove("muted");
+  }
+}
+
+function formatMarkdownInline(text){
+  let html = escapeHtml(text);
+  html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
+  html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
+  return html;
+}
+
+function simpleMarkdownToHtml(text){
+  const lines = String(text || "").split(/\r?\n/);
+  const parts = [];
+  let inList = false;
+  lines.forEach(line => {
+    if (/^\s*-\s+/.test(line)){
+      if (!inList){
+        parts.push("<ul>");
+        inList = true;
+      }
+      const content = line.replace(/^\s*-\s+/, "");
+      parts.push(`<li>${formatMarkdownInline(content)}</li>`);
+    }else{
+      if (inList){
+        parts.push("</ul>");
+        inList = false;
+      }
+      if (!line.trim()){
+        parts.push("<br>");
+      }else{
+        parts.push(`<p>${formatMarkdownInline(line)}</p>`);
+      }
+    }
+  });
+  if (inList){
+    parts.push("</ul>");
+  }
+  return parts.join("");
+}
+
+function renderAnalysisAnswer(markdown){
+  if (!analysisAnswerEl) return;
+  if (!markdown){
+    setAnalysisAnswerPlaceholder("AI analysis is unavailable. The dashboard above still works offline.", true);
+    return;
+  }
+  analysisAnswerEl.innerHTML = simpleMarkdownToHtml(markdown);
+  analysisAnswerEl.classList.remove("muted");
+}
+
+async function submitAnalysisQuestion(){
+  if (!analysisQuestionInput) return;
+  const question = analysisQuestionInput.value.trim();
+  if (!question){
+    setAnalysisAnswerPlaceholder("Ask a question to see AI insights.", true);
+    analysisQuestionInput.focus();
+    return;
+  }
+  ensureAnalysisReady();
+  if (analysisState.loading){
+    await analysisState.promise;
+  }
+  if (!analysisState.dataset){
+    await refreshAnalysis();
+  }
+  const dataset = analysisState.dataset;
+  if (!dataset){
+    setAnalysisAnswerPlaceholder("AI analysis is unavailable. The dashboard above still works offline.", true);
+    return;
+  }
+  const { dataset: payloadDataset, serialized, truncated } = prepareDatasetForTransmission(dataset, {
+    tolerance: analysisState.tolerance,
+    orientationAgnostic: analysisState.orientationAgnostic,
+  });
+  if (analysisState.dataset){
+    const payloadMeta = payloadDataset.meta || {};
+    analysisState.dataset.meta = {
+      ...(analysisState.dataset.meta || {}),
+      truncated: !!payloadMeta.truncated,
+      size: payloadMeta.size ?? serialized.length,
+      notes: Array.isArray(payloadMeta.notes) ? payloadMeta.notes.slice() : (analysisState.dataset.meta?.notes || []),
+    };
+  }
+  const sessionId = getAnalysisSessionId();
+  const headers = { "Content-Type": "application/json" };
+  if (sessionId){
+    headers["x-session-id"] = sessionId;
+  }
+  const payload = {
+    question,
+    dataset: payloadDataset,
+    settings: {
+      tolerance_mm: analysisState.tolerance,
+      orient_agnostic: analysisState.orientationAgnostic,
+      decimal_separator: appState.processing.options.decimalSeparator === "dot" ? "dot" : "comma",
+    },
+  };
+  analysisState.ai.loading = true;
+  analysisState.ai.lastQuestion = question;
+  if (analysisAskBtn) analysisAskBtn.disabled = true;
+  setAnalysisAnswerPlaceholder("Thinking…", true);
+  try{
+    const res = await fetch(API_BASE + "/analysis/ask", {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok){
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    if (data && typeof data.answerMarkdown === "string"){
+      renderAnalysisAnswer(data.answerMarkdown);
+      analysisQuestionInput.value = "";
+      analysisQuestionInput.focus();
+    }else{
+      setAnalysisAnswerPlaceholder("AI analysis is unavailable. The dashboard above still works offline.", true);
+    }
+  }catch(error){
+    console.warn("AI analysis request failed:", error);
+    setAnalysisAnswerPlaceholder("AI analysis is unavailable. The dashboard above still works offline.", true);
+  }finally{
+    analysisState.ai.loading = false;
+    if (analysisAskBtn) analysisAskBtn.disabled = false;
+    if (analysisQuestionInput) analysisQuestionInput.focus();
+  }
+}
+
+function setGlobalAppearanceVariables(settings){
+  if (!document.documentElement) return;
+  const rootStyle = document.documentElement.style;
+  rootStyle.setProperty("--ms-header-size", `${settings.headerFontSize}px`);
+  rootStyle.setProperty("--ms-subheader-size", `${settings.orderInfoFontSize}px`);
+  rootStyle.setProperty("--ms-body-size", `${settings.bodyFontSize}px`);
+  rootStyle.setProperty("--ms-body-line-height", "1.4");
+  rootStyle.setProperty("--ms-accent-color", "#2F6BFF");
+  let baseFont = "var(--ms-sans-system)";
+  let headerFont = "var(--ms-sans-system)";
+  let rowsFont = "var(--ms-sans-system)";
+  if (settings.fontFamily === "inter"){
+    baseFont = headerFont = rowsFont = "var(--ms-inter-stack)";
+  }else if (settings.fontFamily === "roboto"){
+    baseFont = headerFont = rowsFont = "var(--ms-roboto-stack)";
+  }else if (settings.fontFamily === "mono-rows"){
+    rowsFont = "var(--ms-mono-stack)";
+  }
+  rootStyle.setProperty("--ms-family-base", baseFont);
+  rootStyle.setProperty("--ms-family-header", headerFont);
+  rootStyle.setProperty("--ms-family-rows", rowsFont);
+  const densityAdjustments = {
+    compact: "-2px",
+    normal: "0px",
+    roomy: "2px",
+  };
+  rootStyle.setProperty("--ms-row-spacing-adjust", densityAdjustments[settings.rowDensity] || "0px");
+}
+
+function applyAppearanceToNode(node, settings){
+  if (!node || !(node instanceof Element)) return;
+  const fontClasses = ["font-system","font-inter","font-roboto","font-mono-rows"];
+  const densityClasses = ["density-compact","density-normal","density-roomy"];
+  const accentClasses = ["accent-none","accent-thinrule","accent-leftbar"];
+  node.classList.remove(...fontClasses, ...densityClasses, ...accentClasses);
+  const fontMap = {
+    "system-sans": ["font-system"],
+    inter: ["font-inter"],
+    roboto: ["font-roboto"],
+    "mono-rows": ["font-system","font-mono-rows"],
+  };
+  const densityMap = {
+    compact: "density-compact",
+    normal: "density-normal",
+    roomy: "density-roomy",
+  };
+  const accentMap = {
+    none: "accent-none",
+    thinrule: "accent-thinrule",
+    leftbar: "accent-leftbar",
+  };
+  (fontMap[settings.fontFamily] || fontMap["system-sans"]).forEach(cls => node.classList.add(cls));
+  node.classList.add(densityMap[settings.rowDensity] || densityMap.normal);
+  node.classList.add(accentMap[settings.accentStyle] || accentMap.none);
+  node.style.setProperty("--ms-header-size", `${settings.headerFontSize}px`);
+  node.style.setProperty("--ms-subheader-size", `${settings.orderInfoFontSize}px`);
+  node.style.setProperty("--ms-body-size", `${settings.bodyFontSize}px`);
+  node.style.setProperty("--ms-body-line-height", "1.4");
+  node.style.setProperty("--ms-accent-color", "#2F6BFF");
+}
+
+function ensureMotherSheetObserver(){
+  if (motherSheetObserver || typeof MutationObserver !== "function" || !document.body) return;
+  motherSheetObserver = new MutationObserver(mutations => {
+    mutations.forEach(mutation => {
+      mutation.addedNodes.forEach(node => {
+        if (!(node instanceof Element)) return;
+        if (node.matches(MOTHER_SHEET_SELECTOR)){
+          applyAppearanceToNode(node, appearanceSettings || DEFAULT_APPEARANCE_SETTINGS);
+        }else{
+          node.querySelectorAll?.(MOTHER_SHEET_SELECTOR).forEach(child => {
+            applyAppearanceToNode(child, appearanceSettings || DEFAULT_APPEARANCE_SETTINGS);
+          });
+        }
+      });
+    });
+  });
+  motherSheetObserver.observe(document.body, { childList: true, subtree: true });
+}
 
 function setStatusMessage(msg){
   statusEl.innerHTML = msg || "";
@@ -632,6 +2177,74 @@ function formatProcessingNumber(value, fallback, separator){
     return str.replace(".", ",");
   }
   return str;
+}
+
+function formatM2(value, separator){
+  const numeric = Number.isFinite(value) ? value : 0;
+  const fixed = numeric.toFixed(3);
+  return separator === "comma" ? fixed.replace(".", ",") : fixed;
+}
+
+function computeGroupArea(rows){
+  const safeRows = Array.isArray(rows) ? rows : [];
+  const parseNumeric = (value)=>{
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (value == null) return NaN;
+    const match = String(value).replace(",", ".").match(/-?\d+(?:\.\d+)?/);
+    return match ? Number(match[0]) : NaN;
+  };
+  const pickNumeric = (...values)=>{
+    for (const value of values){
+      const parsed = parseNumeric(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    return NaN;
+  };
+
+  let total = 0;
+  safeRows.forEach(row => {
+    if (!row) return;
+    const qtyRaw = row.qty ?? row.quantity ?? row.count ?? 1;
+    let quantity = parseNumeric(qtyRaw);
+    if (!Number.isFinite(quantity)){
+      quantity = 1;
+    }
+
+    let area = pickNumeric(row.area, row.danko?.area, row.__original?.area);
+    if (!Number.isFinite(area)){
+      let width = pickNumeric(row.width, row.widthValue, row.__original?.width);
+      let height = pickNumeric(row.height, row.heightValue, row.__original?.height);
+      if (!Number.isFinite(width) || !Number.isFinite(height)){
+        const dimensionSources = [
+          row.dimension,
+          row.dim,
+          row.dimension_display,
+          row.dimensionDisplay,
+          row.__original?.dimension,
+          row.widthDisplay && row.heightDisplay ? `${row.widthDisplay}x${row.heightDisplay}` : null,
+        ];
+        const dimension = dimensionSources.find(value => value && String(value).trim().length);
+        if (dimension){
+          const match = String(dimension).match(/(\d+(?:[.,]\d+)?)[^\d]+(\d+(?:[.,]\d+)?)/);
+          if (match){
+            width = parseNumeric(match[1]);
+            height = parseNumeric(match[2]);
+          }
+        }
+      }
+      if (Number.isFinite(width) && Number.isFinite(height)){
+        area = (width * height) / 1_000_000;
+      }else{
+        area = 0;
+      }
+    }
+
+    const multiplier = Number.isFinite(quantity) ? quantity : 1;
+    if (Number.isFinite(area)){
+      total += area * multiplier;
+    }
+  });
+  return Math.round(total * 1000) / 1000;
 }
 
 const DIMENSION_TOLERANCE_MM = 1;
@@ -886,6 +2499,7 @@ function generateMotherSheet(rows, options){
           sortHeight: Number.isFinite(item.height) ? item.height : Number.POSITIVE_INFINITY,
           sortWidthKey: String(item.widthDisplay || "").toLowerCase(),
           sortHeightKey: String(item.heightDisplay || "").toLowerCase(),
+          danko: item.danko || null,
         }));
       }
 
@@ -903,6 +2517,7 @@ function generateMotherSheet(rows, options){
           composition_raw: raw,
           composition_display: display,
           invalid: !!entry.invalid,
+          danko: entry.danko || null,
         };
         groupLines.push(line);
       });
@@ -945,6 +2560,7 @@ function generateMotherSheet(rows, options){
           sortHeight: Number.isFinite(item.height) ? item.height : Number.POSITIVE_INFINITY,
           sortWidthKey: String(item.widthDisplay || "").toLowerCase(),
           sortHeightKey: String(item.heightDisplay || "").toLowerCase(),
+          danko: item.danko || null,
         }));
       }
 
@@ -968,6 +2584,7 @@ function generateMotherSheet(rows, options){
           composition_raw: raw,
           composition_display: display,
           invalid: !!entry.invalid,
+          danko: entry.danko || null,
         };
         section.lines.push(line);
         groupLines.push(line);
@@ -988,7 +2605,10 @@ function generateMotherSheet(rows, options){
 
   const linesOut = [headerLine, ""];
   groups.forEach((group, groupIndex) => {
-    linesOut.push(group.display || "(Header not set)");
+    const groupLabel = group && group.display ? group.display : "(Header not set)";
+    const groupAreaValue = computeGroupArea(group?.lines || []);
+    const groupAreaText = formatM2(groupAreaValue, decimalSeparator);
+    linesOut.push(`${groupLabel} — Area: ${groupAreaText} m²`);
     if (!mergeAcrossOrders && group.sections && group.sections.length){
       group.sections.forEach((section, sectionIndex) => {
         const orderLabel = section.orderId && section.orderId.trim().length ? section.orderId : "—";
@@ -999,7 +2619,11 @@ function generateMotherSheet(rows, options){
           const heightText = formatProcessingNumber(line.height, line.heightDisplay, decimalSeparator);
           const qtyText = Number(line.qty || 0);
           const warning = line.invalid ? "  ⚠" : "";
-          linesOut.push(`${line.idx} ${widthText} × ${heightText} × ${qtyText}${warning}`);
+          const approx = line.danko && line.danko.changed ? " ≈" : "";
+          linesOut.push(`${line.idx} ${widthText} × ${heightText}${approx} × ${qtyText}${warning}`);
+          if (line.danko && line.danko.changed && line.danko.original){
+            linesOut.push(`   (Rounded from ${line.danko.original.replace(/x/g, "×")})`);
+          }
         });
         if (sectionIndex < group.sections.length - 1){
           linesOut.push("");
@@ -1011,7 +2635,11 @@ function generateMotherSheet(rows, options){
         const heightText = formatProcessingNumber(line.height, line.heightDisplay, decimalSeparator);
         const qtyText = Number(line.qty || 0);
         const warning = line.invalid ? "  ⚠" : "";
-        linesOut.push(`${line.idx} ${widthText} × ${heightText} × ${qtyText}${warning}`);
+        const approx = line.danko && line.danko.changed ? " ≈" : "";
+        linesOut.push(`${line.idx} ${widthText} × ${heightText}${approx} × ${qtyText}${warning}`);
+        if (line.danko && line.danko.changed && line.danko.original){
+          linesOut.push(`   (Rounded from ${line.danko.original.replace(/x/g, "×")})`);
+        }
       });
     }
     if (groupIndex < groups.length - 1){
@@ -1075,27 +2703,45 @@ function convertOrderToProcessingEntry(order){
 function rebuildProcessingRows(){
   const combined = [];
   appState.processing.cart.forEach(entry => {
-    entry.rows.forEach(row => combined.push({ ...row }));
+    entry.rows.forEach(row => {
+      const clone = { ...row };
+      clone.rawDimension = deriveRawDimension(clone);
+      combined.push(clone);
+    });
   });
-  appState.processing.rows = combined;
-  const validKeys = new Set(combined.map(row => (row.composition_raw || "").trim() || "(Header not set)"));
+  appState.processing.rows = combined.map(row => {
+    const clone = { ...row };
+    clone.rawDimension = deriveRawDimension(clone);
+    const widthNumeric = Number.isFinite(clone.width) ? Number(clone.width) : null;
+    const heightNumeric = Number.isFinite(clone.height) ? Number(clone.height) : null;
+    const computedArea = (widthNumeric != null && heightNumeric != null)
+      ? Number(((widthNumeric * heightNumeric) / 1_000_000).toFixed(3))
+      : (Number.isFinite(clone.area) ? Number(clone.area) : null);
+    clone.__original = {
+      width: widthNumeric,
+      height: heightNumeric,
+      widthDisplay: clone.widthDisplay != null ? String(clone.widthDisplay) : (widthNumeric != null ? String(widthNumeric) : null),
+      heightDisplay: clone.heightDisplay != null ? String(clone.heightDisplay) : (heightNumeric != null ? String(heightNumeric) : null),
+      area: computedArea,
+      dimension: clone.rawDimension,
+    };
+    return clone;
+  });
+  applyProcessingRoundingToRows();
+  const validKeys = new Set(appState.processing.rows.map(row => (row.composition_raw || "").trim() || "(Header not set)"));
   Object.keys(appState.processing.headerOverrides).forEach(key => {
     if (!validKeys.has(key)){
       delete appState.processing.headerOverrides[key];
     }
   });
-  if (combined.length){
-    const preview = generateMotherSheet(combined, {
-      restartPerGroup: appState.processing.options.restartPerGroup,
-      decimalSeparator: appState.processing.options.decimalSeparator,
-      normalizeLPtoG: appState.processing.options.normalizeLPtoG,
-      headerOverrides: appState.processing.headerOverrides,
-      groupDimensions: appState.processing.grouped,
-      mergeAcrossOrders: appState.processing.options.mergeAcrossOrders,
-    });
-    appState.processing.preview = preview;
-  }else{
-    appState.processing.preview = { text: "", groups: [], meta: { clientLabel: "—", orders: [], date: new Date(), rows: 0 } };
+  recalcProcessingPreview();
+  if (!appState.processing.rows.length){
+    appState.processing.preview = {
+      text: "",
+      groups: [],
+      meta: { clientLabel: "—", orders: [], date: new Date(), rows: 0, decimalSeparator: appState.processing.options.decimalSeparator },
+    };
+    setProcessingRoundingMessage("");
   }
 }
 
@@ -1104,6 +2750,173 @@ function formatProcessingMeta(meta){
   const ordersPart = (meta.orders && meta.orders.length) ? meta.orders.join(", ") : "—";
   const clientPart = meta.clientLabel || "—";
   return `Mother Sheet – Client: ${clientPart} | Orders: ${ordersPart} | Date: ${dateStr}`;
+}
+
+function buildDankoDisplay(width, height, displayW, displayH, rounded){
+  const baseWidth = Number.isFinite(width) ? width : null;
+  const baseHeight = Number.isFinite(height) ? height : null;
+  if (!rounded || rounded.changed !== true){
+    return {
+      widthValue: baseWidth,
+      heightValue: baseHeight,
+      widthDisplay: displayW,
+      heightDisplay: displayH,
+      text: displayW && displayH ? `${displayW} × ${displayH}` : `${displayW || baseWidth || "?"} × ${displayH || baseHeight || "?"}`,
+      tooltip: null,
+      changed: false,
+      area: baseWidth != null && baseHeight != null ? (baseWidth * baseHeight) / 1_000_000 : null,
+    };
+  }
+  const widthRounded = rounded.w;
+  const heightRounded = rounded.h;
+  const text = `${widthRounded} × ${heightRounded}`;
+  const tooltip = rounded.original ? `Rounded from ${rounded.original.replace(/x/g, "×")}` : null;
+  const area = Number.isFinite(widthRounded) && Number.isFinite(heightRounded)
+    ? (widthRounded * heightRounded) / 1_000_000
+    : (baseWidth != null && baseHeight != null ? (baseWidth * baseHeight) / 1_000_000 : null);
+  return {
+    widthValue: widthRounded,
+    heightValue: heightRounded,
+    widthDisplay: String(widthRounded),
+    heightDisplay: String(heightRounded),
+    text,
+    tooltip,
+    changed: true,
+    area,
+  };
+}
+
+function deriveRawDimension(row){
+  const candidates = [
+    row.rawDimension,
+    row.dimension,
+    row.dimension_display,
+    row.dim,
+    row.widthDisplay && row.heightDisplay ? `${row.widthDisplay}x${row.heightDisplay}` : null,
+    Number.isFinite(row.width) && Number.isFinite(row.height) ? `${Math.round(row.width)}x${Math.round(row.height)}` : null,
+  ];
+  const found = candidates.find(value => value && String(value).trim().length);
+  return found ? String(found).replace(/\s+/g, "") : "";
+}
+
+function isProcessingRoundingActive(){
+  return !!(appState.processing.options.autoDanko || appState.processing.rounding.manualApplied);
+}
+
+function applyProcessingRoundingToRows(){
+  const rows = Array.isArray(appState.processing.rows) ? appState.processing.rows : [];
+  const active = isProcessingRoundingActive();
+  rows.forEach(row => {
+    if (!row.__original){
+      const dimension = deriveRawDimension(row);
+      const areaFromRow = Number.isFinite(row.area) ? Number(row.area) : null;
+      const widthNumeric = Number.isFinite(row.width) ? Number(row.width) : null;
+      const heightNumeric = Number.isFinite(row.height) ? Number(row.height) : null;
+      const computedArea = (widthNumeric != null && heightNumeric != null)
+        ? Number(((widthNumeric * heightNumeric) / 1_000_000).toFixed(3))
+        : areaFromRow;
+      row.__original = {
+        width: widthNumeric,
+        height: heightNumeric,
+        widthDisplay: row.widthDisplay != null ? String(row.widthDisplay) : (widthNumeric != null ? String(widthNumeric) : null),
+        heightDisplay: row.heightDisplay != null ? String(row.heightDisplay) : (heightNumeric != null ? String(heightNumeric) : null),
+        area: computedArea,
+        dimension,
+      };
+    }
+    const original = row.__original;
+    const dimensionString = original.dimension || deriveRawDimension(row) || "";
+    const danko = window.applyDankoRuleToDim(dimensionString);
+    const tooltipBase = dimensionString ? dimensionString.replace(/x/g, "×") : "";
+    row.danko = {
+      ...danko,
+      original: danko.original || dimensionString,
+      tooltip: danko.changed && tooltipBase ? `Rounded from ${tooltipBase}` : (tooltipBase ? `Original ${tooltipBase}` : ""),
+    };
+    if (active && danko && danko.changed){
+      row.width = danko.w;
+      row.height = danko.h;
+      row.widthDisplay = String(danko.w);
+      row.heightDisplay = String(danko.h);
+      if (Number.isFinite(danko.w) && Number.isFinite(danko.h)){
+        row.area = Number(((danko.w * danko.h) / 1_000_000).toFixed(3));
+      }else{
+        row.area = original.area;
+      }
+    }else{
+      row.width = original.width;
+      row.height = original.height;
+      row.widthDisplay = original.widthDisplay;
+      row.heightDisplay = original.heightDisplay;
+      row.area = original.area;
+      if (row.danko){
+        row.danko.changed = false;
+      }
+    }
+  });
+}
+
+function recalcProcessingPreview(){
+  const rows = Array.isArray(appState.processing.rows) ? appState.processing.rows : [];
+  if (!rows.length){
+    appState.processing.preview = {
+      text: "",
+      groups: [],
+      meta: {
+        clientLabel: "—",
+        orders: [],
+        date: new Date(),
+        rows: 0,
+        decimalSeparator: appState.processing.options.decimalSeparator,
+      },
+    };
+    return;
+  }
+  const preview = generateMotherSheet(rows, {
+    restartPerGroup: appState.processing.options.restartPerGroup,
+    decimalSeparator: appState.processing.options.decimalSeparator,
+    normalizeLPtoG: appState.processing.options.normalizeLPtoG,
+    headerOverrides: appState.processing.headerOverrides,
+    groupDimensions: appState.processing.grouped,
+    mergeAcrossOrders: appState.processing.options.mergeAcrossOrders,
+  });
+  appState.processing.preview = preview;
+}
+
+function setProcessingRoundingMessage(message){
+  appState.processing.rounding.message = message || "";
+  if (processingRoundingStatus){
+    processingRoundingStatus.textContent = message || "";
+  }
+}
+
+function updateProcessingRoundingControls(){
+  const auto = !!appState.processing.options.autoDanko;
+  const active = isProcessingRoundingActive();
+  const hasRows = Array.isArray(appState.processing.rows) && appState.processing.rows.length > 0;
+  if (processingRoundingBtn){
+    if (!hasRows){
+      processingRoundingBtn.textContent = "Apply Danko Rounding";
+    }else{
+      processingRoundingBtn.textContent = active ? "Undo Danko Rounding" : "Apply Danko Rounding";
+    }
+    processingRoundingBtn.disabled = auto || !hasRows;
+  }
+  if (processingAutoDankoToggle){
+    processingAutoDankoToggle.checked = auto;
+  }
+  if (processingRoundingStatus){
+    const message = appState.processing.rounding.message;
+    if (message){
+      processingRoundingStatus.textContent = message;
+    }else if (auto){
+      processingRoundingStatus.textContent = "Auto Danko rounding enabled. ✅";
+    }else if (active){
+      processingRoundingStatus.textContent = "Rounded values applied using Danko Rule ✅";
+    }else{
+      processingRoundingStatus.textContent = "";
+    }
+  }
 }
 
 function updateProcessingUI(){
@@ -1164,6 +2977,8 @@ function updateProcessingUI(){
     }
   }
 
+  updateProcessingRoundingControls();
+
   if (processingHeaderSelect){
     const groups = preview.groups || [];
     if (!groups.length){
@@ -1198,6 +3013,137 @@ function updateProcessingUI(){
       syncProcessingHeaderEditor();
     }
   }
+
+  if (wysiwygToggle && wysiwygPreview){
+    if (wysiwygToggle.checked){
+      if (processingPreviewEl) processingPreviewEl.hidden = true;
+      wysiwygPreview.hidden = false;
+      renderMotherSheetHTML(preview);
+    }else{
+      if (processingPreviewEl) processingPreviewEl.hidden = false;
+      wysiwygPreview.hidden = true;
+    }
+  }
+}
+
+if (wysiwygToggle){
+  wysiwygToggle.addEventListener("change", ()=>{
+    const show = !!wysiwygToggle.checked;
+    if (show){
+      if (processingPreviewEl) processingPreviewEl.hidden = true;
+      if (wysiwygPreview){
+        wysiwygPreview.hidden = false;
+        renderMotherSheetHTML(appState.processing.preview || { groups: [], meta: {} });
+      }
+    }else{
+      if (processingPreviewEl) processingPreviewEl.hidden = false;
+      if (wysiwygPreview) wysiwygPreview.hidden = true;
+    }
+  });
+}
+
+function renderMotherSheetHTML(preview){
+  if (!wysiwygPreview) return;
+  const data = preview && typeof preview === "object" ? preview : { groups: [], meta: {} };
+  wysiwygPreview.innerHTML = "";
+
+  const root = document.createElement("div");
+  root.id = "motherSheet";
+  root.className = "mother-sheet";
+
+  const metaLine = document.createElement("div");
+  metaLine.className = "meta-line ms-title";
+  metaLine.textContent = formatProcessingMeta(data.meta || {});
+  root.appendChild(metaLine);
+
+  const groups = Array.isArray(data.groups) ? data.groups : [];
+  const decimalSeparator = data.meta?.decimalSeparator || appState.processing.options.decimalSeparator || "comma";
+  if (!groups.length){
+    const empty = document.createElement("p");
+    empty.className = "muted";
+    empty.textContent = "No orders added yet.";
+    root.appendChild(empty);
+  }else{
+    groups.forEach(group => {
+      const section = document.createElement("section");
+
+      const title = document.createElement("h2");
+      title.className = "ms-section-title ms-group-title";
+      const label = group && group.display ? group.display : "(Header not set)";
+      const areaValue = computeGroupArea(group?.lines || []);
+      const areaText = formatM2(areaValue, decimalSeparator);
+      title.textContent = `${label} — Area: ${areaText} m²`;
+      section.appendChild(title);
+
+      const subSections = Array.isArray(group.sections) && group.sections.length ? group.sections : null;
+      if (subSections){
+        subSections.forEach(sub => {
+          const orderInfo = document.createElement("div");
+          orderInfo.className = "ms-order-info";
+          const orderLabel = sub && sub.orderId ? sub.orderId : "—";
+          const clientLabel = sub && sub.client ? sub.client : UNKNOWN_CLIENT_LABEL;
+          orderInfo.textContent = `[Order ${orderLabel} — ${clientLabel}]`;
+          section.appendChild(orderInfo);
+          section.appendChild(buildGroupTable(sub && Array.isArray(sub.lines) ? sub.lines : [], data));
+        });
+      }else{
+        section.appendChild(buildGroupTable(group && Array.isArray(group.lines) ? group.lines : [], data));
+      }
+
+      root.appendChild(section);
+    });
+  }
+
+  wysiwygPreview.appendChild(root);
+  applyAppearanceToNode(root, appearanceSettings || DEFAULT_APPEARANCE_SETTINGS);
+}
+
+function buildGroupTable(lines, preview){
+  const table = document.createElement("table");
+  const tbody = document.createElement("tbody");
+  const safeLines = Array.isArray(lines) ? lines : [];
+  const separator = (preview && preview.meta && preview.meta.decimalSeparator) || appState.processing.options.decimalSeparator;
+
+  if (!safeLines.length){
+    const row = document.createElement("tr");
+    row.classList.add("ms-row");
+    const cell = document.createElement("td");
+    cell.colSpan = 3;
+    cell.className = "muted";
+    cell.textContent = "No line items.";
+    row.appendChild(cell);
+    tbody.appendChild(row);
+  }else{
+    safeLines.forEach(line => {
+      const tr = document.createElement("tr");
+      tr.classList.add("ms-row");
+
+      const idxCell = document.createElement("td");
+      idxCell.textContent = line && line.idx != null ? line.idx : "";
+      tr.appendChild(idxCell);
+
+      const dimCell = document.createElement("td");
+      const widthText = formatProcessingNumber(line?.width, line?.widthDisplay, separator);
+      const heightText = formatProcessingNumber(line?.height, line?.heightDisplay, separator);
+      if (line?.danko?.changed){
+        const tooltip = line.danko.tooltip || `Rounded from ${(line.danko.original || "").replace(/x/g, "×")}`;
+        dimCell.innerHTML = `${escapeHtml(widthText)} × ${escapeHtml(heightText)} <span title="${escapeHtml(tooltip)}">≈</span>`;
+      }else{
+        dimCell.textContent = `${widthText} × ${heightText}`;
+      }
+      dimCell.dataset.column = "dimension";
+      tr.appendChild(dimCell);
+
+      const qtyCell = document.createElement("td");
+      qtyCell.textContent = line && line.qty != null ? line.qty : "";
+      tr.appendChild(qtyCell);
+
+      tbody.appendChild(tr);
+    });
+  }
+
+  table.appendChild(tbody);
+  return table;
 }
 
 function addOrderToProcessing(order){
@@ -1570,35 +3516,46 @@ async function copyProcessingText(){
 }
 
 async function exportProcessingPdf(){
-  if (!appState.processing.preview.text){
+  const preview = appState.processing.preview;
+  if (!preview || !preview.groups || !preview.groups.length){
     setStatusMessage("Nothing to export.");
     return;
   }
   await ensurePdfLib();
   const { PDFDocument, StandardFonts } = PDFLib;
   const mmToPt = 2.83464567;
+  const pdfDoc = await PDFDocument.create();
+  const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const regularFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+  const TITLE_SIZE = 22;
+  const HEADER_SIZE = 20;
+  const BODY_SIZE = 14;
+  const HEADER_LINE_HEIGHT = HEADER_SIZE * 1.4;
+  const BODY_LINE_HEIGHT = BODY_SIZE * 1.6;
+  const ORDER_LINE_HEIGHT = BODY_SIZE * 1.4;
+  const HEADER_GAP_PT = 6;
+  const GROUP_GAP_PT = 16;
+
   const pageWidth = 210 * mmToPt;
   const pageHeight = 297 * mmToPt;
-  const marginX = 15 * mmToPt;
-  const marginTop = 20 * mmToPt;
-  const marginBottom = 20 * mmToPt;
-  const lineHeight = 16;
-  const headerSize = 14;
-  const bodySize = 13;
-  const pdfDoc = await PDFDocument.create();
-  const bold = await pdfDoc.embedFont(StandardFonts.CourierBold);
-  const regular = await pdfDoc.embedFont(StandardFonts.Courier);
+  const marginLeft = 12 * mmToPt;
+  const marginRight = 12 * mmToPt;
+  const marginTop = 16 * mmToPt;
+  const marginBottom = 16 * mmToPt;
+  const contentWidth = pageWidth - marginLeft - marginRight;
+
   let page = pdfDoc.addPage([pageWidth, pageHeight]);
-  let y = pageHeight - marginTop;
-  const maxWidth = pageWidth - marginX * 2;
-  const wrapText = (text, font, size) => {
+  let cursorY = pageHeight - marginTop;
+
+  const wrapText = (text, font, size)=>{
     const words = String(text || "").split(/\s+/);
     const lines = [];
     let current = "";
     words.forEach(word => {
       const tentative = current ? `${current} ${word}` : word;
       const width = font.widthOfTextAtSize(tentative, size);
-      if (width > maxWidth && current){
+      if (width > contentWidth && current){
         lines.push(current);
         current = word;
       }else{
@@ -1608,52 +3565,96 @@ async function exportProcessingPdf(){
     if (current) lines.push(current);
     return lines.length ? lines : [""];
   };
-  const drawLine = (text, font, size, extraSpacing = 0) => {
-    const rows = wrapText(text, font, size);
-    rows.forEach((row, idx) => {
-      if (y - lineHeight < marginBottom){
-        page = pdfDoc.addPage([pageWidth, pageHeight]);
-        y = pageHeight - marginTop;
-      }
-      page.drawText(row, { x: marginX, y, size, font });
-      y -= lineHeight;
-    });
-    y -= extraSpacing;
+
+  const ensureSpace = (requiredHeight = BODY_LINE_HEIGHT)=>{
+    if (cursorY - requiredHeight < marginBottom){
+      page = pdfDoc.addPage([pageWidth, pageHeight]);
+      cursorY = pageHeight - marginTop;
+    }
   };
 
-  const preview = appState.processing.preview;
-  drawLine(formatProcessingMeta(preview.meta || {}), bold, headerSize, 6);
-  drawLine("", regular, bodySize);
-  (preview.groups || []).forEach((group, idx) => {
-    drawLine(group.display || "(Header not set)", bold, headerSize, 4);
-    const sections = Array.isArray(group.sections) ? group.sections : [];
-    if (sections.length){
-      sections.forEach((section, sectionIndex) => {
-        const orderLabel = section.orderId && section.orderId.trim().length ? section.orderId : "—";
-        const clientLabel = section.client && section.client.trim().length ? section.client : UNKNOWN_CLIENT_LABEL;
-        drawLine(`[Order ${orderLabel} — ${clientLabel}]`, bold, bodySize, 2);
-        section.lines.forEach(line => {
-          const widthText = formatProcessingNumber(line.width, line.widthDisplay, preview.meta.decimalSeparator || "comma");
-          const heightText = formatProcessingNumber(line.height, line.heightDisplay, preview.meta.decimalSeparator || "comma");
-          const qtyText = Number(line.qty || 0);
-          const caution = line.invalid ? "  ⚠" : "";
-          drawLine(`${line.idx} ${widthText} × ${heightText} × ${qtyText}${caution}`, regular, bodySize);
-        });
-        if (sectionIndex < sections.length - 1){
-          drawLine("", regular, bodySize);
+  const drawTextBlock = (text, font, size, lineHeight, align = "left")=>{
+    wrapText(text, font, size).forEach(line => {
+      ensureSpace(lineHeight);
+      let x = marginLeft;
+      if (align === "center"){
+        const lineWidth = font.widthOfTextAtSize(line, size);
+        x = marginLeft + (contentWidth - lineWidth) / 2;
+      }
+      page.drawText(line, { x, y: cursorY, size, font });
+      cursorY -= lineHeight;
+    });
+  };
+
+  const drawBodyLine = (lineText)=>{
+    drawTextBlock(lineText, regularFont, BODY_SIZE, BODY_LINE_HEIGHT);
+  };
+
+  const titleText = formatProcessingMeta(preview.meta || {});
+  drawTextBlock(titleText, boldFont, TITLE_SIZE, TITLE_SIZE * 1.3, "left");
+  cursorY -= 8;
+
+  const groups = Array.isArray(preview.groups) ? preview.groups : [];
+  const decimalSeparator = preview.meta?.decimalSeparator || appState.processing.options.decimalSeparator || "comma";
+
+  groups.forEach((group, groupIndex) => {
+    if (groupIndex > 0){
+      cursorY -= GROUP_GAP_PT;
+      ensureSpace();
+    }
+    const label = group && group.display ? group.display : "(Header not set)";
+    const groupAreaValue = computeGroupArea(group?.lines || []);
+    const groupAreaText = formatM2(groupAreaValue, decimalSeparator);
+    const headerText = `${label} — Area: ${groupAreaText} m²`;
+    drawTextBlock(headerText, boldFont, HEADER_SIZE, HEADER_LINE_HEIGHT);
+    cursorY -= HEADER_GAP_PT;
+
+    const sections = Array.isArray(group?.sections) ? group.sections : null;
+    if (sections && sections.length){
+      sections.forEach(section => {
+        const orderLabel = section?.orderId ? String(section.orderId).trim() : "—";
+        const clientLabel = section?.client ? String(section.client).trim() : UNKNOWN_CLIENT_LABEL;
+        drawTextBlock(`[Order ${orderLabel} — ${clientLabel}]`, regularFont, BODY_SIZE, ORDER_LINE_HEIGHT);
+
+        const lines = Array.isArray(section?.lines) ? section.lines : [];
+        if (!lines.length){
+          drawBodyLine("No line items.");
+        }else{
+          lines.forEach(line => {
+            const idxText = line && line.idx != null ? String(line.idx) : "";
+            const rounded = line?.danko;
+            const widthText = formatProcessingNumber(line?.width, line?.widthDisplay, decimalSeparator);
+            const heightText = formatProcessingNumber(line?.height, line?.heightDisplay, decimalSeparator);
+            const qtyText = line && line.qty != null ? String(line.qty) : "";
+            const caution = line?.invalid ? " ⚠" : "";
+            const approx = rounded?.changed ? " ≈" : "";
+            const message = `${idxText}  ${widthText} × ${heightText}${approx} × ${qtyText}${caution}`;
+            drawBodyLine(message);
+            if (rounded?.changed && rounded?.tooltip){
+              drawBodyLine(`   (${rounded.tooltip})`);
+            }
+          });
         }
       });
     }else{
-      group.lines.forEach(line => {
-        const widthText = formatProcessingNumber(line.width, line.widthDisplay, preview.meta.decimalSeparator || "comma");
-        const heightText = formatProcessingNumber(line.height, line.heightDisplay, preview.meta.decimalSeparator || "comma");
-        const qtyText = Number(line.qty || 0);
-        const caution = line.invalid ? "  ⚠" : "";
-        drawLine(`${line.idx} ${widthText} × ${heightText} × ${qtyText}${caution}`, regular, bodySize);
-      });
-    }
-    if (idx < preview.groups.length - 1){
-      drawLine("", regular, bodySize);
+      const lines = Array.isArray(group?.lines) ? group.lines : [];
+      if (!lines.length){
+        drawBodyLine("No line items.");
+      }else{
+        lines.forEach(line => {
+          const idxText = line && line.idx != null ? String(line.idx) : "";
+          const widthText = formatProcessingNumber(line?.width, line?.widthDisplay, decimalSeparator);
+          const heightText = formatProcessingNumber(line?.height, line?.heightDisplay, decimalSeparator);
+          const qtyText = line && line.qty != null ? String(line.qty) : "";
+          const caution = line?.invalid ? " ⚠" : "";
+          const rounded = line?.danko;
+          const approx = rounded?.changed ? " ≈" : "";
+          drawBodyLine(`${idxText}  ${widthText} × ${heightText}${approx} × ${qtyText}${caution}`);
+          if (rounded?.changed && rounded?.tooltip){
+            drawBodyLine(`   (${rounded.tooltip})`);
+          }
+        });
+      }
     }
   });
 
@@ -1671,27 +3672,30 @@ async function exportProcessingPdf(){
 }
 
 function exportProcessingCsv(){
-  const preview = appState.processing.preview;
-  if (!preview.groups || !preview.groups.length){
+  const rowsData = Array.isArray(appState.processing.rows) ? appState.processing.rows : [];
+  if (!rowsData.length){
     setStatusMessage("Nothing to export.");
     return;
   }
   const header = ["nr","width","height","qty","composition_display","composition_raw","orderId","client"];
   const rows = [header];
-  const separator = preview.meta?.decimalSeparator || appState.processing.options.decimalSeparator;
-  preview.groups.forEach(group => {
-    group.lines.forEach(line => {
-      rows.push([
-        line.idx,
-        formatProcessingNumber(line.width, line.widthDisplay, separator),
-        formatProcessingNumber(line.height, line.heightDisplay, separator),
-        line.qty ?? "",
-        group.display || "",
-        group.raw || "",
-        line.orderId || "",
-        line.client || "",
-      ]);
-    });
+  const separator = appState.processing.options.decimalSeparator;
+  rowsData.forEach((row, index) => {
+    const original = row.__original || {};
+    const widthText = formatProcessingNumber(original.width, original.widthDisplay, separator);
+    const heightText = formatProcessingNumber(original.height, original.heightDisplay, separator);
+    const compositionRaw = row.composition_raw || "";
+    const compositionDisplay = normalizeHeaderForDisplay(compositionRaw, appState.processing.options.normalizeLPtoG);
+    rows.push([
+      index + 1,
+      widthText,
+      heightText,
+      row.qty ?? "",
+      compositionDisplay || compositionRaw,
+      compositionRaw,
+      row.orderId || "",
+      row.client || "",
+    ]);
   });
   const csv = rows.map(columns => columns.map(value => {
     const text = String(value ?? "");
@@ -2589,7 +4593,8 @@ function updateHistoryCache(newItems){
 }
 
 function removeFromHistoryCache(id){
-  const filtered = readHistoryCache().filter(item => item.id !== id);
+  const idKey = String(id);
+  const filtered = readHistoryCache().filter(item => String(item.id) !== idKey);
   writeHistoryCache(filtered);
 }
 
@@ -2618,7 +4623,9 @@ async function fetchOrder(id){
 }
 
 async function deleteOrder(id){
-  const res = await fetch(API_BASE + "/orders/" + id, { method: "DELETE" });
+  const numericId = Number(id);
+  const pathId = Number.isFinite(numericId) ? String(numericId) : encodeURIComponent(String(id));
+  const res = await fetch(API_BASE + "/orders/" + pathId, { method: "DELETE" });
   if (!res.ok){
     const text = await res.text();
     throw new Error(text || ("HTTP " + res.status));
@@ -2680,6 +4687,7 @@ async function loadHistory(opts={}){
     historyState.loadedOnce = true;
     historyState.needsRefresh = false;
     updateHistoryCache(historyState.items);
+    analysisState.allOrdersDirty = true;
     renderOrdersList();
     updateHistoryOfflineBadge();
     setHistoryStatus(historyState.items.length ? "" : "No saved orders yet.");
@@ -2696,6 +4704,7 @@ async function loadHistory(opts={}){
       renderOrdersList();
       updateHistoryOfflineBadge();
       setHistoryStatus("Offline mode — showing cached results.");
+      analysisState.allOrdersDirty = true;
     }else{
       historyState.items = [];
       renderOrdersList();
@@ -2739,7 +4748,7 @@ function renderOrdersList(){
         <button class="btn small" data-action="processing" data-id="${order.id}">Processing</button>
         <button class="btn small" data-action="csv" data-id="${order.id}" ${csvDisabled}>CSV</button>
         <button class="btn small" data-action="print" data-id="${order.id}">Labels</button>
-        <button class="btn small danger" data-action="delete" data-id="${order.id}">Delete</button>
+        <button type="button" class="btn small danger" data-history-delete="${order.id}">Delete</button>
       </td>
     </tr>`;
   }).join("");
@@ -2817,8 +4826,10 @@ function renderOrderDetail(){
 document.getElementById("historyListWrap").addEventListener("click", async (event)=>{
   const btn = event.target.closest("button[data-action]");
   if (!btn) return;
-  const id = Number(btn.dataset.id);
-  if (!id) return;
+  const rawId = btn.dataset.id;
+  if (rawId == null || rawId === "") return;
+  const numericId = Number(rawId);
+  const id = Number.isFinite(numericId) ? numericId : rawId;
   const action = btn.dataset.action;
   if (action === "open"){
     await openOrderFromList(id);
@@ -2848,22 +4859,40 @@ document.getElementById("historyListWrap").addEventListener("click", async (even
     }catch(error){
       setHistoryStatus("Failed to generate labels: " + (error.message || error));
     }
-  }else if (action === "delete"){
-    if (!confirm(`Delete order #${id}?`)) return;
-    setHistoryStatus("Deleting order…");
-    try{
-      await deleteOrder(id);
-      removeFromHistoryCache(id);
-      if (historyState.selectedOrder && historyState.selectedOrder.id === id){
-        historyState.selectedOrder = null;
-        renderOrderDetail();
-      }
-      historyState.needsRefresh = true;
-      await loadHistory({ resetOffset: false });
-      setHistoryStatus("Order deleted.");
-    }catch(error){
-      setHistoryStatus("Failed to delete order: " + (error.message || error));
+  }
+});
+
+document.getElementById("historyListWrap").addEventListener("click", async (event)=>{
+  const btn = event.target.closest("[data-history-delete]");
+  if (!btn) return;
+  const rawId = btn.dataset.historyDelete;
+  if (rawId == null || rawId === "") return;
+  const numericId = Number(rawId);
+  const id = Number.isFinite(numericId) ? numericId : rawId;
+  if (!confirm(`Delete order #${id}?`)) return;
+  const previousText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Deleting...";
+  try{
+    await deleteOrder(id);
+    removeFromHistoryCache(id);
+    analysisState.orderRowCache.delete(id);
+    analysisState.allOrdersDirty = true;
+    if (historyState.selectedOrder && String(historyState.selectedOrder.id) === String(id)){
+      historyState.selectedOrder = null;
+      renderOrderDetail();
     }
+    const rowEl = btn.closest("tr");
+    if (rowEl) rowEl.remove();
+    historyState.items = historyState.items.filter(order => String(order.id) !== String(id));
+    historyState.needsRefresh = true;
+    await ensureHistoryLoaded();
+    setHistoryStatus("Order deleted.");
+  }catch(error){
+    console.warn("History delete failed", error);
+    alert("Failed to delete order.");
+    btn.disabled = false;
+    btn.textContent = previousText || "Delete";
   }
 });
 
@@ -2930,6 +4959,41 @@ if (processingClearBtn){
   processingClearBtn.addEventListener("click", ()=>{
     clearProcessing();
     setStatusMessage("Processing sheet cleared.");
+  });
+}
+
+if (processingRoundingBtn){
+  processingRoundingBtn.addEventListener("click", ()=>{
+    const active = isProcessingRoundingActive();
+    if (active){
+      appState.processing.rounding.manualApplied = false;
+      if (appState.processing.options.autoDanko){
+        appState.processing.options.autoDanko = false;
+        if (processingAutoDankoToggle) processingAutoDankoToggle.checked = false;
+      }
+      setProcessingRoundingMessage("Rounded values removed.");
+    }else{
+      appState.processing.rounding.manualApplied = true;
+      setProcessingRoundingMessage("Rounded values applied using Danko Rule ✅");
+    }
+    applyProcessingRoundingToRows();
+    recalcProcessingPreview();
+    updateProcessingUI();
+  });
+}
+
+if (processingAutoDankoToggle){
+  processingAutoDankoToggle.addEventListener("change", event => {
+    appState.processing.options.autoDanko = !!event.target.checked;
+    if (appState.processing.options.autoDanko){
+      appState.processing.rounding.manualApplied = false;
+      setProcessingRoundingMessage("Auto Danko rounding enabled. ✅");
+    }else{
+      setProcessingRoundingMessage("Auto Danko rounding disabled.");
+    }
+    applyProcessingRoundingToRows();
+    recalcProcessingPreview();
+    updateProcessingUI();
   });
 }
 
@@ -3156,6 +5220,8 @@ document.getElementById("historyApprove").addEventListener("click", async ()=>{
     const resp = await approveDraft(order.id, rows, appState.historyDetail.notes);
     setHistoryStatus("Order approved.");
     historyState.needsRefresh = true;
+    analysisState.allOrdersDirty = true;
+    analysisState.orderRowCache.delete(order.id);
     try{
       await loadHistory({ resetOffset: false });
     }catch(err){
@@ -3179,6 +5245,8 @@ document.getElementById("historyApprove").addEventListener("click", async ()=>{
         historyState.selectedOrder = snapshot;
         renderOrderDetail();
         historyState.needsRefresh = true;
+        analysisState.allOrdersDirty = true;
+        analysisState.orderRowCache.delete(order.id);
         try{
           await loadHistory({ resetOffset: false });
         }catch(loadErr){
@@ -3202,6 +5270,8 @@ document.getElementById("historyApprove").addEventListener("click", async ()=>{
           renderOrderDetail();
           setHistoryStatus("Order approved (history shows success).");
           showSavedToast(order.id);
+          analysisState.allOrdersDirty = true;
+          analysisState.orderRowCache.delete(order.id);
           fallbackHandled = true;
         }
       }catch(historyErr){
@@ -3331,6 +5401,10 @@ function applyExtractionResult(data){
   appState.extract.parsedArea = data?.parsed_area ?? null;
   appState.extract.client = data?.client || "—";
   historyState.needsRefresh = true;
+  analysisState.allOrdersDirty = true;
+  if (data?.saved_order_id){
+    analysisState.orderRowCache.delete(data.saved_order_id);
+  }
   updateExtractUI();
   if (data?.saved_order_id){
     showSavedToast(data.saved_order_id);
@@ -3416,6 +5490,8 @@ document.getElementById("approveSave").addEventListener("click", async ()=>{
     appState.extract.parsedArea = resp?.parsed_area ?? appState.extract.parsedArea;
     updateExtractUI();
     historyState.needsRefresh = true;
+    analysisState.allOrdersDirty = true;
+    analysisState.orderRowCache.delete(resp?.saved_order_id || draftId);
     loadHistory();
     setStatusMessage("Order approved.");
     if (resp?.saved_order_id){
@@ -3581,10 +5657,22 @@ function dataURLToBytes(dataUrl){
     const len = bin.length;
     const bytes = new Uint8Array(len);
     for (let i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i);
-    return bytes.buffer;
+    return bytes;
   }catch{
     return null;
   }
+}
+
+function bytesToDataURL(bytes){
+  if (!bytes) return null;
+  const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < arr.length; i += chunk){
+    const slice = arr.subarray(i, i + chunk);
+    binary += String.fromCharCode.apply(null, slice);
+  }
+  return "data:image/png;base64," + btoa(binary);
 }
 
 function fileToDataURL(file){
@@ -3620,7 +5708,10 @@ async function loadLogoCandidates(name){
   for (const path of candidates){
     try{
       const res = await fetch(path, { cache: "no-cache" });
-      if (res.ok) return res.arrayBuffer();
+      if (res.ok){
+        const buffer = await res.arrayBuffer();
+        return new Uint8Array(buffer);
+      }
     }catch{/* ignore */}
   }
   return null;
@@ -3676,8 +5767,26 @@ async function preloadLogos(){
   if (localCe) ceBytes = dataURLToBytes(localCe);
   if (!keliBytes) keliBytes = await loadLogoViaImage("logokeli");
   if (!ceBytes) ceBytes = await loadLogoViaImage("ce");
-  if (!keliBytes) keliBytes = await loadLogoCandidates("logokeli");
-  if (!ceBytes) ceBytes = await loadLogoCandidates("ce");
+  if (!keliBytes){
+    const fetched = await loadLogoCandidates("logokeli");
+    if (fetched && fetched.byteLength){
+      keliBytes = fetched;
+      try{
+        const dataUrl = bytesToDataURL(fetched);
+        if (dataUrl) localStorage.setItem("logo_keli_b64", dataUrl);
+      }catch{/* ignore storage errors */}
+    }
+  }
+  if (!ceBytes){
+    const fetched = await loadLogoCandidates("ce");
+    if (fetched && fetched.byteLength){
+      ceBytes = fetched;
+      try{
+        const dataUrl = bytesToDataURL(fetched);
+        if (dataUrl) localStorage.setItem("logo_ce_b64", dataUrl);
+      }catch{/* ignore storage errors */}
+    }
+  }
   return { keliBytes, ceBytes };
 }
 
@@ -3689,8 +5798,14 @@ async function generateLabelsPdf(rows){
   const regular = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const { keliBytes, ceBytes } = await preloadLogos();
   let keliImg, ceImg;
-  if (keliBytes) keliImg = await pdfDoc.embedPng(keliBytes);
-  if (ceBytes) ceImg = await pdfDoc.embedPng(ceBytes);
+  if (keliBytes){
+    const data = keliBytes instanceof Uint8Array ? keliBytes : new Uint8Array(keliBytes);
+    keliImg = await pdfDoc.embedPng(data);
+  }
+  if (ceBytes){
+    const data = ceBytes instanceof Uint8Array ? ceBytes : new Uint8Array(ceBytes);
+    ceImg = await pdfDoc.embedPng(data);
+  }
   const today = new Date().toLocaleDateString("en-GB").replaceAll("/", ".");
   for (const row of rows){
     const qty = Number(row.quantity || 0) || 1;
