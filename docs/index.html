@@ -221,6 +221,12 @@
       font-weight: 500;
       margin-right: 4px;
     }
+    #motherSheet .ms-orderline, .mother-sheet .ms-orderline {
+      margin: 10px 0 12px;
+    }
+    #motherSheet .ms-rows, .mother-sheet .ms-rows {
+      margin-top: 6px;
+    }
     @media print {
       #motherSheet, .mother-sheet {
         font-size: 14px;
@@ -2201,13 +2207,17 @@ function toNumericArea(value){
 function computeGroupArea(rows){
   const safeRows = Array.isArray(rows) ? rows : [];
   let total = 0;
+  let hasValue = false;
   safeRows.forEach(row => {
-    const candidate = row && (row.area ?? row.area_m2 ?? row.areaM2);
+    if (!row) return;
+    const candidate = row.__original?.pdfAreaValue ?? row.__original?.area ?? row.area ?? row.area_m2 ?? row.areaM2;
     const areaValue = toNumericArea(candidate);
     if (areaValue != null){
       total += areaValue;
+      hasValue = true;
     }
   });
+  if (!hasValue) return null;
   return Math.round(total * 1000) / 1000;
 }
 
@@ -2470,7 +2480,10 @@ function generateMotherSheet(rows, options){
           sortWidthKey: String(item.widthDisplay || "").toLowerCase(),
           sortHeightKey: String(item.heightDisplay || "").toLowerCase(),
           danko: item.danko || null,
-          area: toNumericArea(item.area ?? item.area_m2 ?? item.areaM2),
+          area: item.area ?? null,
+          areaDisplay: item.areaDisplay ?? null,
+          areaSource: item.areaSource ?? null,
+          areaRaw: item.areaRaw ?? null,
         }));
       }
 
@@ -2489,14 +2502,27 @@ function generateMotherSheet(rows, options){
           composition_display: display,
           invalid: !!entry.invalid,
           danko: entry.danko || null,
-          area: toNumericArea(entry.area ?? entry.area_m2 ?? entry.areaM2),
+          area: entry.area ?? null,
+          areaDisplay: entry.areaDisplay ?? null,
+          areaSource: entry.areaSource ?? null,
+          areaRaw: entry.areaRaw ?? null,
         };
         groupLines.push(line);
       });
 
       if (restartPerGroup) runningIndex = localIndex;
       totalLines += groupLines.length;
-      groups.push({ raw, display, lines: groupLines, sections: null });
+      const groupAreaValue = computeGroupArea(groupLines);
+      const groupAreaDisplay = groupAreaValue != null ? `${formatM2(groupAreaValue, decimalSeparator)} m²` : null;
+      groups.push({
+        raw,
+        display,
+        lines: groupLines,
+        sections: null,
+        areaValue: groupAreaValue,
+        areaDisplay: groupAreaDisplay,
+        areaSource: groupAreaDisplay ? "pdf" : null,
+      });
       continue;
     }
 
@@ -2533,7 +2559,10 @@ function generateMotherSheet(rows, options){
           sortWidthKey: String(item.widthDisplay || "").toLowerCase(),
           sortHeightKey: String(item.heightDisplay || "").toLowerCase(),
           danko: item.danko || null,
-          area: toNumericArea(item.area ?? item.area_m2 ?? item.areaM2),
+          area: item.area ?? null,
+          areaDisplay: item.areaDisplay ?? null,
+          areaSource: item.areaSource ?? null,
+          areaRaw: item.areaRaw ?? null,
         }));
       }
 
@@ -2558,7 +2587,10 @@ function generateMotherSheet(rows, options){
           composition_display: display,
           invalid: !!entry.invalid,
           danko: entry.danko || null,
-          area: toNumericArea(entry.area ?? entry.area_m2 ?? entry.areaM2),
+          area: entry.area ?? null,
+          areaDisplay: entry.areaDisplay ?? null,
+          areaSource: entry.areaSource ?? null,
+          areaRaw: entry.areaRaw ?? null,
         };
         section.lines.push(line);
         groupLines.push(line);
@@ -2568,7 +2600,17 @@ function generateMotherSheet(rows, options){
 
     if (restartPerGroup) runningIndex = localIndex;
     totalLines += groupLines.length;
-    groups.push({ raw, display, lines: groupLines, sections });
+    const groupAreaValue = computeGroupArea(groupLines);
+    const groupAreaDisplay = groupAreaValue != null ? `${formatM2(groupAreaValue, decimalSeparator)} m²` : null;
+    groups.push({
+      raw,
+      display,
+      lines: groupLines,
+      sections,
+      areaValue: groupAreaValue,
+      areaDisplay: groupAreaDisplay,
+      areaSource: groupAreaDisplay ? "pdf" : null,
+    });
   }
 
   const orders = Array.from(orderSet).filter(Boolean);
@@ -2580,9 +2622,8 @@ function generateMotherSheet(rows, options){
   const linesOut = [headerLine, ""];
   groups.forEach((group, groupIndex) => {
     const groupLabel = group && group.display ? group.display : "(Header not set)";
-    const groupAreaValue = computeGroupArea(group?.lines || []);
-    const groupAreaText = formatM2(groupAreaValue, decimalSeparator);
-    linesOut.push(`${groupLabel} — Area: ${groupAreaText} m²`);
+    const groupAreaDisplay = group && group.areaDisplay;
+    linesOut.push(groupAreaDisplay ? `${groupLabel} — Area: ${groupAreaDisplay}` : groupLabel);
     if (!mergeAcrossOrders && group.sections && group.sections.length){
       group.sections.forEach((section, sectionIndex) => {
         const orderLabel = section.orderId && section.orderId.trim().length ? section.orderId : "—";
@@ -2644,6 +2685,9 @@ function convertOrderToProcessingEntry(order){
   const client = order.client || order.client_hint || "—";
   const rows = (order.rows || []).map((row, idx) => {
     const parsed = parseDimensionTokens(row.dimension || "");
+    const areaRaw = row.area_display ?? row.area ?? row.area_m2 ?? row.areaM2 ?? null;
+    const areaValue = toNumericArea(areaRaw);
+    const areaDisplay = areaRaw != null ? String(areaRaw) : (areaValue != null ? areaValue.toFixed(3) : null);
     const positionValue = [
       row.position,
       row.position_label,
@@ -2663,6 +2707,10 @@ function convertOrderToProcessingEntry(order){
       client,
       position: positionValue,
       invalidDimension: parsed.invalid,
+      area: areaValue != null ? areaValue : null,
+      areaDisplay,
+      areaSource: areaRaw != null ? "pdf" : null,
+      areaRaw: areaRaw != null ? String(areaRaw) : null,
     };
   });
   return {
@@ -2688,17 +2736,29 @@ function rebuildProcessingRows(){
     clone.rawDimension = deriveRawDimension(clone);
     const widthNumeric = Number.isFinite(clone.width) ? Number(clone.width) : null;
     const heightNumeric = Number.isFinite(clone.height) ? Number(clone.height) : null;
-    const computedArea = (widthNumeric != null && heightNumeric != null)
+    const pdfArea = toNumericArea(clone.areaDisplay ?? clone.areaRaw ?? clone.area ?? clone.area_m2 ?? clone.areaM2 ?? null);
+    const fallbackArea = (widthNumeric != null && heightNumeric != null)
       ? Number(((widthNumeric * heightNumeric) / 1_000_000).toFixed(3))
       : (Number.isFinite(clone.area) ? Number(clone.area) : null);
+    const resolvedArea = pdfArea != null ? pdfArea : fallbackArea;
+    const areaDisplay = clone.areaDisplay != null
+      ? String(clone.areaDisplay)
+      : (clone.areaRaw != null ? String(clone.areaRaw) : (resolvedArea != null ? resolvedArea.toFixed(3) : null));
     clone.__original = {
       width: widthNumeric,
       height: heightNumeric,
       widthDisplay: clone.widthDisplay != null ? String(clone.widthDisplay) : (widthNumeric != null ? String(widthNumeric) : null),
       heightDisplay: clone.heightDisplay != null ? String(clone.heightDisplay) : (heightNumeric != null ? String(heightNumeric) : null),
-      area: computedArea,
+      area: resolvedArea,
+      pdfAreaValue: pdfArea,
+      areaDisplay,
       dimension: clone.rawDimension,
     };
+    clone.area = resolvedArea != null ? resolvedArea : 0;
+    clone.areaDisplay = areaDisplay;
+    if (!clone.areaSource && pdfArea != null){
+      clone.areaSource = "pdf";
+    }
     return clone;
   });
   applyProcessingRoundingToRows();
@@ -2783,22 +2843,32 @@ function applyProcessingRoundingToRows(){
   rows.forEach(row => {
     if (!row.__original){
       const dimension = deriveRawDimension(row);
-      const areaFromRow = Number.isFinite(row.area) ? Number(row.area) : null;
       const widthNumeric = Number.isFinite(row.width) ? Number(row.width) : null;
       const heightNumeric = Number.isFinite(row.height) ? Number(row.height) : null;
-      const computedArea = (widthNumeric != null && heightNumeric != null)
+      const pdfArea = toNumericArea(row.areaDisplay ?? row.areaRaw ?? row.area ?? row.area_m2 ?? row.areaM2 ?? null);
+      const fallbackArea = (widthNumeric != null && heightNumeric != null)
         ? Number(((widthNumeric * heightNumeric) / 1_000_000).toFixed(3))
-        : areaFromRow;
+        : (Number.isFinite(row.area) ? Number(row.area) : null);
+      const resolvedArea = pdfArea != null ? pdfArea : fallbackArea;
+      const areaDisplay = row.areaDisplay != null
+        ? String(row.areaDisplay)
+        : (row.areaRaw != null ? String(row.areaRaw) : (resolvedArea != null ? resolvedArea.toFixed(3) : null));
       row.__original = {
         width: widthNumeric,
         height: heightNumeric,
         widthDisplay: row.widthDisplay != null ? String(row.widthDisplay) : (widthNumeric != null ? String(widthNumeric) : null),
         heightDisplay: row.heightDisplay != null ? String(row.heightDisplay) : (heightNumeric != null ? String(heightNumeric) : null),
-        area: computedArea,
+        area: resolvedArea,
+        pdfAreaValue: pdfArea,
+        areaDisplay,
         dimension,
       };
     }
     const original = row.__original;
+    const originalArea = original.pdfAreaValue != null ? original.pdfAreaValue : original.area;
+    const originalAreaDisplay = original.areaDisplay != null
+      ? original.areaDisplay
+      : (originalArea != null ? originalArea.toFixed(3) : null);
     const dimensionString = original.dimension || deriveRawDimension(row) || "";
     const danko = window.applyDankoRuleToDim(dimensionString);
     const tooltipBase = dimensionString ? dimensionString.replace(/x/g, "×") : "";
@@ -2808,24 +2878,34 @@ function applyProcessingRoundingToRows(){
       tooltip: danko.changed && tooltipBase ? `Rounded from ${tooltipBase}` : (tooltipBase ? `Original ${tooltipBase}` : ""),
     };
     if (active && danko && danko.changed){
-      row.width = danko.w;
-      row.height = danko.h;
-      row.widthDisplay = String(danko.w);
-      row.heightDisplay = String(danko.h);
-      if (Number.isFinite(danko.w) && Number.isFinite(danko.h)){
-        row.area = Number(((danko.w * danko.h) / 1_000_000).toFixed(3));
+      if (Number.isFinite(danko.w)){
+        row.width = danko.w;
+        row.widthDisplay = String(danko.w);
       }else{
-        row.area = original.area;
+        row.width = original.width;
+        row.widthDisplay = original.widthDisplay;
       }
+      if (Number.isFinite(danko.h)){
+        row.height = danko.h;
+        row.heightDisplay = String(danko.h);
+      }else{
+        row.height = original.height;
+        row.heightDisplay = original.heightDisplay;
+      }
+      row.danko.changed = true;
     }else{
       row.width = original.width;
       row.height = original.height;
       row.widthDisplay = original.widthDisplay;
       row.heightDisplay = original.heightDisplay;
-      row.area = original.area;
       if (row.danko){
         row.danko.changed = false;
       }
+    }
+    row.area = originalArea != null ? originalArea : (Number.isFinite(row.area) ? row.area : 0);
+    row.areaDisplay = originalAreaDisplay;
+    if (!row.areaSource && original.pdfAreaValue != null){
+      row.areaSource = "pdf";
     }
   });
 }
@@ -3044,16 +3124,15 @@ function renderMotherSheetHTML(preview){
       const title = document.createElement("h2");
       title.className = "ms-section-title ms-group-title";
       const label = group && group.display ? group.display : "(Header not set)";
-      const areaValue = computeGroupArea(group?.lines || []);
-      const areaText = formatM2(areaValue, decimalSeparator);
-      title.textContent = `${label} — Area: ${areaText} m²`;
+      const areaText = group && group.areaDisplay;
+      title.textContent = areaText ? `${label} — Area: ${areaText}` : label;
       section.appendChild(title);
 
       const subSections = Array.isArray(group.sections) && group.sections.length ? group.sections : null;
       if (subSections){
         subSections.forEach(sub => {
           const orderInfo = document.createElement("div");
-          orderInfo.className = "ms-order-info";
+          orderInfo.className = "ms-order-info ms-orderline";
           const orderLabel = sub && sub.orderId ? sub.orderId : "—";
           const clientLabel = sub && sub.client ? sub.client : UNKNOWN_CLIENT_LABEL;
           orderInfo.textContent = `[Order ${orderLabel} — ${clientLabel}]`;
@@ -3074,7 +3153,7 @@ function renderMotherSheetHTML(preview){
 
 function buildGroupTable(lines, preview){
   const container = document.createElement("div");
-  container.className = "ms-row-list";
+  container.className = "ms-row-list ms-rows";
   const safeLines = Array.isArray(lines) ? lines : [];
   const separator = (preview && preview.meta && preview.meta.decimalSeparator) || appState.processing.options.decimalSeparator;
 
@@ -3580,9 +3659,8 @@ async function exportProcessingPdf(){
       ensureSpace();
     }
     const label = group && group.display ? group.display : "(Header not set)";
-    const groupAreaValue = computeGroupArea(group?.lines || []);
-    const groupAreaText = formatM2(groupAreaValue, decimalSeparator);
-    const headerText = `${label} — Area: ${groupAreaText} m²`;
+    const groupAreaText = group && group.areaDisplay;
+    const headerText = groupAreaText ? `${label} — Area: ${groupAreaText}` : label;
     drawTextBlock(headerText, boldFont, HEADER_SIZE, HEADER_LINE_HEIGHT);
     cursorY -= HEADER_GAP_PT;
 
