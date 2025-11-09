@@ -60,11 +60,26 @@
     .summary{margin:14px 0 10px;font-weight:600;font-size:15px;display:flex;gap:12px;flex-wrap:wrap;align-items:center}
     .pill{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:999px;background:var(--primary-soft);color:var(--primary);font-size:12px}
     .pill.warn{background:#fef3c7;color:#b45309}
-    .table-responsive{width:100%;overflow-x:auto;border-radius:12px;border:1px solid var(--border);background:var(--card-bg)}
+    .table-responsive{width:100%;max-width:100%;overflow-x:auto;border-radius:12px;border:1px solid var(--border);background:var(--card-bg)}
     table{width:100%;border-collapse:collapse;min-width:640px}
+    .editable-table{min-width:720px;table-layout:auto}
     th,td{padding:8px 10px;border-bottom:1px solid var(--border);font-size:14px;text-align:left;vertical-align:top}
     th{background:#f4f6ff;color:#485163;font-weight:600}
     tr:last-child td{border-bottom:none}
+    .editable-table td[data-col="type"],
+    .editable-table th[data-col="type"]{min-width:320px;width:34%}
+    .editable-table td[data-col="type"] input,
+    .editable-table td[data-col="type"] select{width:100%;max-width:100%;white-space:nowrap;text-overflow:ellipsis}
+    .editable-table th[data-col="dimension"],
+    .editable-table td[data-col="dimension"]{min-width:160px}
+    .editable-table th[data-col="position"],
+    .editable-table td[data-col="position"]{min-width:100px}
+    .editable-table th[data-col="qty"],
+    .editable-table td[data-col="qty"]{min-width:90px}
+    .editable-table th[data-col="area"],
+    .editable-table td[data-col="area"]{min-width:110px}
+    .editable-table th[data-col="actions"],
+    .editable-table td[data-col="actions"]{min-width:90px;text-align:right}
     .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
     .dropzone{margin-top:12px;padding:26px;border:2px dashed #c9cfea;border-radius:14px;text-align:center;color:var(--muted);background:#fbfcff;cursor:pointer;transition:border-color .2s ease,background .2s ease}
     .dropzone.hover{background:var(--primary-soft);border-color:var(--primary);color:var(--text)}
@@ -595,6 +610,7 @@
 
 <script>
 const API_BASE = "https://order-extractor-kdih.onrender.com";
+//const API_BASE = "http://127.0.0.1:5055";
 const HISTORY_CACHE_KEY = "loe.history.cache.v1";
 const HISTORY_CACHE_LIMIT = 200;
 const DEFAULT_APPEARANCE_SETTINGS = Object.freeze({
@@ -3931,6 +3947,31 @@ function fixAllAreas(scope){
   }
 }
 
+function removeRow(scope, rowKey){
+  if (!rowKey) return;
+  const key = String(rowKey);
+  const bucket = scope === "history" ? appState.historyDetail : appState.extract;
+  bucket.rows = bucket.rows || [];
+  const rows = bucket.rows;
+  const index = rows.findIndex(row => {
+    if (!row) return false;
+    const rid = row._rid != null ? String(row._rid) : row.id != null ? String(row.id) : "";
+    return rid === key;
+  });
+  if (index === -1) return;
+  const [removedRow] = rows.splice(index, 1);
+  if (bucket.rowWarnings && removedRow && removedRow._rid){
+    delete bucket.rowWarnings[removedRow._rid];
+  }
+  recalcParsedTotals(bucket);
+  if (scope === "history"){
+    updateHistoryDetailUI();
+  }else{
+    window.__rows = rows;
+    updateExtractUI();
+  }
+}
+
 function renderEditableTable(scope, containerId, rows, rowWarnings){
   const container = typeof containerId === "string" ? document.getElementById(containerId) : containerId;
   if (!container) return;
@@ -3957,12 +3998,12 @@ function renderEditableTable(scope, containerId, rows, rowWarnings){
           <th>#</th>
           <th>Warnings</th>
           <th>Order</th>
-          <th>Type</th>
-          <th>Dimension</th>
-          <th>Position</th>
-          <th>Quantity</th>
-          <th>Area (m²)</th>
-          <th></th>
+          <th data-col="type">Type</th>
+          <th data-col="dimension">Dimension</th>
+          <th data-col="position">Position</th>
+          <th data-col="qty">Quantity</th>
+          <th data-col="area">Area (m²)</th>
+          <th data-col="actions">Actions</th>
         </tr>
       </thead>
       <tbody>`;
@@ -3996,17 +4037,19 @@ function renderEditableTable(scope, containerId, rows, rowWarnings){
       const posKey = `${row._rid}:position`;
       const qtyKey = `${row._rid}:quantity`;
       const areaKey = `${row._rid}:area`;
-      const fixBtn = mismatch ? `<button type="button" class="btn small" data-fix-area="${rowIndex}" title="Set area to ${computed?.toFixed(3) ?? ''}">Fix</button>` : "";
+      const fixBtn = mismatch ? `<button type="button" class="btn small" data-fix-area="${rowIndex}" title="Set area to ${computed?.toFixed(3) ?? ""}">Fix</button>` : "";
+      const removeBtn = `<button type="button" class="btn small danger" data-remove-row="${escapeHtml(row._rid)}">Remove</button>`;
+      const actionButtons = [fixBtn, removeBtn].filter(Boolean).join(" ");
       html += `<tr data-index="${rowIndex}" data-order="${escapeHtml(order)}">
         <td>${globalIndex + 1}</td>
         <td>${warningBadge}</td>
         <td><input ${inputBase} data-field="order_number" data-key="${orderKey}" value="${escapeHtml(row.order_number || "")}" /></td>
-        <td><input ${inputBase} data-field="type" data-key="${typeKey}" value="${escapeHtml(row.type || "")}" /></td>
-        <td><input ${inputBase} data-field="dimension" data-key="${dimKey}" inputmode="text" value="${escapeHtml(row.dimension || "")}" /></td>
-        <td><input ${inputBase} data-field="position" data-key="${posKey}" inputmode="text" value="${escapeHtml(row.position || "")}" /></td>
-        <td><input ${inputBase} data-field="quantity" data-key="${qtyKey}" type="number" inputmode="numeric" min="0" step="1" value="${escapeHtml(row.quantity ?? 0)}" /></td>
-        <td><input ${inputBase} data-field="area" data-key="${areaKey}" type="number" inputmode="decimal" min="0" step="0.001" value="${escapeHtml(row.area ?? 0)}" /></td>
-        <td>${fixBtn}</td>
+        <td data-col="type"><input ${inputBase} data-field="type" data-key="${typeKey}" value="${escapeHtml(row.type || "")}" /></td>
+        <td data-col="dimension"><input ${inputBase} data-field="dimension" data-key="${dimKey}" inputmode="text" value="${escapeHtml(row.dimension || "")}" /></td>
+        <td data-col="position"><input ${inputBase} data-field="position" data-key="${posKey}" inputmode="text" value="${escapeHtml(row.position || "")}" /></td>
+        <td data-col="qty"><input ${inputBase} data-field="quantity" data-key="${qtyKey}" type="number" inputmode="numeric" min="0" step="1" value="${escapeHtml(row.quantity ?? 0)}" /></td>
+        <td data-col="area"><input ${inputBase} data-field="area" data-key="${areaKey}" type="number" inputmode="decimal" min="0" step="0.001" value="${escapeHtml(row.area ?? 0)}" /></td>
+        <td data-col="actions">${actionButtons}</td>
       </tr>`;
       globalIndex += 1;
     });
@@ -4108,6 +4151,17 @@ document.getElementById("historyTableWrap").addEventListener("click", (event)=>{
     const idx = Number(fixBtn.dataset.fixArea);
     if (!Number.isNaN(idx)) fixAreaForRow("history", idx);
   }
+});
+
+document.addEventListener("click", (event)=>{
+  const btn = event.target.closest("[data-remove-row]");
+  if (!btn) return;
+  const rowKey = btn.getAttribute("data-remove-row");
+  if (!rowKey) return;
+  const scope = btn.closest("#historyTableWrap") ? "history" : (btn.closest("#tableWrap") ? "extract" : null);
+  if (!scope) return;
+  if (!confirm("Remove this line?")) return;
+  removeRow(scope, rowKey);
 });
 
 const fixAllAreasBtn = document.getElementById("fixAllAreas");
@@ -4555,24 +4609,24 @@ function render(rows, opts={}){
     if (groups.size > 1){
       html += `<div style="padding:12px 14px"><div style="font-weight:600">${order || "No order number"}</div><div class="muted small">Units: ${total.units} • Area: ${formatArea(total.area)} m²</div></div>`;
     }
-    html += `<table><thead><tr>
+    html += `<table class="editable-table read-only-table"><thead><tr>
       <th>#</th>
       <th>Order</th>
-      <th>Type</th>
-      <th>Dimension</th>
-      <th>Position</th>
-      <th>Quantity</th>
-      <th>Area (m²)</th>
+      <th data-col="type">Type</th>
+      <th data-col="dimension">Dimension</th>
+      <th data-col="position">Position</th>
+      <th data-col="qty">Quantity</th>
+      <th data-col="area">Area (m²)</th>
     </tr></thead><tbody>`;
     rowsForOrder.forEach((row, idx)=>{
       html += `<tr>
         <td>${idx + 1}</td>
         <td class="mono">${row.order_number || ""}</td>
-        <td>${row.type || ""}</td>
-        <td class="mono">${row.dimension ? row.dimension : "—"}</td>
-        <td class="mono">${row.position || ""}</td>
-        <td>${row.quantity}</td>
-        <td>${formatArea(row.area)}</td>
+        <td data-col="type">${row.type || ""}</td>
+        <td class="mono" data-col="dimension">${row.dimension ? row.dimension : "—"}</td>
+        <td class="mono" data-col="position">${row.position || ""}</td>
+        <td data-col="qty">${row.quantity}</td>
+        <td data-col="area">${formatArea(row.area)}</td>
       </tr>`;
     });
     html += "</tbody></table>";
