@@ -488,9 +488,6 @@
         <p class="muted small">Build reusable label jobs from your current extract or selected history order, then download PDFs when you’re ready to print.</p>
         <div class="labels-controls">
           <button class="btn small" id="labelsFromProcessing">Add from Processing</button>
-          <button class="btn small" id="labelsFromProcessingDownload">Add & Download</button>
-          <button class="btn small" id="labelsFromHistory">Add selected history order</button>
-          <button class="btn small muted" id="labelsClear" disabled>Clear jobs</button>
         </div>
         <div class="labels-summary" id="labelsSummary"></div>
         <div id="labelsStatus" class="muted small"></div>
@@ -498,7 +495,7 @@
       </div>
       <div class="card">
         <div class="table-responsive" id="labelsJobsWrap">
-          <div class="labels-empty">No label jobs yet. Use the buttons above to add one.</div>
+          <div class="labels-empty">No label jobs yet. Use the button above to add one.</div>
         </div>
       </div>
     </section>
@@ -812,9 +809,6 @@ const labelsJobsWrap = document.getElementById("labelsJobsWrap");
 const labelsSummaryEl = document.getElementById("labelsSummary");
 const labelsStatusEl = document.getElementById("labelsStatus");
 const labelsFromProcessingBtn = document.getElementById("labelsFromProcessing");
-const labelsFromProcessingDownloadBtn = document.getElementById("labelsFromProcessingDownload");
-const labelsFromHistoryBtn = document.getElementById("labelsFromHistory");
-const labelsClearBtn = document.getElementById("labelsClear");
 const analysisStatusEl = document.getElementById("analysisStatus");
 const analysisKpiOrdersEl = document.getElementById("analysisKpiOrders");
 const analysisKpiUnitsEl = document.getElementById("analysisKpiUnits");
@@ -2375,6 +2369,8 @@ function collapseGroupDimensions(items, tolerance = DIMENSION_TOLERANCE_MM){
         invalid: false,
         orderIds: new Set(),
         clients: new Set(),
+        positions: new Set(),
+        originRows: [],
         areaTotal: 0,
       };
       buckets.push(bucket);
@@ -2401,6 +2397,9 @@ function collapseGroupDimensions(items, tolerance = DIMENSION_TOLERANCE_MM){
     bucket.invalid = bucket.invalid || !!item.invalidDimension;
     if (item.orderId) bucket.orderIds.add(item.orderId);
     if (item.client) bucket.clients.add(item.client);
+    const positionValue = pickPositionValue(item);
+    if (positionValue) bucket.positions.add(positionValue);
+    bucket.originRows.push(buildOriginRowPayload(item));
     const areaValue = toNumericArea(item.area ?? item.area_m2 ?? item.areaM2);
     if (areaValue != null){
       bucket.areaTotal += areaValue;
@@ -2414,6 +2413,10 @@ function collapseGroupDimensions(items, tolerance = DIMENSION_TOLERANCE_MM){
     const heightDisplay = selectRepresentativeDisplay(bucket.heightDisplays, heightNumeric, bucket.heightDecimals);
     const orderIdsList = Array.from(bucket.orderIds).filter(Boolean);
     const clientsList = Array.from(bucket.clients).filter(Boolean);
+    const positionsList = dedupeAndSortPositions(Array.from(bucket.positions || []));
+    const position = positionsList.length === 1
+      ? positionsList[0]
+      : (positionsList.length ? "(Grouped)" : "");
     const orderId = orderIdsList.join(", ");
     const client = clientsList.length === 1 ? clientsList[0] : (clientsList.length ? "(Mixed)" : "—");
     return {
@@ -2425,6 +2428,9 @@ function collapseGroupDimensions(items, tolerance = DIMENSION_TOLERANCE_MM){
       invalid: bucket.invalid,
       orderId,
       client,
+      position,
+      originRows: bucket.originRows.map(origin => ({ ...origin })),
+      positions: positionsList,
       sortWidth: Number.isFinite(widthNumeric) ? widthNumeric : Number.POSITIVE_INFINITY,
       sortHeight: Number.isFinite(heightNumeric) ? heightNumeric : Number.POSITIVE_INFINITY,
       sortWidthKey: String(widthDisplay || "").toLowerCase(),
@@ -2508,25 +2514,31 @@ function generateMotherSheet(rows, options){
         working = collapseGroupDimensions(items, DIMENSION_TOLERANCE_MM);
         sortCollapsedEntries(working);
       }else{
-        working = items.map(item => ({
-          width: item.width,
-          height: item.height,
-          widthDisplay: item.widthDisplay,
-          heightDisplay: item.heightDisplay,
-          qty: item.qty ?? 0,
-          invalid: !!item.invalidDimension,
-          orderId: item.orderId || "",
-          client: item.client && String(item.client).trim().length ? item.client : UNKNOWN_CLIENT_LABEL,
-          sortWidth: Number.isFinite(item.width) ? item.width : Number.POSITIVE_INFINITY,
-          sortHeight: Number.isFinite(item.height) ? item.height : Number.POSITIVE_INFINITY,
-          sortWidthKey: String(item.widthDisplay || "").toLowerCase(),
-          sortHeightKey: String(item.heightDisplay || "").toLowerCase(),
-          danko: item.danko || null,
-          area: item.area ?? null,
-          areaDisplay: item.areaDisplay ?? null,
-          areaSource: item.areaSource ?? null,
-          areaRaw: item.areaRaw ?? null,
-        }));
+        working = items.map(item => {
+          const positionValue = pickPositionValue(item);
+          return {
+            width: item.width,
+            height: item.height,
+            widthDisplay: item.widthDisplay,
+            heightDisplay: item.heightDisplay,
+            qty: item.qty ?? 0,
+            invalid: !!item.invalidDimension,
+            orderId: item.orderId || "",
+            client: item.client && String(item.client).trim().length ? item.client : UNKNOWN_CLIENT_LABEL,
+            position: positionValue || "",
+            positions: positionValue ? [positionValue] : [],
+            sortWidth: Number.isFinite(item.width) ? item.width : Number.POSITIVE_INFINITY,
+            sortHeight: Number.isFinite(item.height) ? item.height : Number.POSITIVE_INFINITY,
+            sortWidthKey: String(item.widthDisplay || "").toLowerCase(),
+            sortHeightKey: String(item.heightDisplay || "").toLowerCase(),
+            danko: item.danko || null,
+            area: item.area ?? null,
+            areaDisplay: item.areaDisplay ?? null,
+            areaSource: item.areaSource ?? null,
+            areaRaw: item.areaRaw ?? null,
+            originRows: [buildOriginRowPayload(item)],
+          };
+        });
       }
 
       working.forEach(entry => {
@@ -2548,6 +2560,13 @@ function generateMotherSheet(rows, options){
           areaDisplay: entry.areaDisplay ?? null,
           areaSource: entry.areaSource ?? null,
           areaRaw: entry.areaRaw ?? null,
+          position: entry.position || "",
+          positions: Array.isArray(entry.positions) && entry.positions.length
+            ? entry.positions.slice()
+            : (entry.position ? [entry.position] : []),
+          originRows: Array.isArray(entry.originRows) && entry.originRows.length
+            ? entry.originRows.map(origin => ({ ...origin }))
+            : [buildOriginRowPayload(entry)],
         };
         groupLines.push(line);
       });
@@ -2587,25 +2606,31 @@ function generateMotherSheet(rows, options){
         });
         sortCollapsedEntries(entryList);
       }else{
-        entryList = orderItems.map(item => ({
-          width: item.width,
-          height: item.height,
-          widthDisplay: item.widthDisplay,
-          heightDisplay: item.heightDisplay,
-          qty: item.qty ?? 0,
-          invalid: !!item.invalidDimension,
-          orderId: item.orderId || orderKey,
-          client: item.client && String(item.client).trim().length ? item.client : clientDisplay,
-          sortWidth: Number.isFinite(item.width) ? item.width : Number.POSITIVE_INFINITY,
-          sortHeight: Number.isFinite(item.height) ? item.height : Number.POSITIVE_INFINITY,
-          sortWidthKey: String(item.widthDisplay || "").toLowerCase(),
-          sortHeightKey: String(item.heightDisplay || "").toLowerCase(),
-          danko: item.danko || null,
-          area: item.area ?? null,
-          areaDisplay: item.areaDisplay ?? null,
-          areaSource: item.areaSource ?? null,
-          areaRaw: item.areaRaw ?? null,
-        }));
+        entryList = orderItems.map(item => {
+          const positionValue = pickPositionValue(item);
+          return {
+            width: item.width,
+            height: item.height,
+            widthDisplay: item.widthDisplay,
+            heightDisplay: item.heightDisplay,
+            qty: item.qty ?? 0,
+            invalid: !!item.invalidDimension,
+            orderId: item.orderId || orderKey,
+            client: item.client && String(item.client).trim().length ? item.client : clientDisplay,
+            position: positionValue || "",
+            positions: positionValue ? [positionValue] : [],
+            sortWidth: Number.isFinite(item.width) ? item.width : Number.POSITIVE_INFINITY,
+            sortHeight: Number.isFinite(item.height) ? item.height : Number.POSITIVE_INFINITY,
+            sortWidthKey: String(item.widthDisplay || "").toLowerCase(),
+            sortHeightKey: String(item.heightDisplay || "").toLowerCase(),
+            danko: item.danko || null,
+            area: item.area ?? null,
+            areaDisplay: item.areaDisplay ?? null,
+            areaSource: item.areaSource ?? null,
+            areaRaw: item.areaRaw ?? null,
+            originRows: [buildOriginRowPayload(item)],
+          };
+        });
       }
 
       const section = {
@@ -2633,6 +2658,13 @@ function generateMotherSheet(rows, options){
           areaDisplay: entry.areaDisplay ?? null,
           areaSource: entry.areaSource ?? null,
           areaRaw: entry.areaRaw ?? null,
+          position: entry.position || "",
+          positions: Array.isArray(entry.positions) && entry.positions.length
+            ? entry.positions.slice()
+            : (entry.position ? [entry.position] : []),
+          originRows: Array.isArray(entry.originRows) && entry.originRows.length
+            ? entry.originRows.map(origin => ({ ...origin }))
+            : [buildOriginRowPayload(entry)],
         };
         section.lines.push(line);
         groupLines.push(line);
@@ -3318,6 +3350,149 @@ function deriveLabelDimension(row){
   return "";
 }
 
+function normalizePositionString(value){
+  if (value == null) return "";
+  return String(value).trim();
+}
+
+function pickPositionValue(row){
+  if (!row || typeof row !== "object") return "";
+  const candidates = [
+    row.position,
+    row.position_label,
+    row.positionLabel,
+    row.pos,
+    row.position_display,
+  ];
+  for (const candidate of candidates){
+    const normalized = normalizePositionString(candidate);
+    if (normalized) return normalized;
+  }
+  return "";
+}
+
+function parsePositionParts(value){
+  const normalized = normalizePositionString(value);
+  if (!normalized) return { original: "", primary: null, secondary: null };
+  const parts = normalized.split("-");
+  const parseNumber = (token)=>{
+    if (token == null) return null;
+    const num = Number(token);
+    return Number.isFinite(num) ? num : null;
+  };
+  return {
+    original: normalized,
+    primary: parseNumber(parts[0]),
+    secondary: parseNumber(parts[1]),
+  };
+}
+
+function comparePositionStrings(a, b){
+  const pa = parsePositionParts(a);
+  const pb = parsePositionParts(b);
+  const aHasPrimary = pa.primary != null;
+  const bHasPrimary = pb.primary != null;
+  if (aHasPrimary && bHasPrimary && pa.primary !== pb.primary){
+    return pa.primary - pb.primary;
+  }
+  if (aHasPrimary && !bHasPrimary) return -1;
+  if (!aHasPrimary && bHasPrimary) return 1;
+
+  const aHasSecondary = pa.secondary != null;
+  const bHasSecondary = pb.secondary != null;
+  if (aHasSecondary && bHasSecondary && pa.secondary !== pb.secondary){
+    return pa.secondary - pb.secondary;
+  }
+  if (aHasSecondary && !bHasSecondary) return -1;
+  if (!aHasSecondary && bHasSecondary) return 1;
+
+  return pa.original.localeCompare(pb.original);
+}
+
+function dedupeAndSortPositions(values){
+  if (!Array.isArray(values) || !values.length) return [];
+  const seen = new Set();
+  const unique = [];
+  values.forEach(value=>{
+    const normalized = normalizePositionString(value);
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    unique.push(normalized);
+  });
+  unique.sort(comparePositionStrings);
+  return unique;
+}
+
+function summarizePositionsList(values, limit = 6){
+  const unique = dedupeAndSortPositions(values);
+  if (!unique.length) return "";
+  if (unique.length === 1) return unique[0];
+  const display = unique.slice(0, limit);
+  let summary = display.join(", ");
+  const remaining = unique.length - display.length;
+  if (remaining > 0){
+    summary += ` (+${remaining})`;
+  }
+  return summary;
+}
+
+function collectProcessingLinePositions(line){
+  if (!line || typeof line !== "object") return [];
+  const bucket = [];
+  if (Array.isArray(line.positions) && line.positions.length){
+    bucket.push(...line.positions);
+  }
+  const fallback = pickPositionValue(line);
+  if (fallback && fallback !== "(Grouped)") bucket.push(fallback);
+  return dedupeAndSortPositions(bucket);
+}
+
+function collectRowPositions(row){
+  if (!row || typeof row !== "object") return [];
+  const bucket = [];
+  if (Array.isArray(row.processing_positions) && row.processing_positions.length){
+    bucket.push(...row.processing_positions);
+  }else if (Array.isArray(row.positions) && row.positions.length){
+    bucket.push(...row.positions);
+  }
+  const fallback = pickPositionValue(row);
+  if (fallback) bucket.push(fallback);
+  return dedupeAndSortPositions(bucket);
+}
+
+function formatProcessingPositionsSummary(row){
+  if (!row) return "";
+  const preset = normalizePositionString(row.processing_position_summary);
+  if (preset) return preset;
+  const list = collectRowPositions(row);
+  return summarizePositionsList(list);
+}
+
+function buildOriginRowPayload(item){
+  if (!item) return {
+    position: "—",
+    quantity: 1,
+    orderId: "",
+    client: "",
+    widthOriginal: null,
+    heightOriginal: null,
+  };
+  const quantityRaw = Number(item.qty ?? item.quantity ?? 0);
+  const quantity = Number.isFinite(quantityRaw) && quantityRaw > 0 ? quantityRaw : 1;
+  const original = item.__original || {};
+  const positionValue = pickPositionValue(item) || "—";
+  return {
+    position: positionValue,
+    positions: positionValue && positionValue !== "(Grouped)" ? [positionValue] : [],
+    quantity,
+    orderId: (item.orderId && String(item.orderId).trim()) || "",
+    client: (item.client && String(item.client).trim()) || "",
+    widthOriginal: Number.isFinite(original.width) ? original.width : (Number.isFinite(item.width) ? item.width : null),
+    heightOriginal: Number.isFinite(original.height) ? original.height : (Number.isFinite(item.height) ? item.height : null),
+    rawDimension: item.rawDimension || original.dimension || "",
+  };
+}
+
 function sanitizeLabelRow(row){
   if (!row) return null;
   const quantitySources = [
@@ -3344,7 +3519,7 @@ function sanitizeLabelRow(row){
   const client = [
     row.client, row.client_name, row.clientName, row.clientLabel, row.client_label, row.client_hint, row.customer
   ].map(value => (value == null ? "" : String(value).trim())).find(value => value.length) || "";
-  return {
+  const normalized = {
     order_number: orderNumber,
     type,
     dimension: dimension.length ? dimension : "—",
@@ -3353,6 +3528,22 @@ function sanitizeLabelRow(row){
     area,
     client,
   };
+  if (row.source){
+    normalized.source = String(row.source);
+  }
+  const msIndexRaw = row.ms_index ?? row.msIndex ?? row.idx ?? row.index;
+  const msIndex = Number(msIndexRaw);
+  if (Number.isFinite(msIndex)){
+    normalized.ms_index = msIndex;
+  }
+  if (Array.isArray(row.processing_positions) && row.processing_positions.length){
+    normalized.processing_positions = dedupeAndSortPositions(row.processing_positions);
+  }
+  const summary = normalizePositionString(row.processing_position_summary);
+  if (summary){
+    normalized.processing_position_summary = summary;
+  }
+  return normalized;
 }
 
 function createLabelJob(source, rows, options = {}){
@@ -3364,10 +3555,12 @@ function createLabelJob(source, rows, options = {}){
   const clientSet = new Set(normalized.map(row => row.client).filter(Boolean));
   const clientOverride = options.clientOverride && String(options.clientOverride).trim();
   const clientLabel = clientOverride || (clientSet.size === 1 ? Array.from(clientSet)[0] : (clientSet.size ? "(Mixed)" : "—"));
-  const sourceLabel = options.sourceLabel || source;
+  const sourceKind = options.sourceKind || source;
+  const sourceLabel = options.sourceLabel || sourceKind || source;
   const job = {
     id: `lbl-${Date.now()}-${appState.labels.nextId++}`,
-    source: sourceLabel,
+    source: sourceKind || sourceLabel || "",
+    sourceLabel: sourceLabel || "",
     createdAt: new Date().toISOString(),
     rows: normalized,
     units: totals.units,
@@ -3410,21 +3603,119 @@ function addLabelsJob(source, rows, options = {}){
   return job;
 }
 
+function collectProcessingSectionsForLabels(){
+  const preview = appState.processing && appState.processing.preview;
+  const groups = preview && Array.isArray(preview.groups) ? preview.groups : [];
+  if (!groups.length) return [];
+  const sections = [];
+  groups.forEach((group, groupIndex)=>{
+    const hasSections = Array.isArray(group.sections) && group.sections.length;
+    if (hasSections){
+      group.sections.forEach((section, sectionIndex)=>{
+        const lines = Array.isArray(section.lines) ? section.lines : [];
+        if (!lines.length) return;
+        const rawOrder = String(section.orderId || "").trim();
+        const fallbackOrder = rawOrder.length
+          ? rawOrder
+          : `${group.display || group.raw || "Processing"} ${groupIndex + 1}${group.sections.length > 1 ? `.${sectionIndex + 1}` : ""}`;
+        const clientLabel = String(section.client || "").trim() || (preview?.meta?.clientLabel) || UNKNOWN_CLIENT_LABEL;
+        sections.push({
+          key: fallbackOrder,
+          orderId: fallbackOrder,
+          client: clientLabel,
+          lines,
+        });
+      });
+    }else{
+      const lines = Array.isArray(group.lines) ? group.lines : [];
+      if (!lines.length) return;
+      const groupLabel = group.display || group.raw || `Processing Group ${groupIndex + 1}`;
+      const clientLabel = preview?.meta?.clientLabel || UNKNOWN_CLIENT_LABEL;
+      sections.push({
+        key: `${groupLabel}#${groupIndex + 1}`,
+        orderId: groupLabel,
+        client: clientLabel,
+        lines,
+      });
+    }
+  });
+  return sections;
+}
+
+function formatProcessingDimensionLabel(line){
+  if (!line) return "—";
+  const widthDisplay = line.widthDisplay != null ? String(line.widthDisplay).trim() : "";
+  const heightDisplay = line.heightDisplay != null ? String(line.heightDisplay).trim() : "";
+  const widthText = widthDisplay.length ? widthDisplay : (Number.isFinite(line.width) ? String(line.width) : "?");
+  const heightText = heightDisplay.length ? heightDisplay : (Number.isFinite(line.height) ? String(line.height) : "?");
+  return `${widthText || "?"} × ${heightText || "?"}`;
+}
+
+function buildProcessingLabelRows(line, orderId, clientLabel){
+  if (!line) return [];
+  const orderNumber = (line.orderId && String(line.orderId).trim()) || orderId || "—";
+  const clientValue = (line.client && String(line.client).trim()) || clientLabel || UNKNOWN_CLIENT_LABEL;
+  const qty = Number(line.qty || line.quantity || 0);
+  const msIndex = Number(line.idx);
+  const rawArea = Number(line.area ?? line.areaValue ?? line.areaRaw);
+  const areaValue = Number.isFinite(rawArea) ? rawArea : 0;
+  const positionsList = collectProcessingLinePositions(line);
+  const fallbackPosition = normalizePositionString(line.position);
+  const dimensionLabel = formatProcessingDimensionLabel(line);
+  const rowsOut = [];
+  const originRows = Array.isArray(line.originRows) && line.originRows.length
+    ? line.originRows
+    : [{
+        position: fallbackPosition && fallbackPosition !== "(Grouped)" ? fallbackPosition : (positionsList[0] || line.position || "—"),
+        quantity: line.qty ?? 1,
+        orderId: orderNumber,
+        client: clientValue,
+      }];
+  originRows.forEach(origin=>{
+    const uniquePositions = dedupeAndSortPositions(origin.positions || [origin.position]);
+    const targets = uniquePositions.length
+      ? uniquePositions
+      : (origin.position && origin.position !== "(Grouped)" ? [origin.position] : []);
+    const positionTargets = targets.length ? targets : ["—"];
+    const perPositionQtyRaw = Number(origin.quantity);
+    const perPositionQty = Number.isFinite(perPositionQtyRaw) && perPositionQtyRaw > 0 ? perPositionQtyRaw : 1;
+    positionTargets.forEach(positionValue=>{
+      const safePosition = positionValue || "—";
+      for (let i = 0; i < perPositionQty; i++){
+        rowsOut.push({
+          order_number: origin.orderId || orderNumber,
+          orderId: origin.orderId || orderNumber,
+          client: origin.client || clientValue,
+          type: line.composition_display || line.composition_raw || "",
+          dimension: dimensionLabel,
+          dimension_display: dimensionLabel,
+          widthDisplay: line.widthDisplay,
+          heightDisplay: line.heightDisplay,
+          quantity: 1,
+          qty: 1,
+          position: safePosition,
+          area: areaValue,
+          source: "processing",
+          ms_index: Number.isFinite(msIndex) ? msIndex : null,
+          processing_positions: [safePosition],
+        });
+      }
+    });
+  });
+  return rowsOut;
+}
+
 function addLabelJobsFromProcessing(options = {}){
   const { silent = false } = options;
-  const cart = appState.processing && Array.isArray(appState.processing.cart) ? appState.processing.cart : null;
-  if (!cart){
-    if (!silent) setLabelsStatus("Could not read Processing cart.");
-    return null;
-  }
-  if (!cart.length){
+  const sections = collectProcessingSectionsForLabels();
+  if (!sections.length){
     if (!silent) setLabelsStatus("Processing is empty.");
     return { addedJobs: [], skipped: [], totalRows: 0 };
   }
 
   const existingKeys = new Set(
     (appState.labels.jobs || [])
-      .map(job => (job.primaryOrderId || (Array.isArray(job.orders) && job.orders[0]) || "").trim())
+      .map(job => (job.sourceDetail || job.primaryOrderId || (Array.isArray(job.orders) && job.orders[0]) || "").trim())
       .filter(Boolean)
   );
 
@@ -3432,40 +3723,40 @@ function addLabelJobsFromProcessing(options = {}){
   const skipped = [];
   let totalRows = 0;
 
-  cart.forEach(entry => {
-    if (!entry) return;
-    const orderKeyRaw = entry.orderLabel || entry.orderId || entry.id;
-    const orderKey = String(orderKeyRaw || "").trim();
-    if (!orderKey){
+  sections.forEach(section => {
+    const sectionKey = String(section.key || section.orderId || "").trim();
+    if (!sectionKey){
       skipped.push("Unknown order");
       return;
     }
-    if (existingKeys.has(orderKey)){
-      skipped.push(orderKey);
+    if (existingKeys.has(sectionKey)){
+      skipped.push(sectionKey);
       return;
     }
-    const baseRows = Array.isArray(entry.rows) ? entry.rows : [];
-    if (!baseRows.length){
-      skipped.push(`${orderKey} (no rows)`);
+    const rows = (section.lines || []).reduce((acc, line)=>{
+      const rowSet = buildProcessingLabelRows(line, section.orderId, section.client);
+      if (Array.isArray(rowSet) && rowSet.length){
+        acc.push(...rowSet);
+      }
+      return acc;
+    }, []);
+    if (!rows.length){
+      skipped.push(`${sectionKey} (no rows)`);
       return;
     }
-    const rowsWithClient = baseRows.map(row => ({
-      ...row,
-      client: row.client || entry.client || UNKNOWN_CLIENT_LABEL,
-      orderId: row.orderId || orderKey,
-    }));
-    const job = createLabelJob("Processing", rowsWithClient, {
-      primaryOrderId: orderKey,
-      clientOverride: entry.client,
+    const job = createLabelJob("processing", rows, {
+      primaryOrderId: sectionKey,
+      clientOverride: section.client,
       sourceLabel: "Processing",
-      sourceDetail: orderKey,
+      sourceKind: "processing",
+      sourceDetail: sectionKey,
     });
     if (!job){
-      skipped.push(orderKey);
+      skipped.push(sectionKey);
       return;
     }
     addedJobs.push(job);
-    existingKeys.add(orderKey);
+    existingKeys.add(sectionKey);
     totalRows += Array.isArray(job.rows) ? job.rows.length : 0;
   });
 
@@ -3480,7 +3771,11 @@ function addLabelJobsFromProcessing(options = {}){
 
   const skipNote = skipped.length ? ` Skipped: ${skipped.join(", ")}` : "";
   if (!silent){
-    setLabelsStatus(`Added ${addedJobs.length} orders (${totalRows} rows) from Processing.${skipNote ? " " + skipNote : ""}`);
+    const itemWord = totalRows === 1 ? "label item" : "label items";
+    setLabelsStatus(`Added ${totalRows} ${itemWord} from Processing.${skipNote}`);
+    if (typeof showProcessingToast === "function"){
+      showProcessingToast(`Added ${totalRows} ${itemWord} from Processing`);
+    }
   }
   return { addedJobs, skipped, totalRows };
 }
@@ -3502,21 +3797,10 @@ function updateLabelsUI(){
     const hasProcessing = !!(appState.processing.cart && appState.processing.cart.length);
     labelsFromProcessingBtn.disabled = !hasProcessing;
   }
-  if (labelsFromProcessingDownloadBtn){
-    const processingCount = appState.processing.cart ? appState.processing.cart.length : 0;
-    labelsFromProcessingDownloadBtn.disabled = processingCount < 2;
-  }
-  if (labelsFromHistoryBtn){
-    const hasHistory = !!(appState.historyDetail.rows && appState.historyDetail.rows.length);
-    labelsFromHistoryBtn.disabled = !hasHistory;
-  }
-  if (labelsClearBtn){
-    labelsClearBtn.disabled = !(appState.labels.jobs && appState.labels.jobs.length);
-  }
   if (labelsJobsWrap){
     const jobs = appState.labels.jobs || [];
     if (!jobs.length){
-      labelsJobsWrap.innerHTML = '<div class="labels-empty">No label jobs yet. Use the buttons above to add one.</div>';
+      labelsJobsWrap.innerHTML = '<div class="labels-empty">No label jobs yet. Use the button above to add one.</div>';
     }else{
       let html = `<table><thead><tr>
         <th>#</th>
@@ -3546,7 +3830,7 @@ function updateLabelsUI(){
         html += `<tr>
           <td>${index + 1}</td>
           <td>${escapeHtml(created)}</td>
-          <td>${escapeHtml(job.source || "—")}</td>
+          <td>${escapeHtml(job.sourceLabel || job.source || "—")}</td>
           <td>${escapeHtml(orderSample + extraOrders)}</td>
           <td>${escapeHtml(job.clientLabel || "—")}</td>
           <td>${Number(job.labels || job.units || 0)}</td>
@@ -5261,75 +5545,6 @@ if (labelsFromProcessingBtn){
   });
 }
 
-if (labelsFromProcessingDownloadBtn){
-  labelsFromProcessingDownloadBtn.addEventListener("click", async ()=>{
-    const processingCount = appState.processing.cart ? appState.processing.cart.length : 0;
-    if (!processingCount){
-      setLabelsStatus("Processing is empty.");
-      return;
-    }
-    if (processingCount < 2){
-      setLabelsStatus("Add at least two orders in Processing to download combined labels.");
-      return;
-    }
-    const result = addLabelJobsFromProcessing({ silent: true }) || { addedJobs: [], skipped: [], totalRows: 0 };
-    if (!result.addedJobs.length){
-      if (!result.skipped.length){
-        setLabelsStatus("No orders added from Processing.");
-      }else{
-        setLabelsStatus(`Skipped: ${result.skipped.join(", ")}`);
-      }
-      return;
-    }
-    const combinedRows = result.addedJobs.flatMap(job => Array.isArray(job.rows) ? job.rows : []);
-    if (!combinedRows.length){
-      const skipNote = result.skipped.length ? ` Skipped: ${result.skipped.join(", ")}` : "";
-      setLabelsStatus(`Added ${result.addedJobs.length} orders but no rows available.${skipNote}`);
-      return;
-    }
-    try{
-      await handlePrint(combinedRows);
-      const skipNote = result.skipped.length ? ` Skipped: ${result.skipped.join(", ")}` : "";
-      setLabelsStatus(`Added ${result.addedJobs.length} orders (${result.totalRows} rows) and downloaded combined labels.${skipNote}`);
-    }catch(error){
-      console.error("Combined labels download failed", error);
-      setLabelsStatus("Error generating combined labels.");
-    }
-  });
-}
-
-if (labelsFromHistoryBtn){
-  labelsFromHistoryBtn.addEventListener("click", ()=>{
-    const rows = appState.historyDetail.rows || [];
-    if (!rows.length){
-      setLabelsStatus("Select an order in History first.");
-      return;
-    }
-    const sourceLabel = historyState.selectedOrder
-      ? `History #${historyState.selectedOrder.id}`
-      : "History selection";
-    addLabelsJob(sourceLabel, rows, {
-      formatMessage: (job)=>{
-        const orders = job.orders.length ? job.orders.join(", ") : "no order number";
-        const labelWord = job.labels === 1 ? "label" : "labels";
-        return `Added ${job.labels} ${labelWord} from history (${orders}).`;
-      }
-    });
-  });
-}
-
-if (labelsClearBtn){
-  labelsClearBtn.addEventListener("click", ()=>{
-    if (!appState.labels.jobs.length){
-      setLabelsStatus("No label jobs to clear.");
-      return;
-    }
-    appState.labels.jobs = [];
-    setLabelsStatus("Cleared label jobs.");
-    updateLabelsUI();
-  });
-}
-
 if (labelsJobsWrap){
   labelsJobsWrap.addEventListener("click", async (event)=>{
     const btn = event.target.closest("button[data-action]");
@@ -5968,6 +6183,9 @@ async function generateLabelsPdf(rows){
   const today = new Date().toLocaleDateString("en-GB").replaceAll("/", ".");
   for (const row of rows){
     const qty = Number(row.quantity || 0) || 1;
+    const labelSource = String(row.source || "").toLowerCase();
+    const msIndexValue = Number(row.ms_index ?? row.msIndex);
+    const isProcessingLabel = labelSource === "processing";
     for (let i = 0; i < qty; i++){
       const page = pdfDoc.addPage([pageSize.w, pageSize.h]);
       const margin = 16;
@@ -5979,16 +6197,34 @@ async function generateLabelsPdf(rows){
       page.drawLine({ start: { x: margin, y: y - 24 }, end: { x: pageSize.w - margin, y: y - 24 }, thickness: 0.8 });
       y -= (24 + spacing);
       const dimension = row.dimension && row.dimension.length ? row.dimension : "—";
-      const position = row.position || "—";
+      let positionText = row.position || "—";
+      if (isProcessingLabel){
+        const summary = formatProcessingPositionsSummary(row);
+        if (summary){
+          positionText = summary;
+        }else if (!positionText || positionText === "(Grouped)"){
+          positionText = "—";
+        }
+      }
       const orderNo = row.order_number || "—";
       const type = row.type || "";
-      page.drawText(`Order No.: ${orderNo}   Pos: ${position}   Dim: ${dimension}`, {
+      page.drawText(`Order No.: ${orderNo}   Pos: ${positionText}   Dim: ${dimension}`, {
         x: margin, y, size: 9, font: bold, maxWidth: pageSize.w - margin * 2
       });
       y -= 14;
       page.drawText(`Glass Type: ${type}`, { x: margin, y, size: 10, font: bold, maxWidth: pageSize.w - margin * 2 });
       y -= 16;
-      page.drawText("KELI ALBANIA PVC", { x: margin, y, size: 10, font: regular });
+      const showProcessingFooter = isProcessingLabel && Number.isFinite(msIndexValue);
+      if (showProcessingFooter){
+        const footerText = String(Math.trunc(msIndexValue));
+        const footerSize = 14;
+        const textWidth = bold.widthOfTextAtSize(footerText, footerSize);
+        const footerX = (pageSize.w - textWidth) / 2;
+        const footerY = 6;
+        page.drawText(footerText, { x: footerX, y: footerY, size: footerSize, font: bold });
+      }else{
+        page.drawText("KELI ALBANIA PVC", { x: margin, y, size: 10, font: regular });
+      }
     }
   }
   return pdfDoc.save();
