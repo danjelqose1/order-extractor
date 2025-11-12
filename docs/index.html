@@ -268,6 +268,10 @@
       <button id="saveToastView" class="link-button">View</button>
       <button id="saveToastDismiss" class="link-button muted" title="Dismiss">×</button>
     </div>
+    <div id="processingToast" class="toast" hidden>
+      <span id="processingToastMessage">Added to Processing</span>
+      <button id="processingToastDismiss" class="link-button muted" title="Dismiss">×</button>
+    </div>
 
     <nav class="tab-bar">
       <button class="tab active" data-tab="extract">Dashboard</button>
@@ -769,6 +773,10 @@ const saveToastMessage = document.getElementById("saveToastMessage");
 const saveToastView = document.getElementById("saveToastView");
 const saveToastDismiss = document.getElementById("saveToastDismiss");
 let saveToastTimer = null;
+const processingToast = document.getElementById("processingToast");
+const processingToastMessage = document.getElementById("processingToastMessage");
+const processingToastDismiss = document.getElementById("processingToastDismiss");
+let processingToastTimer = null;
 
 const statusEl = document.getElementById("status");
 const errorEl = document.getElementById("error");
@@ -879,6 +887,24 @@ saveToastView.addEventListener("click", ()=>{
   activateTab("history");
   ensureHistoryLoaded().then(()=> openOrderFromList(id));
 });
+
+function showProcessingToast(message = "Added to Processing"){
+  if (!processingToast || !processingToastMessage) return;
+  processingToastMessage.textContent = message;
+  processingToast.hidden = false;
+  clearTimeout(processingToastTimer);
+  processingToastTimer = setTimeout(()=> hideProcessingToast(), 4000);
+}
+
+function hideProcessingToast(){
+  if (!processingToast) return;
+  processingToast.hidden = true;
+  if (processingToastMessage) processingToastMessage.textContent = "";
+}
+
+if (processingToastDismiss){
+  processingToastDismiss.addEventListener("click", hideProcessingToast);
+}
 
 function setGroupState(value){
   groupState = !!value;
@@ -3540,14 +3566,28 @@ function updateLabelsUI(){
   updateLabelsSummary();
 }
 
-async function sendOrderToProcessing(orderId){
+async function sendOrderToProcessing(orderId, options = {}){
   const order = await fetchOrder(orderId);
   if (!order || !order.rows || !order.rows.length){
     throw new Error("Order has no rows");
   }
   addOrderToProcessing(order);
-  setStatusMessage("Order added to Processing.");
-  activateTab("processing");
+  const {
+    skipStatus = false,
+    skipTab = false,
+    showToast = false,
+    statusMessage = "Order added to Processing.",
+    toastMessage = "Added to Processing",
+  } = options;
+  if (showToast){
+    showProcessingToast(toastMessage);
+  }
+  if (!skipStatus){
+    setStatusMessage(statusMessage);
+  }
+  if (!skipTab){
+    activateTab("processing");
+  }
 }
 
 function syncProcessingHeaderEditor(){
@@ -4944,7 +4984,12 @@ document.getElementById("historyListWrap").addEventListener("click", async (even
     await openOrderFromList(id);
   }else if (action === "processing"){
     try{
-      await sendOrderToProcessing(id);
+      await sendOrderToProcessing(id, {
+        skipStatus: true,
+        skipTab: true,
+        showToast: true,
+        toastMessage: "Added to Processing",
+      });
       setHistoryStatus("Added to Processing.");
     }catch(error){
       setHistoryStatus("Failed to add to Processing: " + (error.message || error));
@@ -5046,7 +5091,12 @@ document.getElementById("historyProcessing").addEventListener("click", async ()=
   const order = historyState.selectedOrder;
   if (!order) return;
   try{
-    await sendOrderToProcessing(order.id);
+    await sendOrderToProcessing(order.id, {
+      skipStatus: true,
+      skipTab: true,
+      showToast: true,
+      toastMessage: "Added to Processing",
+    });
     setHistoryStatus("Added to Processing.");
   }catch(error){
     setHistoryStatus("Failed to add to Processing: " + (error.message || error));
