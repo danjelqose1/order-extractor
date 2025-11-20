@@ -6214,14 +6214,18 @@ async function generateLabelsPdf(rows){
       y -= 14;
       page.drawText(`Glass Type: ${type}`, { x: margin, y, size: 10, font: bold, maxWidth: pageSize.w - margin * 2 });
       y -= 16;
-      const showProcessingFooter = isProcessingLabel && Number.isFinite(msIndexValue);
-      if (showProcessingFooter){
+      const showProcessingMsIndex = isProcessingLabel && Number.isFinite(msIndexValue);
+      if (showProcessingMsIndex){
         const footerText = String(Math.trunc(msIndexValue));
-        const footerSize = 14;
+        const footerSize = 18;
+        const msTopSpacing = 8;
+        const msBottomSpacing = 12;
+        const msVerticalOffset = -16; // push down visually by 20px
         const textWidth = bold.widthOfTextAtSize(footerText, footerSize);
         const footerX = (pageSize.w - textWidth) / 2;
-        const footerY = 6;
+        const footerY = y + (16 - msTopSpacing) + msVerticalOffset;
         page.drawText(footerText, { x: footerX, y: footerY, size: footerSize, font: bold });
+        y = footerY - msBottomSpacing;
       }else{
         page.drawText("KELI ALBANIA PVC", { x: margin, y, size: 10, font: regular });
       }
