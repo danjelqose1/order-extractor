@@ -121,6 +121,34 @@
     .history-detail-actions{display:flex;gap:8px}
     .history-detail-subheader{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:10px}
     .history-empty,.empty-state{padding:16px;border-radius:12px;background:#f8f9ff;border:1px dashed var(--border);text-align:center;color:var(--muted);font-size:14px}
+    .invoice-filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;align-items:flex-end}
+    .invoice-filters label{display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:500;color:var(--muted)}
+    .invoice-filters input,.invoice-filters select{padding:8px 10px;border:1px solid var(--border-dark);border-radius:10px;font-size:14px;background:#fbfcff}
+    .invoice-filters input:focus,.invoice-filters select:focus{outline:2px solid var(--primary-soft);border-color:var(--primary)}
+    .invoice-summary{display:flex;flex-wrap:wrap;gap:10px;font-size:13px;color:var(--muted);margin:8px 0}
+    .invoice-summary .pill{background:#eef1ff;color:#384152}
+    .invoice-status-badge{background:#f3f4f6;color:#374151}
+    .invoice-status-badge.finalized{background:#dcfce7;color:#166534}
+    .invoice-status-badge.draft{background:#fff7ed;color:#9a3412}
+    .invoice-empty{padding:16px;text-align:center;color:var(--muted)}
+    .invoice-detail-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-bottom:12px}
+    .invoice-meta{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}
+    .invoice-lines-table td[data-col="type"]{min-width:260px}
+    .invoice-lines-table td[data-col="price"]{white-space:nowrap}
+    .invoice-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}
+    .price-editor{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px}
+    .price-editor table{min-width:100%}
+    .price-editor .muted{font-size:12px}
+    .modal-layer{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(17,24,39,0.45);backdrop-filter:blur(2px);z-index:999}
+    .modal-card{background:#fff;padding:18px;border-radius:14px;box-shadow:var(--shadow);max-width:460px;width:92%;border:1px solid var(--border)}
+    .modal-card h3{margin-top:0;margin-bottom:6px}
+    .modal-card p{margin-top:0;color:var(--muted);font-size:13px}
+    .modal-card label{display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:600;color:var(--muted);margin-bottom:10px}
+    .modal-card input{padding:8px 10px;border:1px solid var(--border-dark);border-radius:10px;font-size:14px}
+    .modal-card input:focus{outline:2px solid var(--primary-soft);border-color:var(--primary)}
+    .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:6px}
+    .input-error{border-color:#f87171 !important;outline:2px solid #fecaca !important}
+    .modal-layer[hidden]{display:none !important}
     .actions-cell{display:flex;flex-wrap:wrap;gap:6px}
     .actions-cell .btn.small{padding:5px 8px}
     .spinner{display:inline-block;width:16px;height:16px;border:2px solid #d8ddf0;border-top-color:var(--primary);border-radius:50%;animation:spin 1s linear infinite;vertical-align:middle}
@@ -279,6 +307,7 @@
       <button class="tab" data-tab="processing">Processing</button>
       <button class="tab" data-tab="labels">Labels</button>
       <button class="tab" data-tab="analysis">Analysis</button>
+      <button class="tab" data-tab="invoices">Invoices</button>
     </nav>
 
     <section id="tabExtract" class="tab-panel active">
@@ -605,7 +634,127 @@
         <div id="analysisAnswer" class="muted small" style="margin-top:12px">Ask a question to see AI insights.</div>
       </div>
     </section>
+
+    <section id="tabInvoices" class="tab-panel">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+          <div>
+            <h2 style="margin:0">Invoices</h2>
+            <p class="muted small" style="margin:4px 0 0">Build invoice jobs from saved orders and export PDFs.</p>
+          </div>
+          <div class="invoice-summary" id="invoiceSummary"></div>
+        </div>
+        <div class="invoice-filters" style="margin-top:12px">
+          <label>
+            <span>Client</span>
+            <input type="search" id="invoiceFilterClient" placeholder="Search client…" />
+          </label>
+          <label>
+            <span>Order number</span>
+            <input type="search" id="invoiceFilterOrder" placeholder="Order number…" />
+          </label>
+          <label>
+            <span>Status</span>
+            <select id="invoiceFilterStatus">
+              <option value="">All</option>
+              <option value="draft">Draft</option>
+              <option value="finalized">Finalized</option>
+            </select>
+          </label>
+        </div>
+        <div id="invoiceStatus" class="muted small" style="margin-top:8px"></div>
+      </div>
+
+      <div class="card">
+        <div class="table-responsive" id="invoiceJobsWrap">
+          <div class="invoice-empty">No invoice jobs yet. Use the Invoice button in History.</div>
+        </div>
+      </div>
+
+      <div class="card" id="invoiceDetailCard">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+          <div>
+            <h3 style="margin:0">Invoice detail</h3>
+            <div id="invoiceDetailMeta" class="muted small"></div>
+          </div>
+          <div class="invoice-actions">
+            <button class="btn small" id="invoiceRecalc">Recalculate</button>
+            <button class="btn small" id="invoiceGeneratePdf">Generate PDF</button>
+            <button class="btn small" id="invoiceDeleteActive">Delete</button>
+          </div>
+        </div>
+        <div id="invoiceMissingNotice" class="alert" hidden></div>
+        <div class="invoice-detail-grid">
+          <label>
+            <span class="muted small">Discount</span>
+            <div style="display:flex;gap:8px;align-items:center">
+              <select id="invoiceDiscountMode" style="min-width:120px;padding:8px 10px;border:1px solid var(--border-dark);border-radius:10px">
+                <option value="percent">Percent (%)</option>
+                <option value="absolute">Flat (ALL)</option>
+              </select>
+              <input type="number" id="invoiceDiscountValue" min="0" step="0.1" />
+            </div>
+          </label>
+          <label>
+            <span class="muted small">VAT %</span>
+            <input type="number" id="invoiceVatValue" min="0" step="0.1" />
+          </label>
+          <label>
+            <span class="muted small">Status</span>
+            <select id="invoiceStatusSelect" style="padding:8px 10px;border:1px solid var(--border-dark);border-radius:10px">
+              <option value="draft">Draft</option>
+              <option value="finalized">Finalized</option>
+            </select>
+          </label>
+        </div>
+        <div class="table-responsive" id="invoiceLinesWrap">
+          <div class="invoice-empty">Select an invoice job from the list.</div>
+        </div>
+        <div id="invoiceTotals" class="invoice-summary"></div>
+      </div>
+
+      <div class="card" id="invoicePricesCard">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+          <div>
+            <h3 style="margin:0">Price list</h3>
+            <p class="muted small" style="margin:4px 0 0">Edit glass and spacer prices (ALL per m²).</p>
+          </div>
+          <button class="btn small" id="invoiceRefreshPrices">Refresh drafts</button>
+        </div>
+        <div class="price-editor" style="margin-top:12px">
+          <div>
+            <h4 style="margin:0 0 6px">Glass prices</h4>
+            <div class="table-responsive" id="invoiceGlassPrices"></div>
+            <button class="btn small" id="invoiceAddGlassPrice" style="margin-top:8px">Add glass type</button>
+          </div>
+          <div>
+            <h4 style="margin:0 0 6px">Spacer prices</h4>
+            <div class="table-responsive" id="invoiceSpacerPrices"></div>
+            <button class="btn small" id="invoiceAddSpacerPrice" style="margin-top:8px">Add spacer thickness</button>
+          </div>
+        </div>
+        <div class="invoice-actions">
+          <button class="btn primary small" id="invoiceSavePrices">Save price list</button>
+          <span id="invoicePricesStatus" class="muted small"></span>
+        </div>
+      </div>
+    </section>
   </main>
+
+  <div id="invoicePrompt" class="modal-layer" hidden>
+    <div class="modal-card">
+      <h3 id="invoicePromptTitle">New price</h3>
+      <p id="invoicePromptText">I found a new glass or spacer type that has no price yet. Enter price per m² (ALL):</p>
+      <div id="invoicePromptFields">
+        <div id="invoicePromptDescriptor" class="muted small"></div>
+        <input type="number" id="invoicePromptValue" step="1" placeholder="Price per m² (ALL)" />
+      </div>
+      <div class="modal-actions">
+        <button class="btn small" id="invoicePromptCancel">Cancel</button>
+        <button class="btn primary small" id="invoicePromptSave">Save & Continue</button>
+      </div>
+    </div>
+  </div>
 
   <input type="file" id="pdfInput" accept="application/pdf" hidden />
 
@@ -624,6 +773,9 @@ const DEFAULT_APPEARANCE_SETTINGS = Object.freeze({
 });
 const MOTHER_SHEET_SELECTOR = "#motherSheet, .mother-sheet";
 const ANALYSIS_MAX_DATASET_CHARS = 50000;
+const INVOICE_PRICES_KEY = "loe.invoices.prices.v1";
+const INVOICE_JOBS_KEY = "loe.invoices.jobs.v1";
+const INVOICE_COUNTER_KEY = "loe.invoices.counter.v1";
 
 // ✅ Danko Rounding: Global functions for Processing + Mother Sheet
 window.dankoRound = function(valueMm) {
@@ -731,6 +883,16 @@ const appState = {
     jobs: [],
     nextId: 1,
   },
+  invoices: {
+    jobs: [],
+    activeJobId: null,
+    priceLists: {
+      glass: getDefaultGlassPrices(),
+      spacer: getDefaultSpacerPrices(),
+    },
+    filters: { client: "", order: "", status: "" },
+    counter: 1,
+  },
 };
 
 const analysisState = {
@@ -762,7 +924,8 @@ const panels = {
   history: document.getElementById("tabHistory"),
   processing: document.getElementById("tabProcessing"),
   labels: document.getElementById("tabLabels"),
-  analysis: document.getElementById("tabAnalysis")
+  analysis: document.getElementById("tabAnalysis"),
+  invoices: document.getElementById("tabInvoices"),
 };
 
 const saveToast = document.getElementById("saveToast");
@@ -827,6 +990,38 @@ const analysisAnswerEl = document.getElementById("analysisAnswer");
 const analysisDebugToggle = document.getElementById("analysisDebugToggle");
 const wysiwygToggle = document.getElementById("processingWysiwygToggle");
 const wysiwygPreview = document.getElementById("motherSheetPreview");
+const invoiceJobsWrap = document.getElementById("invoiceJobsWrap");
+const invoiceStatusEl = document.getElementById("invoiceStatus");
+const invoiceSummaryEl = document.getElementById("invoiceSummary");
+const invoiceDetailMeta = document.getElementById("invoiceDetailMeta");
+const invoiceLinesWrap = document.getElementById("invoiceLinesWrap");
+const invoiceTotalsEl = document.getElementById("invoiceTotals");
+const invoiceMissingNotice = document.getElementById("invoiceMissingNotice");
+const invoiceDiscountMode = document.getElementById("invoiceDiscountMode");
+const invoiceDiscountValue = document.getElementById("invoiceDiscountValue");
+const invoiceVatValue = document.getElementById("invoiceVatValue");
+const invoiceStatusSelect = document.getElementById("invoiceStatusSelect");
+const invoiceRecalcBtn = document.getElementById("invoiceRecalc");
+const invoiceGeneratePdfBtn = document.getElementById("invoiceGeneratePdf");
+const invoiceDeleteActiveBtn = document.getElementById("invoiceDeleteActive");
+const invoiceFilterClient = document.getElementById("invoiceFilterClient");
+const invoiceFilterOrder = document.getElementById("invoiceFilterOrder");
+const invoiceFilterStatus = document.getElementById("invoiceFilterStatus");
+const invoiceGlassPricesWrap = document.getElementById("invoiceGlassPrices");
+const invoiceSpacerPricesWrap = document.getElementById("invoiceSpacerPrices");
+const invoiceAddGlassBtn = document.getElementById("invoiceAddGlassPrice");
+const invoiceAddSpacerBtn = document.getElementById("invoiceAddSpacerPrice");
+const invoiceSavePricesBtn = document.getElementById("invoiceSavePrices");
+const invoicePricesStatus = document.getElementById("invoicePricesStatus");
+const invoiceRefreshPricesBtn = document.getElementById("invoiceRefreshPrices");
+const invoicePromptLayer = document.getElementById("invoicePrompt");
+const invoicePromptTitle = document.getElementById("invoicePromptTitle");
+const invoicePromptText = document.getElementById("invoicePromptText");
+const invoicePromptFields = document.getElementById("invoicePromptFields");
+const invoicePromptDescriptor = document.getElementById("invoicePromptDescriptor");
+const invoicePromptValue = document.getElementById("invoicePromptValue");
+const invoicePromptCancel = document.getElementById("invoicePromptCancel");
+const invoicePromptSave = document.getElementById("invoicePromptSave");
 
 const groupToggles = document.querySelectorAll("[data-group-toggle]");
 
@@ -851,6 +1046,9 @@ function activateTab(name){
     }
   }else if (name === "labels"){
     updateLabelsUI();
+  }else if (name === "invoices"){
+    ensureInvoicesLoaded();
+    updateInvoicesUI();
   }
 }
 
@@ -4628,6 +4826,1065 @@ function collectOrderNumbers(rows){
   return Array.from(new Set(rows.map(row => (row.order_number || "").trim()).filter(Boolean)));
 }
 
+// --- Invoice helpers -------------------------------------------------------
+function normalizeGlassKey(raw){
+  const str = (raw == null ? "" : String(raw)).toLowerCase().trim();
+  if (!str) return "";
+  const collapsed = str.replace(/\s+/g, " ");
+  return collapsed.replace(/\s+/g, "");
+}
+
+function getDefaultGlassPrices(){
+  return {
+    [normalizeGlassKey("4F")]: 1000,
+    [normalizeGlassKey("4 Satinato")]: 1800,
+    [normalizeGlassKey("4 LowE")]: 2000,
+    [normalizeGlassKey("33.1F")]: 2500,
+    [normalizeGlassKey("33.1 Satinato")]: 3500,
+    [normalizeGlassKey("33.1 LowE")]: 3700,
+  };
+}
+
+function getDefaultSpacerPrices(){
+  return {
+    6: { normal: 500, thermal: 1000 },
+    9: { normal: 500, thermal: 1000 },
+    10: { normal: 500, thermal: 1000 },
+    12: { normal: 500, thermal: 1000 },
+    14: { normal: 600, thermal: 1100 },
+    16: { normal: 700, thermal: 1200 },
+    18: { normal: 800, thermal: 1300 },
+    20: { normal: 900, thermal: 1400 },
+    22: { normal: 1000, thermal: 1500 },
+    24: { normal: 1100, thermal: 1600 },
+  };
+}
+
+const invoiceRuntime = {
+  initialized: false,
+  pendingPrompts: [],
+  missingKeys: new Set(),
+  modalPayload: null,
+  extraGlassRows: 1,
+  extraSpacerRows: 1,
+  currentMissing: null,
+};
+
+function groupInvoiceLinesByType(lines){
+  const map = new Map();
+  (lines || []).forEach(line=>{
+    if (!line) return;
+    const normType = normalizeGlassKey(line.type || "");
+    const unit = Number(line.unitPricePerM2 || 0);
+    const key = `${normType}|${unit}`;
+    const qty = Number(line.quantity || 0);
+    const area = Number(line.lineAreaTotal ?? ((line.area || 0) * (line.quantity || 0)) ?? 0);
+    if (!map.has(key)){
+      map.set(key, {
+        index: map.size + 1,
+        type: line.type || "",
+        normalizedType: normType,
+        quantity: 0,
+        area: 0,
+        unitPricePerM2: unit,
+        lineTotal: 0,
+        missing: !!line.missing,
+        glassPricePerM2: Number(line.glassPricePerM2 || 0),
+        spacerPricePerM2: Number(line.spacerPricePerM2 || 0),
+      });
+    }
+    const agg = map.get(key);
+    agg.quantity += qty;
+    agg.area += area;
+    agg.missing = agg.missing || !!line.missing;
+    agg.lineTotal = agg.unitPricePerM2 * agg.area;
+  });
+  return Array.from(map.values()).map((item, idx)=> ({
+    ...item,
+    index: idx + 1,
+  }));
+}
+
+function loadInvoiceCounter(){
+  try{
+    const raw = localStorage.getItem(INVOICE_COUNTER_KEY);
+    const num = Number(raw);
+    if (Number.isFinite(num) && num > 0){
+      appState.invoices.counter = num;
+      return;
+    }
+  }catch{/* ignore */}
+  appState.invoices.counter = 1;
+}
+
+function saveInvoiceCounter(){
+  try{
+    localStorage.setItem(INVOICE_COUNTER_KEY, String(appState.invoices.counter));
+  }catch{/* ignore */}
+}
+
+function nextInvoiceNumber(){
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  const seq = String(appState.invoices.counter).padStart(3, "0");
+  const id = `INV-${y}${m}${d}-${seq}`;
+  appState.invoices.counter += 1;
+  saveInvoiceCounter();
+  return id;
+}
+
+function loadInvoicePrices(){
+  const defaults = {
+    glass: getDefaultGlassPrices(),
+    spacer: getDefaultSpacerPrices(),
+  };
+  let stored = null;
+  try{
+    const raw = localStorage.getItem(INVOICE_PRICES_KEY);
+    stored = raw ? JSON.parse(raw) : null;
+  }catch{
+    stored = null;
+  }
+  const glass = { ...defaults.glass };
+  const spacer = { ...defaults.spacer };
+  if (stored && typeof stored === "object"){
+    if (stored.glass && typeof stored.glass === "object"){
+      Object.entries(stored.glass).forEach(([key, value])=>{
+        const norm = normalizeGlassKey(key);
+        const price = Number(value);
+        if (norm && Number.isFinite(price)){
+          glass[norm] = price;
+        }
+      });
+    }
+    if (stored.spacer && typeof stored.spacer === "object"){
+      Object.entries(stored.spacer).forEach(([thickness, entry])=>{
+        const thickNum = Number(thickness);
+        if (!Number.isFinite(thickNum)) return;
+        const normal = Number(entry?.normal);
+        const thermal = Number(entry?.thermal);
+        spacer[thickNum] = {
+          normal: Number.isFinite(normal) ? normal : spacer[thickNum]?.normal,
+          thermal: Number.isFinite(thermal) ? thermal : spacer[thickNum]?.thermal,
+        };
+      });
+    }
+  }
+  appState.invoices.priceLists = { glass, spacer };
+}
+
+function saveInvoicePrices(){
+  try{
+    localStorage.setItem(INVOICE_PRICES_KEY, JSON.stringify(appState.invoices.priceLists));
+  }catch{/* ignore */}
+}
+
+function loadInvoiceJobs(){
+  let stored = [];
+  try{
+    const raw = localStorage.getItem(INVOICE_JOBS_KEY);
+    stored = raw ? JSON.parse(raw) : [];
+  }catch{
+    stored = [];
+  }
+  if (!Array.isArray(stored)) stored = [];
+  appState.invoices.jobs = stored.map(job => ({
+    ...job,
+    key: job.key || normalizeOrderKey(job.orderNumbers || [], job.id),
+    rows: Array.isArray(job.rows) ? job.rows : [],
+    status: (job.status || "draft").toLowerCase() === "finalized" ? "finalized" : "draft",
+    discountMode: job.discountMode === "absolute" ? "absolute" : "percent",
+    discountValue: Number(job.discountValue || 0) || 0,
+    vatRate: Number(job.vatRate || 0) || 0,
+  }));
+}
+
+function saveInvoiceJobs(){
+  try{
+    const serialized = appState.invoices.jobs.map(job => {
+      const { calculated, ...rest } = job;
+      return rest;
+    });
+    localStorage.setItem(INVOICE_JOBS_KEY, JSON.stringify(serialized));
+  }catch{/* ignore */}
+}
+
+function ensureInvoicesLoaded(){
+  if (invoiceRuntime.initialized) return;
+  loadInvoicePrices();
+  loadInvoiceJobs();
+  loadInvoiceCounter();
+  appState.invoices.jobs.forEach(job => recalcInvoiceJob(job, { allowPrompt: false }));
+  invoiceRuntime.initialized = true;
+}
+
+function setInvoiceStatus(msg){
+  if (invoiceStatusEl){
+    invoiceStatusEl.textContent = msg || "";
+  }
+}
+
+function normalizeOrderKey(numbers, fallback){
+  const joined = Array.isArray(numbers) ? numbers.map(v => String(v || "").trim()).filter(Boolean).join(", ") : "";
+  const base = joined || (fallback ? String(fallback).trim() : "");
+  return base.toLowerCase();
+}
+
+function parseInvoiceOrderNumbers(order){
+  if (!order) return [];
+  if (Array.isArray(order.order_numbers) && order.order_numbers.length){
+    return order.order_numbers.map(val => String(val || "").trim()).filter(Boolean);
+  }
+  const label = getOrderLabel(order);
+  if (label && label !== "—"){
+    return label.split(/\s*,\s*/).map(token => token.trim()).filter(Boolean);
+  }
+  const fallback = pickFirstString([order.order_number, order.orderNumber, order.id]);
+  return fallback ? [fallback] : [];
+}
+
+function parseGlassPanes(typeString){
+  const cleaned = (typeString || "").replace(/\b\d{1,3}\s*mm\b/gi, "").trim();
+  if (!cleaned) return [];
+  const parts = cleaned.split("+").map(p => p.trim()).filter(Boolean);
+  if (!parts.length) return [cleaned];
+  const panes = [];
+  parts.forEach((part, idx)=>{
+    let token = part.replace(/\b\d+\s*vetri\b/gi, "").trim();
+    const numericOnly = /^[\d.,\s]+$/.test(token);
+    const looksSpacer = numericOnly && idx > 0 && idx < parts.length - 1;
+    if (looksSpacer) return;
+    if (!token && !looksSpacer && (idx === 0 || idx === parts.length - 1)){
+      token = part.trim();
+    }
+    if (token){
+      panes.push(token);
+    }
+  });
+  return panes.length ? panes : [cleaned];
+}
+
+function getSpacerThickness(typeString){
+  const raw = (typeString || "").replace(",", ".");
+  const between = raw.match(/\+(\d{1,2}(?:\.\d+)?)\+/);
+  if (between && between[1]){
+    const val = Number(between[1]);
+    if (Number.isFinite(val)) return val;
+  }
+  const parts = raw.split("+").map(p => p.trim()).filter(Boolean);
+  if (parts.length >= 3){
+    const centerIndex = Math.floor(parts.length / 2);
+    const candidates = [parts[1], parts[centerIndex]].filter(Boolean);
+    for (const candidate of candidates){
+      const match = candidate.match(/^(\d{1,2}(?:\.\d+)?)/);
+      if (match && match[1]){
+        const val = Number(match[1]);
+        if (Number.isFinite(val)) return val;
+      }
+    }
+  }
+  const mmMatch = raw.match(/\b(\d{1,2}(?:\.\d+)?)\s*mm\b/i);
+  if (mmMatch && mmMatch[1]){
+    const val = Number(mmMatch[1]);
+    if (Number.isFinite(val)) return val;
+  }
+  return null;
+}
+
+function getSpacerKind(typeString){
+  const text = (typeString || "").toLowerCase();
+  if (text.includes("termico") || text.includes("warm edge") || text.includes("warm-edge") || text.includes("warm") || text.includes("tgi")){
+    return "thermal";
+  }
+  return "normal";
+}
+
+function parseInvoiceComposition(typeString){
+  return {
+    panes: parseGlassPanes(typeString),
+    spacerThickness: getSpacerThickness(typeString),
+    spacerKind: getSpacerKind(typeString),
+  };
+}
+
+function mapInvoiceRow(row){
+  if (!row) return null;
+  const type = pickFirstString([
+    row.type,
+    row.composition_display,
+    row.composition_raw,
+    row.glass_type,
+    row.glassType,
+    row.description,
+  ], "");
+  const dimension = deriveLabelDimension(row) || "—";
+  const position = pickPositionValue(row) || "—";
+  const qty = Math.max(0, Number(pickFirstNumber([
+    row.quantity,
+    row.qty,
+    row.Qty,
+    row.QTY,
+    row.total_qty,
+  ]) || 0));
+  const area = (() => {
+    const candidate = toNumericArea(row.area ?? row.area_m2 ?? row.areaM2 ?? row.computed_area);
+    if (candidate != null) return candidate;
+    return computeRowArea(row);
+  })();
+  return {
+    type,
+    dimension,
+    position,
+    quantity: qty,
+    area: Number.isFinite(area) ? Number(area) : 0,
+  };
+}
+
+function buildInvoiceJobFromOrder(order){
+  const orderNumbers = parseInvoiceOrderNumbers(order);
+  const normalizedKey = normalizeOrderKey(orderNumbers, order?.id);
+  const clientName = pickFirstString([
+    order.client,
+    order.client_name,
+    order.clientName,
+    order.client_hint,
+    order.customer,
+  ], "—");
+  const mappedRows = Array.isArray(order?.rows) ? order.rows.map(mapInvoiceRow).filter(Boolean) : [];
+  const createdAt = extractOrderDate(order) || new Date();
+  return {
+    id: order?.id ? `inv-${order.id}` : `inv-${Date.now()}`,
+    key: normalizedKey,
+    orderNumbers,
+    client: clientName || "—",
+    createdAt: createdAt.toISOString(),
+    rows: mappedRows,
+    status: "draft",
+    discountMode: "percent",
+    discountValue: 0,
+    vatRate: 0,
+    invoiceNumber: order?.invoiceNumber || null,
+  };
+}
+
+function addInvoiceJobFromOrder(order){
+  if (!order) return null;
+  ensureInvoicesLoaded();
+  const job = buildInvoiceJobFromOrder(order);
+  if (!job.rows.length){
+    setInvoiceStatus("Order has no rows to invoice.");
+    return null;
+  }
+  appState.invoices.activeJobId = job.id;
+  const existingIndex = appState.invoices.jobs.findIndex(item => item.key === job.key);
+  if (existingIndex >= 0){
+    const keep = appState.invoices.jobs[existingIndex];
+    const merged = { ...keep, ...job };
+    merged.discountMode = keep.discountMode || job.discountMode;
+    merged.discountValue = keep.discountValue ?? job.discountValue;
+    merged.vatRate = keep.vatRate ?? job.vatRate;
+    merged.invoiceNumber = keep.invoiceNumber || job.invoiceNumber || null;
+    merged.status = keep.status || "draft";
+    appState.invoices.jobs.splice(existingIndex, 1, merged);
+    recalcInvoiceJob(merged, { allowPrompt: true });
+  }else{
+    recalcInvoiceJob(job, { allowPrompt: true });
+    appState.invoices.jobs.unshift(job);
+  }
+  saveInvoiceJobs();
+  updateInvoicesUI();
+  setInvoiceStatus("Invoice job updated from History.");
+  return job;
+}
+
+function getActiveInvoiceJob(){
+  if (!appState.invoices.activeJobId) return null;
+  return appState.invoices.jobs.find(job => job.id === appState.invoices.activeJobId) || null;
+}
+
+function selectInvoiceJob(id){
+  appState.invoices.activeJobId = id || null;
+}
+
+function getSpacerPrice(thickness, kind){
+  const table = appState.invoices.priceLists.spacer || {};
+  if (!Number.isFinite(thickness)){
+    return { price: 0, missing: { reason: "thickness", thickness: null, kind } };
+  }
+  const entry = table[thickness];
+  if (!entry){
+    return { price: 0, missing: { reason: "thickness", thickness, kind } };
+  }
+  const normalizedKind = kind === "thermal" ? "thermal" : "normal";
+  const candidate = entry[normalizedKind];
+  if (!Number.isFinite(candidate)){
+    return { price: 0, missing: { reason: "kind", thickness, kind: normalizedKind } };
+  }
+  return { price: Number(candidate), missing: null };
+}
+
+function enqueueInvoicePrompt(payload){
+  const key = payload.kind === "glass"
+    ? `glass:${payload.normalized}`
+    : `spacer:${payload.thickness}:${payload.kind || "unknown"}`;
+  if (invoiceRuntime.missingKeys.has(key)) return;
+  invoiceRuntime.missingKeys.add(key);
+  invoiceRuntime.pendingPrompts.push(payload);
+}
+
+function triggerInvoicePrompt(){
+  if (!invoiceRuntime.pendingPrompts.length) return;
+  if (!invoicePromptLayer || !invoicePromptFields) return;
+  if (!invoicePromptLayer.hidden) return;
+  const activeJob = getActiveInvoiceJob();
+  if (!activeJob){
+    console.warn("Invoice prompt requested with no active job.");
+    invoiceRuntime.pendingPrompts = [];
+    return;
+  }
+  const payload = invoiceRuntime.pendingPrompts.shift();
+  if (!payload || !payload.kind){
+    console.warn("Invoice prompt missing payload", payload);
+    return;
+  }
+  if (payload.jobId && payload.jobId !== activeJob.id){
+    console.warn("Invoice prompt job mismatch; ignoring", payload);
+    return;
+  }
+  const descriptor = payload.kind === "glass"
+    ? (payload.label || payload.normalized || "Unknown glass")
+    : (payload.description || `Spacer ${payload.thickness ?? "?"}mm (${payload.kind || "unknown"})`);
+  invoiceRuntime.currentMissing = {
+    kind: payload.kind,
+    key: payload.kind === "glass" ? (payload.normalized || normalizeGlassKey(descriptor)) : String(payload.thickness || ""),
+    label: descriptor,
+    jobId: payload.jobId,
+    spacerKind: payload.kind === "spacer" ? (payload.kind || "normal") : null,
+    thickness: payload.thickness,
+  };
+  if (invoicePromptDescriptor){
+    invoicePromptDescriptor.textContent = descriptor;
+  }
+  if (invoicePromptValue){
+    invoicePromptValue.value = "";
+    invoicePromptValue.classList.remove("input-error");
+  }
+  invoicePromptTitle.textContent = "New price";
+  invoicePromptText.textContent = "I found a new glass or spacer type that has no price yet. Enter price per m² (ALL):";
+  invoicePromptLayer.hidden = false;
+}
+
+function hideInvoicePrompt(){
+  if (invoicePromptLayer){
+    invoicePromptLayer.hidden = true;
+  }
+  invoiceRuntime.modalPayload = null;
+  invoiceRuntime.currentMissing = null;
+}
+
+function handleInvoicePromptSave(){
+  const payload = invoiceRuntime.currentMissing;
+  if (!payload){
+    console.warn("Invoice prompt save with no payload");
+    hideInvoicePrompt();
+    return;
+  }
+  const price = invoicePromptValue ? Number(invoicePromptValue.value) : NaN;
+  if (!Number.isFinite(price) || price < 0){
+    if (invoicePromptValue){
+      invoicePromptValue.classList.add("input-error");
+      setTimeout(()=> invoicePromptValue.classList.remove("input-error"), 600);
+    }
+    return;
+  }
+  if (payload.kind === "glass"){
+    const normalized = normalizeGlassKey(payload.key || payload.label);
+    if (!normalized){
+      console.warn("Missing glass key for invoice prompt", payload);
+      hideInvoicePrompt();
+      return;
+    }
+    appState.invoices.priceLists.glass[normalized] = price;
+    invoiceRuntime.missingKeys.delete(`glass:${normalized}`);
+  }else if (payload.kind === "spacer"){
+    const thicknessValue = Number(payload.thickness);
+    if (!Number.isFinite(thicknessValue)){
+      console.warn("Missing spacer thickness for invoice prompt", payload);
+      hideInvoicePrompt();
+      return;
+    }
+    const baseline = appState.invoices.priceLists.spacer[thicknessValue] || {};
+    const spacerEntry = {
+      normal: baseline.normal ?? getDefaultSpacerPrices()[thicknessValue]?.normal,
+      thermal: baseline.thermal ?? getDefaultSpacerPrices()[thicknessValue]?.thermal,
+    };
+    const kind = (payload.spacerKind || "normal") === "thermal" ? "thermal" : "normal";
+    spacerEntry[kind] = price;
+    appState.invoices.priceLists.spacer[thicknessValue] = spacerEntry;
+    invoiceRuntime.missingKeys.delete(`spacer:${thicknessValue}:${kind}`);
+  }
+  saveInvoicePrices();
+  const job = appState.invoices.jobs.find(item => item.id === payload.jobId);
+  hideInvoicePrompt();
+  if (job){
+    recalcInvoiceJob(job, { allowPrompt: true });
+  }
+  saveInvoiceJobs();
+  renderInvoicePriceEditor();
+  updateInvoiceSummary();
+  updateInvoicesUI();
+}
+
+function formatMoney(value){
+  const num = Number.isFinite(Number(value)) ? Number(value) : 0;
+  return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function describeMissingPricing(missing){
+  if (!missing) return "";
+  if (missing.type === "glass"){
+    return `Missing glass price for "${missing.pane || missing.normalized || "unknown"}".`;
+  }
+  if (missing.type === "spacer"){
+    const info = missing.details || {};
+    const thick = info.thickness != null ? `${info.thickness} mm` : "unknown thickness";
+    const kind = info.kind || "unknown";
+    return `Missing spacer price (${kind}, ${thick}).`;
+  }
+  return "Missing pricing details.";
+}
+
+function recalcInvoiceJob(job, options = {}){
+  if (!job) return null;
+  const { allowPrompt = false } = options;
+  const promptAllowedForJob = allowPrompt && appState.invoices.activeJobId === job.id;
+  let subtotal = 0;
+  let units = 0;
+  let areaTotal = 0;
+  let missing = null;
+  const lines = (job.rows || []).map((row, index)=>{
+    const qty = Math.max(0, Number(row.quantity || 0));
+    const areaPerUnit = Math.max(0, Number(row.area || 0));
+    const composition = parseInvoiceComposition(row.type || "");
+    let glassPricePerM2 = 0;
+    let lineMissing = null;
+    composition.panes.forEach(pane=>{
+      const key = normalizeGlassKey(pane);
+      const price = appState.invoices.priceLists.glass[key];
+      if (!Number.isFinite(price)){
+        lineMissing = lineMissing || { type: "glass", pane, normalized: key };
+        if (promptAllowedForJob){
+          enqueueInvoicePrompt({ kind: "glass", label: pane, normalized: key, jobId: job.id });
+        }
+      }else{
+        glassPricePerM2 += Number(price);
+      }
+    });
+    const spacer = getSpacerPrice(composition.spacerThickness, composition.spacerKind);
+    if (spacer.missing){
+      lineMissing = lineMissing || { type: "spacer", details: spacer.missing };
+      if (promptAllowedForJob){
+        enqueueInvoicePrompt({
+          kind: "spacer",
+          thickness: composition.spacerThickness,
+          kind: composition.spacerKind,
+          jobId: job.id,
+          description: `Spacer ${composition.spacerThickness ?? "?"}mm (${composition.spacerKind || "normal"})`,
+        });
+      }
+    }
+    const spacerPricePerM2 = spacer.price || 0;
+    const unitPricePerM2 = glassPricePerM2 + spacerPricePerM2;
+    const lineAreaTotal = areaPerUnit * qty;
+    const lineTotal = unitPricePerM2 * lineAreaTotal;
+    subtotal += lineTotal;
+    units += qty;
+    areaTotal += lineAreaTotal;
+    if (!missing && lineMissing){
+      missing = lineMissing;
+    }
+    return {
+      ...row,
+      index: index + 1,
+      glassPricePerM2,
+      spacerPricePerM2,
+      unitPricePerM2,
+      lineTotal,
+      lineAreaTotal,
+      missing: lineMissing,
+    };
+  });
+  const discountRaw = Math.max(0, Number(job.discountValue || 0));
+  const discountValue = job.discountMode === "absolute"
+    ? Math.min(discountRaw, subtotal)
+    : subtotal * (discountRaw / 100);
+  const taxable = Math.max(0, subtotal - discountValue);
+  const vatValue = taxable * (Math.max(0, Number(job.vatRate || 0)) / 100);
+  const total = taxable + vatValue;
+  job.calculated = {
+    lines,
+    subtotal,
+    discountValue,
+    vatValue,
+    total,
+    units,
+    area: areaTotal,
+    missing,
+  };
+  if (promptAllowedForJob && invoiceRuntime.pendingPrompts.length && !invoiceRuntime.currentMissing){
+    triggerInvoicePrompt();
+  }
+  return job.calculated;
+}
+
+function recalcAllInvoices(opts = {}){
+  const { allowPrompt = false } = opts;
+  (appState.invoices.jobs || []).forEach(job => recalcInvoiceJob(job, { allowPrompt }));
+}
+
+function updateInvoiceSummary(){
+  if (!invoiceSummaryEl) return;
+  const jobs = appState.invoices.jobs || [];
+  if (!jobs.length){
+    invoiceSummaryEl.innerHTML = "";
+    return;
+  }
+  let units = 0;
+  let area = 0;
+  let amount = 0;
+  jobs.forEach(job=>{
+    const calc = job.calculated || recalcInvoiceJob(job, { allowPrompt: false });
+    units += Number(calc?.units || 0);
+    area += Number(calc?.area || 0);
+    amount += Number(calc?.total || 0);
+  });
+  invoiceSummaryEl.innerHTML = `<span class="pill">Jobs: ${jobs.length}</span><span class="pill">Units: ${units}</span><span class="pill">Area: ${formatArea(area)} m²</span><span class="pill">Total: ${formatMoney(amount)} ALL</span>`;
+}
+
+function applyInvoiceFilters(jobs){
+  const filters = appState.invoices.filters || {};
+  const clientQuery = (filters.client || "").trim().toLowerCase();
+  const orderQuery = (filters.order || "").trim().toLowerCase();
+  const statusFilter = (filters.status || "").trim().toLowerCase();
+  return jobs.filter(job=>{
+    const clientMatch = !clientQuery || (job.client || "").toLowerCase().includes(clientQuery);
+    const orderLabel = (job.orderNumbers || []).join(", ").toLowerCase();
+    const orderMatch = !orderQuery || orderLabel.includes(orderQuery);
+    const statusMatch = !statusFilter || (job.status || "").toLowerCase() === statusFilter;
+    return clientMatch && orderMatch && statusMatch;
+  });
+}
+
+function renderInvoiceJobs(){
+  if (!invoiceJobsWrap) return;
+  ensureInvoicesLoaded();
+  const jobs = applyInvoiceFilters(appState.invoices.jobs || []);
+  if (!jobs.length){
+    appState.invoices.activeJobId = null;
+    invoiceJobsWrap.innerHTML = '<div class="invoice-empty">No invoice jobs yet. Use the Invoice button in History.</div>';
+    return;
+  }
+  const rows = jobs.map(job=>{
+    const calc = job.calculated || recalcInvoiceJob(job, { allowPrompt: false });
+    const statusClass = (job.status || "draft") === "finalized" ? "finalized" : "draft";
+    const orderLabel = (job.orderNumbers || []).join(", ") || "—";
+    const client = job.client || "—";
+    const created = formatDate(job.createdAt);
+    return `<tr data-id="${escapeHtml(job.id)}">
+      <td>${escapeHtml(client)}</td>
+      <td>${escapeHtml(orderLabel)}</td>
+      <td>${escapeHtml(created)}</td>
+      <td>${Number(calc?.units || 0)}</td>
+      <td>${formatArea(calc?.area || 0)}</td>
+      <td>${formatMoney(calc?.total || 0)}</td>
+      <td><span class="pill invoice-status-badge ${statusClass}">${escapeHtml(job.status || "draft")}</span></td>
+      <td class="actions-cell">
+        <button class="btn small" data-invoice-action="open" data-id="${escapeHtml(job.id)}">Open</button>
+        <button class="btn small" data-invoice-action="pdf" data-id="${escapeHtml(job.id)}">Generate PDF</button>
+        <button class="btn small danger" data-invoice-action="delete" data-id="${escapeHtml(job.id)}">Delete</button>
+      </td>
+    </tr>`;
+  }).join("");
+  invoiceJobsWrap.innerHTML = `<table>
+    <thead>
+      <tr>
+        <th>Client</th>
+        <th>Order numbers</th>
+        <th>Date</th>
+        <th>Units</th>
+        <th>Total area (m²)</th>
+        <th>Total amount (ALL)</th>
+        <th>Status</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+  const hasActive = jobs.some(job => job.id === appState.invoices.activeJobId);
+  if ((!appState.invoices.activeJobId || !hasActive) && jobs.length){
+    appState.invoices.activeJobId = jobs[0].id;
+  }
+}
+
+function renderInvoiceDetail(){
+  if (!invoiceLinesWrap) return;
+  const job = getActiveInvoiceJob();
+  if (!job){
+    invoiceLinesWrap.innerHTML = '<div class="invoice-empty">Select an invoice job from the list.</div>';
+    if (invoiceDetailMeta) invoiceDetailMeta.textContent = "";
+    if (invoiceTotalsEl) invoiceTotalsEl.innerHTML = "";
+    if (invoiceMissingNotice) invoiceMissingNotice.hidden = true;
+    if (invoiceRecalcBtn) invoiceRecalcBtn.disabled = true;
+    if (invoiceGeneratePdfBtn) invoiceGeneratePdfBtn.disabled = true;
+    if (invoiceDeleteActiveBtn) invoiceDeleteActiveBtn.disabled = true;
+    if (invoiceDiscountValue) invoiceDiscountValue.value = "";
+    if (invoiceVatValue) invoiceVatValue.value = "";
+    if (invoiceDiscountMode) invoiceDiscountMode.disabled = true;
+    if (invoiceDiscountValue) invoiceDiscountValue.disabled = true;
+    if (invoiceVatValue) invoiceVatValue.disabled = true;
+    if (invoiceStatusSelect) invoiceStatusSelect.disabled = true;
+    return;
+  }
+  const calc = job.calculated || recalcInvoiceJob(job, { allowPrompt: false });
+  if (invoiceDetailMeta){
+    const orderLabel = (job.orderNumbers || []).join(", ") || "—";
+    const created = formatDate(job.createdAt);
+    const invoiceNo = job.invoiceNumber ? ` • Invoice: ${job.invoiceNumber}` : "";
+    invoiceDetailMeta.textContent = `${job.client || "—"} • ${orderLabel} • ${created}${invoiceNo}`;
+  }
+  if (invoiceDiscountMode){
+    invoiceDiscountMode.value = job.discountMode || "percent";
+    invoiceDiscountMode.disabled = false;
+  }
+  if (invoiceDiscountValue){
+    invoiceDiscountValue.value = job.discountValue ?? 0;
+    invoiceDiscountValue.disabled = false;
+  }
+  if (invoiceVatValue){
+    invoiceVatValue.value = job.vatRate ?? 0;
+    invoiceVatValue.disabled = false;
+  }
+  if (invoiceStatusSelect){
+    invoiceStatusSelect.value = job.status || "draft";
+    invoiceStatusSelect.disabled = false;
+  }
+  const missingMessage = describeMissingPricing(calc?.missing);
+  if (invoiceMissingNotice){
+    if (missingMessage){
+      invoiceMissingNotice.hidden = false;
+      invoiceMissingNotice.textContent = missingMessage + " Add a price to continue.";
+    }else{
+      invoiceMissingNotice.hidden = true;
+    }
+  }
+  const lines = Array.isArray(calc?.lines) ? groupInvoiceLinesByType(calc.lines) : [];
+  if (!lines.length){
+    invoiceLinesWrap.innerHTML = '<div class="invoice-empty">No rows to show.</div>';
+  }else{
+    const body = lines.map(line=>{
+      const missingBadge = line.missing ? '<span class="editable-badge">Missing price</span>' : "";
+      return `<tr>
+        <td>${line.index}</td>
+        <td data-col="type">${escapeHtml(line.type || "")} ${missingBadge}</td>
+        <td>${Number(line.quantity || 0)}</td>
+        <td>${formatArea(line.area || 0)}</td>
+        <td class="mono" data-col="price">${formatMoney(line.glassPricePerM2)} </td>
+        <td class="mono" data-col="price">${formatMoney(line.spacerPricePerM2)}</td>
+        <td class="mono" data-col="price">${formatMoney(line.unitPricePerM2)}</td>
+        <td class="mono" data-col="price">${formatMoney(line.lineTotal)}</td>
+      </tr>`;
+    }).join("");
+    invoiceLinesWrap.innerHTML = `<table class="invoice-lines-table"><thead>
+      <tr>
+        <th>#</th>
+        <th>Type</th>
+        <th>Qty</th>
+        <th>Area (m²)</th>
+        <th>Glass / m²</th>
+        <th>Spacer / m²</th>
+        <th>Unit / m²</th>
+        <th>Line total</th>
+      </tr>
+    </thead><tbody>${body}</tbody></table>`;
+  }
+  if (invoiceTotalsEl){
+    invoiceTotalsEl.innerHTML = `
+      <span class="pill">Subtotal: ${formatMoney(calc?.subtotal || 0)} ALL</span>
+      <span class="pill">Discount: ${formatMoney(calc?.discountValue || 0)} ALL</span>
+      <span class="pill">VAT: ${formatMoney(calc?.vatValue || 0)} ALL</span>
+      <span class="pill">Total: ${formatMoney(calc?.total || 0)} ALL</span>
+    `;
+  }
+  if (invoiceRecalcBtn) invoiceRecalcBtn.disabled = false;
+  if (invoiceGeneratePdfBtn) invoiceGeneratePdfBtn.disabled = !!missingMessage;
+  if (invoiceDeleteActiveBtn) invoiceDeleteActiveBtn.disabled = false;
+}
+
+function renderInvoicePriceEditor(){
+  if (!invoiceGlassPricesWrap || !invoiceSpacerPricesWrap) return;
+  const glassEntries = Object.entries(appState.invoices.priceLists.glass || {}).sort((a,b)=> a[0].localeCompare(b[0]));
+  const spacerEntries = Object.entries(appState.invoices.priceLists.spacer || {}).sort((a,b)=> Number(a[0]) - Number(b[0]));
+  const glassExtras = Array.from({ length: Math.max(1, invoiceRuntime.extraGlassRows) }).map(()=> ["", ""]);
+  const spacerExtras = Array.from({ length: Math.max(1, invoiceRuntime.extraSpacerRows) }).map(()=> ["", { normal: "", thermal: "" }]);
+  const glassRows = [...glassEntries, ...glassExtras].map(([key, price])=> `<tr data-glass-row>
+    <td><input type="text" data-glass-key value="${escapeHtml(key)}" /></td>
+    <td><input type="number" step="0.01" min="0" data-glass-price value="${price === "" ? "" : (price ?? "")}" /></td>
+  </tr>`).join("");
+  invoiceGlassPricesWrap.innerHTML = `<table><thead><tr><th>Glass type</th><th>Price (ALL/m²)</th></tr></thead><tbody>${glassRows}</tbody></table>`;
+
+  const spacerRows = [...spacerEntries, ...spacerExtras].map(([thickness, entry])=>{
+    const normalVal = entry?.normal ?? "";
+    const thermalVal = entry?.thermal ?? "";
+    return `<tr data-spacer-row>
+      <td><input type="number" min="0" step="1" data-spacer-thickness value="${thickness || ""}" /></td>
+      <td><input type="number" step="0.01" min="0" data-spacer-normal value="${normalVal === "" ? "" : normalVal}" /></td>
+      <td><input type="number" step="0.01" min="0" data-spacer-thermal value="${thermalVal === "" ? "" : thermalVal}" /></td>
+    </tr>`;
+  }).join("");
+  invoiceSpacerPricesWrap.innerHTML = `<table><thead><tr><th>Thickness (mm)</th><th>Normal (ALL/m²)</th><th>Thermal (ALL/m²)</th></tr></thead><tbody>${spacerRows}</tbody></table>`;
+}
+
+function updateInvoicesUI(){
+  if (!invoiceRuntime.initialized) return;
+  if (invoiceFilterClient && invoiceFilterClient.value !== (appState.invoices.filters.client || "")){
+    invoiceFilterClient.value = appState.invoices.filters.client || "";
+  }
+  if (invoiceFilterOrder && invoiceFilterOrder.value !== (appState.invoices.filters.order || "")){
+    invoiceFilterOrder.value = appState.invoices.filters.order || "";
+  }
+  if (invoiceFilterStatus && invoiceFilterStatus.value !== (appState.invoices.filters.status || "")){
+    invoiceFilterStatus.value = appState.invoices.filters.status || "";
+  }
+  renderInvoiceJobs();
+  renderInvoiceDetail();
+  renderInvoicePriceEditor();
+  updateInvoiceSummary();
+}
+
+function collectGlassPricesFromEditor(){
+  if (!invoiceGlassPricesWrap) return {};
+  const rows = Array.from(invoiceGlassPricesWrap.querySelectorAll("[data-glass-row]"));
+  const map = {};
+  rows.forEach(row=>{
+    const keyInput = row.querySelector("[data-glass-key]");
+    const priceInput = row.querySelector("[data-glass-price]");
+    const rawKey = keyInput ? keyInput.value : "";
+    const normalized = normalizeGlassKey(rawKey);
+    const price = priceInput ? Number(priceInput.value) : NaN;
+    if (normalized && Number.isFinite(price)){
+      map[normalized] = price;
+    }
+  });
+  return map;
+}
+
+function collectSpacerPricesFromEditor(){
+  if (!invoiceSpacerPricesWrap) return {};
+  const rows = Array.from(invoiceSpacerPricesWrap.querySelectorAll("[data-spacer-row]"));
+  const map = {};
+  rows.forEach(row=>{
+    const thicknessInput = row.querySelector("[data-spacer-thickness]");
+    const normalInput = row.querySelector("[data-spacer-normal]");
+    const thermalInput = row.querySelector("[data-spacer-thermal]");
+    const thickness = thicknessInput ? Number(thicknessInput.value) : NaN;
+    const normal = normalInput ? Number(normalInput.value) : NaN;
+    const thermal = thermalInput ? Number(thermalInput.value) : NaN;
+    if (!Number.isFinite(thickness)) return;
+    if (!Number.isFinite(normal) && !Number.isFinite(thermal)) return;
+    map[thickness] = {
+      normal: Number.isFinite(normal) ? normal : undefined,
+      thermal: Number.isFinite(thermal) ? thermal : undefined,
+    };
+  });
+  return map;
+}
+
+function savePricesFromEditor(){
+  const glass = collectGlassPricesFromEditor();
+  const spacer = collectSpacerPricesFromEditor();
+  appState.invoices.priceLists.glass = Object.keys(glass).length ? glass : getDefaultGlassPrices();
+  const merged = { ...getDefaultSpacerPrices() };
+  Object.entries(spacer).forEach(([thick, entry])=>{
+    const t = Number(thick);
+    if (!Number.isFinite(t)) return;
+    merged[t] = {
+      normal: Number.isFinite(entry.normal) ? entry.normal : merged[t]?.normal,
+      thermal: Number.isFinite(entry.thermal) ? entry.thermal : merged[t]?.thermal,
+    };
+  });
+  appState.invoices.priceLists.spacer = merged;
+  invoiceRuntime.extraGlassRows = 1;
+  invoiceRuntime.extraSpacerRows = 1;
+  saveInvoicePrices();
+  recalcAllInvoices();
+  saveInvoiceJobs();
+  updateInvoicesUI();
+  setInvoiceStatus("Price list saved and invoices refreshed.");
+}
+
+function deleteInvoiceJob(id){
+  const idx = appState.invoices.jobs.findIndex(job => job.id === id);
+  if (idx < 0) return;
+  appState.invoices.jobs.splice(idx, 1);
+  if (appState.invoices.activeJobId === id){
+    appState.invoices.activeJobId = null;
+  }
+  saveInvoiceJobs();
+  updateInvoicesUI();
+  setInvoiceStatus("Invoice job deleted.");
+}
+
+function setInvoiceFilters(filters){
+  appState.invoices.filters = { ...appState.invoices.filters, ...filters };
+  updateInvoicesUI();
+}
+
+async function generateInvoicePdf(job){
+  if (!job) throw new Error("No invoice selected");
+  const calc = job.calculated || recalcInvoiceJob(job, { allowPrompt: false });
+  if (calc?.missing){
+    throw new Error("Cannot generate PDF: missing prices");
+  }
+  const groupedLines = groupInvoiceLinesByType(calc?.lines || []);
+  await ensurePdfLib();
+  const { PDFDocument, StandardFonts } = PDFLib;
+  const mmToPtLocal = 2.83464567;
+  const pageWidth = 210 * mmToPtLocal;
+  const pageHeight = 297 * mmToPtLocal;
+  const margin = 28;
+  const lineHeight = 16;
+  const tableFontSize = 10;
+  const doc = await PDFDocument.create();
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const regular = await doc.embedFont(StandardFonts.Helvetica);
+  let page = doc.addPage([pageWidth, pageHeight]);
+  let y = pageHeight - margin;
+
+  const invoiceNumber = job.invoiceNumber || nextInvoiceNumber();
+  job.invoiceNumber = invoiceNumber;
+  const orderLabel = (job.orderNumbers || []).join(", ") || "—";
+  const headerDate = formatDate(new Date().toISOString());
+
+  const infoBlockX = margin;
+  let infoY = pageHeight - margin;
+  page.drawText("FATURA / INVOICE", { x: infoBlockX, y: infoY, size: 12, font: bold });
+  infoY -= lineHeight;
+  const metaLines = [
+    `Client: ${job.client || "—"}`,
+    `Order: ${orderLabel}`,
+    `Invoice: ${invoiceNumber}`,
+    `Date: ${headerDate}`,
+  ];
+  metaLines.forEach(line=>{
+    page.drawText(line, { x: infoBlockX, y: infoY, size: 11, font: regular });
+    infoY -= lineHeight;
+  });
+
+  y = infoY - 6;
+  page.drawLine({ start: { x: margin, y }, end: { x: pageWidth - margin, y }, thickness: 1 });
+  y -= lineHeight;
+
+  const columns = [
+    { key: "idx", title: "#", width: 20, align: "left" },
+    { key: "type", title: "Type", width: 190, align: "left" },
+    { key: "qty", title: "Qty", width: 50, align: "right" },
+    { key: "area", title: "Area (m²)", width: 70, align: "right" },
+    { key: "unit", title: "Unit (ALL/m²)", width: 90, align: "right" },
+    { key: "total", title: "Total (ALL)", width: 90, align: "right" },
+  ];
+  const colPositions = {};
+  let cursorX = margin;
+  columns.forEach(col=>{
+    colPositions[col.key] = { x: cursorX, width: col.width };
+    cursorX += col.width;
+  });
+
+  const drawHeaders = ()=>{
+    columns.forEach(col=>{
+      page.drawText(col.title, { x: colPositions[col.key].x, y, size: tableFontSize, font: bold });
+    });
+    y -= lineHeight * 0.85;
+    page.drawLine({ start: { x: margin, y }, end: { x: pageWidth - margin, y }, thickness: 0.5 });
+    y -= lineHeight;
+  };
+  drawHeaders();
+
+  const ensureSpace = (rowsNeeded)=>{
+    if (y - rowsNeeded * lineHeight < margin){
+      page = doc.addPage([pageWidth, pageHeight]);
+      y = pageHeight - margin;
+      drawHeaders();
+    }
+  };
+
+  groupedLines.forEach(line=>{
+    ensureSpace(2);
+    const rowValues = {
+      idx: String(line.index || ""),
+      type: line.type || "",
+      qty: String(line.quantity || 0),
+      area: formatArea(line.area || 0),
+      unit: formatMoney(line.unitPricePerM2 || 0),
+      total: formatMoney(line.lineTotal || 0),
+    };
+    columns.forEach(col=>{
+      const pos = colPositions[col.key];
+      const text = rowValues[col.key] || "";
+      let x = pos.x;
+      if (col.align === "center"){
+        const width = regular.widthOfTextAtSize(text, tableFontSize);
+        x = pos.x + (pos.width - width) / 2;
+      }else if (col.align === "right"){
+        const width = regular.widthOfTextAtSize(text, tableFontSize);
+        x = pos.x + pos.width - width;
+      }
+      page.drawText(text, { x, y, size: tableFontSize, font: regular });
+    });
+    y -= lineHeight;
+  });
+
+  y -= lineHeight;
+  page.drawLine({ start: { x: margin, y }, end: { x: pageWidth - margin, y }, thickness: 0.5 });
+  y -= lineHeight;
+  const summaryItems = [
+    ["Subtotal", formatMoney(calc?.subtotal || 0)],
+    ["Discount", formatMoney(calc?.discountValue || 0)],
+    [`VAT ${job.vatRate || 0}%`, formatMoney(calc?.vatValue || 0)],
+    ["Total", formatMoney(calc?.total || 0)],
+  ];
+  const totalsStartX = colPositions.total.x - 20;
+  y -= 6;
+  summaryItems.forEach((item, idx)=>{
+    ensureSpace(1);
+    const isTotal = idx === summaryItems.length - 1;
+    const size = isTotal ? 12 : 11;
+    const font = isTotal ? bold : bold;
+    const labelWidth = font.widthOfTextAtSize(item[0], size);
+    const valueWidth = font.widthOfTextAtSize(item[1], size);
+    const labelX = totalsStartX;
+    const valueX = colPositions.total.x + colPositions.total.width - valueWidth;
+    page.drawText(item[0], { x: labelX, y, size, font });
+    page.drawText(item[1], { x: valueX, y, size, font });
+    y -= lineHeight;
+  });
+
+  saveInvoiceJobs();
+  const pdfBytes = await doc.save();
+  const blob = new Blob([pdfBytes], { type: "application/pdf" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const safeOrder = orderLabel.replace(/\s+/g, "-") || "invoice";
+  a.href = url;
+  a.download = `${invoiceNumber || safeOrder}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+
 function updateExtractSummary(){
   const rows = appState.extract.rows || [];
   const totals = computeTotals(rows);
@@ -5181,6 +6438,7 @@ function renderOrdersList(){
         <button class="btn small" data-action="processing" data-id="${order.id}">Processing</button>
         <button class="btn small" data-action="csv" data-id="${order.id}" ${csvDisabled}>CSV</button>
         <button class="btn small" data-action="print" data-id="${order.id}">Labels</button>
+        <button class="btn small" data-action="invoice" data-id="${order.id}">Invoice</button>
         <button type="button" class="btn small danger" data-history-delete="${order.id}">Delete</button>
       </td>
     </tr>`;
@@ -5296,6 +6554,17 @@ document.getElementById("historyListWrap").addEventListener("click", async (even
       }
     }catch(error){
       setHistoryStatus("Failed to generate labels: " + (error.message || error));
+    }
+  }else if (action === "invoice"){
+    try{
+      ensureInvoicesLoaded();
+      const order = await fetchOrder(id);
+      const job = addInvoiceJobFromOrder(order);
+      if (job){
+        setHistoryStatus("Invoice job added. Check the Invoices tab to review.");
+      }
+    }catch(error){
+      setHistoryStatus("Failed to build invoice: " + (error.message || error));
     }
   }
 });
@@ -5571,6 +6840,183 @@ if (labelsJobsWrap){
       setLabelsStatus("Label job removed.");
       updateLabelsUI();
     }
+  });
+}
+
+if (invoiceFilterClient){
+  invoiceFilterClient.addEventListener("input", event=>{
+    ensureInvoicesLoaded();
+    setInvoiceFilters({ client: event.target.value });
+  });
+}
+
+if (invoiceFilterOrder){
+  invoiceFilterOrder.addEventListener("input", event=>{
+    ensureInvoicesLoaded();
+    setInvoiceFilters({ order: event.target.value });
+  });
+}
+
+if (invoiceFilterStatus){
+  invoiceFilterStatus.addEventListener("change", event=>{
+    ensureInvoicesLoaded();
+    setInvoiceFilters({ status: event.target.value });
+  });
+}
+
+if (invoiceAddGlassBtn){
+  invoiceAddGlassBtn.addEventListener("click", ()=>{
+    ensureInvoicesLoaded();
+    invoiceRuntime.extraGlassRows += 1;
+    renderInvoicePriceEditor();
+  });
+}
+
+if (invoiceAddSpacerBtn){
+  invoiceAddSpacerBtn.addEventListener("click", ()=>{
+    ensureInvoicesLoaded();
+    invoiceRuntime.extraSpacerRows += 1;
+    renderInvoicePriceEditor();
+  });
+}
+
+if (invoiceSavePricesBtn){
+  invoiceSavePricesBtn.addEventListener("click", ()=>{
+    ensureInvoicesLoaded();
+    savePricesFromEditor();
+  });
+}
+
+if (invoiceRefreshPricesBtn){
+  invoiceRefreshPricesBtn.addEventListener("click", ()=>{
+    ensureInvoicesLoaded();
+    recalcAllInvoices();
+    updateInvoicesUI();
+    setInvoiceStatus("Draft invoices recalculated.");
+  });
+}
+
+if (invoiceJobsWrap){
+  invoiceJobsWrap.addEventListener("click", async (event)=>{
+    const btn = event.target.closest("[data-invoice-action]");
+    if (!btn) return;
+    ensureInvoicesLoaded();
+    const action = btn.dataset.invoiceAction;
+    const id = btn.dataset.id;
+    if (!action || !id) return;
+    const job = appState.invoices.jobs.find(item => item.id === id);
+    if (action === "open"){
+      appState.invoices.activeJobId = id;
+      updateInvoicesUI();
+    }else if (action === "pdf"){
+      if (!job) return;
+      try{
+        await generateInvoicePdf(job);
+        setInvoiceStatus("Invoice PDF ready.");
+      }catch(error){
+        setInvoiceStatus(error?.message || "Failed to generate PDF.");
+      }
+    }else if (action === "delete"){
+      if (!confirm("Delete this invoice job?")) return;
+      deleteInvoiceJob(id);
+    }
+  });
+}
+
+if (invoiceRecalcBtn){
+  invoiceRecalcBtn.addEventListener("click", ()=>{
+    ensureInvoicesLoaded();
+    const job = getActiveInvoiceJob();
+    if (!job) return;
+    recalcInvoiceJob(job, { allowPrompt: true });
+    saveInvoiceJobs();
+    updateInvoicesUI();
+    setInvoiceStatus("Invoice recalculated.");
+  });
+}
+
+if (invoiceGeneratePdfBtn){
+  invoiceGeneratePdfBtn.addEventListener("click", async ()=>{
+    ensureInvoicesLoaded();
+    const job = getActiveInvoiceJob();
+    if (!job) return;
+    try{
+      await generateInvoicePdf(job);
+      setInvoiceStatus("Invoice PDF ready.");
+    }catch(error){
+      setInvoiceStatus(error?.message || "Failed to generate PDF.");
+    }
+  });
+}
+
+if (invoiceDeleteActiveBtn){
+  invoiceDeleteActiveBtn.addEventListener("click", ()=>{
+    ensureInvoicesLoaded();
+    const job = getActiveInvoiceJob();
+    if (!job) return;
+    if (!confirm("Delete this invoice job?")) return;
+    deleteInvoiceJob(job.id);
+  });
+}
+
+if (invoiceDiscountMode){
+  invoiceDiscountMode.addEventListener("change", event=>{
+    ensureInvoicesLoaded();
+    const job = getActiveInvoiceJob();
+    if (!job) return;
+    job.discountMode = event.target.value === "absolute" ? "absolute" : "percent";
+    recalcInvoiceJob(job, { allowPrompt: true });
+    saveInvoiceJobs();
+    updateInvoicesUI();
+  });
+}
+
+if (invoiceDiscountValue){
+  invoiceDiscountValue.addEventListener("change", event=>{
+    ensureInvoicesLoaded();
+    const job = getActiveInvoiceJob();
+    if (!job) return;
+    job.discountValue = Math.max(0, Number(event.target.value) || 0);
+    recalcInvoiceJob(job, { allowPrompt: true });
+    saveInvoiceJobs();
+    updateInvoicesUI();
+  });
+}
+
+if (invoiceVatValue){
+  invoiceVatValue.addEventListener("change", event=>{
+    ensureInvoicesLoaded();
+    const job = getActiveInvoiceJob();
+    if (!job) return;
+    job.vatRate = Math.max(0, Number(event.target.value) || 0);
+    recalcInvoiceJob(job, { allowPrompt: true });
+    saveInvoiceJobs();
+    updateInvoicesUI();
+  });
+}
+
+if (invoiceStatusSelect){
+  invoiceStatusSelect.addEventListener("change", event=>{
+    ensureInvoicesLoaded();
+    const job = getActiveInvoiceJob();
+    if (!job) return;
+    job.status = event.target.value === "finalized" ? "finalized" : "draft";
+    saveInvoiceJobs();
+    updateInvoicesUI();
+  });
+}
+
+if (invoicePromptCancel){
+  invoicePromptCancel.addEventListener("click", ()=>{
+    invoiceRuntime.pendingPrompts = [];
+    invoiceRuntime.missingKeys.clear();
+    hideInvoicePrompt();
+  });
+}
+
+if (invoicePromptSave){
+  invoicePromptSave.addEventListener("click", ()=>{
+    handleInvoicePromptSave();
   });
 }
 
