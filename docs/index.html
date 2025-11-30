@@ -733,6 +733,16 @@
             <button class="btn small" id="invoiceAddSpacerPrice" style="margin-top:8px">Add spacer thickness</button>
           </div>
         </div>
+        <details id="typeCorrectionsPanel" style="margin-top:16px">
+          <summary style="cursor:pointer;font-weight:600">Type corrections</summary>
+          <p class="muted small" style="margin:8px 0 10px">Map raw glass types from PDFs to the corrected strings used for pricing and invoices.</p>
+          <div class="table-responsive" id="typeCorrectionsTable">
+            <div class="invoice-empty">No corrections yet.</div>
+          </div>
+          <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn small" id="typeCorrectionsAdd">Add correction</button>
+          </div>
+        </details>
         <div class="invoice-actions">
           <button class="btn primary small" id="invoiceSavePrices">Save price list</button>
           <span id="invoicePricesStatus" class="muted small"></span>
@@ -752,6 +762,25 @@
       <div class="modal-actions">
         <button class="btn small" id="invoicePromptCancel">Cancel</button>
         <button class="btn primary small" id="invoicePromptSave">Save & Continue</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="typeCorrectionsModal" class="modal-layer" hidden>
+    <div class="modal-card">
+      <h3 style="margin-top:0">Add type correction</h3>
+      <p class="muted small" style="margin-top:0">Normalize a raw type string before pricing.</p>
+      <label>
+        <span>Raw type</span>
+        <input type="text" id="typeCorrectionsRaw" placeholder="e.g., 3 vetri 33.1F + 4F + 4 termico 44mm" />
+      </label>
+      <label>
+        <span>Corrected type</span>
+        <input type="text" id="typeCorrectionsCorrected" placeholder="e.g., 3 vetri 33.1F+14+4F+14+4 termico 44mm" />
+      </label>
+      <div class="modal-actions">
+        <button class="btn small" id="typeCorrectionsCancel">Cancel</button>
+        <button class="btn primary small" id="typeCorrectionsSave">Save</button>
       </div>
     </div>
   </div>
@@ -776,6 +805,40 @@ const ANALYSIS_MAX_DATASET_CHARS = 50000;
 const INVOICE_PRICES_KEY = "loe.invoices.prices.v1";
 const INVOICE_JOBS_KEY = "loe.invoices.jobs.v1";
 const INVOICE_COUNTER_KEY = "loe.invoices.counter.v1";
+const TYPE_CORRECTIONS_STORAGE_KEY = "invoice_type_corrections_v1";
+
+const DEFAULT_TYPE_CORRECTIONS = [
+  {
+    raw: "3 vetri 33.1F + 4F + 4 termico 44mm",
+    corrected: "3 vetri 33.1F+14+4F+14+4 termico 44mm",
+  },
+  {
+    raw: "3 vetri 33.1F + 4F + 33.1 LowE 44mm",
+    corrected: "3 vetri 33.1F+12+4F+14+33.1 LowE 44mm",
+  },
+  {
+    raw: "3 vetri 33.1F cald 4F cald 33.1 LowE 44mm",
+    corrected: "3 vetri 33.1F+12+4F+14+33.1 LowE 44mm",
+  },
+  {
+    raw: "3 vetri 4F + 4F + 4 LowE 44mm",
+    corrected: "3 vetri 4F+14+4F+16+4 LowE 44mm",
+  },
+  {
+    raw: "3 vetri 33.1 LOWE + c.caldo + 4F + c.caldo + 33.1STAINATO 44mm",
+    corrected: "3 vetri 33.1LOWE+12+4F+14+33.1STAINATO 44mm",
+  },
+  {
+    raw: "3 vetri 33.1 LOWE + c.caldo + 4F + c.caldo + 33.1Satinato 44mm",
+    corrected: "3 vetri 33.1LOWE+12+4F+14+33.1Satinato 44mm",
+  },
+  {
+    raw: "3 vetri 33.1LOWE + 4F + 4 SATINATO 44mm",
+    corrected: "3 vetri 33.1LOWE+14+4F+14+4 SATINATO 44mm",
+  },
+];
+
+let TYPE_CORRECTIONS = DEFAULT_TYPE_CORRECTIONS.map(entry => ({ ...entry }));
 
 // ✅ Danko Rounding: Global functions for Processing + Mother Sheet
 window.dankoRound = function(valueMm) {
@@ -1022,6 +1085,14 @@ const invoicePromptDescriptor = document.getElementById("invoicePromptDescriptor
 const invoicePromptValue = document.getElementById("invoicePromptValue");
 const invoicePromptCancel = document.getElementById("invoicePromptCancel");
 const invoicePromptSave = document.getElementById("invoicePromptSave");
+const typeCorrectionsPanel = document.getElementById("typeCorrectionsPanel");
+const typeCorrectionsTable = document.getElementById("typeCorrectionsTable");
+const typeCorrectionsAddBtn = document.getElementById("typeCorrectionsAdd");
+const typeCorrectionsModal = document.getElementById("typeCorrectionsModal");
+const typeCorrectionsRawInput = document.getElementById("typeCorrectionsRaw");
+const typeCorrectionsCorrectedInput = document.getElementById("typeCorrectionsCorrected");
+const typeCorrectionsSaveBtn = document.getElementById("typeCorrectionsSave");
+const typeCorrectionsCancelBtn = document.getElementById("typeCorrectionsCancel");
 
 const groupToggles = document.querySelectorAll("[data-group-toggle]");
 
@@ -4827,6 +4898,47 @@ function collectOrderNumbers(rows){
 }
 
 // --- Invoice helpers -------------------------------------------------------
+function getDefaultTypeCorrections(){
+  return DEFAULT_TYPE_CORRECTIONS.map(entry => ({ ...entry }));
+}
+
+function normalizeTypeKey(str) {
+  return (str || "")
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/\++/g, "+");
+}
+
+function applyTypeCorrections(rawType) {
+  const key = normalizeTypeKey(rawType);
+  for (const entry of TYPE_CORRECTIONS) {
+    if (normalizeTypeKey(entry.raw) === key) {
+      return entry.corrected;
+    }
+  }
+  return rawType;
+}
+
+function loadTypeCorrections() {
+  try{
+    const raw = localStorage.getItem(TYPE_CORRECTIONS_STORAGE_KEY);
+    if (!raw) return getDefaultTypeCorrections();
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed;
+  }catch(e){
+    console.warn("Failed to load type corrections", e);
+  }
+  return getDefaultTypeCorrections();
+}
+
+function saveTypeCorrections() {
+  try{
+    localStorage.setItem(TYPE_CORRECTIONS_STORAGE_KEY, JSON.stringify(TYPE_CORRECTIONS));
+  }catch(e){
+    console.warn("Failed to save type corrections", e);
+  }
+}
+
 function normalizeGlassKey(raw){
   const str = (raw == null ? "" : String(raw)).toLowerCase().trim().replace(/^\s*\d+\s*vetri?\s*/i, "").replace(/\bvetri?\b/gi, "");
   if (!str) return "";
@@ -5013,6 +5125,7 @@ function saveInvoiceJobs(){
 
 function ensureInvoicesLoaded(){
   if (invoiceRuntime.initialized) return;
+  TYPE_CORRECTIONS = loadTypeCorrections();
   loadInvoicePrices();
   loadInvoiceJobs();
   loadInvoiceCounter();
@@ -5121,7 +5234,7 @@ function parseInvoiceComposition(typeString){
 
 function mapInvoiceRow(row){
   if (!row) return null;
-  const type = pickFirstString([
+  const originalType = pickFirstString([
     row.type,
     row.composition_display,
     row.composition_raw,
@@ -5129,6 +5242,7 @@ function mapInvoiceRow(row){
     row.glassType,
     row.description,
   ], "");
+  const type = applyTypeCorrections(originalType);
   const dimension = deriveLabelDimension(row) || "—";
   const position = pickPositionValue(row) || "—";
   const qty = Math.max(0, Number(pickFirstNumber([
@@ -5403,7 +5517,12 @@ function buildInvoiceLinesFromRaw(rawRows, options = {}){
   const groups = new Map();
   (rawRows || []).forEach((row, idx)=>{
     if (!row || typeof row !== "object") return;
-    const typeText = String(row.type || "").trim();
+    const originalTypeText = String(row.type || "").trim();
+    const correctedTypeText = applyTypeCorrections(originalTypeText);
+    if (row.type !== correctedTypeText){
+      row.type = correctedTypeText;
+    }
+    const typeText = correctedTypeText;
     const key = normalizeGlassKey(typeText) || typeText.toLowerCase();
     if (!groups.has(key)){
       groups.set(key, {
@@ -5749,6 +5868,68 @@ function renderInvoicePriceEditor(){
   invoiceSpacerPricesWrap.innerHTML = `<table><thead><tr><th>Thickness (mm)</th><th>Normal (ALL/m²)</th><th>Thermal (ALL/m²)</th></tr></thead><tbody>${spacerRows}</tbody></table>`;
 }
 
+function renderTypeCorrectionsTable(){
+  if (!typeCorrectionsTable) return;
+  if (!Array.isArray(TYPE_CORRECTIONS) || !TYPE_CORRECTIONS.length){
+    typeCorrectionsTable.innerHTML = '<div class="invoice-empty">No corrections yet.</div>';
+    return;
+  }
+  const rows = TYPE_CORRECTIONS.map((entry, idx)=> `<tr data-correction-row>
+    <td><input type="text" value="${escapeHtml(entry.raw || "")}" readonly style="width:100%" /></td>
+    <td><input type="text" value="${escapeHtml(entry.corrected || "")}" readonly style="width:100%" /></td>
+    <td class="actions-cell" style="text-align:right"><button class="btn small danger" data-delete-correction="${idx}">Delete</button></td>
+  </tr>`).join("");
+  typeCorrectionsTable.innerHTML = `<table><thead><tr><th>Raw type</th><th>Corrected type</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function openTypeCorrectionsModal(){
+  if (typeCorrectionsModal){
+    typeCorrectionsModal.hidden = false;
+  }
+  if (typeCorrectionsRawInput){
+    typeCorrectionsRawInput.value = "";
+    typeCorrectionsRawInput.classList.remove("input-error");
+    typeCorrectionsRawInput.focus();
+  }
+  if (typeCorrectionsCorrectedInput){
+    typeCorrectionsCorrectedInput.value = "";
+    typeCorrectionsCorrectedInput.classList.remove("input-error");
+  }
+}
+
+function closeTypeCorrectionsModal(){
+  if (typeCorrectionsModal){
+    typeCorrectionsModal.hidden = true;
+  }
+}
+
+function handleTypeCorrectionsSave(){
+  const rawValue = (typeCorrectionsRawInput?.value || "").trim();
+  const correctedValue = (typeCorrectionsCorrectedInput?.value || "").trim();
+  const markInvalid = (input)=>{
+    if (!input) return;
+    input.classList.add("input-error");
+    setTimeout(()=> input.classList.remove("input-error"), 500);
+  };
+  let hasError = false;
+  if (!rawValue){
+    markInvalid(typeCorrectionsRawInput);
+    hasError = true;
+  }
+  if (!correctedValue){
+    markInvalid(typeCorrectionsCorrectedInput);
+    hasError = true;
+  }
+  if (hasError) return;
+  TYPE_CORRECTIONS.push({ raw: rawValue, corrected: correctedValue });
+  saveTypeCorrections();
+  recalcAllInvoices({ allowPrompt: false });
+  saveInvoiceJobs();
+  closeTypeCorrectionsModal();
+  updateInvoicesUI();
+  setInvoiceStatus("Type correction saved.");
+}
+
 function updateInvoicesUI(){
   if (!invoiceRuntime.initialized) return;
   if (invoiceFilterClient && invoiceFilterClient.value !== (appState.invoices.filters.client || "")){
@@ -5763,6 +5944,7 @@ function updateInvoicesUI(){
   renderInvoiceJobs();
   renderInvoiceDetail();
   renderInvoicePriceEditor();
+  renderTypeCorrectionsTable();
   updateInvoiceSummary();
 }
 
@@ -6999,6 +7181,61 @@ if (invoiceRefreshPricesBtn){
   });
 }
 
+if (typeCorrectionsAddBtn){
+  typeCorrectionsAddBtn.addEventListener("click", ()=>{
+    ensureInvoicesLoaded();
+    openTypeCorrectionsModal();
+  });
+}
+
+if (typeCorrectionsCancelBtn){
+  typeCorrectionsCancelBtn.addEventListener("click", ()=>{
+    closeTypeCorrectionsModal();
+  });
+}
+
+if (typeCorrectionsSaveBtn){
+  typeCorrectionsSaveBtn.addEventListener("click", ()=>{
+    ensureInvoicesLoaded();
+    handleTypeCorrectionsSave();
+  });
+}
+
+if (typeCorrectionsModal){
+  typeCorrectionsModal.addEventListener("click", event=>{
+    if (event.target === typeCorrectionsModal){
+      closeTypeCorrectionsModal();
+    }
+  });
+}
+
+if (typeCorrectionsRawInput){
+  typeCorrectionsRawInput.addEventListener("input", ()=>{
+    typeCorrectionsRawInput.classList.remove("input-error");
+  });
+}
+
+if (typeCorrectionsCorrectedInput){
+  typeCorrectionsCorrectedInput.addEventListener("input", ()=>{
+    typeCorrectionsCorrectedInput.classList.remove("input-error");
+  });
+}
+
+if (typeCorrectionsTable){
+  typeCorrectionsTable.addEventListener("click", event=>{
+    const btn = event.target.closest("[data-delete-correction]");
+    if (!btn) return;
+    const idx = Number(btn.dataset.deleteCorrection);
+    if (!Number.isFinite(idx)) return;
+    TYPE_CORRECTIONS.splice(idx, 1);
+    saveTypeCorrections();
+    recalcAllInvoices({ allowPrompt: false });
+    saveInvoiceJobs();
+    updateInvoicesUI();
+    setInvoiceStatus("Type correction removed.");
+  });
+}
+
 if (invoiceJobsWrap){
   invoiceJobsWrap.addEventListener("click", async (event)=>{
     const btn = event.target.closest("[data-invoice-action]");
@@ -7041,21 +7278,26 @@ if (invoiceLinesWrap){
 
     if (typeInput){
       const newType = String(typeInput.value || "").trim();
+      const correctedType = applyTypeCorrections(newType);
+      const finalType = correctedType || newType;
+      if (typeInput.value !== finalType){
+        typeInput.value = finalType;
+      }
       if (line){
-        line.type = newType;
-        line.displayType = newType;
-        line.normalizedType = normalizeGlassKey(newType) || newType.toLowerCase();
+        line.type = finalType;
+        line.displayType = finalType;
+        line.normalizedType = normalizeGlassKey(finalType) || finalType.toLowerCase();
         if (Array.isArray(line.rawIndexes)){
           line.rawIndexes.forEach(i=>{
             if (rawRows[i]){
-              rawRows[i].type = newType;
+              rawRows[i].type = finalType;
             }
           });
         }
       }else{
         const rowIndex = idx - 1;
         if (rowIndex >= 0 && rowIndex < rawRows.length){
-          rawRows[rowIndex].type = newType;
+          rawRows[rowIndex].type = finalType;
         }
       }
     }else if (spacerKindSelect){
