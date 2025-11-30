@@ -5160,7 +5160,8 @@ function buildInvoiceJobFromOrder(order){
     orderNumbers,
     client: clientName || "—",
     createdAt: createdAt.toISOString(),
-    rows: mappedRows,
+    rows: mappedRows.map(r => ({ ...r })),
+    rawRows: mappedRows.map(r => ({ ...r })),
     status: "draft",
     discountMode: "percent",
     discountValue: 0,
@@ -5360,61 +5361,124 @@ function recalcInvoiceJob(job, options = {}){
   if (!job) return null;
   const { allowPrompt = false } = options;
   const promptAllowedForJob = allowPrompt && appState.invoices.activeJobId === job.id;
+  const rawRows = ensureInvoiceRawRows(job);
+  const lines = buildInvoiceLinesFromRaw(rawRows, { promptAllowedForJob });
+  finalizeInvoiceTotals(job, lines);
+  if (promptAllowedForJob && invoiceRuntime.pendingPrompts.length && !invoiceRuntime.currentMissing){
+    triggerInvoicePrompt();
+  }
+  return job.calculated;
+}
+
+function ensureInvoiceRawRows(job){
+  if (!job) return [];
+  if (!Array.isArray(job.rawRows)){
+    job.rawRows = Array.isArray(job.rows) ? job.rows.map(r => ({ ...r })) : [];
+  }
+  job.rows = job.rawRows;
+  return job.rawRows;
+}
+
+function buildInvoiceLinesFromRaw(rawRows, options = {}){
+  const promptAllowedForJob = !!options.promptAllowedForJob;
+  const groups = new Map();
+  (rawRows || []).forEach((row, idx)=>{
+    if (!row || typeof row !== "object") return;
+    const typeText = String(row.type || "").trim();
+    const key = normalizeGlassKey(typeText) || typeText.toLowerCase();
+    if (!groups.has(key)){
+      groups.set(key, {
+        displayType: typeText,
+        normalizedType: key,
+        qty: 0,
+        area: 0,
+        rawIndexes: [],
+      });
+    }
+    const group = groups.get(key);
+    const qty = Math.max(0, Number(row.quantity || 0));
+    const areaPerUnit = (()=> {
+      const direct = Number(row.area ?? row.area_m2 ?? row.areaM2);
+      if (Number.isFinite(direct)) return direct;
+      const computed = computeRowArea(row);
+      return Number.isFinite(computed) ? computed : 0;
+    })();
+    group.qty += qty;
+    group.area += areaPerUnit * qty;
+    group.rawIndexes.push(idx);
+  });
+
+  const lines = Array.from(groups.values()).map((group, index)=>{
+    return computeInvoiceLineFromGroup(group, index, { promptAllowedForJob });
+  });
+  return lines;
+}
+
+function computeInvoiceLineFromGroup(group, index, options = {}){
+  const promptAllowedForJob = !!options.promptAllowedForJob;
+  const composition = parseInvoiceComposition(group.displayType || "");
+  let glassPricePerM2 = 0;
+  let lineMissing = null;
+  composition.panes.forEach(pane=>{
+    const key = normalizeGlassKey(pane);
+    const price = appState.invoices.priceLists.glass[key];
+    if (!Number.isFinite(price)){
+      lineMissing = lineMissing || { type: "glass", pane, normalized: key };
+      if (promptAllowedForJob){
+        enqueueInvoicePrompt({ kind: "glass", label: pane, normalized: key });
+      }
+    }else{
+      glassPricePerM2 += Number(price);
+    }
+  });
+  const spacer = getSpacerPrice(composition.spacerThickness, composition.spacerKind);
+  if (spacer.missing){
+    lineMissing = lineMissing || { type: "spacer", details: spacer.missing };
+    if (promptAllowedForJob){
+      enqueueInvoicePrompt({
+        kind: "spacer",
+        thickness: composition.spacerThickness,
+        kind: composition.spacerKind,
+        description: `Spacer ${composition.spacerThickness ?? "?"}mm (${composition.spacerKind || "normal"})`,
+      });
+    }
+  }
+  const spacerPricePerM2 = spacer.price || 0;
+  const unitPricePerM2 = glassPricePerM2 + spacerPricePerM2;
+  const lineTotal = unitPricePerM2 * group.area;
+  return {
+    index: index + 1,
+    type: group.displayType,
+    displayType: group.displayType,
+    normalizedType: group.normalizedType,
+    quantity: group.qty,
+    area: group.area,
+    glassPricePerM2,
+    spacerPricePerM2,
+    spacerOverride: null,
+    unitPricePerM2,
+    lineTotal,
+    lineAreaTotal: group.area,
+    rawIndexes: group.rawIndexes || [],
+    missing: lineMissing,
+  };
+}
+
+function finalizeInvoiceTotals(job, lines){
   let subtotal = 0;
   let units = 0;
   let areaTotal = 0;
   let missing = null;
-  const lines = (job.rows || []).map((row, index)=>{
-    const qty = Math.max(0, Number(row.quantity || 0));
-    const areaPerUnit = Math.max(0, Number(row.area || 0));
-    const composition = parseInvoiceComposition(row.type || "");
-    let glassPricePerM2 = 0;
-    let lineMissing = null;
-    composition.panes.forEach(pane=>{
-      const key = normalizeGlassKey(pane);
-      const price = appState.invoices.priceLists.glass[key];
-      if (!Number.isFinite(price)){
-        lineMissing = lineMissing || { type: "glass", pane, normalized: key };
-        if (promptAllowedForJob){
-          enqueueInvoicePrompt({ kind: "glass", label: pane, normalized: key, jobId: job.id });
-        }
-      }else{
-        glassPricePerM2 += Number(price);
-      }
-    });
-    const spacer = getSpacerPrice(composition.spacerThickness, composition.spacerKind);
-    if (spacer.missing){
-      lineMissing = lineMissing || { type: "spacer", details: spacer.missing };
-      if (promptAllowedForJob){
-        enqueueInvoicePrompt({
-          kind: "spacer",
-          thickness: composition.spacerThickness,
-          kind: composition.spacerKind,
-          jobId: job.id,
-          description: `Spacer ${composition.spacerThickness ?? "?"}mm (${composition.spacerKind || "normal"})`,
-        });
-      }
-    }
-    const spacerPricePerM2 = spacer.price || 0;
-    const unitPricePerM2 = glassPricePerM2 + spacerPricePerM2;
-    const lineAreaTotal = areaPerUnit * qty;
-    const lineTotal = unitPricePerM2 * lineAreaTotal;
+  lines.forEach(line=>{
+    const lineTotal = Number(line.lineTotal || 0);
+    const qty = Number(line.quantity || 0);
+    const area = Number(line.area || line.lineAreaTotal || 0);
     subtotal += lineTotal;
     units += qty;
-    areaTotal += lineAreaTotal;
-    if (!missing && lineMissing){
-      missing = lineMissing;
+    areaTotal += area;
+    if (!missing && line.missing){
+      missing = line.missing;
     }
-    return {
-      ...row,
-      index: index + 1,
-      glassPricePerM2,
-      spacerPricePerM2,
-      unitPricePerM2,
-      lineTotal,
-      lineAreaTotal,
-      missing: lineMissing,
-    };
   });
   const discountRaw = Math.max(0, Number(job.discountValue || 0));
   const discountValue = job.discountMode === "absolute"
@@ -5433,10 +5497,6 @@ function recalcInvoiceJob(job, options = {}){
     area: areaTotal,
     missing,
   };
-  if (promptAllowedForJob && invoiceRuntime.pendingPrompts.length && !invoiceRuntime.currentMissing){
-    triggerInvoicePrompt();
-  }
-  return job.calculated;
 }
 
 function recalcAllInvoices(opts = {}){
@@ -5579,7 +5639,7 @@ function renderInvoiceDetail(){
       invoiceMissingNotice.hidden = true;
     }
   }
-  const lines = Array.isArray(calc?.lines) ? groupInvoiceLinesByType(calc.lines) : [];
+  const lines = Array.isArray(calc?.lines) ? calc.lines : [];
   if (!lines.length){
     invoiceLinesWrap.innerHTML = '<div class="invoice-empty">No rows to show.</div>';
   }else{
@@ -5587,7 +5647,10 @@ function renderInvoiceDetail(){
       const missingBadge = line.missing ? '<span class="editable-badge">Missing price</span>' : "";
       return `<tr>
         <td>${line.index}</td>
-        <td data-col="type">${escapeHtml(line.type || "")} ${missingBadge}</td>
+        <td data-col="type">
+          <input type="text" data-type-edit="${line.index}" value="${escapeHtml(line.type || "")}" style="width:100%" />
+          ${missingBadge}
+        </td>
         <td>${Number(line.quantity || 0)}</td>
         <td>${formatArea(line.area || 0)}</td>
         <td class="mono" data-col="price">${formatMoney(line.glassPricePerM2)} </td>
@@ -5747,7 +5810,7 @@ async function generateInvoicePdf(job){
   if (calc?.missing){
     throw new Error("Cannot generate PDF: missing prices");
   }
-  const groupedLines = groupInvoiceLinesByType(calc?.lines || []);
+  const groupedLines = Array.isArray(calc?.lines) ? calc.lines : [];
   await ensurePdfLib();
   const { PDFDocument, StandardFonts } = PDFLib;
   const mmToPtLocal = 2.83464567;
@@ -6920,6 +6983,43 @@ if (invoiceJobsWrap){
       if (!confirm("Delete this invoice job?")) return;
       deleteInvoiceJob(id);
     }
+  });
+}
+
+if (invoiceLinesWrap){
+  invoiceLinesWrap.addEventListener("change", event=>{
+    const typeInput = event.target.closest("input[data-type-edit]");
+    if (!typeInput) return;
+    const idx = Number(typeInput.dataset.typeEdit);
+    if (!Number.isFinite(idx)) return;
+    const job = getActiveInvoiceJob();
+    if (!job || !Array.isArray(job.rows)) return;
+    const newType = String(typeInput.value || "").trim();
+    // Update grouped line and propagate to raw rows
+    const rawRows = ensureInvoiceRawRows(job);
+    const lines = Array.isArray(job.calculated?.lines) ? job.calculated.lines : [];
+    const line = lines.find(l => l.index === idx);
+    if (line){
+      line.type = newType;
+      line.displayType = newType;
+      line.normalizedType = normalizeGlassKey(newType) || newType.toLowerCase();
+      if (Array.isArray(line.rawIndexes)){
+        line.rawIndexes.forEach(i=>{
+          if (rawRows[i]){
+            rawRows[i].type = newType;
+          }
+        });
+      }
+    }else{
+      const rowIndex = idx - 1;
+      if (rowIndex >= 0 && rowIndex < rawRows.length){
+        rawRows[rowIndex].type = newType;
+      }
+    }
+    job.rows = rawRows;
+    recalcInvoiceJob(job, { allowPrompt: true });
+    saveInvoiceJobs();
+    updateInvoicesUI();
   });
 }
 
