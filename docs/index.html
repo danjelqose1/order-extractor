@@ -5373,6 +5373,15 @@ function recalcInvoiceJob(job, options = {}){
   const promptAllowedForJob = allowPrompt && appState.invoices.activeJobId === job.id;
   const rawRows = ensureInvoiceRawRows(job);
   const lines = buildInvoiceLinesFromRaw(rawRows, { promptAllowedForJob });
+  lines.forEach(line=>{
+    if (!Array.isArray(line.rawIndexes)) return;
+    line.rawIndexes.forEach(idx=>{
+      if (rawRows[idx]){
+        rawRows[idx].spacerKind = line.spacerKind;
+        rawRows[idx].type = line.type;
+      }
+    });
+  });
   finalizeInvoiceTotals(job, lines);
   if (promptAllowedForJob && invoiceRuntime.pendingPrompts.length && !invoiceRuntime.currentMissing){
     triggerInvoicePrompt();
@@ -5403,9 +5412,13 @@ function buildInvoiceLinesFromRaw(rawRows, options = {}){
         qty: 0,
         area: 0,
         rawIndexes: [],
+        spacerKind: row.spacerKind || null,
       });
     }
     const group = groups.get(key);
+    if (!group.spacerKind && row.spacerKind){
+      group.spacerKind = row.spacerKind;
+    }
     const qty = Math.max(0, Number(row.quantity || 0));
     const areaPerUnit = (()=> {
       const direct = Number(row.area ?? row.area_m2 ?? row.areaM2);
@@ -5442,7 +5455,8 @@ function computeInvoiceLineFromGroup(group, index, options = {}){
     }
   });
   let spacerPricePerM2 = 0;
-  const spacerKind = composition.spacerKind;
+  const inferredKind = composition.spacerKind;
+  const spacerKind = (group.spacerKind === "thermal" || group.spacerKind === "normal") ? group.spacerKind : inferredKind;
   const thicknesses = Array.isArray(composition.spacerThicknesses) && composition.spacerThicknesses.length
     ? composition.spacerThicknesses
     : [];
@@ -5472,6 +5486,8 @@ function computeInvoiceLineFromGroup(group, index, options = {}){
     area: group.area,
     glassPricePerM2,
     spacerPricePerM2,
+    spacerKind,
+    spacerThicknesses: thicknesses.slice(),
     spacerOverride: null,
     unitPricePerM2,
     lineTotal,
@@ -5671,6 +5687,12 @@ function renderInvoiceDetail(){
         <td>${Number(line.quantity || 0)}</td>
         <td>${formatArea(line.area || 0)}</td>
         <td class="mono" data-col="price">${formatMoney(line.glassPricePerM2)} </td>
+        <td>
+          <select data-spacer-kind="${line.index}" style="min-width:110px">
+            <option value="normal" ${line.spacerKind === "thermal" ? "" : "selected"}>Normal</option>
+            <option value="thermal" ${line.spacerKind === "thermal" ? "selected" : ""}>Thermal</option>
+          </select>
+        </td>
         <td class="mono" data-col="price">${formatMoney(line.spacerPricePerM2)}</td>
         <td class="mono" data-col="price">${formatMoney(line.unitPricePerM2)}</td>
         <td class="mono" data-col="price">${formatMoney(line.lineTotal)}</td>
@@ -5683,6 +5705,7 @@ function renderInvoiceDetail(){
         <th>Qty</th>
         <th>Area (m²)</th>
         <th>Glass / m²</th>
+        <th>Spacer type</th>
         <th>Spacer / m²</th>
         <th>Unit / m²</th>
         <th>Line total</th>
@@ -7006,33 +7029,49 @@ if (invoiceJobsWrap){
 if (invoiceLinesWrap){
   invoiceLinesWrap.addEventListener("change", event=>{
     const typeInput = event.target.closest("input[data-type-edit]");
-    if (!typeInput) return;
-    const idx = Number(typeInput.dataset.typeEdit);
+    const spacerKindSelect = event.target.closest("select[data-spacer-kind]");
+    if (!typeInput && !spacerKindSelect) return;
+    const idx = Number((typeInput || spacerKindSelect).dataset.typeEdit || (typeInput || spacerKindSelect).dataset.spacerKind);
     if (!Number.isFinite(idx)) return;
     const job = getActiveInvoiceJob();
     if (!job || !Array.isArray(job.rows)) return;
-    const newType = String(typeInput.value || "").trim();
-    // Update grouped line and propagate to raw rows
     const rawRows = ensureInvoiceRawRows(job);
     const lines = Array.isArray(job.calculated?.lines) ? job.calculated.lines : [];
     const line = lines.find(l => l.index === idx);
-    if (line){
-      line.type = newType;
-      line.displayType = newType;
-      line.normalizedType = normalizeGlassKey(newType) || newType.toLowerCase();
-      if (Array.isArray(line.rawIndexes)){
-        line.rawIndexes.forEach(i=>{
-          if (rawRows[i]){
-            rawRows[i].type = newType;
-          }
-        });
+
+    if (typeInput){
+      const newType = String(typeInput.value || "").trim();
+      if (line){
+        line.type = newType;
+        line.displayType = newType;
+        line.normalizedType = normalizeGlassKey(newType) || newType.toLowerCase();
+        if (Array.isArray(line.rawIndexes)){
+          line.rawIndexes.forEach(i=>{
+            if (rawRows[i]){
+              rawRows[i].type = newType;
+            }
+          });
+        }
+      }else{
+        const rowIndex = idx - 1;
+        if (rowIndex >= 0 && rowIndex < rawRows.length){
+          rawRows[rowIndex].type = newType;
+        }
       }
-    }else{
-      const rowIndex = idx - 1;
-      if (rowIndex >= 0 && rowIndex < rawRows.length){
-        rawRows[rowIndex].type = newType;
+    }else if (spacerKindSelect){
+      const kindValue = spacerKindSelect.value === "thermal" ? "thermal" : "normal";
+      if (line){
+        line.spacerKind = kindValue;
+        if (Array.isArray(line.rawIndexes)){
+          line.rawIndexes.forEach(i=>{
+            if (rawRows[i]){
+              rawRows[i].spacerKind = kindValue;
+            }
+          });
+        }
       }
     }
+
     job.rows = rawRows;
     recalcInvoiceJob(job, { allowPrompt: true });
     saveInvoiceJobs();
