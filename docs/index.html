@@ -4828,7 +4828,7 @@ function collectOrderNumbers(rows){
 
 // --- Invoice helpers -------------------------------------------------------
 function normalizeGlassKey(raw){
-  const str = (raw == null ? "" : String(raw)).toLowerCase().trim();
+  const str = (raw == null ? "" : String(raw)).toLowerCase().trim().replace(/^\s*\d+\s*vetri?\s*/i, "").replace(/\bvetri?\b/gi, "");
   if (!str) return "";
   const collapsed = str.replace(/\s+/g, " ");
   return collapsed.replace(/\s+/g, "");
@@ -5047,7 +5047,7 @@ function parseInvoiceOrderNumbers(order){
 
 function tokenizeComposition(typeString){
   const raw = String(typeString || "");
-  const compact = raw.replace(/\s+/g, " ").trim();
+  const compact = raw.replace(/^\s*\d+\s*vetri?\s*/i, "").replace(/\s+/g, " ").trim();
   const firstDigitIdx = compact.search(/\d/);
   const core = firstDigitIdx >= 0 ? compact.slice(firstDigitIdx) : compact;
   const withoutMm = core.replace(/\b\d+\s*mm\b/gi, "").replace(/\bmm\b/gi, "");
@@ -5067,6 +5067,8 @@ function parseGlassPanes(typeString){
     if (Number.isFinite(numeric)){
       return; // spacer token
     }
+    const norm = normalizeGlassKey(token);
+    if (!norm || norm.includes("vetri")) return;
     panes.push(token);
   });
   return panes.length ? panes : tokens;
@@ -5103,11 +5105,11 @@ function parseInvoiceComposition(typeString){
     const normalizedGlass = normalizeGlassKey(token);
     if (Number.isFinite(numeric)){
       spacerThicknesses.push(numeric);
-    }else if (normalizedGlass && glassTable.hasOwnProperty(normalizedGlass)){
+    }else if (normalizedGlass && normalizedGlass.length && !normalizedGlass.includes("vetri")){
       panes.push(token);
-    }else{
-      // treat as glass even if unknown to trigger missing price
-      panes.push(token);
+      if (!glassTable.hasOwnProperty(normalizedGlass)){
+        // will trigger missing price prompt via lookup later
+      }
     }
   });
   return {
