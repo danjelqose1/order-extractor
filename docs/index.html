@@ -5258,6 +5258,7 @@ function mapInvoiceRow(row){
     return computeRowArea(row);
   })();
   return {
+    rawType: originalType || null,
     type,
     dimension,
     position,
@@ -5518,6 +5519,7 @@ function buildInvoiceLinesFromRaw(rawRows, options = {}){
   (rawRows || []).forEach((row, idx)=>{
     if (!row || typeof row !== "object") return;
     const originalTypeText = String(row.type || "").trim();
+    const rawOriginal = row.rawType != null ? String(row.rawType) : null;
     const correctedTypeText = applyTypeCorrections(originalTypeText);
     if (row.type !== correctedTypeText){
       row.type = correctedTypeText;
@@ -5532,9 +5534,13 @@ function buildInvoiceLinesFromRaw(rawRows, options = {}){
         area: 0,
         rawIndexes: [],
         spacerKind: row.spacerKind || null,
+        rawType: rawOriginal && rawOriginal.trim() ? rawOriginal : null,
       });
     }
     const group = groups.get(key);
+    if (!group.rawType && rawOriginal && rawOriginal.trim()){
+      group.rawType = rawOriginal;
+    }
     if (!group.spacerKind && row.spacerKind){
       group.spacerKind = row.spacerKind;
     }
@@ -5613,6 +5619,7 @@ function computeInvoiceLineFromGroup(group, index, options = {}){
     lineAreaTotal: group.area,
     rawIndexes: group.rawIndexes || [],
     missing: lineMissing,
+    rawType: group.rawType || null,
   };
 }
 
@@ -5687,6 +5694,25 @@ function applyInvoiceFilters(jobs){
     const statusMatch = !statusFilter || (job.status || "").toLowerCase() === statusFilter;
     return clientMatch && orderMatch && statusMatch;
   });
+}
+
+function findNextDraftInvoice(currentId){
+  const filtered = applyInvoiceFilters(appState.invoices.jobs || []);
+  if (!filtered.length) return null;
+  const drafts = filtered.filter(job => (job.status || "").toLowerCase() !== "finalized");
+  if (!drafts.length) return null;
+  const startIndex = filtered.findIndex(job => job.id === currentId);
+  if (startIndex >= 0){
+    for (let i = startIndex + 1; i < filtered.length; i += 1){
+      const job = filtered[i];
+      if ((job.status || "").toLowerCase() !== "finalized") return job;
+    }
+    for (let i = 0; i <= startIndex; i += 1){
+      const job = filtered[i];
+      if ((job.status || "").toLowerCase() !== "finalized") return job;
+    }
+  }
+  return drafts[0] || null;
 }
 
 function renderInvoiceJobs(){
@@ -5801,6 +5827,7 @@ function renderInvoiceDetail(){
         <td>${line.index}</td>
         <td data-col="type">
           <input type="text" data-type-edit="${line.index}" value="${escapeHtml(line.type || "")}" style="width:100%" />
+          ${line.rawType ? `<div class="muted small" style="margin-top:4px">Original: ${escapeHtml(line.rawType)}</div>` : ""}
           ${missingBadge}
         </td>
         <td>${Number(line.quantity || 0)}</td>
@@ -7398,8 +7425,15 @@ if (invoiceStatusSelect){
     ensureInvoicesLoaded();
     const job = getActiveInvoiceJob();
     if (!job) return;
-    job.status = event.target.value === "finalized" ? "finalized" : "draft";
+    const newStatus = event.target.value === "finalized" ? "finalized" : "draft";
+    job.status = newStatus;
     saveInvoiceJobs();
+    if (newStatus === "finalized"){
+      const nextDraft = findNextDraftInvoice(job.id);
+      if (nextDraft){
+        appState.invoices.activeJobId = nextDraft.id;
+      }
+    }
     updateInvoicesUI();
   });
 }
