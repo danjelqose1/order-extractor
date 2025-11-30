@@ -5168,6 +5168,24 @@ function tokenizeComposition(typeString){
   return tokens;
 }
 
+function stripThermalDescriptors(token){
+  return String(token || "")
+    .replace(/\b(termico|caldo|c\.?caldo)\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeGlassToken(token, opts = {}){
+  const { forcePane = false } = opts;
+  let cleaned = stripThermalDescriptors(token);
+  if (!cleaned) return "";
+  const numericOnly = /^\d+(?:[.,]\d+)?$/.test(cleaned);
+  if (numericOnly && forcePane){
+    cleaned = `${cleaned}F`;
+  }
+  return cleaned;
+}
+
 function parseGlassPanes(typeString){
   const tokens = tokenizeComposition(typeString);
   if (!tokens.length){
@@ -5175,14 +5193,17 @@ function parseGlassPanes(typeString){
   }
   const panes = [];
   tokens.forEach(token=>{
-    const numericCandidate = token.replace(/\s+/g, "");
+    const hasThermalWord = /\b(termico|caldo|c\.?caldo)\b/i.test(token);
+    const cleanedToken = normalizeGlassToken(token, { forcePane: hasThermalWord });
+    if (!cleanedToken) return;
+    const numericCandidate = cleanedToken.replace(/\s+/g, "");
     const numeric = Number(numericCandidate.replace(",", "."));
-    if (Number.isFinite(numeric)){
+    if (Number.isFinite(numeric) && !hasThermalWord){
       return; // spacer token
     }
-    const norm = normalizeGlassKey(token);
+    const norm = normalizeGlassKey(cleanedToken);
     if (!norm || norm.includes("vetri")) return;
-    panes.push(token);
+    panes.push(cleanedToken);
   });
   return panes.length ? panes : tokens;
 }
@@ -5213,13 +5234,16 @@ function parseInvoiceComposition(typeString){
   const spacerThicknesses = [];
   const glassTable = appState?.invoices?.priceLists?.glass || {};
   tokens.forEach(token=>{
-    const numericCandidate = token.replace(/\s+/g, "");
+    const hasThermalWord = /\b(termico|caldo|c\.?caldo)\b/i.test(token);
+    const cleanedToken = normalizeGlassToken(token, { forcePane: hasThermalWord });
+    if (!cleanedToken) return;
+    const numericCandidate = cleanedToken.replace(/\s+/g, "");
     const numeric = Number(numericCandidate.replace(",", "."));
-    const normalizedGlass = normalizeGlassKey(token);
-    if (Number.isFinite(numeric)){
+    const normalizedGlass = normalizeGlassKey(cleanedToken);
+    if (Number.isFinite(numeric) && !hasThermalWord){
       spacerThicknesses.push(numeric);
     }else if (normalizedGlass && normalizedGlass.length && !normalizedGlass.includes("vetri")){
-      panes.push(token);
+      panes.push(cleanedToken);
       if (!glassTable.hasOwnProperty(normalizedGlass)){
         // will trigger missing price prompt via lookup later
       }
