@@ -5045,50 +5045,41 @@ function parseInvoiceOrderNumbers(order){
   return fallback ? [fallback] : [];
 }
 
+function tokenizeComposition(typeString){
+  const raw = String(typeString || "");
+  const compact = raw.replace(/\s+/g, " ").trim();
+  const firstDigitIdx = compact.search(/\d/);
+  const core = firstDigitIdx >= 0 ? compact.slice(firstDigitIdx) : compact;
+  const withoutMm = core.replace(/\b\d+\s*mm\b/gi, "").replace(/\bmm\b/gi, "");
+  const tokens = withoutMm.split("+").map(t => t.trim()).filter(Boolean);
+  return tokens;
+}
+
 function parseGlassPanes(typeString){
-  const cleaned = (typeString || "").replace(/\b\d{1,3}\s*mm\b/gi, "").trim();
-  if (!cleaned) return [];
-  const parts = cleaned.split("+").map(p => p.trim()).filter(Boolean);
-  if (!parts.length) return [cleaned];
+  const tokens = tokenizeComposition(typeString);
+  if (!tokens.length){
+    return [];
+  }
   const panes = [];
-  parts.forEach((part, idx)=>{
-    let token = part.replace(/\b\d+\s*vetri\b/gi, "").trim();
-    const numericOnly = /^[\d.,\s]+$/.test(token);
-    const looksSpacer = numericOnly && idx > 0 && idx < parts.length - 1;
-    if (looksSpacer) return;
-    if (!token && !looksSpacer && (idx === 0 || idx === parts.length - 1)){
-      token = part.trim();
+  tokens.forEach(token=>{
+    const numericCandidate = token.replace(/\s+/g, "");
+    const numeric = Number(numericCandidate.replace(",", "."));
+    if (Number.isFinite(numeric)){
+      return; // spacer token
     }
-    if (token){
-      panes.push(token);
-    }
+    panes.push(token);
   });
-  return panes.length ? panes : [cleaned];
+  return panes.length ? panes : tokens;
 }
 
 function getSpacerThickness(typeString){
-  const raw = (typeString || "").replace(",", ".");
-  const between = raw.match(/\+(\d{1,2}(?:\.\d+)?)\+/);
-  if (between && between[1]){
-    const val = Number(between[1]);
-    if (Number.isFinite(val)) return val;
-  }
-  const parts = raw.split("+").map(p => p.trim()).filter(Boolean);
-  if (parts.length >= 3){
-    const centerIndex = Math.floor(parts.length / 2);
-    const candidates = [parts[1], parts[centerIndex]].filter(Boolean);
-    for (const candidate of candidates){
-      const match = candidate.match(/^(\d{1,2}(?:\.\d+)?)/);
-      if (match && match[1]){
-        const val = Number(match[1]);
-        if (Number.isFinite(val)) return val;
-      }
+  const tokens = tokenizeComposition(typeString);
+  for (const token of tokens){
+    const numericCandidate = token.replace(/\s+/g, "");
+    const numeric = Number(numericCandidate.replace(",", "."));
+    if (Number.isFinite(numeric)){
+      return numeric;
     }
-  }
-  const mmMatch = raw.match(/\b(\d{1,2}(?:\.\d+)?)\s*mm\b/i);
-  if (mmMatch && mmMatch[1]){
-    const val = Number(mmMatch[1]);
-    if (Number.isFinite(val)) return val;
   }
   return null;
 }
@@ -5102,9 +5093,26 @@ function getSpacerKind(typeString){
 }
 
 function parseInvoiceComposition(typeString){
+  const tokens = tokenizeComposition(typeString);
+  const panes = [];
+  const spacerThicknesses = [];
+  const glassTable = appState?.invoices?.priceLists?.glass || {};
+  tokens.forEach(token=>{
+    const numericCandidate = token.replace(/\s+/g, "");
+    const numeric = Number(numericCandidate.replace(",", "."));
+    const normalizedGlass = normalizeGlassKey(token);
+    if (Number.isFinite(numeric)){
+      spacerThicknesses.push(numeric);
+    }else if (normalizedGlass && glassTable.hasOwnProperty(normalizedGlass)){
+      panes.push(token);
+    }else{
+      // treat as glass even if unknown to trigger missing price
+      panes.push(token);
+    }
+  });
   return {
-    panes: parseGlassPanes(typeString),
-    spacerThickness: getSpacerThickness(typeString),
+    panes,
+    spacerThicknesses,
     spacerKind: getSpacerKind(typeString),
   };
 }
@@ -5431,19 +5439,26 @@ function computeInvoiceLineFromGroup(group, index, options = {}){
       glassPricePerM2 += Number(price);
     }
   });
-  const spacer = getSpacerPrice(composition.spacerThickness, composition.spacerKind);
-  if (spacer.missing){
-    lineMissing = lineMissing || { type: "spacer", details: spacer.missing };
-    if (promptAllowedForJob){
-      enqueueInvoicePrompt({
-        kind: "spacer",
-        thickness: composition.spacerThickness,
-        kind: composition.spacerKind,
-        description: `Spacer ${composition.spacerThickness ?? "?"}mm (${composition.spacerKind || "normal"})`,
-      });
+  let spacerPricePerM2 = 0;
+  const spacerKind = composition.spacerKind;
+  const thicknesses = Array.isArray(composition.spacerThicknesses) && composition.spacerThicknesses.length
+    ? composition.spacerThicknesses
+    : [];
+  thicknesses.forEach(th=>{
+    const spacer = getSpacerPrice(th, spacerKind);
+    if (spacer.missing){
+      lineMissing = lineMissing || { type: "spacer", details: spacer.missing };
+      if (promptAllowedForJob){
+        enqueueInvoicePrompt({
+          kind: "spacer",
+          thickness: th,
+          kind: spacerKind,
+          description: `Spacer ${th ?? "?"}mm (${spacerKind || "normal"})`,
+        });
+      }
     }
-  }
-  const spacerPricePerM2 = spacer.price || 0;
+    spacerPricePerM2 += spacer.price || 0;
+  });
   const unitPricePerM2 = glassPricePerM2 + spacerPricePerM2;
   const lineTotal = unitPricePerM2 * group.area;
   return {
