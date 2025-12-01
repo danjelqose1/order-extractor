@@ -44,6 +44,7 @@ load_dotenv(ENV_PATH, override=True)
 # Data/config paths
 DATA_DIR = Path(os.getenv("DB_DIR", "data"))
 PRICE_CONFIG_PATH = DATA_DIR / "price-config.json"
+INVOICES_PATH = DATA_DIR / "invoices.json"
 
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "*")
 APP_KEY = os.getenv("APP_KEY")  # optional shared secret
@@ -189,6 +190,31 @@ def _save_price_config(config: Dict[str, Any]) -> Dict[str, Any]:
     sanitized = _coerce_price_config(config)
     PRICE_CONFIG_PATH.write_text(json.dumps(sanitized, ensure_ascii=False, indent=2))
     return sanitized
+
+
+def _load_invoices() -> Dict[str, Any]:
+    if INVOICES_PATH.exists():
+        try:
+            data = json.loads(INVOICES_PATH.read_text())
+            if isinstance(data, dict):
+                jobs = data.get("jobs")
+                if isinstance(jobs, list):
+                    return {"jobs": jobs}
+        except Exception as exc:
+            print(f"[invoices] failed to read invoices: {exc}")
+    return {"jobs": []}
+
+
+def _save_invoices(data: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(data, dict):
+        raise ValueError("Invoices payload must be an object.")
+    jobs = data.get("jobs")
+    if not isinstance(jobs, list):
+        raise ValueError("jobs must be a list.")
+    INVOICES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"jobs": jobs}
+    INVOICES_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2))
+    return payload
 
 app = FastAPI(title="LLM Order Extractor (Local)", version="1.0.0")
 
@@ -420,6 +446,48 @@ def save_price_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to save pricing config: {exc}") from exc
     return saved
+
+
+# Invoice jobs now persist on the server (shared across devices)
+@app.get("/api/invoices")
+def get_invoices() -> Dict[str, Any]:
+    return _load_invoices()
+
+
+@app.post("/api/invoices")
+def save_invoices(payload: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Payload must be a JSON object.")
+    if not isinstance(payload.get("jobs"), list):
+        raise HTTPException(status_code=400, detail="jobs must be a list.")
+    try:
+        _save_invoices({"jobs": payload["jobs"]})
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to save invoices: {exc}") from exc
+    return {"ok": True}
+
+
+@app.delete("/api/invoices/{invoice_id}")
+def delete_invoice(invoice_id: str) -> Dict[str, Any]:
+    data = _load_invoices()
+    jobs = data.get("jobs") if isinstance(data, dict) else []
+    remaining = []
+    deleted = False
+    if isinstance(jobs, list):
+        for job in jobs:
+            try:
+                job_id = job.get("id")
+            except Exception:
+                job_id = None
+            if str(job_id) == str(invoice_id):
+                deleted = True
+                continue
+            remaining.append(job)
+    try:
+        _save_invoices({"jobs": remaining})
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to delete invoice: {exc}") from exc
+    return {"ok": True, "deleted": deleted}
 
 
 @app.get("/healthz")
