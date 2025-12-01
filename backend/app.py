@@ -1,5 +1,5 @@
 from __future__ import annotations
-import csv, hashlib, json, os
+import csv, hashlib, json, os, re
 from copy import deepcopy
 from datetime import datetime
 from io import StringIO
@@ -41,6 +41,10 @@ from prompts import PROMPTS
 ENV_PATH = Path(__file__).parent / ".env"
 load_dotenv(ENV_PATH, override=True)
 
+# Data/config paths
+DATA_DIR = Path(os.getenv("DB_DIR", "data"))
+PRICE_CONFIG_PATH = DATA_DIR / "price-config.json"
+
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "*")
 APP_KEY = os.getenv("APP_KEY")  # optional shared secret
 
@@ -55,6 +59,136 @@ ANALYSIS_STYLE_PROMPT = PROMPTS["analysis"].get("style", "")
 ANALYSIS_MAX_TURNS = 7
 
 analysis_memory: Dict[str, Dict[str, Any]] = {}
+
+# Invoice price config defaults (mirrors frontend defaults)
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _normalize_glass_key(raw: Any) -> str:
+    text = "" if raw is None else str(raw).lower().strip()
+    if not text:
+        return ""
+    text = re.sub(r"^\s*\d+\s*vetri?\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bvetri?\b", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s+", " ", text)
+    return re.sub(r"\s+", "", text)
+
+
+DEFAULT_GLASS_PRICES: Dict[str, float] = {
+    _normalize_glass_key("4F"): 1000,
+    _normalize_glass_key("4 Satinato"): 1800,
+    _normalize_glass_key("4 LowE"): 2000,
+    _normalize_glass_key("33.1F"): 2500,
+    _normalize_glass_key("33.1 Satinato"): 3500,
+    _normalize_glass_key("33.1 LowE"): 3700,
+}
+
+DEFAULT_SPACER_PRICES: Dict[Any, Dict[str, float]] = {
+    6: {"normal": 500, "thermal": 1000},
+    9: {"normal": 500, "thermal": 1000},
+    10: {"normal": 500, "thermal": 1000},
+    12: {"normal": 500, "thermal": 1000},
+    14: {"normal": 600, "thermal": 1100},
+    16: {"normal": 700, "thermal": 1200},
+    18: {"normal": 800, "thermal": 1300},
+    20: {"normal": 900, "thermal": 1400},
+    22: {"normal": 1000, "thermal": 1500},
+    24: {"normal": 1100, "thermal": 1600},
+}
+
+
+def _default_price_config() -> Dict[str, Any]:
+    return {
+        "glassPrices": dict(DEFAULT_GLASS_PRICES),
+        "spacerPrices": {k: dict(v) for k, v in DEFAULT_SPACER_PRICES.items()},
+        "typeCorrections": [],
+    }
+
+
+def _sanitize_glass_prices(payload: Any) -> Dict[str, float]:
+    prices = dict(DEFAULT_GLASS_PRICES)
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            norm_key = _normalize_glass_key(key)
+            try:
+                price_val = float(value)
+            except (TypeError, ValueError):
+                continue
+            if not norm_key or not (price_val == price_val):  # filter NaN
+                continue
+            prices[norm_key] = price_val
+    return prices
+
+
+def _sanitize_spacer_prices(payload: Any) -> Dict[Any, Dict[str, float]]:
+    prices = {k: dict(v) for k, v in DEFAULT_SPACER_PRICES.items()}
+    if isinstance(payload, dict):
+        for thickness, entry in payload.items():
+            try:
+                thickness_num = int(thickness)
+            except (TypeError, ValueError):
+                continue
+            baseline = prices.get(thickness_num, {})
+            if isinstance(entry, dict):
+                normal = entry.get("normal")
+                thermal = entry.get("thermal")
+                try:
+                    normal_val = float(normal) if normal is not None else None
+                except (TypeError, ValueError):
+                    normal_val = None
+                try:
+                    thermal_val = float(thermal) if thermal is not None else None
+                except (TypeError, ValueError):
+                    thermal_val = None
+                if normal_val is None and thermal_val is None and thickness_num not in prices:
+                    continue
+                prices[thickness_num] = {
+                    "normal": normal_val if normal_val is not None else baseline.get("normal"),
+                    "thermal": thermal_val if thermal_val is not None else baseline.get("thermal"),
+                }
+    return prices
+
+
+def _sanitize_type_corrections(payload: Any) -> List[Dict[str, str]]:
+    output: List[Dict[str, str]] = []
+    if isinstance(payload, list):
+        for entry in payload:
+            if not isinstance(entry, dict):
+                continue
+            raw = (entry.get("raw") or "").strip()
+            corrected = (entry.get("corrected") or "").strip()
+            if raw and corrected:
+                output.append({"raw": raw, "corrected": corrected})
+    return output
+
+
+def _coerce_price_config(payload: Any) -> Dict[str, Any]:
+    glass_prices = _sanitize_glass_prices((payload or {}).get("glassPrices") if isinstance(payload, dict) else None)
+    spacer_prices = _sanitize_spacer_prices((payload or {}).get("spacerPrices") if isinstance(payload, dict) else None)
+    type_corrections = _sanitize_type_corrections((payload or {}).get("typeCorrections") if isinstance(payload, dict) else None)
+    return {
+        "glassPrices": glass_prices,
+        "spacerPrices": spacer_prices,
+        "typeCorrections": type_corrections,
+    }
+
+
+def _load_price_config() -> Dict[str, Any]:
+    if PRICE_CONFIG_PATH.exists():
+        try:
+            data = json.loads(PRICE_CONFIG_PATH.read_text())
+            if isinstance(data, dict):
+                return _coerce_price_config(data)
+        except Exception as exc:
+            print(f"[prices] failed to read price config: {exc}")
+    return _default_price_config()
+
+
+def _save_price_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    PRICE_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    sanitized = _coerce_price_config(config)
+    PRICE_CONFIG_PATH.write_text(json.dumps(sanitized, ensure_ascii=False, indent=2))
+    return sanitized
 
 app = FastAPI(title="LLM Order Extractor (Local)", version="1.0.0")
 
@@ -72,14 +206,11 @@ else:
         "http://127.0.0.1:5500",                       # Local frontend (Python http.server)
         "null",                                        # file:// origin for local testing
     ]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://danjelqose1.github.io",   # your frontend
-        "https://order-extractor-kdih.onrender.com",
-        "http://127.0.0.1:5055",
-        "http://localhost:5055",
-    ],
+    allow_origins=_ALLOWED_ORIGINS,
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -272,6 +403,24 @@ def _prepare_analysis_dataset(dataset: Dict[str, Any], max_chars: int) -> Tuple[
 
 
 init_db()
+
+
+# Invoice pricing/type corrections now persist on the server (shared across devices)
+@app.get("/api/prices")
+def get_price_config() -> Dict[str, Any]:
+    return _load_price_config()
+
+
+@app.post("/api/prices")
+def save_price_config(payload: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Payload must be a JSON object.")
+    try:
+        saved = _save_price_config(payload)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to save pricing config: {exc}") from exc
+    return saved
+
 
 @app.get("/healthz")
 def healthz():
