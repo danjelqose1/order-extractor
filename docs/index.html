@@ -5045,6 +5045,8 @@ const invoiceRuntime = {
   extraSpacerRows: 1,
   currentMissing: null,
   configPromise: null,
+  jobsPromise: null,
+  jobsLoaded: false,
 };
 
 function groupInvoiceLinesByType(lines){
@@ -5169,7 +5171,6 @@ function applyInvoiceConfigToState(config, { cacheLocal = true, preferExistingTy
   }
   if (invoiceRuntime.initialized){
     recalcAllInvoices({ allowPrompt: false });
-    saveInvoiceJobs();
     updateInvoicesUI();
   }
   return {
@@ -5227,7 +5228,35 @@ async function syncInvoiceConfigFromServer({ silent = false } = {}){
   return invoiceRuntime.configPromise;
 }
 
-function loadInvoiceJobs(){
+function normalizeInvoiceJob(job){
+  if (!job || typeof job !== "object") return null;
+  const orderNumbers = Array.isArray(job.orderNumbers)
+    ? job.orderNumbers.map(v => String(v || "").trim()).filter(Boolean)
+    : [];
+  const rows = Array.isArray(job.rows) ? job.rows.map(r => ({ ...r })) : [];
+  const rawRows = Array.isArray(job.rawRows) ? job.rawRows.map(r => ({ ...r })) : (rows.length ? rows.map(r => ({ ...r })) : []);
+  const id = job.id || `inv-${Date.now()}`;
+  return {
+    ...job,
+    id,
+    key: job.key || normalizeOrderKey(orderNumbers, id),
+    orderNumbers,
+    rows,
+    rawRows,
+    status: (job.status || "draft").toLowerCase() === "finalized" ? "finalized" : "draft",
+    discountMode: job.discountMode === "absolute" ? "absolute" : "percent",
+    discountValue: Number(job.discountValue || 0) || 0,
+    vatRate: Number(job.vatRate || 0) || 0,
+    createdAt: job.createdAt || job.created_at || new Date().toISOString(),
+  };
+}
+
+function normalizeInvoiceJobs(jobs){
+  if (!Array.isArray(jobs)) return [];
+  return jobs.map(normalizeInvoiceJob).filter(Boolean);
+}
+
+function loadLegacyInvoiceJobs(){
   let stored = [];
   try{
     const raw = localStorage.getItem(INVOICE_JOBS_KEY);
@@ -5236,36 +5265,94 @@ function loadInvoiceJobs(){
     stored = [];
   }
   if (!Array.isArray(stored)) stored = [];
-  appState.invoices.jobs = stored.map(job => ({
-    ...job,
-    key: job.key || normalizeOrderKey(job.orderNumbers || [], job.id),
-    rows: Array.isArray(job.rows) ? job.rows : [],
-    status: (job.status || "draft").toLowerCase() === "finalized" ? "finalized" : "draft",
-    discountMode: job.discountMode === "absolute" ? "absolute" : "percent",
-    discountValue: Number(job.discountValue || 0) || 0,
-    vatRate: Number(job.vatRate || 0) || 0,
-  }));
+  return normalizeInvoiceJobs(stored);
 }
 
-function saveInvoiceJobs(){
+function clearLegacyInvoiceJobs(){
   try{
-    const serialized = appState.invoices.jobs.map(job => {
-      const { calculated, ...rest } = job;
-      return rest;
-    });
-    localStorage.setItem(INVOICE_JOBS_KEY, JSON.stringify(serialized));
+    localStorage.removeItem(INVOICE_JOBS_KEY);
   }catch{/* ignore */}
+}
+
+async function fetchInvoiceJobsFromServer(){
+  const res = await fetch(API_BASE + "/api/invoices");
+  if (!res.ok){
+    const text = await res.text().catch(()=> "");
+    throw new Error(text || `Server responded with ${res.status}`);
+  }
+  const data = await res.json();
+  return normalizeInvoiceJobs((data && data.jobs) || []);
+}
+
+async function ensureInvoiceJobsLoaded(){
+  if (invoiceRuntime.jobsLoaded) return appState.invoices.jobs;
+  if (invoiceRuntime.jobsPromise) return invoiceRuntime.jobsPromise;
+  invoiceRuntime.jobsPromise = (async ()=>{
+    let jobs = [];
+    try{
+      jobs = await fetchInvoiceJobsFromServer();
+    }catch(error){
+      console.warn("Failed to fetch invoices from server", error);
+    }
+    if (!jobs.length){
+      const legacy = loadLegacyInvoiceJobs();
+      if (legacy.length){
+        const migrated = await saveInvoiceJobs(legacy);
+        if (migrated){
+          clearLegacyInvoiceJobs();
+        }
+        jobs = legacy;
+      }
+    }
+    appState.invoices.jobs = normalizeInvoiceJobs(jobs);
+    appState.invoices.jobs.forEach(job => recalcInvoiceJob(job, { allowPrompt: false }));
+    invoiceRuntime.jobsLoaded = true;
+    updateInvoicesUI();
+    return appState.invoices.jobs;
+  })();
+  try{
+    return await invoiceRuntime.jobsPromise;
+  }finally{
+    invoiceRuntime.jobsPromise = null;
+  }
+}
+
+// Invoice jobs now sync to the server (Render disk) instead of localStorage
+async function saveInvoiceJobs(jobsOverride){
+  const normalized = normalizeInvoiceJobs(jobsOverride || appState.invoices.jobs);
+  appState.invoices.jobs = normalized;
+  const serialized = normalized.map(job => {
+    const { calculated, ...rest } = job;
+    return rest;
+  });
+  try{
+    const res = await fetch(API_BASE + "/api/invoices", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jobs: serialized }),
+    });
+    if (!res.ok){
+      const text = await res.text().catch(()=> "");
+      throw new Error(text || `Server responded with ${res.status}`);
+    }
+    invoiceRuntime.jobsLoaded = true;
+    return true;
+  }catch(error){
+    console.warn("Failed to save invoices to server", error);
+    setInvoiceStatus("Could not sync invoices. Changes are kept in this session.");
+    invoiceRuntime.jobsLoaded = true;
+    return false;
+  }
 }
 
 function ensureInvoicesLoaded(){
   if (invoiceRuntime.initialized) return;
   TYPE_CORRECTIONS = loadTypeCorrections();
   loadInvoicePrices();
-  loadInvoiceJobs();
   loadInvoiceCounter();
-  appState.invoices.jobs.forEach(job => recalcInvoiceJob(job, { allowPrompt: false }));
   invoiceRuntime.initialized = true;
   syncInvoiceConfigFromServer({ silent: true });
+  ensureInvoiceJobsLoaded();
 }
 
 function setInvoiceStatus(msg){
@@ -5454,9 +5541,10 @@ function buildInvoiceJobFromOrder(order){
   };
 }
 
-function addInvoiceJobFromOrder(order){
+async function addInvoiceJobFromOrder(order){
   if (!order) return null;
   ensureInvoicesLoaded();
+  await ensureInvoiceJobsLoaded();
   const job = buildInvoiceJobFromOrder(order);
   if (!job.rows.length){
     setInvoiceStatus("Order has no rows to invoice.");
@@ -5478,7 +5566,7 @@ function addInvoiceJobFromOrder(order){
     recalcInvoiceJob(job, { allowPrompt: true });
     appState.invoices.jobs.unshift(job);
   }
-  saveInvoiceJobs();
+  await saveInvoiceJobs();
   updateInvoicesUI();
   setInvoiceStatus("Invoice job updated from History.");
   return job;
@@ -5570,6 +5658,7 @@ function hideInvoicePrompt(){
 }
 
 async function handleInvoicePromptSave(){
+  await ensureInvoiceJobsLoaded();
   const payload = invoiceRuntime.currentMissing;
   if (!payload){
     console.warn("Invoice prompt save with no payload");
@@ -5616,7 +5705,7 @@ async function handleInvoicePromptSave(){
   if (job){
     recalcInvoiceJob(job, { allowPrompt: true });
   }
-  saveInvoiceJobs();
+  await saveInvoiceJobs();
   renderInvoicePriceEditor();
   updateInvoiceSummary();
   updateInvoicesUI();
@@ -6203,14 +6292,15 @@ async function savePricesFromEditor(){
   }
 }
 
-function deleteInvoiceJob(id){
+async function deleteInvoiceJob(id){
+  await ensureInvoiceJobsLoaded();
   const idx = appState.invoices.jobs.findIndex(job => job.id === id);
   if (idx < 0) return;
   appState.invoices.jobs.splice(idx, 1);
   if (appState.invoices.activeJobId === id){
     appState.invoices.activeJobId = null;
   }
-  saveInvoiceJobs();
+  await saveInvoiceJobs();
   updateInvoicesUI();
   setInvoiceStatus("Invoice job deleted.");
 }
@@ -6222,6 +6312,7 @@ function setInvoiceFilters(filters){
 
 async function generateInvoicePdf(job){
   if (!job) throw new Error("No invoice selected");
+  await ensureInvoiceJobsLoaded();
   const calc = job.calculated || recalcInvoiceJob(job, { allowPrompt: false });
   if (calc?.missing){
     throw new Error("Cannot generate PDF: missing prices");
@@ -6349,7 +6440,7 @@ async function generateInvoicePdf(job){
     y -= lineHeight;
   });
 
-  saveInvoiceJobs();
+  await saveInvoiceJobs();
   const pdfBytes = await doc.save();
   const blob = new Blob([pdfBytes], { type: "application/pdf" });
   const url = URL.createObjectURL(blob);
@@ -7038,7 +7129,7 @@ document.getElementById("historyListWrap").addEventListener("click", async (even
     try{
       ensureInvoicesLoaded();
       const order = await fetchOrder(id);
-      const job = addInvoiceJobFromOrder(order);
+      const job = await addInvoiceJobFromOrder(order);
       if (job){
         setHistoryStatus("Invoice job added. Check the Invoices tab to review.");
       }
@@ -7435,6 +7526,7 @@ if (invoiceJobsWrap){
     const btn = event.target.closest("[data-invoice-action]");
     if (!btn) return;
     ensureInvoicesLoaded();
+    await ensureInvoiceJobsLoaded();
     const action = btn.dataset.invoiceAction;
     const id = btn.dataset.id;
     if (!action || !id) return;
@@ -7452,13 +7544,15 @@ if (invoiceJobsWrap){
       }
     }else if (action === "delete"){
       if (!confirm("Delete this invoice job?")) return;
-      deleteInvoiceJob(id);
+      await deleteInvoiceJob(id);
     }
   });
 }
 
 if (invoiceLinesWrap){
-  invoiceLinesWrap.addEventListener("change", event=>{
+  invoiceLinesWrap.addEventListener("change", async event=>{
+    ensureInvoicesLoaded();
+    await ensureInvoiceJobsLoaded();
     const typeInput = event.target.closest("input[data-type-edit]");
     const spacerKindSelect = event.target.closest("select[data-spacer-kind]");
     if (!typeInput && !spacerKindSelect) return;
@@ -7510,18 +7604,19 @@ if (invoiceLinesWrap){
 
     job.rows = rawRows;
     recalcInvoiceJob(job, { allowPrompt: true });
-    saveInvoiceJobs();
+    await saveInvoiceJobs();
     updateInvoicesUI();
   });
 }
 
 if (invoiceRecalcBtn){
-  invoiceRecalcBtn.addEventListener("click", ()=>{
+  invoiceRecalcBtn.addEventListener("click", async ()=>{
     ensureInvoicesLoaded();
+    await ensureInvoiceJobsLoaded();
     const job = getActiveInvoiceJob();
     if (!job) return;
     recalcInvoiceJob(job, { allowPrompt: true });
-    saveInvoiceJobs();
+    await saveInvoiceJobs();
     updateInvoicesUI();
     setInvoiceStatus("Invoice recalculated.");
   });
@@ -7542,59 +7637,64 @@ if (invoiceGeneratePdfBtn){
 }
 
 if (invoiceDeleteActiveBtn){
-  invoiceDeleteActiveBtn.addEventListener("click", ()=>{
+  invoiceDeleteActiveBtn.addEventListener("click", async ()=>{
     ensureInvoicesLoaded();
+    await ensureInvoiceJobsLoaded();
     const job = getActiveInvoiceJob();
     if (!job) return;
     if (!confirm("Delete this invoice job?")) return;
-    deleteInvoiceJob(job.id);
+    await deleteInvoiceJob(job.id);
   });
 }
 
 if (invoiceDiscountMode){
-  invoiceDiscountMode.addEventListener("change", event=>{
+  invoiceDiscountMode.addEventListener("change", async event=>{
     ensureInvoicesLoaded();
+    await ensureInvoiceJobsLoaded();
     const job = getActiveInvoiceJob();
     if (!job) return;
     job.discountMode = event.target.value === "absolute" ? "absolute" : "percent";
     recalcInvoiceJob(job, { allowPrompt: true });
-    saveInvoiceJobs();
+    await saveInvoiceJobs();
     updateInvoicesUI();
   });
 }
 
 if (invoiceDiscountValue){
-  invoiceDiscountValue.addEventListener("change", event=>{
+  invoiceDiscountValue.addEventListener("change", async event=>{
     ensureInvoicesLoaded();
+    await ensureInvoiceJobsLoaded();
     const job = getActiveInvoiceJob();
     if (!job) return;
     job.discountValue = Math.max(0, Number(event.target.value) || 0);
     recalcInvoiceJob(job, { allowPrompt: true });
-    saveInvoiceJobs();
+    await saveInvoiceJobs();
     updateInvoicesUI();
   });
 }
 
 if (invoiceVatValue){
-  invoiceVatValue.addEventListener("change", event=>{
+  invoiceVatValue.addEventListener("change", async event=>{
     ensureInvoicesLoaded();
+    await ensureInvoiceJobsLoaded();
     const job = getActiveInvoiceJob();
     if (!job) return;
     job.vatRate = Math.max(0, Number(event.target.value) || 0);
     recalcInvoiceJob(job, { allowPrompt: true });
-    saveInvoiceJobs();
+    await saveInvoiceJobs();
     updateInvoicesUI();
   });
 }
 
 if (invoiceStatusSelect){
-  invoiceStatusSelect.addEventListener("change", event=>{
+  invoiceStatusSelect.addEventListener("change", async event=>{
     ensureInvoicesLoaded();
+    await ensureInvoiceJobsLoaded();
     const job = getActiveInvoiceJob();
     if (!job) return;
     const newStatus = event.target.value === "finalized" ? "finalized" : "draft";
     job.status = newStatus;
-    saveInvoiceJobs();
+    await saveInvoiceJobs();
     if (newStatus === "finalized"){
       const nextDraft = findNextDraftInvoice(job.id);
       if (nextDraft){
