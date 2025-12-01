@@ -1119,6 +1119,7 @@ function activateTab(name){
     updateLabelsUI();
   }else if (name === "invoices"){
     ensureInvoicesLoaded();
+    syncInvoiceConfigFromServer({ silent: true });
     updateInvoicesUI();
   }
 }
@@ -4919,7 +4920,16 @@ function applyTypeCorrections(rawType) {
   return rawType;
 }
 
-function loadTypeCorrections() {
+function loadTypeCorrections(source, { fallbackToDefaults = true } = {}) {
+  if (source && Array.isArray(source.typeCorrections)) {
+    const cleaned = source.typeCorrections
+      .map(entry => ({
+        raw: (entry?.raw || "").trim(),
+        corrected: (entry?.corrected || "").trim(),
+      }))
+      .filter(entry => entry.raw && entry.corrected);
+    return cleaned;
+  }
   try{
     const raw = localStorage.getItem(TYPE_CORRECTIONS_STORAGE_KEY);
     if (!raw) return getDefaultTypeCorrections();
@@ -4928,7 +4938,7 @@ function loadTypeCorrections() {
   }catch(e){
     console.warn("Failed to load type corrections", e);
   }
-  return getDefaultTypeCorrections();
+  return fallbackToDefaults ? getDefaultTypeCorrections() : [];
 }
 
 function saveTypeCorrections() {
@@ -4972,6 +4982,60 @@ function getDefaultSpacerPrices(){
   };
 }
 
+function getDefaultInvoiceConfig(){
+  return {
+    glassPrices: getDefaultGlassPrices(),
+    spacerPrices: getDefaultSpacerPrices(),
+    typeCorrections: [],
+  };
+}
+
+function normalizeInvoiceConfigPayload(payload){
+  const defaults = getDefaultInvoiceConfig();
+  const glassSource = (payload && typeof payload === "object" && (payload.glassPrices || payload.glass)) ? (payload.glassPrices || payload.glass) : {};
+  const spacerSource = (payload && typeof payload === "object" && (payload.spacerPrices || payload.spacer)) ? (payload.spacerPrices || payload.spacer) : {};
+  const glass = { ...defaults.glassPrices };
+  const spacer = { ...defaults.spacerPrices };
+
+  if (glassSource && typeof glassSource === "object"){
+    Object.entries(glassSource).forEach(([key, value])=>{
+      const norm = normalizeGlassKey(key);
+      const price = Number(value);
+      if (norm && Number.isFinite(price)){
+        glass[norm] = price;
+      }
+    });
+  }
+
+  if (spacerSource && typeof spacerSource === "object"){
+    Object.entries(spacerSource).forEach(([thickness, entry])=>{
+      const thickNum = Number(thickness);
+      if (!Number.isFinite(thickNum)) return;
+      const normal = Number(entry?.normal);
+      const thermal = Number(entry?.thermal);
+      spacer[thickNum] = {
+        normal: Number.isFinite(normal) ? normal : spacer[thickNum]?.normal,
+        thermal: Number.isFinite(thermal) ? thermal : spacer[thickNum]?.thermal,
+      };
+    });
+  }
+
+  const typeCorrections = Array.isArray(payload?.typeCorrections)
+    ? payload.typeCorrections
+        .map(entry => ({
+          raw: (entry?.raw || "").trim(),
+          corrected: (entry?.corrected || "").trim(),
+        }))
+        .filter(entry => entry.raw && entry.corrected)
+    : [];
+
+  return {
+    glassPrices: glass,
+    spacerPrices: spacer,
+    typeCorrections,
+  };
+}
+
 const invoiceRuntime = {
   initialized: false,
   pendingPrompts: [],
@@ -4980,6 +5044,7 @@ const invoiceRuntime = {
   extraGlassRows: 1,
   extraSpacerRows: 1,
   currentMissing: null,
+  configPromise: null,
 };
 
 function groupInvoiceLinesByType(lines){
@@ -5047,50 +5112,119 @@ function nextInvoiceNumber(){
   return id;
 }
 
-function loadInvoicePrices(){
-  const defaults = {
-    glass: getDefaultGlassPrices(),
-    spacer: getDefaultSpacerPrices(),
+function loadInvoicePrices(source){
+  let payload = source;
+  if (!payload){
+    try{
+      const raw = localStorage.getItem(INVOICE_PRICES_KEY);
+      payload = raw ? JSON.parse(raw) : null;
+    }catch{
+      payload = null;
+    }
+  }
+  const normalized = normalizeInvoiceConfigPayload(payload || {});
+  appState.invoices.priceLists = {
+    glass: normalized.glassPrices,
+    spacer: normalized.spacerPrices,
   };
-  let stored = null;
-  try{
-    const raw = localStorage.getItem(INVOICE_PRICES_KEY);
-    stored = raw ? JSON.parse(raw) : null;
-  }catch{
-    stored = null;
-  }
-  const glass = { ...defaults.glass };
-  const spacer = { ...defaults.spacer };
-  if (stored && typeof stored === "object"){
-    if (stored.glass && typeof stored.glass === "object"){
-      Object.entries(stored.glass).forEach(([key, value])=>{
-        const norm = normalizeGlassKey(key);
-        const price = Number(value);
-        if (norm && Number.isFinite(price)){
-          glass[norm] = price;
-        }
-      });
-    }
-    if (stored.spacer && typeof stored.spacer === "object"){
-      Object.entries(stored.spacer).forEach(([thickness, entry])=>{
-        const thickNum = Number(thickness);
-        if (!Number.isFinite(thickNum)) return;
-        const normal = Number(entry?.normal);
-        const thermal = Number(entry?.thermal);
-        spacer[thickNum] = {
-          normal: Number.isFinite(normal) ? normal : spacer[thickNum]?.normal,
-          thermal: Number.isFinite(thermal) ? thermal : spacer[thickNum]?.thermal,
-        };
-      });
-    }
-  }
-  appState.invoices.priceLists = { glass, spacer };
+  return normalized;
 }
 
 function saveInvoicePrices(){
   try{
     localStorage.setItem(INVOICE_PRICES_KEY, JSON.stringify(appState.invoices.priceLists));
   }catch{/* ignore */}
+}
+
+function buildInvoiceConfigPayload(){
+  return {
+    glassPrices: { ...(appState?.invoices?.priceLists?.glass || {}) },
+    spacerPrices: { ...(appState?.invoices?.priceLists?.spacer || {}) },
+    typeCorrections: Array.isArray(TYPE_CORRECTIONS)
+      ? TYPE_CORRECTIONS.map(entry => ({
+          raw: (entry?.raw || "").trim(),
+          corrected: (entry?.corrected || "").trim(),
+        })).filter(entry => entry.raw && entry.corrected)
+      : [],
+  };
+}
+
+function applyInvoiceConfigToState(config, { cacheLocal = true, preferExistingTypeCorrections = false } = {}){
+  const normalized = normalizeInvoiceConfigPayload(config || {});
+  const existingCorrections = (preferExistingTypeCorrections && !normalized.typeCorrections.length && Array.isArray(TYPE_CORRECTIONS))
+    ? TYPE_CORRECTIONS
+    : [];
+  const mergedCorrections = normalized.typeCorrections.length ? normalized.typeCorrections : existingCorrections;
+  appState.invoices.priceLists = {
+    glass: normalized.glassPrices,
+    spacer: normalized.spacerPrices,
+  };
+  TYPE_CORRECTIONS = (mergedCorrections || []).map(entry => ({
+    raw: (entry?.raw || "").trim(),
+    corrected: (entry?.corrected || "").trim(),
+  })).filter(entry => entry.raw && entry.corrected);
+  if (cacheLocal){
+    saveInvoicePrices();
+    saveTypeCorrections();
+  }
+  if (invoiceRuntime.initialized){
+    recalcAllInvoices({ allowPrompt: false });
+    saveInvoiceJobs();
+    updateInvoicesUI();
+  }
+  return {
+    glassPrices: appState.invoices.priceLists.glass,
+    spacerPrices: appState.invoices.priceLists.spacer,
+    typeCorrections: TYPE_CORRECTIONS.map(entry => ({ ...entry })),
+  };
+}
+
+async function fetchInvoiceConfigFromServer(){
+  const res = await fetch(API_BASE + "/api/prices");
+  if (!res.ok){
+    const text = await res.text().catch(()=> "");
+    throw new Error(text || `Server responded with ${res.status}`);
+  }
+  const data = await res.json();
+  return normalizeInvoiceConfigPayload(data);
+}
+
+async function persistInvoiceConfigToServer(configOverride, { preferExistingTypeCorrections = false } = {}){
+  const payload = configOverride || buildInvoiceConfigPayload();
+  try{
+    const res = await fetch(API_BASE + "/api/prices", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok){
+      const text = await res.text().catch(()=> "");
+      throw new Error(text || `Server responded with ${res.status}`);
+    }
+    const data = await res.json();
+    const normalized = normalizeInvoiceConfigPayload(data);
+    applyInvoiceConfigToState(normalized, { cacheLocal: true, preferExistingTypeCorrections });
+    return normalized;
+  }catch(error){
+    console.warn("Failed to save pricing config to server", error);
+    return null;
+  }
+}
+
+async function syncInvoiceConfigFromServer({ silent = false } = {}){
+  if (invoiceRuntime.configPromise) return invoiceRuntime.configPromise;
+  invoiceRuntime.configPromise = (async ()=>{
+    try{
+      const config = await fetchInvoiceConfigFromServer();
+      return applyInvoiceConfigToState(config, { cacheLocal: true, preferExistingTypeCorrections: true });
+    }catch(error){
+      if (!silent) console.warn("Failed to fetch pricing config from server", error);
+      return null;
+    }finally{
+      invoiceRuntime.configPromise = null;
+    }
+  })();
+  return invoiceRuntime.configPromise;
 }
 
 function loadInvoiceJobs(){
@@ -5131,6 +5265,7 @@ function ensureInvoicesLoaded(){
   loadInvoiceCounter();
   appState.invoices.jobs.forEach(job => recalcInvoiceJob(job, { allowPrompt: false }));
   invoiceRuntime.initialized = true;
+  syncInvoiceConfigFromServer({ silent: true });
 }
 
 function setInvoiceStatus(msg){
@@ -5434,7 +5569,7 @@ function hideInvoicePrompt(){
   invoiceRuntime.currentMissing = null;
 }
 
-function handleInvoicePromptSave(){
+async function handleInvoicePromptSave(){
   const payload = invoiceRuntime.currentMissing;
   if (!payload){
     console.warn("Invoice prompt save with no payload");
@@ -5485,6 +5620,10 @@ function handleInvoicePromptSave(){
   renderInvoicePriceEditor();
   updateInvoiceSummary();
   updateInvoicesUI();
+  const saved = await persistInvoiceConfigToServer(buildInvoiceConfigPayload(), { preferExistingTypeCorrections: true });
+  if (!saved){
+    setInvoiceStatus("New price saved locally. Will sync when online.");
+  }
 }
 
 function formatMoney(value){
@@ -5954,7 +6093,7 @@ function closeTypeCorrectionsModal(){
   }
 }
 
-function handleTypeCorrectionsSave(){
+async function handleTypeCorrectionsSave(){
   const rawValue = (typeCorrectionsRawInput?.value || "").trim();
   const correctedValue = (typeCorrectionsCorrectedInput?.value || "").trim();
   const markInvalid = (input)=>{
@@ -5973,12 +6112,12 @@ function handleTypeCorrectionsSave(){
   }
   if (hasError) return;
   TYPE_CORRECTIONS.push({ raw: rawValue, corrected: correctedValue });
-  saveTypeCorrections();
-  recalcAllInvoices({ allowPrompt: false });
-  saveInvoiceJobs();
   closeTypeCorrectionsModal();
+  const payload = buildInvoiceConfigPayload();
+  applyInvoiceConfigToState(payload, { cacheLocal: true, preferExistingTypeCorrections: true });
+  const saved = await persistInvoiceConfigToServer(payload, { preferExistingTypeCorrections: true });
   updateInvoicesUI();
-  setInvoiceStatus("Type correction saved.");
+  setInvoiceStatus(saved ? "Type correction saved to server." : "Type correction saved locally.");
 }
 
 function updateInvoicesUI(){
@@ -6037,7 +6176,8 @@ function collectSpacerPricesFromEditor(){
   return map;
 }
 
-function savePricesFromEditor(){
+// Invoice pricing/type corrections now save to the server (not just localStorage)
+async function savePricesFromEditor(){
   const glass = collectGlassPricesFromEditor();
   const spacer = collectSpacerPricesFromEditor();
   appState.invoices.priceLists.glass = Object.keys(glass).length ? glass : getDefaultGlassPrices();
@@ -6053,11 +6193,14 @@ function savePricesFromEditor(){
   appState.invoices.priceLists.spacer = merged;
   invoiceRuntime.extraGlassRows = 1;
   invoiceRuntime.extraSpacerRows = 1;
-  saveInvoicePrices();
-  recalcAllInvoices();
-  saveInvoiceJobs();
-  updateInvoicesUI();
-  setInvoiceStatus("Price list saved and invoices refreshed.");
+  const payload = buildInvoiceConfigPayload();
+  applyInvoiceConfigToState(payload, { cacheLocal: true, preferExistingTypeCorrections: true });
+  const saved = await persistInvoiceConfigToServer(payload, { preferExistingTypeCorrections: true });
+  if (saved){
+    setInvoiceStatus("Price list saved to server and invoices refreshed.");
+  }else{
+    setInvoiceStatus("Price list saved locally. Will sync when online.");
+  }
 }
 
 function deleteInvoiceJob(id){
@@ -7217,9 +7360,9 @@ if (invoiceAddSpacerBtn){
 }
 
 if (invoiceSavePricesBtn){
-  invoiceSavePricesBtn.addEventListener("click", ()=>{
+  invoiceSavePricesBtn.addEventListener("click", async ()=>{
     ensureInvoicesLoaded();
-    savePricesFromEditor();
+    await savePricesFromEditor();
   });
 }
 
@@ -7246,9 +7389,9 @@ if (typeCorrectionsCancelBtn){
 }
 
 if (typeCorrectionsSaveBtn){
-  typeCorrectionsSaveBtn.addEventListener("click", ()=>{
+  typeCorrectionsSaveBtn.addEventListener("click", async ()=>{
     ensureInvoicesLoaded();
-    handleTypeCorrectionsSave();
+    await handleTypeCorrectionsSave();
   });
 }
 
@@ -7273,17 +7416,17 @@ if (typeCorrectionsCorrectedInput){
 }
 
 if (typeCorrectionsTable){
-  typeCorrectionsTable.addEventListener("click", event=>{
+  typeCorrectionsTable.addEventListener("click", async event=>{
     const btn = event.target.closest("[data-delete-correction]");
     if (!btn) return;
     const idx = Number(btn.dataset.deleteCorrection);
     if (!Number.isFinite(idx)) return;
     TYPE_CORRECTIONS.splice(idx, 1);
-    saveTypeCorrections();
-    recalcAllInvoices({ allowPrompt: false });
-    saveInvoiceJobs();
+    const payload = buildInvoiceConfigPayload();
+    applyInvoiceConfigToState(payload, { cacheLocal: true, preferExistingTypeCorrections: true });
+    const saved = await persistInvoiceConfigToServer(payload, { preferExistingTypeCorrections: true });
     updateInvoicesUI();
-    setInvoiceStatus("Type correction removed.");
+    setInvoiceStatus(saved ? "Type correction removed." : "Type correction removed locally.");
   });
 }
 
@@ -7471,8 +7614,8 @@ if (invoicePromptCancel){
 }
 
 if (invoicePromptSave){
-  invoicePromptSave.addEventListener("click", ()=>{
-    handleInvoicePromptSave();
+  invoicePromptSave.addEventListener("click", async ()=>{
+    await handleInvoicePromptSave();
   });
 }
 
