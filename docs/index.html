@@ -389,6 +389,7 @@
           </label>
           <div class="filter-actions">
             <button class="btn small" id="historyRefresh">Refresh</button>
+            <button class="btn small" id="historyInvoiceAll">Invoice all</button>
             <button class="btn small" id="historyDownloadAll">Export CSV</button>
             <span id="historyOfflineBadge" class="badge offline" hidden>Offline cache</span>
           </div>
@@ -1031,6 +1032,7 @@ const historyPrintBtn = document.getElementById("historyPrint");
 const historyCsvBtn = document.getElementById("historyCsv");
 const historyMetaEl = document.getElementById("historyMeta");
 const historyProcessingBtn = document.getElementById("historyProcessing");
+const historyInvoiceAllBtn = document.getElementById("historyInvoiceAll");
 const processingOrderList = document.getElementById("processingOrderList");
 const processingMetaEl = document.getElementById("processingMeta");
 const processingPreviewEl = document.getElementById("processingPreview");
@@ -5657,6 +5659,36 @@ function parseInvoiceOrderNumbers(order){
   return fallback ? [fallback] : [];
 }
 
+function isOrderAlreadyInvoiced(order){
+  if (!order) return false;
+  const orderNumbers = dedupeAndSortOrderNumbers(parseInvoiceOrderNumbers(order));
+  const normalizedNumbers = orderNumbers
+    .map(num => String(num || "").trim().toLowerCase())
+    .filter(Boolean);
+  if ((!normalizedNumbers.length) && order.id != null){
+    normalizedNumbers.push(String(order.id).trim().toLowerCase());
+  }
+  if (!normalizedNumbers.length) return false;
+  const normalizedSet = new Set(normalizedNumbers);
+  const jobs = Array.isArray(appState?.invoices?.jobs) ? appState.invoices.jobs : [];
+  return jobs.some(job => {
+    if (!job) return false;
+    const jobNumbers = Array.isArray(job.orderNumbers) ? job.orderNumbers : [];
+    if (jobNumbers.some(num => normalizedSet.has(String(num || "").trim().toLowerCase()))){
+      return true;
+    }
+    const jobOrders = Array.isArray(job.orders) ? job.orders : [];
+    if (jobOrders.some(entry => normalizedSet.has(String(entry?.orderNumber || "").trim().toLowerCase()))){
+      return true;
+    }
+    const jobOrderIds = Array.isArray(job.order_ids) ? job.order_ids : [];
+    if (jobOrderIds.some(id => normalizedSet.has(String(id || "").trim().toLowerCase()))){
+      return true;
+    }
+    return false;
+  });
+}
+
 function tokenizeComposition(typeString){
   const raw = String(typeString || "");
   const compact = raw.replace(/^\s*\d+\s*vetri?\s*/i, "").replace(/\s+/g, " ").trim();
@@ -5891,6 +5923,16 @@ async function addInvoiceJobFromOrder(order){
   updateInvoicesUI();
   setInvoiceStatus("Invoice job updated from History.");
   return job;
+}
+
+async function createInvoiceJobFromOrder(order){
+  if (!order) return null;
+  if (!Array.isArray(order.rows) || !order.rows.length){
+    if (order.id == null) return null;
+    const detailed = await fetchOrder(order.id);
+    return addInvoiceJobFromOrder(detailed);
+  }
+  return addInvoiceJobFromOrder(order);
 }
 
 function setInvoiceAddOrderStatus(message){
@@ -7639,6 +7681,22 @@ async function downloadAllCsv(){
   URL.revokeObjectURL(url);
 }
 
+async function fetchAllApprovedOrdersForInvoicing(){
+  const all = [];
+  let offset = 0;
+  const limit = 100;
+  let hasMore = true;
+  while (hasMore){
+    const params = { limit, offset, status: "approved" };
+    const data = await fetchOrders(params);
+    const items = Array.isArray(data?.items) ? data.items : [];
+    all.push(...items);
+    hasMore = !!data?.has_more && items.length > 0;
+    offset += limit;
+  }
+  return all;
+}
+
 async function loadHistory(opts={}){
   const resetOffset = !!opts.resetOffset;
   if (resetOffset) historyState.offset = 0;
@@ -7687,6 +7745,38 @@ async function loadHistory(opts={}){
     historyState.loading = false;
     historyPageEl.textContent = String(Math.floor(historyState.offset / historyState.limit) + 1);
     updateHistoryControls();
+  }
+}
+
+async function handleHistoryInvoiceAllClick(){
+  if (!confirm("Create invoice jobs for all APPROVED orders?")){
+    return;
+  }
+  try{
+    setHistoryStatus("Creating invoices for all approved orders…");
+    ensureInvoicesLoaded();
+    await ensureInvoiceJobsLoaded();
+    const approvedOrders = await fetchAllApprovedOrdersForInvoicing();
+    let created = 0;
+    let skipped = 0;
+    for (const order of approvedOrders){
+      if (!order || order.id == null){
+        continue;
+      }
+      if (isOrderAlreadyInvoiced(order)){
+        skipped += 1;
+        continue;
+      }
+      const job = await createInvoiceJobFromOrder(order);
+      if (job){
+        created += 1;
+      }
+    }
+    updateInvoicesUI();
+    setHistoryStatus(`Created ${created} invoice jobs, skipped ${skipped} already invoiced orders.`);
+  }catch(error){
+    console.error("Invoice all error", error);
+    setHistoryStatus("Error creating invoices for all orders.");
   }
 }
 
@@ -7840,9 +7930,8 @@ document.getElementById("historyListWrap").addEventListener("click", async (even
     }
   }else if (action === "invoice"){
     try{
-      ensureInvoicesLoaded();
       const order = await fetchOrder(id);
-      const job = await addInvoiceJobFromOrder(order);
+      const job = await createInvoiceJobFromOrder(order);
       if (job){
         setHistoryStatus("Invoice job added. Check the Invoices tab to review.");
       }
@@ -7897,6 +7986,12 @@ document.getElementById("historyNext").addEventListener("click", ()=>{
   historyState.offset += historyState.limit;
   loadHistory();
 });
+
+if (historyInvoiceAllBtn){
+  historyInvoiceAllBtn.addEventListener("click", ()=>{
+    handleHistoryInvoiceAllClick();
+  });
+}
 
 document.getElementById("historyRefresh").addEventListener("click", ()=>{
   loadHistory();
