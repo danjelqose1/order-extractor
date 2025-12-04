@@ -141,12 +141,15 @@
     .price-editor .muted{font-size:12px}
     .modal-layer{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(17,24,39,0.45);backdrop-filter:blur(2px);z-index:999}
     .modal-card{background:#fff;padding:18px;border-radius:14px;box-shadow:var(--shadow);max-width:460px;width:92%;border:1px solid var(--border)}
+    .modal-card.wide{max-width:960px;width:96%}
     .modal-card h3{margin-top:0;margin-bottom:6px}
     .modal-card p{margin-top:0;color:var(--muted);font-size:13px}
     .modal-card label{display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:600;color:var(--muted);margin-bottom:10px}
     .modal-card input{padding:8px 10px;border:1px solid var(--border-dark);border-radius:10px;font-size:14px}
     .modal-card input:focus{outline:2px solid var(--primary-soft);border-color:var(--primary)}
     .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:6px}
+    .add-order-meta{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin:8px 0}
+    #invoiceAddOrderList table{min-width:640px}
     .input-error{border-color:#f87171 !important;outline:2px solid #fecaca !important}
     .modal-layer[hidden]{display:none !important}
     .actions-cell{display:flex;flex-wrap:wrap;gap:6px}
@@ -678,6 +681,7 @@
             <div id="invoiceDetailMeta" class="muted small"></div>
           </div>
           <div class="invoice-actions">
+            <button class="btn small" id="invoiceAddOrderBtn">Add order…</button>
             <button class="btn small" id="invoiceRecalc">Recalculate</button>
             <button class="btn small" id="invoiceGeneratePdf">Generate PDF</button>
             <button class="btn small" id="invoiceDeleteActive">Delete</button>
@@ -781,6 +785,21 @@
       <div class="modal-actions">
         <button class="btn small" id="typeCorrectionsCancel">Cancel</button>
         <button class="btn primary small" id="typeCorrectionsSave">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="invoiceAddOrderModal" class="modal-layer" hidden>
+    <div class="modal-card wide">
+      <h3 style="margin-top:0">Add order to invoice</h3>
+      <p class="muted small" style="margin-top:0">Pick another approved order from History to merge into this invoice.</p>
+      <div class="add-order-meta"><span id="invoiceAddOrderHint"></span></div>
+      <div id="invoiceAddOrderStatus" class="muted small" style="min-height:18px"></div>
+      <div class="table-responsive" id="invoiceAddOrderList">
+        <div class="invoice-empty">Loading approved orders…</div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn small" id="invoiceAddOrderClose">Close</button>
       </div>
     </div>
   </div>
@@ -1067,6 +1086,7 @@ const invoiceStatusSelect = document.getElementById("invoiceStatusSelect");
 const invoiceRecalcBtn = document.getElementById("invoiceRecalc");
 const invoiceGeneratePdfBtn = document.getElementById("invoiceGeneratePdf");
 const invoiceDeleteActiveBtn = document.getElementById("invoiceDeleteActive");
+const invoiceAddOrderBtn = document.getElementById("invoiceAddOrderBtn");
 const invoiceFilterClient = document.getElementById("invoiceFilterClient");
 const invoiceFilterOrder = document.getElementById("invoiceFilterOrder");
 const invoiceFilterStatus = document.getElementById("invoiceFilterStatus");
@@ -1085,6 +1105,11 @@ const invoicePromptDescriptor = document.getElementById("invoicePromptDescriptor
 const invoicePromptValue = document.getElementById("invoicePromptValue");
 const invoicePromptCancel = document.getElementById("invoicePromptCancel");
 const invoicePromptSave = document.getElementById("invoicePromptSave");
+const invoiceAddOrderModal = document.getElementById("invoiceAddOrderModal");
+const invoiceAddOrderList = document.getElementById("invoiceAddOrderList");
+const invoiceAddOrderStatus = document.getElementById("invoiceAddOrderStatus");
+const invoiceAddOrderClose = document.getElementById("invoiceAddOrderClose");
+const invoiceAddOrderHint = document.getElementById("invoiceAddOrderHint");
 const typeCorrectionsPanel = document.getElementById("typeCorrectionsPanel");
 const typeCorrectionsTable = document.getElementById("typeCorrectionsTable");
 const typeCorrectionsAddBtn = document.getElementById("typeCorrectionsAdd");
@@ -4188,7 +4213,7 @@ async function exportProcessingPdf(){
     return;
   }
   await ensurePdfLib();
-  const { PDFDocument, StandardFonts } = PDFLib;
+  const { PDFDocument, StandardFonts, rgb } = PDFLib;
   const mmToPt = 2.83464567;
   const pdfDoc = await PDFDocument.create();
   const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
@@ -5049,6 +5074,12 @@ const invoiceRuntime = {
   jobsLoaded: false,
 };
 
+const invoiceAddOrderState = {
+  loading: false,
+  orders: [],
+  error: "",
+};
+
 function groupInvoiceLinesByType(lines){
   const map = new Map();
   (lines || []).forEach(line=>{
@@ -5228,19 +5259,186 @@ async function syncInvoiceConfigFromServer({ silent = false } = {}){
   return invoiceRuntime.configPromise;
 }
 
+function dedupeAndSortOrderNumbers(values){
+  const unique = [];
+  (values || []).forEach(num=>{
+    const normalized = String(num || "").trim();
+    if (!normalized) return;
+    const lower = normalized.toLowerCase();
+    if (!unique.some(existing => existing.toLowerCase() === lower)){
+      unique.push(normalized);
+    }
+  });
+  return unique;
+}
+
+function extractOrderUnits(order){
+  return Number(pickFirstNumber([
+    order?.units_total,
+    order?.total_units,
+    order?.parsed_units,
+    order?.units,
+  ]) || 0);
+}
+
+function extractOrderArea(order){
+  return Number(pickFirstNumber([
+    order?.area_total,
+    order?.total_area,
+    order?.parsed_area,
+    order?.area,
+  ]) || 0);
+}
+
+function createOrderMetadata(options = {}){
+  return {
+    orderNumber: options.orderNumber || "—",
+    clientName: options.clientName || "—",
+    createdAt: options.createdAt || new Date().toISOString(),
+    units: Number(options.units || 0),
+    area: Number(options.area || 0),
+    amount: Number(options.amount || 0),
+  };
+}
+
+function ensureJobOrders(job){
+  if (!job) return;
+  if (!Array.isArray(job.orderNumbers)){
+    job.orderNumbers = [];
+  }
+  if (!Array.isArray(job.orders)){
+    job.orders = [];
+  }
+  const metaMap = new Map();
+  job.orders.forEach(entry=>{
+    if (!entry) return;
+    const key = String(entry.orderNumber || "").trim().toLowerCase();
+    if (!key) return;
+    metaMap.set(key, {
+      orderNumber: entry.orderNumber || "—",
+      clientName: entry.clientName || entry.client || "—",
+      createdAt: entry.createdAt || entry.date || job.createdAt || new Date().toISOString(),
+      units: Number(entry.units || 0),
+      area: Number(entry.area || 0),
+      amount: Number(entry.amount || entry.total || 0),
+    });
+  });
+  const fallbackClient = formatInvoiceClientLabel(job) || job.client || "—";
+  const fallbackDate = job.createdAt || new Date().toISOString();
+  job.orders = job.orderNumbers.map(orderNumber=>{
+    const key = String(orderNumber || "").trim();
+    const normalizedKey = key.toLowerCase();
+    const existing = metaMap.get(normalizedKey);
+    if (existing){
+      if (!existing.clientName) existing.clientName = fallbackClient;
+      if (!existing.createdAt) existing.createdAt = fallbackDate;
+      existing.orderNumber = key || existing.orderNumber || "—";
+      return existing;
+    }
+    return createOrderMetadata({
+      orderNumber: key || "—",
+      clientName: fallbackClient,
+      createdAt: fallbackDate,
+    });
+  });
+}
+
+function addOrdersMetadata(job, entries = []){
+  if (!job || !Array.isArray(entries) || !entries.length) return;
+  if (!Array.isArray(job.orders)){
+    job.orders = [];
+  }
+  entries.forEach(entry=>{
+    if (!entry || !entry.orderNumber) return;
+    const normalized = entry.orderNumber.toLowerCase();
+    const exists = job.orders.some(meta => String(meta.orderNumber || "").toLowerCase() === normalized);
+    if (!exists){
+      job.orders.push(createOrderMetadata(entry));
+    }
+  });
+}
+
+function updateJobOrdersFromCalc(job, calc){
+  if (!job) return;
+  ensureJobOrders(job);
+  const stats = new Map();
+  const lines = Array.isArray(calc?.lines) ? calc.lines : Array.isArray(job.calculated?.lines) ? job.calculated.lines : [];
+  lines.forEach(line=>{
+    const orderKeyRaw = (line.orderId && String(line.orderId).trim()) || (job.orderNumbers && job.orderNumbers[0]) || "";
+    const orderKey = orderKeyRaw.toLowerCase();
+    if (!orderKey) return;
+    if (!stats.has(orderKey)){
+      stats.set(orderKey, { units: 0, area: 0, amount: 0 });
+    }
+    const entry = stats.get(orderKey);
+    entry.units += Number(line.quantity || 0);
+    const areaValue = Number(line.area || line.lineAreaTotal || 0);
+    entry.area += areaValue;
+    entry.amount += Number(line.lineTotal || 0);
+  });
+  const fallbackClient = formatInvoiceClientLabel(job) || job.client || "—";
+  const fallbackDate = job.createdAt || new Date().toISOString();
+  const normalizedOrders = job.orderNumbers.map(orderNumber=>{
+    const normalizedKey = String(orderNumber || "").trim().toLowerCase();
+    const existing = (job.orders || []).find(meta => String(meta.orderNumber || "").toLowerCase() === normalizedKey) || createOrderMetadata({
+      orderNumber: orderNumber || "—",
+      clientName: fallbackClient,
+      createdAt: fallbackDate,
+    });
+    const stat = stats.get(normalizedKey) || { units: 0, area: 0, amount: 0 };
+    return {
+      ...existing,
+      orderNumber: orderNumber || existing.orderNumber || "—",
+      clientName: existing.clientName || fallbackClient,
+      createdAt: existing.createdAt || fallbackDate,
+      units: Number(stat.units || 0),
+      area: Number(stat.area || 0),
+      amount: Number(stat.amount || 0),
+    };
+  });
+  job.orders = normalizedOrders;
+}
+
 function normalizeInvoiceJob(job){
   if (!job || typeof job !== "object") return null;
-  const orderNumbers = Array.isArray(job.orderNumbers)
-    ? job.orderNumbers.map(v => String(v || "").trim()).filter(Boolean)
-    : [];
+  const orderNumbers = (() => {
+    if (Array.isArray(job.orderNumbers)){
+      return job.orderNumbers.map(v => String(v || "").trim()).filter(Boolean);
+    }
+    if (Array.isArray(job.order_numbers)){
+      return job.order_numbers.map(v => String(v || "").trim()).filter(Boolean);
+    }
+    const legacy = pickFirstString([
+      job.orderNumber,
+      job.order_number,
+      job.order,
+      job.orderId,
+      job.id,
+    ]);
+    return legacy ? [legacy] : [];
+  })();
+  const uniqueOrderNumbers = dedupeAndSortOrderNumbers(orderNumbers);
+  const normalizedClients = (() => {
+    if (Array.isArray(job.clients) && job.clients.length){
+      return job.clients.map(name => {
+        const text = String(name || "").trim();
+        return text || "—";
+      }).filter(Boolean);
+    }
+    const clientLabel = String(job.client || "").trim();
+    return clientLabel ? [clientLabel] : ["—"];
+  })();
+  const primaryClient = normalizedClients[0] || "—";
   const rows = Array.isArray(job.rows) ? job.rows.map(r => ({ ...r })) : [];
   const rawRows = Array.isArray(job.rawRows) ? job.rawRows.map(r => ({ ...r })) : (rows.length ? rows.map(r => ({ ...r })) : []);
   const id = job.id || `inv-${Date.now()}`;
-  return {
+  const normalizedJob = {
     ...job,
     id,
-    key: job.key || normalizeOrderKey(orderNumbers, id),
-    orderNumbers,
+    key: job.key || normalizeOrderKey(uniqueOrderNumbers, id),
+    orderNumbers: uniqueOrderNumbers,
+    clients: normalizedClients,
+    client: primaryClient,
     rows,
     rawRows,
     status: (job.status || "draft").toLowerCase() === "finalized" ? "finalized" : "draft",
@@ -5248,12 +5446,90 @@ function normalizeInvoiceJob(job){
     discountValue: Number(job.discountValue || 0) || 0,
     vatRate: Number(job.vatRate || 0) || 0,
     createdAt: job.createdAt || job.created_at || new Date().toISOString(),
+    hidden: !!job.hidden,
   };
+  ensureJobOrders(normalizedJob);
+  return normalizedJob;
 }
 
 function normalizeInvoiceJobs(jobs){
   if (!Array.isArray(jobs)) return [];
   return jobs.map(normalizeInvoiceJob).filter(Boolean);
+}
+
+function formatInvoiceClientLabel(job){
+  if (!job) return "—";
+  let source = Array.isArray(job.clients) && job.clients.length
+    ? job.clients
+    : [];
+  if (!source.length && job.client){
+    source = [job.client];
+  }
+  if (!source.length && Array.isArray(job.orders)){
+    source = job.orders.map(entry => entry?.clientName).filter(Boolean);
+  }
+  if (!source.length){
+    source = ["—"];
+  }
+  const normalized = source.map(name => {
+    const text = String(name || "").trim();
+    return text || "—";
+  });
+  const unique = [];
+  normalized.forEach(name=>{
+    const lower = name.toLowerCase();
+    if (!unique.some(existing => existing.toLowerCase() === lower)){
+      unique.push(name);
+    }
+  });
+  return unique.join(", ");
+}
+
+function addClientToJob(job, clientName){
+  if (!job) return;
+  const normalized = String(clientName || "").trim() || "—";
+  if (!Array.isArray(job.clients)){
+    job.clients = job.client ? [job.client] : [];
+  }
+  if (!job.clients.some(name => String(name || "").trim().toLowerCase() === normalized.toLowerCase())){
+    job.clients.push(normalized);
+  }
+  job.client = job.clients[0] || normalized;
+}
+
+function getVisibleInvoiceJobs(){
+  return (appState.invoices.jobs || []).filter(job => !job.hidden);
+}
+
+function hideInvoiceJobsContainingOrders(orderNumbers, keepId){
+  const normalized = (orderNumbers || [])
+    .map(num => String(num || "").trim().toLowerCase())
+    .filter(Boolean);
+  if (!normalized.length) return;
+  const overlapSet = new Set(normalized);
+  (appState.invoices.jobs || []).forEach(job=>{
+    if (!job || job.id === keepId) return;
+    const jobNumbers = (job.orderNumbers || []).map(num => String(num || "").trim().toLowerCase());
+    const overlaps = jobNumbers.some(num => overlapSet.has(num));
+    if (overlaps){
+      job.hidden = true;
+    }
+  });
+}
+
+function unhideInvoiceJobsContainingOrders(orderNumbers){
+  const normalized = (orderNumbers || [])
+    .map(num => String(num || "").trim().toLowerCase())
+    .filter(Boolean);
+  if (!normalized.length) return;
+  const matchSet = new Set(normalized);
+  (appState.invoices.jobs || []).forEach(job=>{
+    if (!job) return;
+    const jobNumbers = (job.orderNumbers || []).map(num => String(num || "").trim().toLowerCase());
+    if (jobNumbers.some(num => matchSet.has(num))){
+      job.hidden = false;
+    }
+  });
 }
 
 function loadLegacyInvoiceJobs(){
@@ -5480,6 +5756,14 @@ function parseInvoiceComposition(typeString){
 
 function mapInvoiceRow(row){
   if (!row) return null;
+  const orderId = pickFirstString([
+    row.orderId,
+    row.order_id,
+    row.order_number,
+    row.orderNumber,
+    row.order,
+    row.orderLabel,
+  ], null);
   const originalType = pickFirstString([
     row.type,
     row.composition_display,
@@ -5504,6 +5788,7 @@ function mapInvoiceRow(row){
     return computeRowArea(row);
   })();
   return {
+    orderId: orderId || null,
     rawType: originalType || null,
     type,
     dimension,
@@ -5514,7 +5799,7 @@ function mapInvoiceRow(row){
 }
 
 function buildInvoiceJobFromOrder(order){
-  const orderNumbers = parseInvoiceOrderNumbers(order);
+  const orderNumbers = dedupeAndSortOrderNumbers(parseInvoiceOrderNumbers(order));
   const normalizedKey = normalizeOrderKey(orderNumbers, order?.id);
   const clientName = pickFirstString([
     order.client,
@@ -5523,13 +5808,30 @@ function buildInvoiceJobFromOrder(order){
     order.client_hint,
     order.customer,
   ], "—");
-  const mappedRows = Array.isArray(order?.rows) ? order.rows.map(mapInvoiceRow).filter(Boolean) : [];
+  const defaultOrderId = orderNumbers[0] || null;
+  const mappedRows = Array.isArray(order?.rows)
+    ? order.rows.map(row => mapInvoiceRow({
+        orderId: row.orderId ?? row.order_id ?? row.order_number ?? defaultOrderId,
+        order_number: row.order_number ?? defaultOrderId,
+        ...row,
+      })).filter(Boolean)
+    : [];
   const createdAt = extractOrderDate(order) || new Date();
+  const orderEntries = (orderNumbers.length ? orderNumbers : [defaultOrderId || "—"]).map(num => createOrderMetadata({
+    orderNumber: num || "—",
+    clientName,
+    createdAt: createdAt.toISOString(),
+    units: extractOrderUnits(order),
+    area: extractOrderArea(order),
+    amount: 0,
+  }));
   return {
     id: order?.id ? `inv-${order.id}` : `inv-${Date.now()}`,
     key: normalizedKey,
     orderNumbers,
     client: clientName || "—",
+    clients: [clientName || "—"],
+    orders: orderEntries,
     createdAt: createdAt.toISOString(),
     rows: mappedRows.map(r => ({ ...r })),
     rawRows: mappedRows.map(r => ({ ...r })),
@@ -5538,6 +5840,10 @@ function buildInvoiceJobFromOrder(order){
     discountValue: 0,
     vatRate: 0,
     invoiceNumber: order?.invoiceNumber || null,
+    hidden: false,
+    totalUnits: 0,
+    totalArea: 0,
+    totalAmount: 0,
   };
 }
 
@@ -5545,24 +5851,38 @@ async function addInvoiceJobFromOrder(order){
   if (!order) return null;
   ensureInvoicesLoaded();
   await ensureInvoiceJobsLoaded();
-  const job = buildInvoiceJobFromOrder(order);
+  const job = normalizeInvoiceJob(buildInvoiceJobFromOrder(order));
   if (!job.rows.length){
     setInvoiceStatus("Order has no rows to invoice.");
     return null;
   }
-  appState.invoices.activeJobId = job.id;
-  const existingIndex = appState.invoices.jobs.findIndex(item => item.key === job.key);
+  const lookupNumbers = new Set(job.orderNumbers.map(n => n.toLowerCase()));
+  const existingIndex = appState.invoices.jobs.findIndex(item => {
+    const numbers = Array.isArray(item.orderNumbers) ? item.orderNumbers : [];
+    return numbers.some(num => lookupNumbers.has(String(num || "").toLowerCase()));
+  });
   if (existingIndex >= 0){
     const keep = appState.invoices.jobs[existingIndex];
-    const merged = { ...keep, ...job };
-    merged.discountMode = keep.discountMode || job.discountMode;
-    merged.discountValue = keep.discountValue ?? job.discountValue;
-    merged.vatRate = keep.vatRate ?? job.vatRate;
-    merged.invoiceNumber = keep.invoiceNumber || job.invoiceNumber || null;
-    merged.status = keep.status || "draft";
+    const merged = normalizeInvoiceJob({ ...keep });
+    const missing = job.orderNumbers.filter(num => !merged.orderNumbers.some(existing => existing.toLowerCase() === num.toLowerCase()));
+    if (missing.length){
+      merged.orderNumbers = dedupeAndSortOrderNumbers([...merged.orderNumbers, ...missing]);
+    }
+    merged.key = normalizeOrderKey(merged.orderNumbers, merged.id);
+    if (Array.isArray(job.clients)){
+      job.clients.forEach(name => addClientToJob(merged, name));
+    }else{
+      addClientToJob(merged, job.client);
+    }
+    merged.createdAt = merged.createdAt || job.createdAt;
+    merged.hidden = false;
+    addOrdersMetadata(merged, job.orders || []);
+    ensureJobOrders(merged);
     appState.invoices.jobs.splice(existingIndex, 1, merged);
+    appState.invoices.activeJobId = merged.id;
     recalcInvoiceJob(merged, { allowPrompt: true });
   }else{
+    appState.invoices.activeJobId = job.id;
     recalcInvoiceJob(job, { allowPrompt: true });
     appState.invoices.jobs.unshift(job);
   }
@@ -5572,9 +5892,277 @@ async function addInvoiceJobFromOrder(order){
   return job;
 }
 
+function setInvoiceAddOrderStatus(message){
+  if (invoiceAddOrderStatus){
+    invoiceAddOrderStatus.textContent = message || "";
+  }
+}
+
+function closeInvoiceAddOrderModal(){
+  if (invoiceAddOrderModal){
+    invoiceAddOrderModal.hidden = true;
+  }
+}
+
+function filterInvoiceAddOrderCandidates(job){
+  if (!job) return [];
+  const orders = Array.isArray(invoiceAddOrderState.orders) ? invoiceAddOrderState.orders : [];
+  const currentNumbers = (Array.isArray(job.orderNumbers) ? job.orderNumbers : [])
+    .map(num => String(num || "").toLowerCase())
+    .filter(Boolean);
+  const currentSet = new Set(currentNumbers);
+  return orders.filter(order => {
+    const status = (order.status || "").toLowerCase();
+    if (status !== "approved") return false;
+    const numbers = parseInvoiceOrderNumbers(order);
+    if (!numbers.length) return false;
+    const normalized = numbers.map(num => String(num || "").toLowerCase());
+    const overlapCurrent = normalized.some(num => currentSet.has(num));
+    if (overlapCurrent) return false;
+    return true;
+  });
+}
+
+function renderInvoiceAddOrderList(job){
+  if (!invoiceAddOrderList) return;
+  if (!job){
+    invoiceAddOrderList.innerHTML = '<div class="invoice-empty">Select an invoice first.</div>';
+    return;
+  }
+  if (invoiceAddOrderState.loading){
+    invoiceAddOrderList.innerHTML = '<div class="invoice-empty">Loading approved orders…</div>';
+    return;
+  }
+  const candidates = filterInvoiceAddOrderCandidates(job);
+  if (!candidates.length){
+    invoiceAddOrderList.innerHTML = '<div class="invoice-empty">No matching approved orders available.</div>';
+    return;
+  }
+  const rows = candidates.map(order=>{
+    const orderNumbers = parseInvoiceOrderNumbers(order);
+    const created = formatDate(order.created_at);
+    const client = pickFirstString([order.client, order.client_hint, order.client_name, order.customer], "—");
+    const units = Number(pickFirstNumber([order.units_total, order.parsed_units, order.total_units])) || 0;
+    const area = Number(pickFirstNumber([order.area_total, order.parsed_area, order.total_area])) || 0;
+    const orderLabel = escapeHtml(orderNumbers.join(", "));
+    return `<tr>
+      <td>${escapeHtml(created)}</td>
+      <td>${orderLabel}</td>
+      <td>${escapeHtml(client)}</td>
+      <td>${units}</td>
+      <td>${formatArea(area)}</td>
+      <td class="actions-cell" style="text-align:right"><button class="btn small" data-add-order-id="${escapeHtml(order.id)}">Select</button></td>
+    </tr>`;
+  }).join("");
+  invoiceAddOrderList.innerHTML = `<table>
+    <thead>
+      <tr>
+        <th>Date / Time</th>
+        <th>Order number</th>
+        <th>Client</th>
+        <th>Units</th>
+        <th>Area (m²)</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+async function loadInvoiceAddOrderCandidates(job){
+  if (!job) return;
+  invoiceAddOrderState.loading = true;
+  setInvoiceAddOrderStatus("Loading approved orders…");
+  renderInvoiceAddOrderList(job);
+  try{
+    const orders = await fetchAllApprovedOrders();
+    invoiceAddOrderState.orders = Array.isArray(orders) ? orders : [];
+    invoiceAddOrderState.error = "";
+    setInvoiceAddOrderStatus(invoiceAddOrderState.orders.length ? "" : "No approved orders found.");
+  }catch(error){
+    invoiceAddOrderState.error = error?.message || String(error);
+    setInvoiceAddOrderStatus("Failed to load approved orders.");
+  }finally{
+    invoiceAddOrderState.loading = false;
+    renderInvoiceAddOrderList(job);
+  }
+}
+
+function openInvoiceAddOrderModal(){
+  const job = getActiveInvoiceJob();
+  if (!job){
+    setInvoiceStatus("Select an invoice job first.");
+    return;
+  }
+  if (invoiceAddOrderHint){
+    const orderLabel = (job.orderNumbers || []).join(", ") || "—";
+    const clientLabel = formatInvoiceClientLabel(job) || "—";
+    invoiceAddOrderHint.textContent = `${clientLabel} • Orders: ${orderLabel}`;
+  }
+  if (invoiceAddOrderModal){
+    invoiceAddOrderModal.hidden = false;
+  }
+  setInvoiceAddOrderStatus("");
+  invoiceAddOrderState.loading = true;
+  renderInvoiceAddOrderList(job);
+  loadInvoiceAddOrderCandidates(job);
+}
+
+async function handleInvoiceAddOrderSelect(orderId){
+  ensureInvoicesLoaded();
+  await ensureInvoiceJobsLoaded();
+  const job = getActiveInvoiceJob();
+  if (!job || !orderId) return;
+  try{
+    setInvoiceAddOrderStatus("Loading order…");
+    const order = await fetchOrder(orderId);
+    const incomingNumbers = dedupeAndSortOrderNumbers(parseInvoiceOrderNumbers(order));
+    const defaultOrderId = incomingNumbers[0] || null;
+    const mappedRows = Array.isArray(order?.rows)
+      ? order.rows.map(row => mapInvoiceRow({
+          orderId: row.orderId ?? row.order_id ?? row.order_number ?? defaultOrderId,
+          order_number: row.order_number ?? defaultOrderId,
+          ...row,
+        })).filter(Boolean)
+      : [];
+    if (!mappedRows.length){
+      setInvoiceAddOrderStatus("Selected order has no rows to import.");
+      return;
+    }
+    const rawRows = ensureInvoiceRawRows(job);
+    mappedRows.forEach(row => rawRows.push({ ...row }));
+    if (!Array.isArray(job.orderNumbers)){
+      job.orderNumbers = [];
+    }
+    const orderDate = extractOrderDate(order) || new Date();
+    const orderClient = pickFirstString([
+      order.client,
+      order.client_name,
+      order.clientName,
+      order.client_hint,
+      order.customer,
+    ], "—");
+    incomingNumbers.forEach(num=>{
+      const normalized = String(num || "").toLowerCase();
+      const exists = job.orderNumbers.some(existing => String(existing || "").toLowerCase() === normalized);
+      if (!exists && num){
+        job.orderNumbers.push(num);
+      }
+    });
+    const orderEntries = incomingNumbers.map(num => createOrderMetadata({
+      orderNumber: num,
+      clientName: orderClient,
+      createdAt: orderDate.toISOString(),
+      units: extractOrderUnits(order),
+      area: extractOrderArea(order),
+      amount: 0,
+    }));
+    addOrdersMetadata(job, orderEntries);
+    ensureJobOrders(job);
+    job.orderNumbers = dedupeAndSortOrderNumbers(job.orderNumbers);
+    job.key = normalizeOrderKey(job.orderNumbers, job.id);
+    job.rows = rawRows;
+    job.rawRows = rawRows;
+    addClientToJob(job, orderClient);
+    job.hidden = false;
+    hideInvoiceJobsContainingOrders(incomingNumbers, job.id);
+    appState.invoices.activeJobId = job.id;
+    recalcInvoiceJob(job, { allowPrompt: true });
+    await saveInvoiceJobs();
+    closeInvoiceAddOrderModal();
+    updateInvoicesUI();
+    setInvoiceStatus("Order added to invoice.");
+  }catch(error){
+    console.error("Failed to add order to invoice", error);
+    setInvoiceAddOrderStatus("Failed to add order: " + (error.message || error));
+  }
+}
+
+async function removeOrderFromInvoiceJob(jobId, orderNumber){
+  await ensureInvoicesLoaded();
+  await ensureInvoiceJobsLoaded();
+  const jobs = appState.invoices.jobs || [];
+  const idx = jobs.findIndex(job => job && job.id === jobId);
+  if (idx < 0) return null;
+  const job = jobs[idx];
+  const normalizedTarget = String(orderNumber || "").trim().toLowerCase();
+  if (!normalizedTarget){
+    console.warn("removeOrderFromInvoiceJob called without order number");
+    return job;
+  }
+  ensureInvoiceRawRows(job);
+  const matchesTarget = value => String(value || "").trim().toLowerCase() === normalizedTarget;
+  let orderWasPresent = (job.orderNumbers || []).some(matchesTarget);
+  if (!orderWasPresent){
+    orderWasPresent = (job.orders || []).some(entry => matchesTarget(entry?.orderNumber));
+  }
+  if (!orderWasPresent){
+    return job;
+  }
+  job.orderNumbers = (job.orderNumbers || []).filter(num => !matchesTarget(num));
+  job.orders = (job.orders || []).filter(entry => !matchesTarget(entry?.orderNumber));
+  const filterRowsByOrder = rows=>{
+    if (!Array.isArray(rows)) return [];
+    return rows.filter(row=>{
+      if (!row || typeof row !== "object") return true;
+      const orderLabel = pickFirstString([
+        row.orderId,
+        row.order_id,
+        row.order_number,
+        row.orderNumber,
+        row.order,
+        row.orderLabel,
+      ], "").trim().toLowerCase();
+      return !orderLabel || orderLabel !== normalizedTarget;
+    });
+  };
+  const filteredRawRows = filterRowsByOrder(job.rawRows);
+  job.rawRows = filteredRawRows;
+  job.rows = filteredRawRows;
+  if (!job.orderNumbers.length || !job.rawRows.length){
+    const removedJob = jobs.splice(idx, 1)[0];
+    if (appState.invoices.activeJobId === removedJob.id){
+      appState.invoices.activeJobId = null;
+    }
+    unhideInvoiceJobsContainingOrders([orderNumber]);
+    await saveInvoiceJobs();
+    return null;
+  }
+  const nextClients = [];
+  (job.orders || []).forEach(entry=>{
+    const text = String(entry?.clientName || "").trim();
+    if (text && !nextClients.some(existing => existing.toLowerCase() === text.toLowerCase())){
+      nextClients.push(text);
+    }
+  });
+  if (nextClients.length){
+    job.clients = nextClients;
+    job.client = nextClients[0];
+  }
+  job.key = normalizeOrderKey(job.orderNumbers, job.id);
+  job.hidden = false;
+  ensureJobOrders(job);
+  recalcInvoiceJob(job, { allowPrompt: false });
+  applyJobTotals(job, job.calculated);
+  unhideInvoiceJobsContainingOrders([orderNumber]);
+  await saveInvoiceJobs();
+  return job;
+}
+
 function getActiveInvoiceJob(){
   if (!appState.invoices.activeJobId) return null;
-  return appState.invoices.jobs.find(job => job.id === appState.invoices.activeJobId) || null;
+  let job = appState.invoices.jobs.find(job => job.id === appState.invoices.activeJobId) || null;
+  if (job && job.hidden){
+    const fallback = getVisibleInvoiceJobs();
+    if (fallback.length){
+      job = fallback[0];
+      appState.invoices.activeJobId = job.id;
+    }else{
+      job = null;
+      appState.invoices.activeJobId = null;
+    }
+  }
+  return job;
 }
 
 function selectInvoiceJob(id){
@@ -5761,6 +6349,17 @@ function ensureInvoiceRawRows(job){
   if (!Array.isArray(job.rawRows)){
     job.rawRows = Array.isArray(job.rows) ? job.rows.map(r => ({ ...r })) : [];
   }
+  const defaultOrderId = Array.isArray(job.orderNumbers) && job.orderNumbers.length === 1 ? job.orderNumbers[0] : null;
+  if (defaultOrderId){
+    job.rawRows.forEach(row=>{
+      if (!row || typeof row !== "object") return;
+      const hasOrderId = row.orderId || row.order_id || row.order_number || row.orderNumber;
+      if (!hasOrderId){
+        row.orderId = defaultOrderId;
+        row.order_number = defaultOrderId;
+      }
+    });
+  }
   job.rows = job.rawRows;
   return job.rawRows;
 }
@@ -5770,6 +6369,15 @@ function buildInvoiceLinesFromRaw(rawRows, options = {}){
   const groups = new Map();
   (rawRows || []).forEach((row, idx)=>{
     if (!row || typeof row !== "object") return;
+    const orderId = pickFirstString([
+      row.orderId,
+      row.order_id,
+      row.order_number,
+      row.orderNumber,
+      row.order,
+      row.orderLabel,
+    ], "");
+    const normalizedOrder = orderId ? orderId.toLowerCase() : "";
     const originalTypeText = String(row.type || "").trim();
     const rawOriginal = row.rawType != null ? String(row.rawType) : null;
     const correctedTypeText = applyTypeCorrections(originalTypeText);
@@ -5777,11 +6385,13 @@ function buildInvoiceLinesFromRaw(rawRows, options = {}){
       row.type = correctedTypeText;
     }
     const typeText = correctedTypeText;
-    const key = normalizeGlassKey(typeText) || typeText.toLowerCase();
+    const normalizedType = normalizeGlassKey(typeText) || typeText.toLowerCase();
+    const key = `${normalizedOrder}|${normalizedType}`;
     if (!groups.has(key)){
       groups.set(key, {
         displayType: typeText,
-        normalizedType: key,
+        normalizedType,
+        orderId: orderId || null,
         qty: 0,
         area: 0,
         rawIndexes: [],
@@ -5856,6 +6466,7 @@ function computeInvoiceLineFromGroup(group, index, options = {}){
   const lineTotal = unitPricePerM2 * group.area;
   return {
     index: index + 1,
+    orderId: group.orderId || null,
     type: group.displayType,
     displayType: group.displayType,
     normalizedType: group.normalizedType,
@@ -5908,6 +6519,7 @@ function finalizeInvoiceTotals(job, lines){
     area: areaTotal,
     missing,
   };
+  applyJobTotals(job, job.calculated);
 }
 
 function recalcAllInvoices(opts = {}){
@@ -5915,9 +6527,18 @@ function recalcAllInvoices(opts = {}){
   (appState.invoices.jobs || []).forEach(job => recalcInvoiceJob(job, { allowPrompt }));
 }
 
+function applyJobTotals(job, calc){
+  if (!job) return;
+  const source = calc || job.calculated || {};
+  job.totalUnits = Number(source.units || 0);
+  job.totalArea = Number(source.area || 0);
+  job.totalAmount = Number(source.total || 0);
+  updateJobOrdersFromCalc(job, source);
+}
+
 function updateInvoiceSummary(){
   if (!invoiceSummaryEl) return;
-  const jobs = appState.invoices.jobs || [];
+  const jobs = getVisibleInvoiceJobs();
   if (!jobs.length){
     invoiceSummaryEl.innerHTML = "";
     return;
@@ -5927,9 +6548,10 @@ function updateInvoiceSummary(){
   let amount = 0;
   jobs.forEach(job=>{
     const calc = job.calculated || recalcInvoiceJob(job, { allowPrompt: false });
-    units += Number(calc?.units || 0);
-    area += Number(calc?.area || 0);
-    amount += Number(calc?.total || 0);
+    applyJobTotals(job, calc);
+    units += Number(job.totalUnits || 0);
+    area += Number(job.totalArea || 0);
+    amount += Number(job.totalAmount || 0);
   });
   invoiceSummaryEl.innerHTML = `<span class="pill">Jobs: ${jobs.length}</span><span class="pill">Units: ${units}</span><span class="pill">Area: ${formatArea(area)} m²</span><span class="pill">Total: ${formatMoney(amount)} ALL</span>`;
 }
@@ -5939,8 +6561,9 @@ function applyInvoiceFilters(jobs){
   const clientQuery = (filters.client || "").trim().toLowerCase();
   const orderQuery = (filters.order || "").trim().toLowerCase();
   const statusFilter = (filters.status || "").trim().toLowerCase();
-  return jobs.filter(job=>{
-    const clientMatch = !clientQuery || (job.client || "").toLowerCase().includes(clientQuery);
+  return (jobs || []).filter(job => !job.hidden).filter(job=>{
+    const clientLabel = formatInvoiceClientLabel(job).toLowerCase();
+    const clientMatch = !clientQuery || clientLabel.includes(clientQuery);
     const orderLabel = (job.orderNumbers || []).join(", ").toLowerCase();
     const orderMatch = !orderQuery || orderLabel.includes(orderQuery);
     const statusMatch = !statusFilter || (job.status || "").toLowerCase() === statusFilter;
@@ -5976,32 +6599,65 @@ function renderInvoiceJobs(){
     invoiceJobsWrap.innerHTML = '<div class="invoice-empty">No invoice jobs yet. Use the Invoice button in History.</div>';
     return;
   }
-  const rows = jobs.map(job=>{
+  const filters = appState.invoices.filters || {};
+  const clientQuery = (filters.client || "").trim().toLowerCase();
+  const orderQuery = (filters.order || "").trim().toLowerCase();
+  const rows = [];
+  jobs.forEach(job=>{
     const calc = job.calculated || recalcInvoiceJob(job, { allowPrompt: false });
+    applyJobTotals(job, calc);
+    ensureJobOrders(job);
     const statusClass = (job.status || "draft") === "finalized" ? "finalized" : "draft";
-    const orderLabel = (job.orderNumbers || []).join(", ") || "—";
-    const client = job.client || "—";
-    const created = formatDate(job.createdAt);
-    return `<tr data-id="${escapeHtml(job.id)}">
-      <td>${escapeHtml(client)}</td>
-      <td>${escapeHtml(orderLabel)}</td>
-      <td>${escapeHtml(created)}</td>
-      <td>${Number(calc?.units || 0)}</td>
-      <td>${formatArea(calc?.area || 0)}</td>
-      <td>${formatMoney(calc?.total || 0)}</td>
-      <td><span class="pill invoice-status-badge ${statusClass}">${escapeHtml(job.status || "draft")}</span></td>
-      <td class="actions-cell">
-        <button class="btn small" data-invoice-action="open" data-id="${escapeHtml(job.id)}">Open</button>
-        <button class="btn small" data-invoice-action="pdf" data-id="${escapeHtml(job.id)}">Generate PDF</button>
-        <button class="btn small danger" data-invoice-action="delete" data-id="${escapeHtml(job.id)}">Delete</button>
-      </td>
-    </tr>`;
-  }).join("");
+    const fallbackClient = formatInvoiceClientLabel(job) || "—";
+    const fallbackDate = job.createdAt || new Date().toISOString();
+    const orderEntries = Array.isArray(job.orders) && job.orders.length
+      ? job.orders
+      : [createOrderMetadata({
+          orderNumber: job.orderNumbers && job.orderNumbers[0] ? job.orderNumbers[0] : "—",
+          clientName: fallbackClient,
+          createdAt: fallbackDate,
+          units: job.totalUnits || 0,
+          area: job.totalArea || 0,
+          amount: job.totalAmount || 0,
+        })];
+    orderEntries.forEach(entry=>{
+      const orderNumber = entry?.orderNumber || "—";
+      const client = entry?.clientName || fallbackClient;
+      const createdAt = entry?.createdAt || fallbackDate;
+      const units = Number(entry?.units ?? 0) || 0;
+      const areaValue = Number(entry?.area ?? 0) || 0;
+      const amountValue = Number(entry?.amount ?? 0) || 0;
+      const matchesClient = !clientQuery || client.toLowerCase().includes(clientQuery);
+      const matchesOrder = !orderQuery || orderNumber.toLowerCase().includes(orderQuery);
+      if (!matchesClient || !matchesOrder) return;
+      const invoiceBadge = job.invoiceNumber
+        ? `<div class="muted small">Invoice: ${escapeHtml(job.invoiceNumber)}</div>`
+        : "";
+      rows.push(`<tr data-job-id="${escapeHtml(job.id)}" data-order-number="${escapeHtml(orderNumber)}">
+        <td>${escapeHtml(client)}</td>
+        <td><div>${escapeHtml(orderNumber)}</div>${invoiceBadge}</td>
+        <td>${escapeHtml(formatDate(createdAt))}</td>
+        <td>${units}</td>
+        <td>${formatArea(areaValue)}</td>
+        <td>${formatMoney(amountValue)}</td>
+        <td><span class="pill invoice-status-badge ${statusClass}">${escapeHtml(job.status || "draft")}</span></td>
+        <td class="actions-cell">
+          <button class="btn small" data-invoice-action="open" data-job-id="${escapeHtml(job.id)}" data-order-number="${escapeHtml(orderNumber)}">Open</button>
+          <button class="btn small" data-invoice-action="pdf" data-job-id="${escapeHtml(job.id)}" data-order-number="${escapeHtml(orderNumber)}">Generate PDF</button>
+          <button class="btn small danger" data-invoice-action="delete" data-job-id="${escapeHtml(job.id)}">Delete</button>
+        </td>
+      </tr>`);
+    });
+  });
+  if (!rows.length){
+    invoiceJobsWrap.innerHTML = '<div class="invoice-empty">No invoice rows match your filters.</div>';
+    return;
+  }
   invoiceJobsWrap.innerHTML = `<table>
     <thead>
       <tr>
         <th>Client</th>
-        <th>Order numbers</th>
+        <th>Order number</th>
         <th>Date</th>
         <th>Units</th>
         <th>Total area (m²)</th>
@@ -6010,7 +6666,7 @@ function renderInvoiceJobs(){
         <th>Actions</th>
       </tr>
     </thead>
-    <tbody>${rows}</tbody>
+    <tbody>${rows.join("")}</tbody>
   </table>`;
   const hasActive = jobs.some(job => job.id === appState.invoices.activeJobId);
   if ((!appState.invoices.activeJobId || !hasActive) && jobs.length){
@@ -6026,6 +6682,7 @@ function renderInvoiceDetail(){
     if (invoiceDetailMeta) invoiceDetailMeta.textContent = "";
     if (invoiceTotalsEl) invoiceTotalsEl.innerHTML = "";
     if (invoiceMissingNotice) invoiceMissingNotice.hidden = true;
+    if (invoiceAddOrderBtn) invoiceAddOrderBtn.disabled = true;
     if (invoiceRecalcBtn) invoiceRecalcBtn.disabled = true;
     if (invoiceGeneratePdfBtn) invoiceGeneratePdfBtn.disabled = true;
     if (invoiceDeleteActiveBtn) invoiceDeleteActiveBtn.disabled = true;
@@ -6040,9 +6697,10 @@ function renderInvoiceDetail(){
   const calc = job.calculated || recalcInvoiceJob(job, { allowPrompt: false });
   if (invoiceDetailMeta){
     const orderLabel = (job.orderNumbers || []).join(", ") || "—";
+    const clientLabel = formatInvoiceClientLabel(job) || "—";
     const created = formatDate(job.createdAt);
     const invoiceNo = job.invoiceNumber ? ` • Invoice: ${job.invoiceNumber}` : "";
-    invoiceDetailMeta.textContent = `${job.client || "—"} • ${orderLabel} • ${created}${invoiceNo}`;
+    invoiceDetailMeta.textContent = `Client: ${clientLabel} • Orders: ${orderLabel} • ${created}${invoiceNo}`;
   }
   if (invoiceDiscountMode){
     invoiceDiscountMode.value = job.discountMode || "percent";
@@ -6118,6 +6776,7 @@ function renderInvoiceDetail(){
       <span class="pill">Total: ${formatMoney(calc?.total || 0)} ALL</span>
     `;
   }
+  if (invoiceAddOrderBtn) invoiceAddOrderBtn.disabled = false;
   if (invoiceRecalcBtn) invoiceRecalcBtn.disabled = false;
   if (invoiceGeneratePdfBtn) invoiceGeneratePdfBtn.disabled = !!missingMessage;
   if (invoiceDeleteActiveBtn) invoiceDeleteActiveBtn.disabled = false;
@@ -6319,7 +6978,12 @@ async function generateInvoicePdf(job){
   }
   const groupedLines = Array.isArray(calc?.lines) ? calc.lines : [];
   await ensurePdfLib();
-  const { PDFDocument, StandardFonts } = PDFLib;
+  const lib = window.PDFLib;
+  if (!lib || !lib.PDFDocument){
+    throw new Error("PDF library not loaded. Please check your connection and try again.");
+  }
+  const { PDFDocument, StandardFonts, rgb } = lib;
+  const labelColor = typeof rgb === "function" ? rgb(0.5, 0.5, 0.55) : undefined;
   const mmToPtLocal = 2.83464567;
   const pageWidth = 210 * mmToPtLocal;
   const pageHeight = 297 * mmToPtLocal;
@@ -6336,14 +7000,41 @@ async function generateInvoicePdf(job){
   job.invoiceNumber = invoiceNumber;
   const orderLabel = (job.orderNumbers || []).join(", ") || "—";
   const headerDate = formatDate(new Date().toISOString());
+  const clientNames = (() => {
+    const names = new Set();
+    const addName = (value)=>{
+      const text = (value || "").trim();
+      if (text) names.add(text);
+    };
+    addName(job.client);
+    if (Array.isArray(job.clients)){
+      job.clients.forEach(addName);
+    }
+    const sourceRows = Array.isArray(job.rawRows) ? job.rawRows : job.rows;
+    if (Array.isArray(sourceRows)){
+      sourceRows.forEach(row=>{
+        addName(row?.client);
+        addName(row?.client_name);
+        addName(row?.clientName);
+        addName(row?.client_label);
+        addName(row?.customer);
+      });
+    }
+    const list = Array.from(names);
+    if (!list.length) return ["—"];
+    return list;
+  })();
+  const clientLabelText = clientNames.length > 1
+    ? `Clients: ${clientNames.join(", ")}`
+    : `Client: ${clientNames[0]}`;
 
   const infoBlockX = margin;
   let infoY = pageHeight - margin;
   page.drawText("FATURA / INVOICE", { x: infoBlockX, y: infoY, size: 12, font: bold });
   infoY -= lineHeight;
   const metaLines = [
-    `Client: ${job.client || "—"}`,
-    `Order: ${orderLabel}`,
+    clientLabelText,
+    `Orders: ${orderLabel}`,
     `Invoice: ${invoiceNumber}`,
     `Date: ${headerDate}`,
   ];
@@ -6389,8 +7080,28 @@ async function generateInvoicePdf(job){
     }
   };
 
+  const drawOrderHeader = (orderNumber)=>{
+    if (!orderNumber) return;
+    const headerText = `Order ${orderNumber}`;
+    const headerSize = Math.max(8, tableFontSize - 1);
+    const headerX = colPositions.type.x;
+    const headerOpts = { x: headerX, y, size: headerSize, font: regular };
+    if (labelColor) headerOpts.color = labelColor;
+    page.drawText(headerText, headerOpts);
+    y -= lineHeight;
+  };
+
+  let lastOrderLabel = null;
+
   groupedLines.forEach(line=>{
-    ensureSpace(2);
+    const orderLabel = line.orderId ? String(line.orderId).trim() : "";
+    const normalizedOrder = orderLabel.toLowerCase();
+    const isNewOrder = orderLabel && normalizedOrder !== lastOrderLabel;
+    const rowsNeeded = 1 + (isNewOrder ? 1 : 0);
+    ensureSpace(rowsNeeded);
+    if (isNewOrder){
+      drawOrderHeader(orderLabel);
+    }
     const rowValues = {
       idx: String(line.index || ""),
       type: line.type || "",
@@ -6412,6 +7123,7 @@ async function generateInvoicePdf(job){
       }
       page.drawText(text, { x, y, size: tableFontSize, font: regular });
     });
+    lastOrderLabel = orderLabel ? normalizedOrder : lastOrderLabel;
     y -= lineHeight;
   });
 
@@ -7450,6 +8162,35 @@ if (invoiceAddSpacerBtn){
   });
 }
 
+if (invoiceAddOrderBtn){
+  invoiceAddOrderBtn.addEventListener("click", ()=>{
+    ensureInvoicesLoaded();
+    openInvoiceAddOrderModal();
+  });
+}
+
+if (invoiceAddOrderClose){
+  invoiceAddOrderClose.addEventListener("click", ()=>{
+    closeInvoiceAddOrderModal();
+  });
+}
+
+if (invoiceAddOrderModal){
+  invoiceAddOrderModal.addEventListener("click", event=>{
+    if (event.target === invoiceAddOrderModal){
+      closeInvoiceAddOrderModal();
+    }
+  });
+}
+
+if (invoiceAddOrderList){
+  invoiceAddOrderList.addEventListener("click", async event=>{
+    const btn = event.target.closest("[data-add-order-id]");
+    if (!btn) return;
+    await handleInvoiceAddOrderSelect(btn.dataset.addOrderId);
+  });
+}
+
 if (invoiceSavePricesBtn){
   invoiceSavePricesBtn.addEventListener("click", async ()=>{
     ensureInvoicesLoaded();
@@ -7528,11 +8269,18 @@ if (invoiceJobsWrap){
     ensureInvoicesLoaded();
     await ensureInvoiceJobsLoaded();
     const action = btn.dataset.invoiceAction;
-    const id = btn.dataset.id;
-    if (!action || !id) return;
-    const job = appState.invoices.jobs.find(item => item.id === id);
+    const jobId = btn.dataset.jobId || btn.dataset.id || btn.closest("tr")?.dataset.jobId;
+    const orderNumber = btn.dataset.orderNumber || btn.closest("tr")?.dataset.orderNumber || "";
+    if (!action || !jobId) return;
+    const lowerOrder = (orderNumber || "").toLowerCase();
+    const job = appState.invoices.jobs.find(item => item.id === jobId)
+      || (lowerOrder ? appState.invoices.jobs.find(item => (item.orderNumbers || []).some(num => String(num || "").toLowerCase() === lowerOrder)) : null);
     if (action === "open"){
-      appState.invoices.activeJobId = id;
+      if (!job){
+        setInvoiceStatus("Invoice job not found.");
+        return;
+      }
+      appState.invoices.activeJobId = job.id;
       updateInvoicesUI();
     }else if (action === "pdf"){
       if (!job) return;
@@ -7543,8 +8291,25 @@ if (invoiceJobsWrap){
         setInvoiceStatus(error?.message || "Failed to generate PDF.");
       }
     }else if (action === "delete"){
-      if (!confirm("Delete this invoice job?")) return;
-      await deleteInvoiceJob(id);
+      if (!job){
+        setInvoiceStatus("Invoice job not found.");
+        return;
+      }
+      const targetOrder = orderNumber || (job.orderNumbers && job.orderNumbers[0]) || "";
+      const label = targetOrder ? `Remove order ${targetOrder} from this invoice?` : "Remove this order from the invoice?";
+      if (!confirm(label)) return;
+      try{
+        const updated = await removeOrderFromInvoiceJob(job.id, targetOrder);
+        if (!updated){
+          setInvoiceStatus("Invoice job removed.");
+        }else{
+          setInvoiceStatus(targetOrder ? `Order ${targetOrder} removed from invoice.` : "Order removed from invoice.");
+        }
+        updateInvoicesUI();
+      }catch(error){
+        console.error("Failed to remove order from invoice", error);
+        setInvoiceStatus("Failed to remove order: " + (error?.message || error));
+      }
     }
   });
 }
