@@ -141,7 +141,7 @@
     .price-editor .muted{font-size:12px}
     .modal-layer{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(17,24,39,0.45);backdrop-filter:blur(2px);z-index:999}
     .modal-card{background:#fff;padding:18px;border-radius:14px;box-shadow:var(--shadow);max-width:460px;width:92%;border:1px solid var(--border)}
-    .modal-card.wide{max-width:960px;width:96%}
+    .modal-card.wide{max-width:960px;width:96%;max-height:80vh;display:flex;flex-direction:column}
     .modal-card h3{margin-top:0;margin-bottom:6px}
     .modal-card p{margin-top:0;color:var(--muted);font-size:13px}
     .modal-card label{display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:600;color:var(--muted);margin-bottom:10px}
@@ -149,6 +149,7 @@
     .modal-card input:focus{outline:2px solid var(--primary-soft);border-color:var(--primary)}
     .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:6px}
     .add-order-meta{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin:8px 0}
+    #invoiceAddOrderList{flex:1 1 auto;min-height:0;max-height:60vh;overflow-y:auto}
     #invoiceAddOrderList table{min-width:640px}
     .input-error{border-color:#f87171 !important;outline:2px solid #fecaca !important}
     .modal-layer[hidden]{display:none !important}
