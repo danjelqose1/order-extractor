@@ -168,6 +168,11 @@
     .editable-table input,.editable-table select{width:100%;padding:6px 8px;border:1px solid var(--border-dark);border-radius:8px;font-size:13px;background:#fff}
     .editable-table input:focus{outline:2px solid var(--primary-soft);border-color:var(--primary)}
     .editable-badge{display:inline-flex;align-items:center;padding:2px 6px;border-radius:6px;background:#fee2e2;color:#9f1239;font-size:11px}
+    .order-chip-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px}
+    .order-chips{display:flex;flex-wrap:wrap;gap:6px}
+    .order-chip{display:inline-flex;align-items:center;gap:6px;padding:2px 10px;border-radius:999px;background:#eef2ff;color:#374151;font-size:12px}
+    .order-chip button{border:none;background:transparent;color:#6b7280;font-size:12px;cursor:pointer;padding:0;margin:0;line-height:1}
+    .order-chip button:hover{color:#ef4444}
     .ai-badge{display:inline-flex;align-items:center;padding:2px 6px;border-radius:999px;background:#eef2ff;color:#4b5563;font-size:10px;font-weight:600;margin-left:6px}
     .notes-field{margin-top:12px;display:flex;flex-direction:column;gap:6px}
     .notes-field textarea{width:100%;min-height:80px;padding:10px;border:1px solid var(--border-dark);border-radius:10px;font-size:13px;resize:vertical;background:#fff}
@@ -6858,11 +6863,20 @@ function renderInvoiceDetail(){
   }
   const calc = job.calculated;
   if (invoiceDetailMeta){
-    const orderLabel = (job.orderNumbers || []).join(", ") || "—";
+    const orderNumbers = Array.isArray(job.orderNumbers) ? job.orderNumbers : [];
     const clientLabel = formatInvoiceClientLabel(job) || "—";
     const created = formatDate(job.createdAt);
     const invoiceNo = job.invoiceNumber ? ` • Invoice: ${job.invoiceNumber}` : "";
-    invoiceDetailMeta.textContent = `Client: ${clientLabel} • Orders: ${orderLabel} • ${created}${invoiceNo}`;
+    const orderChips = orderNumbers.length
+      ? orderNumbers.map(num => `<span class="order-chip"><span>${escapeHtml(num)}</span><button type="button" data-remove-order="${escapeHtml(num)}" aria-label="Remove order ${escapeHtml(num)}">×</button></span>`).join("")
+      : '<span class="muted small">(none)</span>';
+    invoiceDetailMeta.innerHTML = `
+      <div>Client: ${escapeHtml(clientLabel)} • ${created}${invoiceNo}</div>
+      <div class="order-chip-row">
+        <span class="muted small">Orders:</span>
+        <div class="order-chips">${orderChips}</div>
+      </div>
+    `;
   }
   if (invoiceDiscountMode){
     invoiceDiscountMode.value = job.discountMode || "percent";
@@ -7188,14 +7202,85 @@ async function callAiGlassMatch(rawName, knownTypes){
   if (!apiKey){
     return null;
   }
-  const userPrompt = `rawName: ${rawName}\nknownTypes: ${JSON.stringify(knownTypes)}\nInstruction: Return exactly ONE element from knownTypes that best matches rawName. If none match, return 'NONE'.`;
+  const systemPrompt = `
+You are an expert assistant for a glass processing factory invoicing system.
+
+You receive:
+- Noisy glass descriptions extracted from PDFs (often Italian).
+- A list of canonical glass type keys from the factory price list.
+
+Your job:
+- Decide which single canonical glass type key best corresponds to the
+  glass mentioned in the noisy text.
+- Handle OCR typos and many spelling variants (for example "stainato"
+  should match "satinato", "low e" or "loe" should match "lowe",
+  "33,1" is the same as "33.1", etc.).
+- Understand that the text often describes INSULATED GLASS UNITS (IGU),
+  like "3 vetri 33.1 LOWE+12+4F+14+33.1STAINATO 44mm", but the price
+  list is per single glass type (e.g. "33.1satinato", "33.1lowe", "4f").
+
+Important:
+- You MUST choose only from the provided canonical keys (knownTypes).
+- NEVER invent a new glass type.
+- If there is no reasonable match, answer "NONE".
+
+Think carefully about:
+- Thickness numbers (33.1, 4, 6, 8…)
+- Modifiers: "F" (float), "lowe" / "low-e" / "loe", "satinato" /
+  "satinat" / "stainato", "clear", "caldo" (thermal spacers context).
+- OCR mistakes where letters are swapped or missing.
+
+When deciding, compare the meaning, not the exact spelling:
+- "33.1STAINATO" is almost certainly the same as "33.1satinato".
+- "4f low e", "4f lowe", "4f Lowe", "4FLOE" are the same concept as
+  "4f lowe".
+- Ignore dimension info, number of panes ("2 vetri", "3 vetri"), and
+  spacer thickness ("+12+", "+14+") when choosing the glass type.`.trim();
+  const userPrompt = `
+You must choose the best match from this JSON array of canonical glass
+types (price keys):
+
+knownTypes = ${JSON.stringify(knownTypes)}
+
+The noisy glass text we care about is:
+
+raw_name = "${rawName}"
+
+Examples of how you should behave:
+
+1) If knownTypes = ["4f", "33.1satinato", "33.1lowe"] and
+   raw_name = "33.1STAINATO 44mm"
+   → BEST MATCH: "33.1satinato"
+
+2) If knownTypes = ["4f", "33.1satinato", "33.1lowe"] and
+   raw_name = "3 vetri 33.1 LOWE+12+4F+14+33.1STAINATO 44mm"
+   → You focus on the word nearest to the missing price ("33.1STAINATO"),
+     and BEST MATCH: "33.1satinato"
+
+3) If knownTypes = ["4f", "4f lowe", "33.1satinato"] and
+   raw_name = "4F low e 6mm"
+   → BEST MATCH: "4f lowe"
+
+4) If knownTypes = ["4f", "6f"] and
+   raw_name = "33.1STAINATO"
+   → There is no good match, so respond: "NONE".
+
+Now for the current request:
+
+- Think step by step about which canonical key has the same thickness
+  and treatment (float, lowe, satinato, etc.) as raw_name, ignoring
+  minor spelling errors.
+- Then answer with EXACTLY ONE of the strings from knownTypes that is
+  the best match.
+- If none match with reasonable confidence, answer exactly: "NONE".
+`.trim();
   const payload = {
     model: "gpt-4o-mini",
     temperature: 0,
     messages: [
       {
         role: "system",
-        content: "You map noisy or misspelled glass descriptions to one canonical glass type from the provided list. Never invent new types.",
+        content: systemPrompt,
       },
       {
         role: "user",
@@ -8573,6 +8658,33 @@ if (invoiceAddOrderBtn){
   invoiceAddOrderBtn.addEventListener("click", ()=>{
     ensureInvoicesLoaded();
     openInvoiceAddOrderModal();
+  });
+}
+
+if (invoiceDetailMeta){
+  invoiceDetailMeta.addEventListener("click", async event=>{
+    const btn = event.target.closest("[data-remove-order]");
+    if (!btn) return;
+    const orderNumber = btn.dataset.removeOrder;
+    if (!orderNumber) return;
+    const warning = `Remove order ${orderNumber} from this invoice?\nThis will remove all lines belonging to that order, but it will NOT delete the original order from History.`;
+    if (!confirm(warning)) return;
+    ensureInvoicesLoaded();
+    await ensureInvoiceJobsLoaded();
+    const job = getActiveInvoiceJob();
+    if (!job) return;
+    try{
+      const updated = await removeOrderFromInvoiceJob(job.id, orderNumber);
+      if (!updated){
+        setInvoiceStatus("Invoice order removed.");
+      }else{
+        setInvoiceStatus(`Order ${orderNumber} removed from invoice.`);
+      }
+      updateInvoicesUI();
+    }catch(error){
+      console.error("Failed to remove order from invoice", error);
+      setInvoiceStatus("Failed to remove order: " + (error?.message || error));
+    }
   });
 }
 
