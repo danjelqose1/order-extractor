@@ -168,6 +168,7 @@
     .editable-table input,.editable-table select{width:100%;padding:6px 8px;border:1px solid var(--border-dark);border-radius:8px;font-size:13px;background:#fff}
     .editable-table input:focus{outline:2px solid var(--primary-soft);border-color:var(--primary)}
     .editable-badge{display:inline-flex;align-items:center;padding:2px 6px;border-radius:6px;background:#fee2e2;color:#9f1239;font-size:11px}
+    .ai-badge{display:inline-flex;align-items:center;padding:2px 6px;border-radius:999px;background:#eef2ff;color:#4b5563;font-size:10px;font-weight:600;margin-left:6px}
     .notes-field{margin-top:12px;display:flex;flex-direction:column;gap:6px}
     .notes-field textarea{width:100%;min-height:80px;padding:10px;border:1px solid var(--border-dark);border-radius:10px;font-size:13px;resize:vertical;background:#fff}
     .processing-layout{display:grid;grid-template-columns:280px 1fr 280px;gap:18px;margin-top:12px}
@@ -5104,6 +5105,16 @@ const invoiceAddOrderState = {
   error: "",
   searchTerm: "",
 };
+const glassAliasCache = Object.create(null);
+const glassAliasPending = new Map();
+const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
+
+function clearGlassAliasCache(){
+  Object.keys(glassAliasCache).forEach(key=>{
+    delete glassAliasCache[key];
+  });
+  glassAliasPending.clear();
+}
 
 function groupInvoiceLinesByType(lines){
   const map = new Map();
@@ -5185,6 +5196,7 @@ function loadInvoicePrices(source){
     glass: normalized.glassPrices,
     spacer: normalized.spacerPrices,
   };
+  clearGlassAliasCache();
   return normalized;
 }
 
@@ -5207,7 +5219,7 @@ function buildInvoiceConfigPayload(){
   };
 }
 
-function applyInvoiceConfigToState(config, { cacheLocal = true, preferExistingTypeCorrections = false } = {}){
+async function applyInvoiceConfigToState(config, { cacheLocal = true, preferExistingTypeCorrections = false } = {}){
   const normalized = normalizeInvoiceConfigPayload(config || {});
   const existingCorrections = (preferExistingTypeCorrections && !normalized.typeCorrections.length && Array.isArray(TYPE_CORRECTIONS))
     ? TYPE_CORRECTIONS
@@ -5226,7 +5238,7 @@ function applyInvoiceConfigToState(config, { cacheLocal = true, preferExistingTy
     saveTypeCorrections();
   }
   if (invoiceRuntime.initialized){
-    recalcAllInvoices({ allowPrompt: false });
+    await recalcAllInvoices({ allowPrompt: false });
     updateInvoicesUI();
   }
   return {
@@ -5260,7 +5272,7 @@ async function persistInvoiceConfigToServer(configOverride, { preferExistingType
     }
     const data = await res.json();
     const normalized = normalizeInvoiceConfigPayload(data);
-    applyInvoiceConfigToState(normalized, { cacheLocal: true, preferExistingTypeCorrections });
+    await applyInvoiceConfigToState(normalized, { cacheLocal: true, preferExistingTypeCorrections });
     return normalized;
   }catch(error){
     console.warn("Failed to save pricing config to server", error);
@@ -5273,7 +5285,7 @@ async function syncInvoiceConfigFromServer({ silent = false } = {}){
   invoiceRuntime.configPromise = (async ()=>{
     try{
       const config = await fetchInvoiceConfigFromServer();
-      return applyInvoiceConfigToState(config, { cacheLocal: true, preferExistingTypeCorrections: true });
+      return await applyInvoiceConfigToState(config, { cacheLocal: true, preferExistingTypeCorrections: true });
     }catch(error){
       if (!silent) console.warn("Failed to fetch pricing config from server", error);
       return null;
@@ -5606,7 +5618,9 @@ async function ensureInvoiceJobsLoaded(){
       }
     }
     appState.invoices.jobs = normalizeInvoiceJobs(jobs);
-    appState.invoices.jobs.forEach(job => recalcInvoiceJob(job, { allowPrompt: false }));
+    for (const job of appState.invoices.jobs){
+      await recalcInvoiceJob(job, { allowPrompt: false });
+    }
     invoiceRuntime.jobsLoaded = true;
     updateInvoicesUI();
     return appState.invoices.jobs;
@@ -5935,10 +5949,10 @@ async function addInvoiceJobFromOrder(order){
     ensureJobOrders(merged);
     appState.invoices.jobs.splice(existingIndex, 1, merged);
     appState.invoices.activeJobId = merged.id;
-    recalcInvoiceJob(merged, { allowPrompt: true });
+    await recalcInvoiceJob(merged, { allowPrompt: true });
   }else{
     appState.invoices.activeJobId = job.id;
-    recalcInvoiceJob(job, { allowPrompt: true });
+    await recalcInvoiceJob(job, { allowPrompt: true });
     appState.invoices.jobs.unshift(job);
   }
   await saveInvoiceJobs();
@@ -6150,7 +6164,7 @@ async function handleInvoiceAddOrderSelect(orderId){
     job.hidden = false;
     hideInvoiceJobsContainingOrders(incomingNumbers, job.id);
     appState.invoices.activeJobId = job.id;
-    recalcInvoiceJob(job, { allowPrompt: true });
+    await recalcInvoiceJob(job, { allowPrompt: true });
     await saveInvoiceJobs();
     updateInvoicesUI();
     const label = incomingNumbers.length
@@ -6229,7 +6243,7 @@ async function removeOrderFromInvoiceJob(jobId, orderNumber){
   job.key = normalizeOrderKey(job.orderNumbers, job.id);
   job.hidden = false;
   ensureJobOrders(job);
-  recalcInvoiceJob(job, { allowPrompt: false });
+  await recalcInvoiceJob(job, { allowPrompt: false });
   applyJobTotals(job, job.calculated);
   unhideInvoiceJobsContainingOrders([orderNumber]);
   await saveInvoiceJobs();
@@ -6375,10 +6389,11 @@ async function handleInvoicePromptSave(){
     invoiceRuntime.missingKeys.delete(`spacer:${thicknessValue}:${kind}`);
   }
   saveInvoicePrices();
+  clearGlassAliasCache();
   const job = appState.invoices.jobs.find(item => item.id === payload.jobId);
   hideInvoicePrompt();
   if (job){
-    recalcInvoiceJob(job, { allowPrompt: true });
+    await recalcInvoiceJob(job, { allowPrompt: true });
   }
   await saveInvoiceJobs();
   renderInvoicePriceEditor();
@@ -6409,12 +6424,12 @@ function describeMissingPricing(missing){
   return "Missing pricing details.";
 }
 
-function recalcInvoiceJob(job, options = {}){
+async function recalcInvoiceJob(job, options = {}){
   if (!job) return null;
   const { allowPrompt = false } = options;
   const promptAllowedForJob = allowPrompt && appState.invoices.activeJobId === job.id;
   const rawRows = ensureInvoiceRawRows(job);
-  const lines = buildInvoiceLinesFromRaw(rawRows, { promptAllowedForJob });
+  const lines = await buildInvoiceLinesFromRaw(rawRows, { promptAllowedForJob });
   lines.forEach(line=>{
     if (!Array.isArray(line.rawIndexes)) return;
     line.rawIndexes.forEach(idx=>{
@@ -6451,7 +6466,7 @@ function ensureInvoiceRawRows(job){
   return job.rawRows;
 }
 
-function buildInvoiceLinesFromRaw(rawRows, options = {}){
+async function buildInvoiceLinesFromRaw(rawRows, options = {}){
   const promptAllowedForJob = !!options.promptAllowedForJob;
   const groups = new Map();
   (rawRows || []).forEach((row, idx)=>{
@@ -6505,45 +6520,63 @@ function buildInvoiceLinesFromRaw(rawRows, options = {}){
     group.rawIndexes.push(idx);
   });
 
-  const lines = Array.from(groups.values()).map((group, index)=>{
-    return computeInvoiceLineFromGroup(group, index, { promptAllowedForJob });
-  });
+  const lines = [];
+  const groupEntries = Array.from(groups.values());
+  for (let index = 0; index < groupEntries.length; index += 1){
+    const line = await computeInvoiceLineFromGroup(groupEntries[index], index, { promptAllowedForJob });
+    lines.push(line);
+  }
   return lines;
 }
 
-function computeInvoiceLineFromGroup(group, index, options = {}){
+async function computeInvoiceLineFromGroup(group, index, options = {}){
   const promptAllowedForJob = !!options.promptAllowedForJob;
   const composition = parseInvoiceComposition(group.displayType || "");
   let glassPricePerM2 = 0;
   let lineMissing = null;
-  composition.panes.forEach(pane=>{
-    const key = normalizeGlassKey(pane);
-    const price = appState.invoices.priceLists.glass[key];
+  let aiAssisted = false;
+  const glassPriceKeys = Object.keys(appState.invoices.priceLists.glass || {});
+  for (const pane of composition.panes){
+    const result = await resolveGlassType(pane, glassPriceKeys);
+    if (result?.fromAi){
+      aiAssisted = true;
+    }
+    const matchedKey = result?.match;
+    const normalizedKey = matchedKey || normalizeGlassKey(pane);
+    const price = normalizedKey ? appState.invoices.priceLists.glass[normalizedKey] : undefined;
     if (!Number.isFinite(price)){
-      lineMissing = lineMissing || { type: "glass", pane, normalized: key };
+      lineMissing = lineMissing || { type: "glass", pane, normalized: normalizedKey };
       if (promptAllowedForJob){
-        enqueueInvoicePrompt({ kind: "glass", label: pane, normalized: key });
+        enqueueInvoicePrompt({ kind: "glass", label: pane, normalized: normalizedKey });
       }
     }else{
       glassPricePerM2 += Number(price);
     }
-  });
+  }
   let spacerPricePerM2 = 0;
   const inferredKind = composition.spacerKind;
-  const spacerKind = (group.spacerKind === "thermal" || group.spacerKind === "normal") ? group.spacerKind : inferredKind;
+  const baseSpacerKind = (group.spacerKind === "thermal" || group.spacerKind === "normal")
+    ? group.spacerKind
+    : (inferredKind === "thermal" ? "thermal" : inferredKind === "normal" ? "normal" : "normal");
+  const spacerText = `${group.displayType || ""} ${group.rawType || ""}`;
+  const caldoDetected = /\bcaldo\b/i.test(spacerText);
+  const spacerMode = caldoDetected ? "thermal" : (baseSpacerKind || "normal");
+  if (caldoDetected){
+    aiAssisted = true;
+  }
   const thicknesses = Array.isArray(composition.spacerThicknesses) && composition.spacerThicknesses.length
     ? composition.spacerThicknesses
     : [];
   thicknesses.forEach(th=>{
-    const spacer = getSpacerPrice(th, spacerKind);
+    const spacer = getSpacerPrice(th, spacerMode);
     if (spacer.missing){
       lineMissing = lineMissing || { type: "spacer", details: spacer.missing };
       if (promptAllowedForJob){
         enqueueInvoicePrompt({
           kind: "spacer",
           thickness: th,
-          kind: spacerKind,
-          description: `Spacer ${th ?? "?"}mm (${spacerKind || "normal"})`,
+          kind: spacerMode,
+          description: `Spacer ${th ?? "?"}mm (${spacerMode || "normal"})`,
         });
       }
     }
@@ -6561,7 +6594,8 @@ function computeInvoiceLineFromGroup(group, index, options = {}){
     area: group.area,
     glassPricePerM2,
     spacerPricePerM2,
-    spacerKind,
+    spacerKind: spacerMode,
+    spacerMode,
     spacerThicknesses: thicknesses.slice(),
     spacerOverride: null,
     unitPricePerM2,
@@ -6570,6 +6604,7 @@ function computeInvoiceLineFromGroup(group, index, options = {}){
     rawIndexes: group.rawIndexes || [],
     missing: lineMissing,
     rawType: group.rawType || null,
+    aiAssisted,
   };
 }
 
@@ -6609,9 +6644,12 @@ function finalizeInvoiceTotals(job, lines){
   applyJobTotals(job, job.calculated);
 }
 
-function recalcAllInvoices(opts = {}){
+async function recalcAllInvoices(opts = {}){
   const { allowPrompt = false } = opts;
-  (appState.invoices.jobs || []).forEach(job => recalcInvoiceJob(job, { allowPrompt }));
+  const jobs = appState.invoices.jobs || [];
+  for (const job of jobs){
+    await recalcInvoiceJob(job, { allowPrompt });
+  }
 }
 
 function applyJobTotals(job, calc){
@@ -6634,8 +6672,10 @@ function updateInvoiceSummary(){
   let area = 0;
   let amount = 0;
   jobs.forEach(job=>{
-    const calc = job.calculated || recalcInvoiceJob(job, { allowPrompt: false });
-    applyJobTotals(job, calc);
+    const calc = job.calculated;
+    if (calc){
+      applyJobTotals(job, calc);
+    }
     units += Number(job.totalUnits || 0);
     area += Number(job.totalArea || 0);
     amount += Number(job.totalAmount || 0);
@@ -6695,8 +6735,10 @@ function renderInvoiceJobs(){
   const orderQuery = (filters.order || "").trim().toLowerCase();
   const rows = [];
   jobs.forEach(job=>{
-    const calc = job.calculated || recalcInvoiceJob(job, { allowPrompt: false });
-    applyJobTotals(job, calc);
+    const calc = job.calculated;
+    if (calc){
+      applyJobTotals(job, calc);
+    }
     ensureJobOrders(job);
     const statusClass = (job.status || "draft") === "finalized" ? "finalized" : "draft";
     const fallbackClient = formatInvoiceClientLabel(job) || "—";
@@ -6814,7 +6856,7 @@ function renderInvoiceDetail(){
     if (invoiceStatusSelect) invoiceStatusSelect.disabled = true;
     return;
   }
-  const calc = job.calculated || recalcInvoiceJob(job, { allowPrompt: false });
+  const calc = job.calculated;
   if (invoiceDetailMeta){
     const orderLabel = (job.orderNumbers || []).join(", ") || "—";
     const clientLabel = formatInvoiceClientLabel(job) || "—";
@@ -6847,18 +6889,28 @@ function renderInvoiceDetail(){
       invoiceMissingNotice.hidden = true;
     }
   }
+  if (!calc){
+    invoiceLinesWrap.innerHTML = '<div class="invoice-empty">Calculating invoice…</div>';
+    if (invoiceTotalsEl) invoiceTotalsEl.innerHTML = "";
+    if (invoiceAddOrderBtn) invoiceAddOrderBtn.disabled = false;
+    if (invoiceRecalcBtn) invoiceRecalcBtn.disabled = false;
+    if (invoiceGeneratePdfBtn) invoiceGeneratePdfBtn.disabled = true;
+    if (invoiceDeleteActiveBtn) invoiceDeleteActiveBtn.disabled = false;
+    return;
+  }
   const lines = Array.isArray(calc?.lines) ? calc.lines : [];
   if (!lines.length){
     invoiceLinesWrap.innerHTML = '<div class="invoice-empty">No rows to show.</div>';
   }else{
     const body = lines.map(line=>{
       const missingBadge = line.missing ? '<span class="editable-badge">Missing price</span>' : "";
+      const aiBadgeHtml = line.aiAssisted ? '<span class="ai-badge" title="AI-assisted match">AI</span>' : "";
       return `<tr>
         <td>${line.index}</td>
         <td data-col="type">
           <input type="text" data-type-edit="${line.index}" value="${escapeHtml(line.type || "")}" style="width:100%" />
           ${line.rawType ? `<div class="muted small" style="margin-top:4px">Original: ${escapeHtml(line.rawType)}</div>` : ""}
-          ${missingBadge}
+          ${missingBadge}${aiBadgeHtml}
         </td>
         <td>${Number(line.quantity || 0)}</td>
         <td>${formatArea(line.area || 0)}</td>
@@ -6982,7 +7034,7 @@ async function handleTypeCorrectionsSave(){
   TYPE_CORRECTIONS.push({ raw: rawValue, corrected: correctedValue });
   closeTypeCorrectionsModal();
   const payload = buildInvoiceConfigPayload();
-  applyInvoiceConfigToState(payload, { cacheLocal: true, preferExistingTypeCorrections: true });
+  await applyInvoiceConfigToState(payload, { cacheLocal: true, preferExistingTypeCorrections: true });
   const saved = await persistInvoiceConfigToServer(payload, { preferExistingTypeCorrections: true });
   updateInvoicesUI();
   setInvoiceStatus(saved ? "Type correction saved to server." : "Type correction saved locally.");
@@ -7044,6 +7096,138 @@ function collectSpacerPricesFromEditor(){
   return map;
 }
 
+function normalizeGlassAliasToken(value){
+  const text = String(value || "").toLowerCase().replace(/\+/g, " ").replace(/\bmm\b/g, " ");
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function getGlassAliasCacheKey(value){
+  const normalized = normalizeGlassAliasToken(value);
+  return normalized.replace(/\s+/g, "");
+}
+
+function findLocalGlassMatch(targetCompact, candidates){
+  if (!targetCompact) return null;
+  const exact = candidates.find(entry => entry.compact === targetCompact);
+  if (exact) return exact.key;
+  const startsWith = candidates.find(entry => targetCompact.startsWith(entry.compact) || entry.compact.startsWith(targetCompact));
+  if (startsWith) return startsWith.key;
+  const contains = candidates.find(entry => targetCompact.includes(entry.compact) || entry.compact.includes(targetCompact));
+  if (contains) return contains.key;
+  return null;
+}
+
+async function resolveGlassType(rawName, knownTypes = []){
+  if (!rawName || !Array.isArray(knownTypes) || !knownTypes.length){
+    return { match: null, fromAi: false };
+  }
+  const cacheKey = getGlassAliasCacheKey(rawName);
+  if (!cacheKey){
+    return { match: null, fromAi: false };
+  }
+  if (Object.prototype.hasOwnProperty.call(glassAliasCache, cacheKey)){
+    return glassAliasCache[cacheKey];
+  }
+  const candidates = knownTypes.map(type => ({
+    key: type,
+    normalized: normalizeGlassAliasToken(type),
+    compact: getGlassAliasCacheKey(type),
+  }));
+  const localMatch = findLocalGlassMatch(cacheKey, candidates);
+  if (localMatch){
+    const result = { match: localMatch, fromAi: false };
+    glassAliasCache[cacheKey] = result;
+    return result;
+  }
+  if (glassAliasPending.has(cacheKey)){
+    return glassAliasPending.get(cacheKey);
+  }
+  const pending = (async ()=>{
+    try{
+      const aiMatch = await callAiGlassMatch(rawName, knownTypes);
+      if (aiMatch){
+        const resolved = knownTypes.find(type => type.toLowerCase() === aiMatch.toLowerCase()) || aiMatch;
+        const result = { match: resolved, fromAi: true };
+        glassAliasCache[cacheKey] = result;
+        return result;
+      }
+    }catch(error){
+      console.warn("AI glass resolver failed", error);
+    }
+    const fallback = { match: null, fromAi: false };
+    glassAliasCache[cacheKey] = fallback;
+    return fallback;
+  })().finally(()=>{
+    glassAliasPending.delete(cacheKey);
+  });
+  glassAliasPending.set(cacheKey, pending);
+  return pending;
+}
+
+function getStoredOpenAiKey(){
+  // Allow local usage by checking a global override or a stored key.
+  try{
+    if (typeof window !== "undefined" && window.OPENAI_API_KEY){
+      return window.OPENAI_API_KEY;
+    }
+  }catch{/* ignore */}
+  try{
+    return localStorage.getItem("loe.openaiKey")
+      || localStorage.getItem("openai.apiKey")
+      || "";
+  }catch{
+    return "";
+  }
+}
+
+async function callAiGlassMatch(rawName, knownTypes){
+  if (!rawName || !Array.isArray(knownTypes) || !knownTypes.length){
+    return null;
+  }
+  const apiKey = getStoredOpenAiKey();
+  if (!apiKey){
+    return null;
+  }
+  const userPrompt = `rawName: ${rawName}\nknownTypes: ${JSON.stringify(knownTypes)}\nInstruction: Return exactly ONE element from knownTypes that best matches rawName. If none match, return 'NONE'.`;
+  const payload = {
+    model: "gpt-4o-mini",
+    temperature: 0,
+    messages: [
+      {
+        role: "system",
+        content: "You map noisy or misspelled glass descriptions to one canonical glass type from the provided list. Never invent new types.",
+      },
+      {
+        role: "user",
+        content: userPrompt,
+      },
+    ],
+  };
+  const res = await fetch(OPENAI_CHAT_COMPLETIONS_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok){
+    const text = await res.text().catch(()=> "");
+    throw new Error(text || `AI resolver responded with ${res.status}`);
+  }
+  const data = await res.json();
+  const content = data?.choices?.[0]?.message?.content;
+  if (!content){
+    return null;
+  }
+  const normalized = content.trim().replace(/^["']|["']$/g, "");
+  if (!normalized || normalized.toUpperCase() === "NONE"){
+    return null;
+  }
+  const match = knownTypes.find(type => type.toLowerCase() === normalized.toLowerCase());
+  return match || null;
+}
+
 // Invoice pricing/type corrections now save to the server (not just localStorage)
 async function savePricesFromEditor(){
   const glass = collectGlassPricesFromEditor();
@@ -7062,7 +7246,7 @@ async function savePricesFromEditor(){
   invoiceRuntime.extraGlassRows = 1;
   invoiceRuntime.extraSpacerRows = 1;
   const payload = buildInvoiceConfigPayload();
-  applyInvoiceConfigToState(payload, { cacheLocal: true, preferExistingTypeCorrections: true });
+  await applyInvoiceConfigToState(payload, { cacheLocal: true, preferExistingTypeCorrections: true });
   const saved = await persistInvoiceConfigToServer(payload, { preferExistingTypeCorrections: true });
   if (saved){
     setInvoiceStatus("Price list saved to server and invoices refreshed.");
@@ -7125,7 +7309,10 @@ function changeInvoicePage(delta){
 async function generateInvoicePdf(job){
   if (!job) throw new Error("No invoice selected");
   await ensureInvoiceJobsLoaded();
-  const calc = job.calculated || recalcInvoiceJob(job, { allowPrompt: false });
+  const calc = job.calculated || await recalcInvoiceJob(job, { allowPrompt: false });
+  if (!calc){
+    throw new Error("Unable to calculate invoice totals.");
+  }
   if (calc?.missing){
     throw new Error("Cannot generate PDF: missing prices");
   }
@@ -8428,9 +8615,9 @@ if (invoiceSavePricesBtn){
 }
 
 if (invoiceRefreshPricesBtn){
-  invoiceRefreshPricesBtn.addEventListener("click", ()=>{
+  invoiceRefreshPricesBtn.addEventListener("click", async ()=>{
     ensureInvoicesLoaded();
-    recalcAllInvoices();
+    await recalcAllInvoices();
     updateInvoicesUI();
     setInvoiceStatus("Draft invoices recalculated.");
   });
@@ -8484,7 +8671,7 @@ if (typeCorrectionsTable){
     if (!Number.isFinite(idx)) return;
     TYPE_CORRECTIONS.splice(idx, 1);
     const payload = buildInvoiceConfigPayload();
-    applyInvoiceConfigToState(payload, { cacheLocal: true, preferExistingTypeCorrections: true });
+    await applyInvoiceConfigToState(payload, { cacheLocal: true, preferExistingTypeCorrections: true });
     const saved = await persistInvoiceConfigToServer(payload, { preferExistingTypeCorrections: true });
     updateInvoicesUI();
     setInvoiceStatus(saved ? "Type correction removed." : "Type correction removed locally.");
@@ -8586,6 +8773,7 @@ if (invoiceLinesWrap){
       const kindValue = spacerKindSelect.value === "thermal" ? "thermal" : "normal";
       if (line){
         line.spacerKind = kindValue;
+        line.spacerMode = kindValue;
         if (Array.isArray(line.rawIndexes)){
           line.rawIndexes.forEach(i=>{
             if (rawRows[i]){
@@ -8597,7 +8785,7 @@ if (invoiceLinesWrap){
     }
 
     job.rows = rawRows;
-    recalcInvoiceJob(job, { allowPrompt: true });
+    await recalcInvoiceJob(job, { allowPrompt: true });
     await saveInvoiceJobs();
     updateInvoicesUI();
   });
@@ -8609,7 +8797,7 @@ if (invoiceRecalcBtn){
     await ensureInvoiceJobsLoaded();
     const job = getActiveInvoiceJob();
     if (!job) return;
-    recalcInvoiceJob(job, { allowPrompt: true });
+    await recalcInvoiceJob(job, { allowPrompt: true });
     await saveInvoiceJobs();
     updateInvoicesUI();
     setInvoiceStatus("Invoice recalculated.");
@@ -8648,7 +8836,7 @@ if (invoiceDiscountMode){
     const job = getActiveInvoiceJob();
     if (!job) return;
     job.discountMode = event.target.value === "absolute" ? "absolute" : "percent";
-    recalcInvoiceJob(job, { allowPrompt: true });
+    await recalcInvoiceJob(job, { allowPrompt: true });
     await saveInvoiceJobs();
     updateInvoicesUI();
   });
@@ -8661,7 +8849,7 @@ if (invoiceDiscountValue){
     const job = getActiveInvoiceJob();
     if (!job) return;
     job.discountValue = Math.max(0, Number(event.target.value) || 0);
-    recalcInvoiceJob(job, { allowPrompt: true });
+    await recalcInvoiceJob(job, { allowPrompt: true });
     await saveInvoiceJobs();
     updateInvoicesUI();
   });
@@ -8674,7 +8862,7 @@ if (invoiceVatValue){
     const job = getActiveInvoiceJob();
     if (!job) return;
     job.vatRate = Math.max(0, Number(event.target.value) || 0);
-    recalcInvoiceJob(job, { allowPrompt: true });
+    await recalcInvoiceJob(job, { allowPrompt: true });
     await saveInvoiceJobs();
     updateInvoicesUI();
   });
