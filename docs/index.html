@@ -6618,17 +6618,19 @@ async function computeInvoiceLineFromGroup(group, index, options = {}){
           }
         }
         lineIsLaminated = Boolean(analysis.isLaminated);
-        if (analysis.glassKey && needsGlassAi){
-          const aiGlassKey = glassPriceKeys.find(key => key.toLowerCase() === analysis.glassKey.toLowerCase()) || analysis.glassKey;
+        if (analysis.glassKey && glassIssues.length){
+          const aiGlassKeyMatch = glassPriceKeys.find(key => key.toLowerCase() === analysis.glassKey.toLowerCase());
+          const aiGlassKey = aiGlassKeyMatch || analysis.glassKey;
           const aiPrice = glassPriceTable[aiGlassKey];
-          const missingCount = glassIssues.length || 1;
+          const missingCount = glassIssues.length;
           glassIssues.length = 0;
           if (Number.isFinite(aiPrice)){
             glassPricePerM2 += Number(aiPrice) * missingCount;
           }else{
+            const normalizedAiKey = normalizeGlassKey(aiGlassKey) || aiGlassKey;
             glassIssues.push({
-              missing: { type: "glass", pane: aiGlassKey, normalized: aiGlassKey },
-              prompt: { kind: "glass", label: aiGlassKey, normalized: aiGlassKey },
+              missing: { type: "glass", pane: aiGlassKey, normalized: normalizedAiKey },
+              prompt: { kind: "glass", label: aiGlassKey, normalized: normalizedAiKey },
             });
           }
         }
@@ -6658,8 +6660,10 @@ async function computeInvoiceLineFromGroup(group, index, options = {}){
   });
   const missingEntries = [...glassIssues, ...spacerIssues];
   let lineMissing = null;
+  let lineMissingPrice = false;
   if (missingEntries.length){
     lineMissing = missingEntries[0].missing;
+    lineMissingPrice = missingEntries.some(entry => entry?.missing?.type === "glass");
     if (promptAllowedForJob){
       missingEntries.forEach(entry=>{
         enqueueInvoicePrompt(entry.prompt);
@@ -6692,6 +6696,7 @@ async function computeInvoiceLineFromGroup(group, index, options = {}){
     lineAreaTotal: group.area,
     rawIndexes: group.rawIndexes || [],
     missing: lineMissing,
+    missingPrice: lineMissingPrice,
     rawType: group.rawType || null,
     isLaminated: lineIsLaminated,
     aiAssisted,
@@ -7007,7 +7012,7 @@ function renderInvoiceDetail(){
       return `<tr>
         <td>${line.index}</td>
         <td data-col="type">
-          <input type="text" data-type-edit="${line.index}" value="${escapeHtml(line.type || "")}" style="width:100%" />
+          <input type="text" data-type-edit="${line.index}" value="${escapeHtml(line.type || line.displayType || "")}" style="width:100%" />
           ${line.rawType ? `<div class="muted small" style="margin-top:4px">Original: ${escapeHtml(line.rawType)}</div>` : ""}
           ${missingBadge}${aiBadgeHtml}
         </td>
