@@ -5004,11 +5004,22 @@ function saveTypeCorrections() {
   }
 }
 
+function fixGlassTypos(text, rawSource){
+  if (!text) return text;
+  const replaced = text.replace(/stainat/gi, "satinat");
+  if (replaced !== text){
+    console.log("[GlassNormalize] raw:", rawSource, "→ normalized:", replaced);
+  }
+  return replaced;
+}
+
 function normalizeGlassKey(raw){
-  const str = (raw == null ? "" : String(raw)).toLowerCase().trim().replace(/^\s*\d+\s*vetri?\s*/i, "").replace(/\bvetri?\b/gi, "");
+  const original = raw == null ? "" : String(raw);
+  let str = original.toLowerCase().trim().replace(/^\s*\d+\s*vetri?\s*/i, "").replace(/\bvetri?\b/gi, "");
   if (!str) return "";
-  const collapsed = str.replace(/\s+/g, " ");
-  return collapsed.replace(/\s+/g, "");
+  str = str.replace(/\s+/g, " ").trim();
+  str = fixGlassTypos(str, original);
+  return str.replace(/\s+/g, "");
 }
 
 function getDefaultGlassPrices(){
@@ -6428,7 +6439,8 @@ function formatMoney(value){
 function describeMissingPricing(missing){
   if (!missing) return "";
   if (missing.type === "glass"){
-    return `Missing glass price for "${missing.pane || missing.normalized || "unknown"}".`;
+    const keyLabel = missing.normalized || missing.pane || missing?.details?.normalized || "unknown";
+    return `Missing glass price for "${keyLabel}".`;
   }
   if (missing.type === "spacer"){
     const info = missing.details || {};
@@ -6566,11 +6578,14 @@ async function computeInvoiceLineFromGroup(group, index, options = {}){
     }
     const matchedKey = result?.match;
     const normalizedKey = matchedKey || normalizeGlassKey(pane);
-    const price = normalizedKey ? glassPriceTable[normalizedKey] : undefined;
+    const priceKey = normalizedKey;
+    const price = priceKey ? glassPriceTable[priceKey] : undefined;
     if (!Number.isFinite(price)){
+      const canonicalLabel = priceKey || matchedKey || normalizeGlassKey(pane) || pane;
+      console.log("[GlassPriceMissing] rawName:", pane, "normalizedKey:", canonicalLabel, "availableKeys:", Object.keys(glassPriceTable || {}));
       glassIssues.push({
-        missing: { type: "glass", pane, normalized: normalizedKey },
-        prompt: { kind: "glass", label: pane, normalized: normalizedKey },
+        missing: { type: "glass", pane: canonicalLabel, normalized: canonicalLabel },
+        prompt: { kind: "glass", label: canonicalLabel, normalized: canonicalLabel },
       });
     }else{
       glassPricePerM2 += Number(price);
@@ -6606,7 +6621,9 @@ async function computeInvoiceLineFromGroup(group, index, options = {}){
   const needsHistoricalAi = group.aiAssisted === true;
   const rawLineText = group.rawType || group.displayType || "";
   if ((needsGlassAi || needsSpacerAi || needsHistoricalAi) && rawLineText){
+    console.log("[GlassAI] Calling AI for raw line:", rawLineText);
     const analysis = await analyzeInvoiceLineWithAI(rawLineText, glassPriceKeys);
+    console.log("[GlassAI] Result:", analysis);
     if (analysis){
       const confident = Number.isFinite(analysis.confidence) ? Number(analysis.confidence) >= 0.5 : false;
       if (confident){
@@ -6619,7 +6636,7 @@ async function computeInvoiceLineFromGroup(group, index, options = {}){
         }
         lineIsLaminated = Boolean(analysis.isLaminated);
         if (analysis.glassKey && glassIssues.length){
-          const aiGlassKeyMatch = glassPriceKeys.find(key => key.toLowerCase() === analysis.glassKey.toLowerCase());
+          const aiGlassKeyMatch = glassPriceKeys.find(key => key.toLowerCase() === String(analysis.glassKey).toLowerCase());
           const aiGlassKey = aiGlassKeyMatch || analysis.glassKey;
           const aiPrice = glassPriceTable[aiGlassKey];
           const missingCount = glassIssues.length;
@@ -6628,9 +6645,10 @@ async function computeInvoiceLineFromGroup(group, index, options = {}){
             glassPricePerM2 += Number(aiPrice) * missingCount;
           }else{
             const normalizedAiKey = normalizeGlassKey(aiGlassKey) || aiGlassKey;
+            console.log("[GlassPriceMissing] rawName:", analysis.glassKey, "normalizedKey:", normalizedAiKey, "availableKeys:", Object.keys(glassPriceTable || {}));
             glassIssues.push({
-              missing: { type: "glass", pane: aiGlassKey, normalized: normalizedAiKey },
-              prompt: { kind: "glass", label: aiGlassKey, normalized: normalizedAiKey },
+              missing: { type: "glass", pane: normalizedAiKey, normalized: normalizedAiKey },
+              prompt: { kind: "glass", label: normalizedAiKey, normalized: normalizedAiKey },
             });
           }
         }
@@ -7201,8 +7219,10 @@ function collectSpacerPricesFromEditor(){
 }
 
 function normalizeGlassAliasToken(value){
-  const text = String(value || "").toLowerCase().replace(/\+/g, " ").replace(/\bmm\b/g, " ");
-  return text.replace(/\s+/g, " ").trim();
+  const original = String(value || "");
+  const text = original.toLowerCase().replace(/\+/g, " ").replace(/\bmm\b/g, " ");
+  const fixed = fixGlassTypos(text, original);
+  return fixed.replace(/\s+/g, " ").trim();
 }
 
 function getGlassAliasCacheKey(value){
@@ -7248,7 +7268,9 @@ async function resolveGlassType(rawName, knownTypes = []){
   }
   const pending = (async ()=>{
     try{
+      console.log("[GlassAI] Calling AI glass matcher for:", rawName);
       const aiMatch = await callAiGlassMatch(rawName, knownTypes);
+      console.log("[GlassAI] Result:", aiMatch);
       if (aiMatch){
         const resolved = knownTypes.find(type => type.toLowerCase() === aiMatch.toLowerCase()) || aiMatch;
         const result = { match: resolved, fromAi: true };
