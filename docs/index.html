@@ -5123,9 +5123,11 @@ function clearGlassAliasCache(){
 
 /**
  * @typedef {Object} LineAIAnalysis
+ * @property {string} normalizedType
  * @property {string|null} glassKey
- * @property {boolean} isLaminated
  * @property {"normal"|"thermal"} spacerMode
+ * @property {boolean} isLaminated
+ * @property {number} confidence
  * @property {string=} reason
  */
 
@@ -6449,6 +6451,7 @@ async function recalcInvoiceJob(job, options = {}){
       if (rawRows[idx]){
         rawRows[idx].spacerKind = line.spacerKind;
         rawRows[idx].type = line.type;
+        rawRows[idx].aiAssisted = !!line.aiAssisted;
       }
     });
   });
@@ -6512,6 +6515,7 @@ async function buildInvoiceLinesFromRaw(rawRows, options = {}){
         rawIndexes: [],
         spacerKind: row.spacerKind || null,
         rawType: rawOriginal && rawOriginal.trim() ? rawOriginal : null,
+        aiAssisted: !!row.aiAssisted,
       });
     }
     const group = groups.get(key);
@@ -6520,6 +6524,9 @@ async function buildInvoiceLinesFromRaw(rawRows, options = {}){
     }
     if (!group.spacerKind && row.spacerKind){
       group.spacerKind = row.spacerKind;
+    }
+    if (row.aiAssisted){
+      group.aiAssisted = true;
     }
     const qty = Math.max(0, Number(row.quantity || 0));
     const areaPerUnit = (()=> {
@@ -6545,10 +6552,13 @@ async function buildInvoiceLinesFromRaw(rawRows, options = {}){
 async function computeInvoiceLineFromGroup(group, index, options = {}){
   const promptAllowedForJob = !!options.promptAllowedForJob;
   const composition = parseInvoiceComposition(group.displayType || "");
+  const glassPriceTable = appState.invoices.priceLists.glass || {};
   let glassPricePerM2 = 0;
-  let lineMissing = null;
-  let aiAssisted = false;
-  const glassPriceKeys = Object.keys(appState.invoices.priceLists.glass || {});
+  let aiAssisted = !!group.aiAssisted;
+  let lineIsLaminated = false;
+  let lineDisplayType = group.displayType || "";
+  const glassPriceKeys = Object.keys(glassPriceTable);
+  const glassIssues = [];
   for (const pane of composition.panes){
     const result = await resolveGlassType(pane, glassPriceKeys);
     if (result?.fromAi){
@@ -6556,53 +6566,119 @@ async function computeInvoiceLineFromGroup(group, index, options = {}){
     }
     const matchedKey = result?.match;
     const normalizedKey = matchedKey || normalizeGlassKey(pane);
-    const price = normalizedKey ? appState.invoices.priceLists.glass[normalizedKey] : undefined;
+    const price = normalizedKey ? glassPriceTable[normalizedKey] : undefined;
     if (!Number.isFinite(price)){
-      lineMissing = lineMissing || { type: "glass", pane, normalized: normalizedKey };
-      if (promptAllowedForJob){
-        enqueueInvoicePrompt({ kind: "glass", label: pane, normalized: normalizedKey });
-      }
+      glassIssues.push({
+        missing: { type: "glass", pane, normalized: normalizedKey },
+        prompt: { kind: "glass", label: pane, normalized: normalizedKey },
+      });
     }else{
       glassPricePerM2 += Number(price);
     }
   }
-  let spacerPricePerM2 = 0;
-  const inferredKind = composition.spacerKind;
-  const baseSpacerKind = (group.spacerKind === "thermal" || group.spacerKind === "normal")
-    ? group.spacerKind
-    : (inferredKind === "thermal" ? "thermal" : inferredKind === "normal" ? "normal" : "normal");
+  const inferredKind = (composition.spacerKind === "thermal" || composition.spacerKind === "normal")
+    ? composition.spacerKind
+    : null;
+  let spacerModeResolved = false;
+  let spacerMode = null;
+  if (group.spacerKind === "thermal" || group.spacerKind === "normal"){
+    spacerMode = group.spacerKind;
+    spacerModeResolved = true;
+  }else if (inferredKind){
+    spacerMode = inferredKind;
+    spacerModeResolved = true;
+  }
   const spacerText = `${group.displayType || ""} ${group.rawType || ""}`;
   const caldoDetected = /\bcaldo\b/i.test(spacerText);
-  const spacerMode = caldoDetected ? "thermal" : (baseSpacerKind || "normal");
   if (caldoDetected){
+    spacerMode = "thermal";
+    spacerModeResolved = true;
     aiAssisted = true;
+  }
+  if (!spacerMode){
+    spacerMode = "normal";
   }
   const thicknesses = Array.isArray(composition.spacerThicknesses) && composition.spacerThicknesses.length
     ? composition.spacerThicknesses
     : [];
+  const needsGlassAi = glassIssues.length > 0;
+  const needsSpacerAi = !spacerModeResolved;
+  const needsHistoricalAi = group.aiAssisted === true;
+  const rawLineText = group.rawType || group.displayType || "";
+  if ((needsGlassAi || needsSpacerAi || needsHistoricalAi) && rawLineText){
+    const analysis = await analyzeInvoiceLineWithAI(rawLineText, glassPriceKeys);
+    if (analysis){
+      const confident = Number.isFinite(analysis.confidence) ? Number(analysis.confidence) >= 0.5 : false;
+      if (confident){
+        aiAssisted = true;
+        if (analysis.normalizedType){
+          const cleaned = analysis.normalizedType.trim();
+          if (cleaned){
+            lineDisplayType = cleaned;
+          }
+        }
+        lineIsLaminated = Boolean(analysis.isLaminated);
+        if (analysis.glassKey && needsGlassAi){
+          const aiGlassKey = glassPriceKeys.find(key => key.toLowerCase() === analysis.glassKey.toLowerCase()) || analysis.glassKey;
+          const aiPrice = glassPriceTable[aiGlassKey];
+          const missingCount = glassIssues.length || 1;
+          glassIssues.length = 0;
+          if (Number.isFinite(aiPrice)){
+            glassPricePerM2 += Number(aiPrice) * missingCount;
+          }else{
+            glassIssues.push({
+              missing: { type: "glass", pane: aiGlassKey, normalized: aiGlassKey },
+              prompt: { kind: "glass", label: aiGlassKey, normalized: aiGlassKey },
+            });
+          }
+        }
+        if (analysis.spacerMode === "thermal" || analysis.spacerMode === "normal"){
+          spacerMode = analysis.spacerMode;
+          spacerModeResolved = true;
+        }
+      }
+    }
+  }
+  let spacerPricePerM2 = 0;
+  const spacerIssues = [];
   thicknesses.forEach(th=>{
     const spacer = getSpacerPrice(th, spacerMode);
     if (spacer.missing){
-      lineMissing = lineMissing || { type: "spacer", details: spacer.missing };
-      if (promptAllowedForJob){
-        enqueueInvoicePrompt({
+      spacerIssues.push({
+        missing: { type: "spacer", details: spacer.missing },
+        prompt: {
           kind: "spacer",
           thickness: th,
           kind: spacerMode,
           description: `Spacer ${th ?? "?"}mm (${spacerMode || "normal"})`,
-        });
-      }
+        },
+      });
     }
     spacerPricePerM2 += spacer.price || 0;
   });
+  const missingEntries = [...glassIssues, ...spacerIssues];
+  let lineMissing = null;
+  if (missingEntries.length){
+    lineMissing = missingEntries[0].missing;
+    if (promptAllowedForJob){
+      missingEntries.forEach(entry=>{
+        enqueueInvoicePrompt(entry.prompt);
+      });
+    }
+  }
   const unitPricePerM2 = glassPricePerM2 + spacerPricePerM2;
   const lineTotal = unitPricePerM2 * group.area;
+  const normalizedDisplayType = (() => {
+    const text = lineDisplayType || group.displayType || "";
+    const normalized = normalizeGlassKey(text);
+    return normalized || text.toLowerCase();
+  })();
   return {
     index: index + 1,
     orderId: group.orderId || null,
-    type: group.displayType,
-    displayType: group.displayType,
-    normalizedType: group.normalizedType,
+    type: lineDisplayType,
+    displayType: lineDisplayType,
+    normalizedType: normalizedDisplayType,
     quantity: group.qty,
     area: group.area,
     glassPricePerM2,
@@ -6617,6 +6693,7 @@ async function computeInvoiceLineFromGroup(group, index, options = {}){
     rawIndexes: group.rawIndexes || [],
     missing: lineMissing,
     rawType: group.rawType || null,
+    isLaminated: lineIsLaminated,
     aiAssisted,
   };
 }
@@ -7322,7 +7399,7 @@ Now for the current request:
 }
 
 async function analyzeInvoiceLineWithAI(rawLine, knownGlassTypes){
-  if (!rawLine || !Array.isArray(knownGlassTypes) || !knownGlassTypes.length){
+  if (!rawLine || !Array.isArray(knownGlassTypes)){
     return null;
   }
   const apiKey = getStoredOpenAiKey();
@@ -7333,70 +7410,74 @@ async function analyzeInvoiceLineWithAI(rawLine, knownGlassTypes){
 You are an expert assistant for a glass processing factory invoicing system.
 
 You receive:
-- A noisy text description of an insulated glass unit (IGU) line, extracted from a PDF in Italian.
+- A noisy text description of an insulated glass unit (IGU) line, often in Italian,
 - A list of canonical glass type keys from the factory price list.
 
-Your job:
-- Understand what the text is describing:
-  - how many panes (2 vetri, 3 vetri),
-  - which glass types are present (33.1, 4F, LOWE, SATINATO, etc.),
-  - whether spacers are thermal (warm-edge) or normal,
-  - whether the main glass is laminated.
-
-You must then output a small JSON object with this shape:
-
-{
-  "glassKey": string | null,
-  "isLaminated": boolean,
-  "spacerMode": "normal" | "thermal",
-  "reason": string
-}
-
-Where:
-- glassKey MUST be either one of the provided canonical glass type keys from the price list, or null if there is no clear match.
-- isLaminated is true if the text clearly refers to laminated glass (e.g. 33.1, 44.1, stratificato, laminato).
-- spacerMode is:
-   - "thermal" if the text indicates warm-edge / thermal spacers, using words like 'caldo', 'c.caldo', 'cald', or brand names of thermal spacers, or 'termico', 'warm edge'.
+Your tasks:
+1) Understand what the line describes: number of panes (2 vetri, 3 vetri),
+   glass types (33.1, 4F, LOWE, SATINATO, etc.), laminated vs simple,
+   and whether spacers are thermal (warm-edge) or normal.
+2) Produce a CLEAN and HUMAN-READABLE "normalizedType" string suitable
+   for the editable Type input field:
+   - Preserve the IGU structure and thicknesses,
+   - Fix obvious OCR typos (STAINATO → SATINATO, LOW E/LOE → LOWE,
+     33,1 → 33.1, etc.),
+   - Use consistent spacing and plus signs, e.g.
+       "3 vetri 33.1 LOWE + 12 + 4F + 14 + 33.1 SATINATO 44mm".
+3) Choose a SINGLE canonical glassKey from the price list that best
+   corresponds to the main glass that needs a price:
+   - glassKey must be one of the given canonical keys, or null if there
+     is no reasonable match.
+4) Decide spacerMode:
+   - "thermal" if text contains 'caldo', 'c.caldo', 'cald', 'termico',
+     'warm edge' or similar warm-edge indicators.
    - "normal" otherwise.
-- reason is a short explanation of your decision in Italian or English.
+5) Decide isLaminated:
+   - true for laminated glass (33.1, 44.1, 'laminato', 'stratificato', etc.),
+   - false otherwise.
 
-Important:
-- Handle OCR typos and spelling variants:
-  - 'stainato' ≈ 'satinato'
-  - 'low e', 'loe' ≈ 'lowe'
-  - '33,1' ≈ '33.1'
-- The canonical glassKey is chosen by matching meaning (thickness + treatment) against the provided list, not by exact string match.
-- NEVER invent a new glass type. If none of the canonical keys match, use null for glassKey.
-- Ignore dimensions, counts of pieces, and spacer thickness when choosing glassKey; focus on glass composition and finish.`.trim();
+You must output a JSON object with fields:
+  normalizedType, glassKey, spacerMode, isLaminated, confidence, reason.
+
+- normalizedType: cleaned IGU string for the UI.
+- glassKey: one of the canonical keys or null.
+- spacerMode: "normal" or "thermal".
+- isLaminated: boolean.
+- confidence: a number from 0 to 1 representing how sure you are
+  about glassKey.
+- reason: short explanation in Italian or English.
+
+NEVER invent new glass types. If none of the canonical keys match,
+set glassKey to null and confidence to 0.0.
+`.trim();
+  const listJson = JSON.stringify(knownGlassTypes);
+  const rawValue = String(rawLine || "");
+  const sanitizedRaw = rawValue.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   const userPrompt = `
 Here is the list of canonical glass type keys (price list entries):
 
-knownGlassTypes = ${JSON.stringify(knownGlassTypes)}
+knownGlassTypes = ${listJson}
 
 Here is the noisy IGU line to analyze:
 
-raw_line = "${rawLine}"
+raw_line = "${sanitizedRaw}"
 
 Your task:
-1. Decide which single canonical glass type key best corresponds to the MAIN glass that is missing price or is the focus of this line, or null if there is no good match.
-2. Decide if the unit should be considered laminated:
-   - true for things like '33.1', '44.1', 'laminato', 'stratificato'.
-3. Decide spacerMode:
-   - 'thermal' if you see words like 'caldo', 'c.caldo', 'cald', 'termico', 'warm edge', or similar.
-   - 'normal' otherwise.
-4. Return ONLY a JSON object with this exact shape:
+Return ONLY a JSON object with this exact shape:
 
 {
+  "normalizedType": string,
   "glassKey": string or null,
+  "spacerMode": "normal" | "thermal",
   "isLaminated": boolean,
-  "spacerMode": "normal" or "thermal",
+  "confidence": number,
   "reason": string
 }
 
-Do not wrap it in backticks, do not add any other text.`.trim();
+Do not wrap it in backticks and do not add any extra text.`.trim();
   try{
     const payload = {
-      model: "gpt-4o-mini",
+      model: "gpt-4.1",
       temperature: 0,
       messages: [
         { role: "system", content: systemPrompt },
@@ -7429,22 +7510,43 @@ Do not wrap it in backticks, do not add any other text.`.trim();
     if (typeof parsed !== "object" || !parsed){
       return null;
     }
-    const glassKey = parsed.glassKey === null ? null : String(parsed.glassKey || "").trim();
-    if (glassKey && !knownGlassTypes.includes(glassKey)){
+    const normalizedType = typeof parsed.normalizedType === "string" ? parsed.normalizedType.trim() : "";
+    if (!normalizedType){
       return null;
     }
-    const spacerMode = parsed.spacerMode === "thermal" ? "thermal" : parsed.spacerMode === "normal" ? "normal" : null;
+    let glassKey = null;
+    if (parsed.glassKey != null){
+      const candidate = String(parsed.glassKey).trim();
+      if (!candidate){
+        glassKey = null;
+      }else{
+        const match = knownGlassTypes.find(entry => entry.toLowerCase() === candidate.toLowerCase());
+        if (!match){
+          console.warn("AI analysis returned unknown glass key", candidate);
+          return null;
+        }
+        glassKey = match;
+      }
+    }
+    const spacerModeRaw = typeof parsed.spacerMode === "string" ? parsed.spacerMode.toLowerCase() : "";
+    const spacerMode = spacerModeRaw === "thermal" ? "thermal" : spacerModeRaw === "normal" ? "normal" : null;
     if (!spacerMode){
       return null;
     }
     const isLaminated = Boolean(parsed.isLaminated);
-    const result = {
-      glassKey: glassKey || null,
-      isLaminated,
+    const confidence = Number(parsed.confidence);
+    if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1){
+      return null;
+    }
+    const reason = typeof parsed.reason === "string" ? parsed.reason.trim() : "";
+    return {
+      normalizedType,
+      glassKey,
       spacerMode,
-      reason: typeof parsed.reason === "string" ? parsed.reason : "",
+      isLaminated,
+      confidence,
+      reason,
     };
-    return result;
   }catch(error){
     console.warn("AI invoice line analysis failed", error);
     return null;
