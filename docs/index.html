@@ -115,6 +115,8 @@
     .history-filters input:focus,.history-filters select:focus{outline:2px solid var(--primary-soft);border-color:var(--primary)}
     .filter-actions{display:flex;align-items:center;gap:8px}
     .history-pagination{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:14px}
+    .pagination{display:flex;justify-content:center;gap:12px;margin-top:16px}
+    .pagination button{min-width:120px}
     .badge{display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;background:#f3f4f6;color:var(--muted);font-size:12px;font-weight:600}
     .badge.offline{background:#fef3c7;color:#b45309}
     .history-detail-header{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:12px}
@@ -151,6 +153,9 @@
     .add-order-meta{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin:8px 0}
     #invoiceAddOrderList{flex:1 1 auto;min-height:0;max-height:60vh;overflow-y:auto}
     #invoiceAddOrderList table{min-width:640px}
+    .add-order-search{margin:12px 0}
+    .add-order-search input{width:100%;padding:8px 12px;border:1px solid var(--border-dark);border-radius:10px;font-size:14px;background:#fbfcff}
+    .add-order-search input:focus{outline:2px solid var(--primary-soft);border-color:var(--primary)}
     .input-error{border-color:#f87171 !important;outline:2px solid #fecaca !important}
     .modal-layer[hidden]{display:none !important}
     .actions-cell{display:flex;flex-wrap:wrap;gap:6px}
@@ -674,6 +679,10 @@
         <div class="table-responsive" id="invoiceJobsWrap">
           <div class="invoice-empty">No invoice jobs yet. Use the Invoice button in History.</div>
         </div>
+        <div class="pagination" id="invoicePagination" hidden>
+          <button class="btn small" type="button" id="invoicePaginationPrev">Previous</button>
+          <button class="btn small" type="button" id="invoicePaginationNext">Next</button>
+        </div>
       </div>
 
       <div class="card" id="invoiceDetailCard">
@@ -797,6 +806,9 @@
       <p class="muted small" style="margin-top:0">Pick another approved order from History to merge into this invoice.</p>
       <div class="add-order-meta"><span id="invoiceAddOrderHint"></span></div>
       <div id="invoiceAddOrderStatus" class="muted small" style="min-height:18px"></div>
+      <div class="add-order-search">
+        <input type="search" id="invoiceAddOrderSearch" placeholder="Search orders…" />
+      </div>
       <div class="table-responsive" id="invoiceAddOrderList">
         <div class="invoice-empty">Loading approved orders…</div>
       </div>
@@ -974,6 +986,11 @@ const appState = {
       glass: getDefaultGlassPrices(),
       spacer: getDefaultSpacerPrices(),
     },
+    pagination: {
+      currentPage: 1,
+      pageSize: 5,
+      totalPages: 1,
+    },
     filters: { client: "", order: "", status: "" },
     counter: 1,
   },
@@ -1095,6 +1112,9 @@ const invoiceFilterOrder = document.getElementById("invoiceFilterOrder");
 const invoiceFilterStatus = document.getElementById("invoiceFilterStatus");
 const invoiceGlassPricesWrap = document.getElementById("invoiceGlassPrices");
 const invoiceSpacerPricesWrap = document.getElementById("invoiceSpacerPrices");
+const invoicePagination = document.getElementById("invoicePagination");
+const invoicePaginationPrev = document.getElementById("invoicePaginationPrev");
+const invoicePaginationNext = document.getElementById("invoicePaginationNext");
 const invoiceAddGlassBtn = document.getElementById("invoiceAddGlassPrice");
 const invoiceAddSpacerBtn = document.getElementById("invoiceAddSpacerPrice");
 const invoiceSavePricesBtn = document.getElementById("invoiceSavePrices");
@@ -1113,6 +1133,7 @@ const invoiceAddOrderList = document.getElementById("invoiceAddOrderList");
 const invoiceAddOrderStatus = document.getElementById("invoiceAddOrderStatus");
 const invoiceAddOrderClose = document.getElementById("invoiceAddOrderClose");
 const invoiceAddOrderHint = document.getElementById("invoiceAddOrderHint");
+const invoiceAddOrderSearch = document.getElementById("invoiceAddOrderSearch");
 const typeCorrectionsPanel = document.getElementById("typeCorrectionsPanel");
 const typeCorrectionsTable = document.getElementById("typeCorrectionsTable");
 const typeCorrectionsAddBtn = document.getElementById("typeCorrectionsAdd");
@@ -5081,6 +5102,7 @@ const invoiceAddOrderState = {
   loading: false,
   orders: [],
   error: "",
+  searchTerm: "",
 };
 
 function groupInvoiceLinesByType(lines){
@@ -5950,6 +5972,7 @@ function closeInvoiceAddOrderModal(){
 function filterInvoiceAddOrderCandidates(job){
   if (!job) return [];
   const orders = Array.isArray(invoiceAddOrderState.orders) ? invoiceAddOrderState.orders : [];
+  const searchTerm = (invoiceAddOrderState.searchTerm || "").trim().toLowerCase();
   const currentNumbers = (Array.isArray(job.orderNumbers) ? job.orderNumbers : [])
     .map(num => String(num || "").toLowerCase())
     .filter(Boolean);
@@ -5962,6 +5985,15 @@ function filterInvoiceAddOrderCandidates(job){
     const normalized = numbers.map(num => String(num || "").toLowerCase());
     const overlapCurrent = normalized.some(num => currentSet.has(num));
     if (overlapCurrent) return false;
+    if (searchTerm){
+      const orderLabel = numbers.join(", ").toLowerCase();
+      const clientLabel = String(pickFirstString([order.client, order.client_hint, order.client_name, order.customer], "—") || "").toLowerCase();
+      const dateLabel = String(formatDate(order.created_at) || "").toLowerCase();
+      const matchesSearch = orderLabel.includes(searchTerm)
+        || clientLabel.includes(searchTerm)
+        || dateLabel.includes(searchTerm);
+      if (!matchesSearch) return false;
+    }
     return true;
   });
 }
@@ -5977,8 +6009,12 @@ function renderInvoiceAddOrderList(job){
     return;
   }
   const candidates = filterInvoiceAddOrderCandidates(job);
+  const hasSearch = (invoiceAddOrderState.searchTerm || "").trim().length > 0;
   if (!candidates.length){
-    invoiceAddOrderList.innerHTML = '<div class="invoice-empty">No matching approved orders available.</div>';
+    const emptyMessage = hasSearch
+      ? "No orders match your search."
+      : "No matching approved orders available.";
+    invoiceAddOrderList.innerHTML = `<div class="invoice-empty">${emptyMessage}</div>`;
     return;
   }
   const rows = candidates.map(order=>{
@@ -6041,6 +6077,10 @@ function openInvoiceAddOrderModal(){
     const orderLabel = (job.orderNumbers || []).join(", ") || "—";
     const clientLabel = formatInvoiceClientLabel(job) || "—";
     invoiceAddOrderHint.textContent = `${clientLabel} • Orders: ${orderLabel}`;
+  }
+  invoiceAddOrderState.searchTerm = "";
+  if (invoiceAddOrderSearch){
+    invoiceAddOrderSearch.value = "";
   }
   if (invoiceAddOrderModal){
     invoiceAddOrderModal.hidden = false;
@@ -6112,8 +6152,12 @@ async function handleInvoiceAddOrderSelect(orderId){
     appState.invoices.activeJobId = job.id;
     recalcInvoiceJob(job, { allowPrompt: true });
     await saveInvoiceJobs();
-    closeInvoiceAddOrderModal();
     updateInvoicesUI();
+    const label = incomingNumbers.length
+      ? incomingNumbers.join(", ")
+      : order?.order_number || orderId;
+    setInvoiceAddOrderStatus(`Order ${label} added to invoice.`);
+    renderInvoiceAddOrderList(job);
     setInvoiceStatus("Order added to invoice.");
   }catch(error){
     console.error("Failed to add order to invoice", error);
@@ -6636,10 +6680,14 @@ function findNextDraftInvoice(currentId){
 function renderInvoiceJobs(){
   if (!invoiceJobsWrap) return;
   ensureInvoicesLoaded();
+  const pagination = ensureInvoicePaginationState();
   const jobs = applyInvoiceFilters(appState.invoices.jobs || []);
   if (!jobs.length){
     appState.invoices.activeJobId = null;
     invoiceJobsWrap.innerHTML = '<div class="invoice-empty">No invoice jobs yet. Use the Invoice button in History.</div>';
+    pagination.currentPage = 1;
+    pagination.totalPages = 1;
+    updateInvoicePaginationControls(0, 1, 1);
     return;
   }
   const filters = appState.invoices.filters || {};
@@ -6694,8 +6742,24 @@ function renderInvoiceJobs(){
   });
   if (!rows.length){
     invoiceJobsWrap.innerHTML = '<div class="invoice-empty">No invoice rows match your filters.</div>';
+    pagination.currentPage = 1;
+    pagination.totalPages = 1;
+    updateInvoicePaginationControls(0, 1, 1);
     return;
   }
+  const pageSize = Math.max(1, Number(pagination.pageSize) || 5);
+  pagination.pageSize = pageSize;
+  const totalRows = rows.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+  pagination.totalPages = totalPages;
+  if (pagination.currentPage > totalPages){
+    pagination.currentPage = totalPages;
+  }
+  if (pagination.currentPage < 1){
+    pagination.currentPage = 1;
+  }
+  const startIndex = (pagination.currentPage - 1) * pageSize;
+  const paginatedRows = rows.slice(startIndex, startIndex + pageSize);
   invoiceJobsWrap.innerHTML = `<table>
     <thead>
       <tr>
@@ -6709,11 +6773,24 @@ function renderInvoiceJobs(){
         <th>Actions</th>
       </tr>
     </thead>
-    <tbody>${rows.join("")}</tbody>
+    <tbody>${paginatedRows.join("")}</tbody>
   </table>`;
+  updateInvoicePaginationControls(totalRows, totalPages, pagination.currentPage);
   const hasActive = jobs.some(job => job.id === appState.invoices.activeJobId);
   if ((!appState.invoices.activeJobId || !hasActive) && jobs.length){
     appState.invoices.activeJobId = jobs[0].id;
+  }
+}
+
+function updateInvoicePaginationControls(totalRows, totalPages, currentPage){
+  if (!invoicePagination) return;
+  const shouldHide = totalRows === 0;
+  invoicePagination.hidden = shouldHide;
+  if (invoicePaginationPrev){
+    invoicePaginationPrev.disabled = currentPage <= 1 || shouldHide;
+  }
+  if (invoicePaginationNext){
+    invoicePaginationNext.disabled = currentPage >= totalPages || shouldHide;
   }
 }
 
@@ -7007,9 +7084,42 @@ async function deleteInvoiceJob(id){
   setInvoiceStatus("Invoice job deleted.");
 }
 
+function ensureInvoicePaginationState(){
+  if (!appState.invoices.pagination){
+    appState.invoices.pagination = { currentPage: 1, pageSize: 5, totalPages: 1 };
+  }
+  const pagination = appState.invoices.pagination;
+  if (!Number.isFinite(pagination.pageSize) || pagination.pageSize <= 0){
+    pagination.pageSize = 5;
+  }
+  if (!Number.isFinite(pagination.currentPage) || pagination.currentPage < 1){
+    pagination.currentPage = 1;
+  }
+  if (!Number.isFinite(pagination.totalPages) || pagination.totalPages < 1){
+    pagination.totalPages = 1;
+  }
+  return pagination;
+}
+
 function setInvoiceFilters(filters){
+  ensureInvoicePaginationState();
   appState.invoices.filters = { ...appState.invoices.filters, ...filters };
+  appState.invoices.pagination.currentPage = 1;
   updateInvoicesUI();
+}
+
+function goToInvoicePage(pageNumber){
+  const pagination = ensureInvoicePaginationState();
+  const totalPages = Math.max(1, pagination.totalPages || 1);
+  const target = Math.min(Math.max(1, pageNumber), totalPages);
+  if (target === pagination.currentPage) return;
+  pagination.currentPage = target;
+  updateInvoicesUI();
+}
+
+function changeInvoicePage(delta){
+  const pagination = ensureInvoicePaginationState();
+  goToInvoicePage(pagination.currentPage + delta);
 }
 
 async function generateInvoicePdf(job){
@@ -8242,6 +8352,20 @@ if (invoiceFilterStatus){
   });
 }
 
+if (invoicePaginationPrev){
+  invoicePaginationPrev.addEventListener("click", ()=>{
+    ensureInvoicesLoaded();
+    changeInvoicePage(-1);
+  });
+}
+
+if (invoicePaginationNext){
+  invoicePaginationNext.addEventListener("click", ()=>{
+    ensureInvoicesLoaded();
+    changeInvoicePage(1);
+  });
+}
+
 if (invoiceAddGlassBtn){
   invoiceAddGlassBtn.addEventListener("click", ()=>{
     ensureInvoicesLoaded();
@@ -8276,6 +8400,15 @@ if (invoiceAddOrderModal){
     if (event.target === invoiceAddOrderModal){
       closeInvoiceAddOrderModal();
     }
+  });
+}
+
+if (invoiceAddOrderSearch){
+  invoiceAddOrderSearch.addEventListener("input", event=>{
+    invoiceAddOrderState.searchTerm = event.target.value || "";
+    ensureInvoicesLoaded();
+    const job = getActiveInvoiceJob();
+    renderInvoiceAddOrderList(job);
   });
 }
 
