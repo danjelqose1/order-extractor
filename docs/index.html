@@ -5121,6 +5121,14 @@ function clearGlassAliasCache(){
   glassAliasPending.clear();
 }
 
+/**
+ * @typedef {Object} LineAIAnalysis
+ * @property {string|null} glassKey
+ * @property {boolean} isLaminated
+ * @property {"normal"|"thermal"} spacerMode
+ * @property {string=} reason
+ */
+
 function groupInvoiceLinesByType(lines){
   const map = new Map();
   (lines || []).forEach(line=>{
@@ -7311,6 +7319,136 @@ Now for the current request:
   }
   const match = knownTypes.find(type => type.toLowerCase() === normalized.toLowerCase());
   return match || null;
+}
+
+async function analyzeInvoiceLineWithAI(rawLine, knownGlassTypes){
+  if (!rawLine || !Array.isArray(knownGlassTypes) || !knownGlassTypes.length){
+    return null;
+  }
+  const apiKey = getStoredOpenAiKey();
+  if (!apiKey){
+    return null;
+  }
+  const systemPrompt = `
+You are an expert assistant for a glass processing factory invoicing system.
+
+You receive:
+- A noisy text description of an insulated glass unit (IGU) line, extracted from a PDF in Italian.
+- A list of canonical glass type keys from the factory price list.
+
+Your job:
+- Understand what the text is describing:
+  - how many panes (2 vetri, 3 vetri),
+  - which glass types are present (33.1, 4F, LOWE, SATINATO, etc.),
+  - whether spacers are thermal (warm-edge) or normal,
+  - whether the main glass is laminated.
+
+You must then output a small JSON object with this shape:
+
+{
+  "glassKey": string | null,
+  "isLaminated": boolean,
+  "spacerMode": "normal" | "thermal",
+  "reason": string
+}
+
+Where:
+- glassKey MUST be either one of the provided canonical glass type keys from the price list, or null if there is no clear match.
+- isLaminated is true if the text clearly refers to laminated glass (e.g. 33.1, 44.1, stratificato, laminato).
+- spacerMode is:
+   - "thermal" if the text indicates warm-edge / thermal spacers, using words like 'caldo', 'c.caldo', 'cald', or brand names of thermal spacers, or 'termico', 'warm edge'.
+   - "normal" otherwise.
+- reason is a short explanation of your decision in Italian or English.
+
+Important:
+- Handle OCR typos and spelling variants:
+  - 'stainato' ≈ 'satinato'
+  - 'low e', 'loe' ≈ 'lowe'
+  - '33,1' ≈ '33.1'
+- The canonical glassKey is chosen by matching meaning (thickness + treatment) against the provided list, not by exact string match.
+- NEVER invent a new glass type. If none of the canonical keys match, use null for glassKey.
+- Ignore dimensions, counts of pieces, and spacer thickness when choosing glassKey; focus on glass composition and finish.`.trim();
+  const userPrompt = `
+Here is the list of canonical glass type keys (price list entries):
+
+knownGlassTypes = ${JSON.stringify(knownGlassTypes)}
+
+Here is the noisy IGU line to analyze:
+
+raw_line = "${rawLine}"
+
+Your task:
+1. Decide which single canonical glass type key best corresponds to the MAIN glass that is missing price or is the focus of this line, or null if there is no good match.
+2. Decide if the unit should be considered laminated:
+   - true for things like '33.1', '44.1', 'laminato', 'stratificato'.
+3. Decide spacerMode:
+   - 'thermal' if you see words like 'caldo', 'c.caldo', 'cald', 'termico', 'warm edge', or similar.
+   - 'normal' otherwise.
+4. Return ONLY a JSON object with this exact shape:
+
+{
+  "glassKey": string or null,
+  "isLaminated": boolean,
+  "spacerMode": "normal" or "thermal",
+  "reason": string
+}
+
+Do not wrap it in backticks, do not add any other text.`.trim();
+  try{
+    const payload = {
+      model: "gpt-4o-mini",
+      temperature: 0,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+    };
+    const res = await fetch(OPENAI_CHAT_COMPLETIONS_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok){
+      throw new Error(`AI analysis failed with ${res.status}`);
+    }
+    const data = await res.json();
+    const raw = data?.choices?.[0]?.message?.content;
+    if (!raw || typeof raw !== "string"){
+      return null;
+    }
+    let parsed;
+    try{
+      parsed = JSON.parse(raw);
+    }catch(error){
+      console.warn("Failed to parse AI line analysis", error, raw);
+      return null;
+    }
+    if (typeof parsed !== "object" || !parsed){
+      return null;
+    }
+    const glassKey = parsed.glassKey === null ? null : String(parsed.glassKey || "").trim();
+    if (glassKey && !knownGlassTypes.includes(glassKey)){
+      return null;
+    }
+    const spacerMode = parsed.spacerMode === "thermal" ? "thermal" : parsed.spacerMode === "normal" ? "normal" : null;
+    if (!spacerMode){
+      return null;
+    }
+    const isLaminated = Boolean(parsed.isLaminated);
+    const result = {
+      glassKey: glassKey || null,
+      isLaminated,
+      spacerMode,
+      reason: typeof parsed.reason === "string" ? parsed.reason : "",
+    };
+    return result;
+  }catch(error){
+    console.warn("AI invoice line analysis failed", error);
+    return null;
+  }
 }
 
 // Invoice pricing/type corrections now save to the server (not just localStorage)
