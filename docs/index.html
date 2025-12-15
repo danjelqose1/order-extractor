@@ -391,6 +391,10 @@
             </select>
           </label>
           <label>
+            <span>Year</span>
+            <select id="historyYearFilter"></select>
+          </label>
+          <label>
             <span>Page size</span>
             <select id="historyLimit">
               <option value="10">10</option>
@@ -829,7 +833,7 @@
 <script>
 const API_BASE = "https://order-extractor-kdih.onrender.com";
 //const API_BASE = "http://127.0.0.1:5055";
-const HISTORY_CACHE_KEY = "loe.history.cache.v1";
+const HISTORY_CACHE_KEY_BASE = "loe.history.cache.v1";
 const HISTORY_CACHE_LIMIT = 200;
 const DEFAULT_APPEARANCE_SETTINGS = Object.freeze({
   headerFontSize: 20,
@@ -921,6 +925,7 @@ ensureMotherSheetObserver();
 const historyState = {
   query: "",
   status: "",
+  year: "",
   limit: 25,
   offset: 0,
   hasMore: false,
@@ -1624,12 +1629,12 @@ async function fetchAllApprovedOrders(){
     let offset = 0;
     const limit = 100;
     let hasMore = true;
-    while (hasMore){
-      const params = { limit, offset, status: "approved" };
-      let data;
-      try{
-        data = await fetchOrders(params);
-      }catch(error){
+	    while (hasMore){
+	      const params = { limit, offset, status: "approved", year: "all" };
+	      let data;
+	      try{
+	        data = await fetchOrders(params);
+	      }catch(error){
         console.warn("Analysis: failed to fetch all orders batch", error);
         break;
       }
@@ -8222,9 +8227,42 @@ function ensureHistoryLoaded(){
   return Promise.resolve();
 }
 
+function getCurrentYearString(){
+  return String(new Date().getFullYear());
+}
+
+function normalizeHistoryYear(value){
+  const fallback = getCurrentYearString();
+  if (value == null) return fallback;
+  const text = String(value).trim().toLowerCase();
+  if (!text) return fallback;
+  if (text === "all") return "all";
+  if (/^\d{4}$/.test(text)) return text;
+  return fallback;
+}
+
+function readHistoryYearFromUrl(){
+  const params = new URLSearchParams(window.location.search);
+  return normalizeHistoryYear(params.get("year"));
+}
+
+function writeHistoryYearToUrl(yearValue){
+  const normalized = normalizeHistoryYear(yearValue);
+  const params = new URLSearchParams(window.location.search);
+  params.set("year", normalized);
+  const query = params.toString();
+  const next = window.location.pathname + (query ? "?" + query : "") + window.location.hash;
+  window.history.replaceState(null, "", next);
+}
+
+function getHistoryCacheKey(){
+  const yearPart = normalizeHistoryYear(historyState.year || getCurrentYearString());
+  return `${HISTORY_CACHE_KEY_BASE}.year.${yearPart}`;
+}
+
 function readHistoryCache(){
   try{
-    const raw = localStorage.getItem(HISTORY_CACHE_KEY);
+    const raw = localStorage.getItem(getHistoryCacheKey());
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
@@ -8235,7 +8273,7 @@ function readHistoryCache(){
 
 function writeHistoryCache(items){
   try{
-    localStorage.setItem(HISTORY_CACHE_KEY, JSON.stringify(items));
+    localStorage.setItem(getHistoryCacheKey(), JSON.stringify(items));
   }catch{
     /* ignore quota errors */
   }
@@ -8268,6 +8306,7 @@ async function fetchOrders(params){
   if (params.offset) search.set("offset", String(params.offset));
   if (params.query) search.set("query", params.query);
   if (params.status) search.set("status", params.status);
+  if (params.year) search.set("year", String(params.year));
   const url = API_BASE + "/orders" + (search.toString() ? "?" + search.toString() : "");
   const res = await fetch(url);
   if (!res.ok){
@@ -8314,20 +8353,26 @@ async function downloadOrderCsv(id){
 }
 
 async function downloadAllCsv(){
-  const res = await fetch(API_BASE + "/orders/export.csv");
+  const search = new URLSearchParams();
+  const normalizedYear = normalizeHistoryYear(historyState.year || getCurrentYearString());
+  search.set("year", normalizedYear);
+  if (historyState.query) search.set("query", historyState.query);
+  if (historyState.status) search.set("status", historyState.status);
+  const requestUrl = API_BASE + "/orders/export.csv" + (search.toString() ? "?" + search.toString() : "");
+  const res = await fetch(requestUrl);
   if (!res.ok){
     const text = await res.text();
     throw new Error(text || ("HTTP " + res.status));
   }
   const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
+  const blobUrl = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url;
+  a.href = blobUrl;
   a.download = "orders-export.csv";
   document.body.appendChild(a);
   a.click();
   a.remove();
-  URL.revokeObjectURL(url);
+  URL.revokeObjectURL(blobUrl);
 }
 
 async function fetchAllApprovedOrdersForInvoicing(){
@@ -8336,7 +8381,13 @@ async function fetchAllApprovedOrdersForInvoicing(){
   const limit = 100;
   let hasMore = true;
   while (hasMore){
-    const params = { limit, offset, status: "approved" };
+    const params = {
+      limit,
+      offset,
+      status: "approved",
+      year: normalizeHistoryYear(historyState.year || getCurrentYearString()),
+      query: historyState.query || undefined,
+    };
     const data = await fetchOrders(params);
     const items = Array.isArray(data?.items) ? data.items : [];
     all.push(...items);
@@ -8358,6 +8409,7 @@ async function loadHistory(opts={}){
     const data = await fetchOrders({
       query: historyState.query || undefined,
       status: historyState.status || undefined,
+      year: normalizeHistoryYear(historyState.year || getCurrentYearString()),
       limit: historyState.limit,
       offset: historyState.offset
     });
@@ -8374,9 +8426,19 @@ async function loadHistory(opts={}){
   }catch(error){
     const cached = readHistoryCache();
     if (cached.length){
-      historyState.items = historyState.status
-        ? cached.filter(item => (item.status || "").toLowerCase() === historyState.status.toLowerCase())
-        : cached;
+      let filtered = cached;
+      if (historyState.status){
+        filtered = filtered.filter(item => (item.status || "").toLowerCase() === historyState.status.toLowerCase());
+      }
+      if (historyState.query){
+        const term = historyState.query.trim().toLowerCase();
+        filtered = filtered.filter(item => {
+          const client = String(item.client || item.client_hint || "").toLowerCase();
+          const nums = String((item.order_numbers || []).join(", ") || "").toLowerCase();
+          return client.includes(term) || nums.includes(term);
+        });
+      }
+      historyState.items = filtered;
       historyState.hasMore = false;
       historyState.offline = true;
       historyState.loadedOnce = true;
@@ -8398,7 +8460,9 @@ async function loadHistory(opts={}){
 }
 
 async function handleHistoryInvoiceAllClick(){
-  if (!confirm("Create invoice jobs for all APPROVED orders?")){
+  const yearLabel = normalizeHistoryYear(historyState.year || getCurrentYearString());
+  const scopeLabel = yearLabel === "all" ? "all years" : yearLabel;
+  if (!confirm(`Create invoice jobs for all APPROVED orders (${scopeLabel})?`)){
     return;
   }
   try{
@@ -9391,6 +9455,47 @@ document.getElementById("historyStatusFilter").addEventListener("change", (event
   historyState.offset = 0;
   loadHistory({ resetOffset: true });
 });
+
+const historyYearFilterEl = document.getElementById("historyYearFilter");
+function populateHistoryYearOptions(selectedYear){
+  if (!historyYearFilterEl) return;
+  const currentYear = Number(getCurrentYearString());
+  const years = [];
+  for (let i = 0; i < 5; i += 1){
+    years.push(String(currentYear - i));
+  }
+  const normalizedSelected = normalizeHistoryYear(selectedYear);
+  if (normalizedSelected !== "all" && /^\d{4}$/.test(normalizedSelected) && !years.includes(normalizedSelected)){
+    years.push(normalizedSelected);
+  }
+  const options = [];
+  options.push(`<option value="${escapeHtml(years[0])}">Current Year (${escapeHtml(years[0])})</option>`);
+  for (const year of years.slice(1)){
+    options.push(`<option value="${escapeHtml(year)}">${escapeHtml(year)}</option>`);
+  }
+  options.push(`<option value="all">All</option>`);
+  historyYearFilterEl.innerHTML = options.join("");
+}
+
+function syncHistoryYearSelection(yearValue, opts = {}){
+  const normalized = normalizeHistoryYear(yearValue);
+  historyState.year = normalized;
+  populateHistoryYearOptions(normalized);
+  if (historyYearFilterEl) historyYearFilterEl.value = normalized;
+  if (!opts.skipUrl){
+    writeHistoryYearToUrl(normalized);
+  }
+}
+
+syncHistoryYearSelection(readHistoryYearFromUrl(), { skipUrl: false });
+
+if (historyYearFilterEl){
+  historyYearFilterEl.addEventListener("change", (event)=>{
+    syncHistoryYearSelection(event.target.value || getCurrentYearString());
+    historyState.offset = 0;
+    loadHistory({ resetOffset: true });
+  });
+}
 
 let historySearchTimer = null;
 document.getElementById("historySearch").addEventListener("input", (event)=>{
