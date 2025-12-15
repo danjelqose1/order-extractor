@@ -717,10 +717,14 @@ async def extract_pdf_dash_alias(file: UploadFile = File(...), x_app_key: Option
 def list_orders(
     query: Optional[str] = Query(default=None, description="Search by order number or client hint"),
     status: Optional[str] = Query(default=None, description="Filter by status draft|approved"),
+    year: Optional[str] = Query(default=None, description="Year filter: YYYY (defaults to current year) or all"),
     limit: int = Query(default=DEFAULT_HISTORY_LIMIT, ge=1, le=MAX_HISTORY_LIMIT),
     offset: int = Query(default=0, ge=0),
 ) -> Dict[str, Any]:
-    items = get_orders(query=query, status=status, limit=limit, offset=offset)
+    try:
+        items = get_orders(query=query, status=status, year=year, limit=limit, offset=offset)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     return {
         "items": items,
         "limit": limit,
@@ -876,8 +880,15 @@ def download_order_csv(order_id: int):
 
 
 @app.get("/orders/export.csv")
-def export_all_orders_csv():
-    rows = get_all_rows_for_export()
+def export_all_orders_csv(
+    query: Optional[str] = Query(default=None, description="Search by order number or client hint"),
+    status: Optional[str] = Query(default="approved", description="Filter by status draft|approved (default approved)"),
+    year: Optional[str] = Query(default=None, description="Year filter: YYYY (defaults to current year) or all"),
+):
+    try:
+        rows = get_all_rows_for_export(query=query, status=status, year=year)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     output = StringIO()
     writer = csv.writer(output)
     writer.writerow(
