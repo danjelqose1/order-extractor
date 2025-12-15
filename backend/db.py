@@ -352,11 +352,24 @@ def update_order_rows(
 def get_orders(
     query: Optional[str] = None,
     status: Optional[str] = None,
+    year: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
 ) -> List[Dict[str, Any]]:
     limit = max(1, min(limit or 50, 200))
     offset = max(offset or 0, 0)
+
+    now_year = datetime.now(timezone.utc).year
+    year_text = (str(year).strip().lower() if year is not None else "")
+    if not year_text:
+        filter_year: Optional[int] = now_year
+    elif year_text == "all":
+        filter_year = None
+    elif year_text.isdigit() and len(year_text) == 4:
+        filter_year = int(year_text)
+    else:
+        raise ValueError("Invalid year. Use YYYY or 'all'.")
+
     with SessionLocal() as session:
         stmt = select(Order).order_by(Order.created_at.desc()).offset(offset).limit(limit)
         if query:
@@ -367,6 +380,10 @@ def get_orders(
             )
         if status:
             stmt = stmt.where(func.lower(Order.status) == status.lower())
+        if filter_year is not None:
+            start = datetime(filter_year, 1, 1, tzinfo=timezone.utc)
+            end = datetime(filter_year + 1, 1, 1, tzinfo=timezone.utc)
+            stmt = stmt.where(Order.created_at >= start).where(Order.created_at < end)
         orders = session.execute(stmt).scalars().all()
         return [_serialize_order(order, include_rows=False) for order in orders]
 
@@ -392,14 +409,38 @@ def delete_order(order_id: int) -> bool:
         return True
 
 
-def get_all_rows_for_export() -> List[Dict[str, Any]]:
+def get_all_rows_for_export(
+    *,
+    query: Optional[str] = None,
+    status: Optional[str] = "approved",
+    year: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    now_year = datetime.now(timezone.utc).year
+    year_text = (str(year).strip().lower() if year is not None else "")
+    if not year_text:
+        filter_year: Optional[int] = now_year
+    elif year_text == "all":
+        filter_year = None
+    elif year_text.isdigit() and len(year_text) == 4:
+        filter_year = int(year_text)
+    else:
+        raise ValueError("Invalid year. Use YYYY or 'all'.")
+
     with SessionLocal() as session:
-        stmt = (
-            select(Order, OrderRow)
-            .join(OrderRow, Order.id == OrderRow.order_id)
-            .where(func.lower(Order.status) == "approved")
-            .order_by(Order.created_at.desc())
-        )
+        stmt = select(Order, OrderRow).join(OrderRow, Order.id == OrderRow.order_id)
+        if status:
+            stmt = stmt.where(func.lower(Order.status) == status.lower())
+        if query:
+            like_term = f"%{query.lower()}%"
+            stmt = stmt.where(
+                func.lower(Order.order_numbers_raw).like(like_term)
+                | func.lower(func.coalesce(Order.client_hint, "")).like(like_term)
+            )
+        if filter_year is not None:
+            start = datetime(filter_year, 1, 1, tzinfo=timezone.utc)
+            end = datetime(filter_year + 1, 1, 1, tzinfo=timezone.utc)
+            stmt = stmt.where(Order.created_at >= start).where(Order.created_at < end)
+        stmt = stmt.order_by(Order.created_at.desc())
         result: List[Dict[str, Any]] = []
         for order, row in session.execute(stmt).all():
             result.append(
