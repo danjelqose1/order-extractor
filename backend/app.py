@@ -36,6 +36,8 @@ from db import (
     delete_correction,
 )
 from validators import validate_rows
+from dimension_repair import apply_dimension_repair
+from area_dimension_validator import apply_area_dimension_validation
 from utils_text import parse_declared_totals
 from prompts import PROMPTS
 ENV_PATH = Path(__file__).parent / ".env"
@@ -508,8 +510,10 @@ def extract(inb: PasteIn, x_app_key: Optional[str] = Header(default=None)) -> Di
         _debug_log_rows(result_data.rows)
 
         rows_dict = _rows_to_dicts(result_data.rows)
-        validation = validate_rows(rows_dict, context={"prepared_text": bundle.get("prepared_text")})
-        final_rows = validation.get("rows", rows_dict)
+        repaired_rows = apply_dimension_repair(inb.text, rows_dict)
+        validation = validate_rows(repaired_rows, context={"prepared_text": bundle.get("prepared_text")})
+        normalized_rows = validation.get("rows", repaired_rows)
+        final_rows = apply_area_dimension_validation(normalized_rows)
         row_warnings = validation.get("row_warnings", {})
 
         combined_warnings: List[str] = []
@@ -640,8 +644,11 @@ async def extract_pdf(file: UploadFile = File(...), x_app_key: Optional[str] = H
 
         rows_dict = _rows_to_dicts(result_data.rows)
         prepared_text = bundle.get("prepared_text") or ""
-        validation = validate_rows(rows_dict, context={"prepared_text": prepared_text})
-        final_rows = validation.get("rows", rows_dict)
+        raw_joined = "\n\n".join(page for page in raw_ocr_pages if page)
+        repaired_rows = apply_dimension_repair(raw_joined, rows_dict)
+        validation = validate_rows(repaired_rows, context={"prepared_text": prepared_text})
+        normalized_rows = validation.get("rows", repaired_rows)
+        final_rows = apply_area_dimension_validation(normalized_rows)
         row_warnings = validation.get("row_warnings", {})
 
         combined_warnings: List[str] = []
@@ -656,7 +663,6 @@ async def extract_pdf(file: UploadFile = File(...), x_app_key: Optional[str] = H
         if applied:
             combined_warnings.append(f"auto_corrections_applied:{','.join(str(i) for i in applied)}")
 
-        raw_joined = "\n\n".join(page for page in raw_ocr_pages if page)
         hash_value = _compute_hash(prepared_text or raw_joined)
         llm_output_json = json.dumps(raw_payload, ensure_ascii=False)
         declared_units = bundle.get("declared_units")
@@ -742,7 +748,8 @@ def get_order_detail(order_id: int) -> Dict[str, Any]:
     rows = order.get("rows") or []
     extraction = order.get("extraction") or {}
     validation = validate_rows([dict(row) for row in rows], context={"prepared_text": extraction.get("prepared_text", "")})
-    order["rows"] = validation.get("rows", rows)
+    normalized_rows = validation.get("rows", rows)
+    order["rows"] = apply_area_dimension_validation(normalized_rows)
     order["row_warnings"] = validation.get("row_warnings", {})
     order["warnings"] = validation.get("warnings", [])
     declared_units, declared_area = parse_declared_totals(extraction.get("prepared_text", ""))
