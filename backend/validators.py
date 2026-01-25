@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import math
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from utils_text import (
     clean_dimension,
-    compute_area_from_dimension,
     normalize_order_number,
     normalize_position,
 )
@@ -100,23 +98,6 @@ def validate_rows(
             if width * height < 400_000:  # roughly <0.4 m²
                 working["quantity"] = max(1, min(3, working["quantity"]))
                 per_row.append("warning: unusually_high_quantity_adjusted")
-
-        # Area recompute
-        area_from_dimension = compute_area_from_dimension(working.get("dimension", ""))
-        try:
-            area_value = float(working.get("area") or 0)
-        except Exception:
-            area_value = 0.0
-        if area_from_dimension is not None:
-            if not math.isclose(area_value, area_from_dimension, rel_tol=0.03, abs_tol=0.02):
-                working["area"] = area_from_dimension
-                per_row.append("auto_fix: area_recomputed")
-            working["computed_area"] = area_from_dimension
-            working["area_mismatch"] = not math.isclose(area_value, area_from_dimension, rel_tol=0.01, abs_tol=0.01)
-        else:
-            working["area"] = round(area_value, 3)
-            working["computed_area"] = None
-            working["area_mismatch"] = None
 
         # Type propagation
         order_key = working.get("order_number") or "__default__"
