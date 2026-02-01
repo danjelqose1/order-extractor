@@ -173,6 +173,22 @@
     .order-chip{display:inline-flex;align-items:center;gap:6px;padding:2px 10px;border-radius:999px;background:#eef2ff;color:#374151;font-size:12px}
     .order-chip button{border:none;background:transparent;color:#6b7280;font-size:12px;cursor:pointer;padding:0;margin:0;line-height:1}
     .order-chip button:hover{color:#ef4444}
+    .igu-grid{display:grid;grid-template-columns:minmax(240px,1.2fr) minmax(240px,1fr) minmax(240px,1fr);gap:14px;margin-top:12px}
+    .igu-panel{border:1px solid var(--border);border-radius:12px;padding:12px;background:#f9fafe;display:flex;flex-direction:column;gap:10px}
+    .igu-panel h3{margin:0;font-size:15px}
+    .igu-order-list{border:1px solid var(--border);border-radius:10px;background:#fff;max-height:240px;overflow:auto}
+    .igu-order-item{display:flex;align-items:flex-start;gap:8px;padding:8px 10px;border-bottom:1px dashed var(--border);cursor:pointer}
+    .igu-order-item:last-child{border-bottom:none}
+    .igu-order-item input{margin-top:2px}
+    .igu-order-meta{font-size:12px;color:var(--muted)}
+    .igu-field{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--muted)}
+    .igu-field input[type=number]{padding:6px 8px;border:1px solid var(--border-dark);border-radius:8px;font-size:13px;background:#fff}
+    .igu-field input[type=number]:focus{outline:2px solid var(--primary-soft);border-color:var(--primary)}
+    .igu-inline{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .igu-results .summary{margin:0;flex-direction:column;align-items:flex-start;gap:12px}
+    .igu-total{font-size:20px;font-weight:600}
+    .igu-total small{font-size:12px;color:var(--muted);font-weight:500}
+    .igu-breakdown-empty{padding:16px;text-align:center;color:var(--muted)}
     .ai-badge{display:inline-flex;align-items:center;padding:2px 6px;border-radius:999px;background:#eef2ff;color:#4b5563;font-size:10px;font-weight:600;margin-left:6px}
     .notes-field{margin-top:12px;display:flex;flex-direction:column;gap:6px}
     .notes-field textarea{width:100%;min-height:80px;padding:10px;border:1px solid var(--border-dark);border-radius:10px;font-size:13px;resize:vertical;background:#fff}
@@ -239,6 +255,7 @@
       .processing-layout{grid-template-columns:1fr;}
       .processing-controls .card{order:-1}
       .processing-order-list{max-height:none}
+      .igu-grid{grid-template-columns:1fr;}
     }
     @media (max-width:600px){
       main.app{padding:18px 12px 36px}
@@ -372,6 +389,116 @@
           <textarea id="extractNotes" placeholder="Add a note before approving…"></textarea>
         </div>
         <div id="error" class="alert" hidden></div>
+      </div>
+
+      <div class="card igu-card" id="iguCalculator">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+          <div>
+            <h2 style="margin:0">IGU Materials Calculator</h2>
+            <p class="muted small" style="margin:4px 0 0">Select saved orders from History to total spacer and hot-melt butyl.</p>
+          </div>
+          <div id="iguStatus" class="muted small"></div>
+        </div>
+        <div class="igu-grid">
+          <div class="igu-panel">
+            <h3>Order selector</h3>
+            <label class="igu-field">
+              <span>Search</span>
+              <input type="search" id="iguOrderSearch" placeholder="Order number or client" />
+            </label>
+            <div class="igu-order-list" id="iguOrderList">
+              <div class="igu-breakdown-empty">Search to load orders.</div>
+            </div>
+            <div class="order-chip-row">
+              <span class="muted small">Selected</span>
+              <div class="order-chips" id="iguSelectedChips"></div>
+            </div>
+            <div class="controls">
+              <button class="btn small" id="iguLoadSelected">Load selected</button>
+              <button class="btn small" id="iguClearSelected">Clear</button>
+            </div>
+          </div>
+          <div class="igu-panel">
+            <h3>Settings</h3>
+            <div class="igu-field">
+              <span class="appearance-label">Spacer width source</span>
+              <label class="igu-inline"><input type="radio" name="iguSpacerSource" value="item" id="iguSpacerSourceItem" checked />Use per item</label>
+              <label class="igu-inline"><input type="radio" name="iguSpacerSource" value="override" id="iguSpacerSourceOverride" />Override to</label>
+              <div class="igu-inline">
+                <input type="number" id="iguSpacerOverride" min="1" step="0.1" placeholder="mm" disabled />
+                <span class="muted small">mm</span>
+              </div>
+            </div>
+            <div class="igu-field">
+              <span class="appearance-label">Inner fill (butyl bead height)</span>
+              <div class="igu-inline">
+                <input type="number" value="5" disabled />
+                <span class="muted small">mm (locked)</span>
+              </div>
+            </div>
+            <div class="igu-field">
+              <span class="appearance-label">Butyl density</span>
+              <div class="igu-inline">
+                <input type="number" id="iguDensity" min="0.1" step="0.01" value="1.18" />
+                <span class="muted small">g/cm³</span>
+              </div>
+            </div>
+            <div class="igu-field">
+              <span class="appearance-label">Box weight</span>
+              <div class="igu-inline">
+                <input type="number" id="iguBoxWeight" min="0.1" step="0.1" value="6.5" />
+                <span class="muted small">kg</span>
+              </div>
+            </div>
+            <div class="igu-field">
+              <span class="appearance-label">Waste factors</span>
+              <div class="igu-inline">
+                <input type="checkbox" id="iguWasteSpacer" />
+                <span>Spacer</span>
+                <span class="muted small">+</span>
+                <input type="number" id="iguWasteSpacerPct" value="3" min="0" step="0.1" style="width:72px" />
+                <span class="muted small">%</span>
+              </div>
+              <div class="igu-inline">
+                <input type="checkbox" id="iguWasteButyl" />
+                <span>Butyl</span>
+                <span class="muted small">+</span>
+                <input type="number" id="iguWasteButylPct" value="5" min="0" step="0.1" style="width:72px" />
+                <span class="muted small">%</span>
+              </div>
+            </div>
+          </div>
+          <div class="igu-panel igu-results">
+            <h3>Results</h3>
+            <div class="summary">
+              <div>
+                <div class="muted small">Total Spacer (m)</div>
+                <div class="igu-total" id="iguTotalSpacer">0.00</div>
+                <div class="muted small" id="iguTotalSpacerBase"></div>
+              </div>
+              <div>
+                <div class="muted small">Total Butyl (kg)</div>
+                <div class="igu-total" id="iguTotalButyl">0.000</div>
+                <div class="muted small" id="iguTotalButylBase"></div>
+              </div>
+              <div>
+                <div class="muted small">Bostik 4000 Boxes (pcs)</div>
+                <div class="igu-total" id="iguTotalBoxes">0</div>
+              </div>
+            </div>
+            <div id="iguWarnings" class="warning-list" hidden>
+              <h4>Missing data</h4>
+              <ul></ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-top:0">Breakdown</h3>
+        <div class="table-responsive" id="iguBreakdownWrap">
+          <div class="igu-breakdown-empty">Select orders to see item totals.</div>
+        </div>
       </div>
     </section>
 
@@ -849,6 +976,17 @@ const INVOICE_PRICES_KEY = "loe.invoices.prices.v1";
 const INVOICE_JOBS_KEY = "loe.invoices.jobs.v1";
 const INVOICE_COUNTER_KEY = "loe.invoices.counter.v1";
 const TYPE_CORRECTIONS_STORAGE_KEY = "invoice_type_corrections_v1";
+const IGU_INNER_FILL_MM = 5;
+const IGU_SETTINGS_DEFAULTS = Object.freeze({
+  spacerSource: "item",
+  spacerOverride: null,
+  density: 1.18,
+  boxWeightKg: 6.5,
+  wasteSpacerEnabled: false,
+  wasteSpacerPct: 3,
+  wasteButylEnabled: false,
+  wasteButylPct: 5,
+});
 
 const DEFAULT_TYPE_CORRECTIONS = [
   {
@@ -10078,6 +10216,463 @@ async function generateLabelsPdf(rows){
   }
 })();
 
+const iguState = {
+  search: "",
+  results: [],
+  selected: new Map(),
+  ordersData: [],
+  calculated: null,
+  loadingList: false,
+  loadingOrders: false,
+  settings: { ...IGU_SETTINGS_DEFAULTS },
+};
+
+function setIguStatus(message){
+  const statusEl = document.getElementById("iguStatus");
+  if (statusEl) statusEl.textContent = message || "";
+}
+
+function getIguOrderKey(order){
+  if (!order) return "";
+  const numbers = Array.isArray(order.order_numbers)
+    ? order.order_numbers.map(value => value == null ? "" : String(value).trim()).filter(Boolean)
+    : [];
+  if (numbers.length) return numbers[0];
+  return pickFirstString([
+    order.order_number,
+    order.orderNumber,
+    order.order,
+    order.orderId,
+    order.order_id,
+    order.id,
+  ], "");
+}
+
+function renderIguOrderList(){
+  const container = document.getElementById("iguOrderList");
+  if (!container) return;
+  if (iguState.loadingList){
+    container.innerHTML = `<div class="igu-breakdown-empty">Loading orders…</div>`;
+    return;
+  }
+  if (!iguState.results.length){
+    const message = iguState.search ? "No orders found." : "Search to load orders.";
+    container.innerHTML = `<div class="igu-breakdown-empty">${message}</div>`;
+    return;
+  }
+  const rows = iguState.results.map(order => {
+    const key = getIguOrderKey(order);
+    if (!key) return "";
+    const label = getOrderLabel(order);
+    const client = order.client || order.client_hint || "—";
+    const created = formatDate(order.created_at) || "—";
+    const checked = iguState.selected.has(key) ? "checked" : "";
+    return `<label class="igu-order-item">
+      <input type="checkbox" data-igu-order="${escapeHtml(key)}" ${checked} />
+      <div>
+        <div><strong>${escapeHtml(label)}</strong></div>
+        <div class="igu-order-meta">${escapeHtml(client)} • ${escapeHtml(created)}</div>
+      </div>
+    </label>`;
+  }).join("");
+  container.innerHTML = rows || `<div class="igu-breakdown-empty">No orders found.</div>`;
+}
+
+function renderIguSelectedChips(){
+  const container = document.getElementById("iguSelectedChips");
+  if (!container) return;
+  if (!iguState.selected.size){
+    container.innerHTML = `<span class="muted small">None</span>`;
+    return;
+  }
+  const chips = Array.from(iguState.selected.entries()).map(([key, order])=>{
+    const label = getOrderLabel(order);
+    return `<span class="order-chip" data-igu-chip="${escapeHtml(key)}">
+      ${escapeHtml(label)}
+      <button type="button" data-igu-remove="${escapeHtml(key)}" title="Remove">×</button>
+    </span>`;
+  }).join("");
+  container.innerHTML = chips;
+}
+
+function updateIguSelectionStatus(){
+  const count = iguState.selected.size;
+  const loadBtn = document.getElementById("iguLoadSelected");
+  const clearBtn = document.getElementById("iguClearSelected");
+  if (loadBtn) loadBtn.disabled = iguState.loadingOrders || !count;
+  if (clearBtn) clearBtn.disabled = !count;
+  if (!count){
+    setIguStatus("Select orders to calculate.");
+    return;
+  }
+  setIguStatus(`Selected ${count} order${count === 1 ? "" : "s"}.`);
+}
+
+async function loadIguOrderList(){
+  iguState.loadingList = true;
+  renderIguOrderList();
+  const params = new URLSearchParams();
+  params.set("year", "all");
+  params.set("limit", "25");
+  if (iguState.search){
+    params.set("query", iguState.search);
+  }
+  try{
+    const res = await fetch(API_BASE + "/orders?" + params.toString());
+    if (!res.ok){
+      const text = await res.text().catch(()=> "");
+      throw new Error(text || `Server responded with ${res.status}`);
+    }
+    const data = await res.json();
+    iguState.results = Array.isArray(data.items) ? data.items : [];
+  }catch(error){
+    console.warn("IGU history list load failed", error);
+    iguState.results = [];
+    setIguStatus("Unable to load history orders.");
+  }finally{
+    iguState.loadingList = false;
+    renderIguOrderList();
+  }
+}
+
+async function fetchIguOrdersByIds(ids){
+  const params = new URLSearchParams();
+  params.set("ids", ids.join(","));
+  const res = await fetch(API_BASE + "/api/history/orders?" + params.toString());
+  if (!res.ok){
+    const text = await res.text().catch(()=> "");
+    throw new Error(text || `Server responded with ${res.status}`);
+  }
+  const data = await res.json();
+  return Array.isArray(data.orders) ? data.orders : [];
+}
+
+async function loadIguSelectedOrders(){
+  const ids = Array.from(iguState.selected.keys()).filter(Boolean);
+  if (!ids.length){
+    setIguStatus("Select orders to load.");
+    return;
+  }
+  iguState.loadingOrders = true;
+  updateIguSelectionStatus();
+  setIguStatus("Loading order data…");
+  try{
+    const orders = await fetchIguOrdersByIds(ids);
+    iguState.ordersData = orders;
+    iguState.calculated = null;
+    recalcIguTotals();
+    const count = orders.length;
+    setIguStatus(`Loaded ${count} order${count === 1 ? "" : "s"}.`);
+  }catch(error){
+    console.warn("IGU order data load failed", error);
+    setIguStatus("Unable to load order data.");
+  }finally{
+    iguState.loadingOrders = false;
+    updateIguSelectionStatus();
+  }
+}
+
+function normalizeIguNumber(value){
+  if (value === "" || value === null || value === undefined) return null;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function computeIguTotals(orders, settings){
+  const rows = [];
+  let totalSpacerMm = 0;
+  let totalButylKg = 0;
+  let missingPerimeter = 0;
+  let missingSpacer = 0;
+  const density = normalizeIguNumber(settings.density) ?? IGU_SETTINGS_DEFAULTS.density;
+  const boxWeight = normalizeIguNumber(settings.boxWeightKg) ?? IGU_SETTINGS_DEFAULTS.boxWeightKg;
+  const useOverride = settings.spacerSource === "override";
+  const overrideWidth = normalizeIguNumber(settings.spacerOverride);
+  (orders || []).forEach(order => {
+    const orderId = order.order_id || order.orderId || order.id || "—";
+    const items = Array.isArray(order.items) ? order.items : [];
+    items.forEach(item => {
+      const width = normalizeIguNumber(item.width_mm);
+      const height = normalizeIguNumber(item.height_mm);
+      const qty = Math.max(0, Number(item.quantity) || 0);
+      let perimeter = normalizeIguNumber(item.perimeter_mm);
+      if (perimeter == null && width != null && height != null){
+        perimeter = 2 * (width + height);
+      }
+      if (perimeter == null){
+        missingPerimeter += 1;
+      }
+      let spacerWidth = useOverride ? overrideWidth : normalizeIguNumber(item.spacer_width_mm);
+      if (spacerWidth == null){
+        missingSpacer += 1;
+      }
+      const spacerTotalMm = perimeter != null ? perimeter * qty : 0;
+      const spacerTotalM = spacerTotalMm / 1000;
+      let butylKg = 0;
+      if (spacerWidth != null && spacerTotalMm > 0){
+        const crossSectionMm2 = spacerWidth * IGU_INNER_FILL_MM;
+        const volumeMm3 = spacerTotalMm * crossSectionMm2;
+        const volumeCm3 = volumeMm3 / 1000;
+        const massG = volumeCm3 * density;
+        butylKg = massG / 1000;
+      }
+      totalSpacerMm += spacerTotalMm;
+      totalButylKg += butylKg;
+      rows.push({
+        orderId,
+        position: item.position || "—",
+        width,
+        height,
+        quantity: qty,
+        spacerM: spacerTotalM,
+        butylKg,
+      });
+    });
+  });
+  const spacerBaseM = totalSpacerMm / 1000;
+  const butylBaseKg = totalButylKg;
+  let spacerM = spacerBaseM;
+  let butylKg = butylBaseKg;
+  if (settings.wasteSpacerEnabled){
+    spacerM *= 1 + ((normalizeIguNumber(settings.wasteSpacerPct) ?? 0) / 100);
+  }
+  if (settings.wasteButylEnabled){
+    butylKg *= 1 + ((normalizeIguNumber(settings.wasteButylPct) ?? 0) / 100);
+  }
+  const boxesNeeded = butylKg > 0 && boxWeight > 0 ? Math.ceil(butylKg / boxWeight) : 0;
+  return {
+    rows,
+    totals: {
+      spacerM,
+      spacerBaseM,
+      butylKg,
+      butylBaseKg,
+      boxesNeeded,
+    },
+    warnings: {
+      missingPerimeter,
+      missingSpacer,
+    },
+  };
+}
+
+function formatIguNumber(value, decimals){
+  if (!Number.isFinite(value)) return "—";
+  return formatNumber(value, { decimals });
+}
+
+function renderIguWarnings(warnings){
+  const container = document.getElementById("iguWarnings");
+  if (!container) return;
+  const list = container.querySelector("ul");
+  const messages = [];
+  if (warnings.missingPerimeter){
+    messages.push(`Missing perimeter or dimensions for ${warnings.missingPerimeter} item${warnings.missingPerimeter === 1 ? "" : "s"}.`);
+  }
+  if (warnings.missingSpacer){
+    messages.push(`Missing spacer width for ${warnings.missingSpacer} item${warnings.missingSpacer === 1 ? "" : "s"}.`);
+  }
+  if (!messages.length){
+    container.hidden = true;
+    if (list) list.innerHTML = "";
+    return;
+  }
+  if (list){
+    list.innerHTML = messages.map(message => `<li>${escapeHtml(message)}</li>`).join("");
+  }
+  container.hidden = false;
+}
+
+function renderIguResults(){
+  const spacerEl = document.getElementById("iguTotalSpacer");
+  const butylEl = document.getElementById("iguTotalButyl");
+  const boxesEl = document.getElementById("iguTotalBoxes");
+  const spacerBaseEl = document.getElementById("iguTotalSpacerBase");
+  const butylBaseEl = document.getElementById("iguTotalButylBase");
+  const calc = iguState.calculated || { totals: { spacerM: 0, spacerBaseM: 0, butylKg: 0, butylBaseKg: 0, boxesNeeded: 0 }, warnings: { missingPerimeter: 0, missingSpacer: 0 } };
+  const totals = calc.totals;
+  if (spacerEl) spacerEl.textContent = formatIguNumber(totals.spacerM || 0, 2);
+  if (butylEl) butylEl.textContent = formatIguNumber(totals.butylKg || 0, 3);
+  if (boxesEl) boxesEl.textContent = formatIguNumber(totals.boxesNeeded || 0, 0);
+  if (spacerBaseEl){
+    spacerBaseEl.textContent = iguState.settings.wasteSpacerEnabled
+      ? `Base: ${formatIguNumber(totals.spacerBaseM || 0, 2)} m`
+      : "";
+  }
+  if (butylBaseEl){
+    butylBaseEl.textContent = iguState.settings.wasteButylEnabled
+      ? `Base: ${formatIguNumber(totals.butylBaseKg || 0, 3)} kg`
+      : "";
+  }
+  renderIguWarnings(calc.warnings || { missingPerimeter: 0, missingSpacer: 0 });
+}
+
+function renderIguBreakdown(){
+  const container = document.getElementById("iguBreakdownWrap");
+  if (!container) return;
+  const rows = iguState.calculated ? (iguState.calculated.rows || []) : [];
+  if (!rows.length){
+    container.innerHTML = `<div class="igu-breakdown-empty">Select orders to see item totals.</div>`;
+    return;
+  }
+  const body = rows.map(row => {
+    const widthText = row.width != null ? formatIguNumber(row.width, 0) : "—";
+    const heightText = row.height != null ? formatIguNumber(row.height, 0) : "—";
+    const dimension = (row.width != null && row.height != null) ? `${widthText} x ${heightText}` : "—";
+    return `<tr>
+      <td>${escapeHtml(String(row.orderId || "—"))}</td>
+      <td>${escapeHtml(String(row.position || "—"))}</td>
+      <td>${escapeHtml(dimension)}</td>
+      <td>${formatIguNumber(row.quantity || 0, 0)}</td>
+      <td>${formatIguNumber(row.spacerM || 0, 2)}</td>
+      <td>${formatIguNumber(row.butylKg || 0, 3)}</td>
+    </tr>`;
+  }).join("");
+  container.innerHTML = `<table>
+    <thead>
+      <tr>
+        <th>Order ID</th>
+        <th>Position</th>
+        <th>Width x Height</th>
+        <th>Quantity</th>
+        <th>Spacer (m)</th>
+        <th>Butyl (kg)</th>
+      </tr>
+    </thead>
+    <tbody>${body}</tbody>
+  </table>`;
+}
+
+function readIguSettings(){
+  const overrideRadio = document.getElementById("iguSpacerSourceOverride");
+  const overrideInput = document.getElementById("iguSpacerOverride");
+  iguState.settings.spacerSource = overrideRadio && overrideRadio.checked ? "override" : "item";
+  if (overrideInput){
+    overrideInput.disabled = iguState.settings.spacerSource !== "override";
+    const overrideValue = normalizeIguNumber(overrideInput.value);
+    iguState.settings.spacerOverride = overrideValue;
+  }
+  const densityInput = document.getElementById("iguDensity");
+  if (densityInput){
+    iguState.settings.density = normalizeIguNumber(densityInput.value) ?? IGU_SETTINGS_DEFAULTS.density;
+  }
+  const boxWeightInput = document.getElementById("iguBoxWeight");
+  if (boxWeightInput){
+    iguState.settings.boxWeightKg = normalizeIguNumber(boxWeightInput.value) ?? IGU_SETTINGS_DEFAULTS.boxWeightKg;
+  }
+  const wasteSpacerToggle = document.getElementById("iguWasteSpacer");
+  const wasteSpacerPct = document.getElementById("iguWasteSpacerPct");
+  if (wasteSpacerToggle){
+    iguState.settings.wasteSpacerEnabled = !!wasteSpacerToggle.checked;
+  }
+  if (wasteSpacerPct){
+    iguState.settings.wasteSpacerPct = normalizeIguNumber(wasteSpacerPct.value) ?? IGU_SETTINGS_DEFAULTS.wasteSpacerPct;
+  }
+  const wasteButylToggle = document.getElementById("iguWasteButyl");
+  const wasteButylPct = document.getElementById("iguWasteButylPct");
+  if (wasteButylToggle){
+    iguState.settings.wasteButylEnabled = !!wasteButylToggle.checked;
+  }
+  if (wasteButylPct){
+    iguState.settings.wasteButylPct = normalizeIguNumber(wasteButylPct.value) ?? IGU_SETTINGS_DEFAULTS.wasteButylPct;
+  }
+}
+
+function recalcIguTotals(){
+  readIguSettings();
+  iguState.calculated = computeIguTotals(iguState.ordersData || [], iguState.settings);
+  renderIguResults();
+  renderIguBreakdown();
+}
+
+function initIguCalculator(){
+  const searchEl = document.getElementById("iguOrderSearch");
+  if (!searchEl) return;
+  const orderListEl = document.getElementById("iguOrderList");
+  const loadBtn = document.getElementById("iguLoadSelected");
+  const clearBtn = document.getElementById("iguClearSelected");
+  const chipContainer = document.getElementById("iguSelectedChips");
+  const spacerSourceRadios = [
+    document.getElementById("iguSpacerSourceItem"),
+    document.getElementById("iguSpacerSourceOverride"),
+  ];
+  const settingsInputs = [
+    document.getElementById("iguSpacerOverride"),
+    document.getElementById("iguDensity"),
+    document.getElementById("iguBoxWeight"),
+    document.getElementById("iguWasteSpacer"),
+    document.getElementById("iguWasteSpacerPct"),
+    document.getElementById("iguWasteButyl"),
+    document.getElementById("iguWasteButylPct"),
+  ];
+
+  let searchTimer = null;
+  searchEl.addEventListener("input", (event)=>{
+    iguState.search = String(event.target.value || "").trim();
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(()=> loadIguOrderList(), 250);
+  });
+
+  if (orderListEl){
+    orderListEl.addEventListener("change", (event)=>{
+      const checkbox = event.target.closest("input[data-igu-order]");
+      if (!checkbox) return;
+      const key = checkbox.dataset.iguOrder;
+      const order = iguState.results.find(item => getIguOrderKey(item) === key);
+      if (checkbox.checked){
+        if (order) iguState.selected.set(key, order);
+      }else{
+        iguState.selected.delete(key);
+      }
+      renderIguSelectedChips();
+      updateIguSelectionStatus();
+    });
+  }
+
+  if (chipContainer){
+    chipContainer.addEventListener("click", (event)=>{
+      const btn = event.target.closest("[data-igu-remove]");
+      if (!btn) return;
+      const key = btn.dataset.iguRemove;
+      iguState.selected.delete(key);
+      renderIguSelectedChips();
+      renderIguOrderList();
+      updateIguSelectionStatus();
+    });
+  }
+
+  if (loadBtn){
+    loadBtn.addEventListener("click", ()=> loadIguSelectedOrders());
+  }
+  if (clearBtn){
+    clearBtn.addEventListener("click", ()=>{
+      iguState.selected.clear();
+      iguState.ordersData = [];
+      iguState.calculated = null;
+      renderIguSelectedChips();
+      renderIguOrderList();
+      recalcIguTotals();
+      updateIguSelectionStatus();
+    });
+  }
+
+  spacerSourceRadios.forEach(radio => {
+    if (!radio) return;
+    radio.addEventListener("change", ()=> recalcIguTotals());
+  });
+  settingsInputs.forEach(input => {
+    if (!input) return;
+    input.addEventListener("input", ()=> recalcIguTotals());
+  });
+
+  renderIguSelectedChips();
+  renderIguResults();
+  renderIguBreakdown();
+  updateIguSelectionStatus();
+  loadIguOrderList();
+}
+
+initIguCalculator();
 updateExtractUI();
 updateHistoryDetailUI();
 updateProcessingUI();
