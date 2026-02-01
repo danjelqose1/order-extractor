@@ -17,6 +17,7 @@ from sqlalchemy import (
     create_engine,
     delete,
     func,
+    or_,
     select,
     text,
 )
@@ -386,6 +387,37 @@ def get_orders(
             stmt = stmt.where(Order.created_at >= start).where(Order.created_at < end)
         orders = session.execute(stmt).scalars().all()
         return [_serialize_order(order, include_rows=False) for order in orders]
+
+
+def get_orders_by_identifiers(identifiers: Sequence[str]) -> List[Dict[str, Any]]:
+    cleaned: List[str] = []
+    for ident in identifiers:
+        if ident is None:
+            continue
+        value = str(ident).strip()
+        if value:
+            cleaned.append(value)
+    if not cleaned:
+        return []
+
+    normalized = [normalize_order_number(value) for value in cleaned]
+    numeric_ids = {int(value) for value in normalized if value.isdigit()}
+    order_numbers = [value for value in normalized if value and not value.isdigit()]
+
+    with SessionLocal() as session:
+        stmt = select(Order).order_by(Order.created_at.desc())
+        filters = []
+        if numeric_ids:
+            filters.append(Order.id.in_(numeric_ids))
+        if order_numbers:
+            for number in order_numbers:
+                filters.append(func.lower(Order.order_numbers_raw).like(f"%{number.lower()}%"))
+        if filters:
+            stmt = stmt.where(or_(*filters))
+        orders = session.execute(stmt).scalars().unique().all()
+        for order in orders:
+            _ = order.rows
+        return [_serialize_order(order, include_rows=True) for order in orders]
 
 
 def get_order_with_extraction(order_id: int) -> Optional[Dict[str, Any]]:
