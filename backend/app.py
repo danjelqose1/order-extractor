@@ -28,6 +28,7 @@ from db import (
     insert_extraction_with_rows,
     update_order_rows,
     get_orders,
+    get_orders_by_identifiers,
     get_order_with_extraction,
     delete_order,
     get_all_rows_for_export,
@@ -38,7 +39,7 @@ from db import (
 from validators import validate_rows
 from dimension_repair import apply_dimension_repair
 from area_dimension_validator import apply_area_dimension_validation
-from utils_text import parse_declared_totals
+from utils_text import clean_dimension, parse_declared_totals
 from prompts import PROMPTS
 ENV_PATH = Path(__file__).parent / ".env"
 load_dotenv(ENV_PATH, override=True)
@@ -98,6 +99,28 @@ DEFAULT_SPACER_PRICES: Dict[Any, Dict[str, float]] = {
     22: {"normal": 1000, "thermal": 1500},
     24: {"normal": 1100, "thermal": 1600},
 }
+
+def _tokenize_igu_composition(type_string: str) -> List[str]:
+    raw = "" if type_string is None else str(type_string)
+    compact = re.sub(r"^\s*\d+\s*vetri?\s*", "", raw, flags=re.IGNORECASE)
+    compact = re.sub(r"\s+", " ", compact).strip()
+    match = re.search(r"\d", compact)
+    core = compact[match.start():] if match else compact
+    without_mm = re.sub(r"\b\d+\s*mm\b", "", core, flags=re.IGNORECASE)
+    without_mm = re.sub(r"\bmm\b", "", without_mm, flags=re.IGNORECASE)
+    return [token.strip() for token in without_mm.split("+") if token.strip()]
+
+
+def _extract_spacer_width_mm(type_string: str) -> Optional[float]:
+    for token in _tokenize_igu_composition(type_string):
+        candidate = re.sub(r"\s+", "", token).replace(",", ".")
+        try:
+            value = float(candidate)
+        except ValueError:
+            continue
+        if value == value:
+            return value
+    return None
 
 
 def _default_price_config() -> Dict[str, Any]:
@@ -738,6 +761,44 @@ def list_orders(
         "count": len(items),
         "has_more": len(items) == limit,
     }
+
+
+@app.get("/api/history/orders")
+def list_history_orders(ids: str = Query(default="", description="Comma-separated order numbers or ids")) -> Dict[str, Any]:
+    identifiers = [part.strip() for part in (ids or "").split(",") if part.strip()]
+    if not identifiers:
+        return {"orders": []}
+
+    orders = get_orders_by_identifiers(identifiers)
+    response_orders: List[Dict[str, Any]] = []
+    for order in orders:
+        order_numbers = order.get("order_numbers") or []
+        order_id = ", ".join(order_numbers) if order_numbers else str(order.get("id") or "")
+        items = []
+        for row in order.get("rows") or []:
+            _, dims = clean_dimension(row.get("dimension") or "")
+            width_mm = dims[0] if dims else None
+            height_mm = dims[1] if dims else None
+            try:
+                quantity = int(row.get("quantity") or 0)
+            except (TypeError, ValueError):
+                quantity = 0
+            perimeter_mm = None
+            if width_mm is not None and height_mm is not None:
+                perimeter_mm = 2 * (width_mm + height_mm)
+            spacer_width_mm = _extract_spacer_width_mm(row.get("type") or "")
+            items.append(
+                {
+                    "position": row.get("position") or "",
+                    "width_mm": width_mm,
+                    "height_mm": height_mm,
+                    "quantity": quantity,
+                    "spacer_width_mm": spacer_width_mm,
+                    "perimeter_mm": perimeter_mm,
+                }
+            )
+        response_orders.append({"order_id": order_id, "items": items})
+    return {"orders": response_orders}
 
 
 @app.get("/orders/{order_id}")
