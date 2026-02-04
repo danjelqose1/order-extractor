@@ -1,7 +1,7 @@
 from __future__ import annotations
 import csv, hashlib, json, os, re
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime
 from io import StringIO
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -241,71 +241,6 @@ def _save_invoices(data: Dict[str, Any]) -> Dict[str, Any]:
     INVOICES_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2))
     return payload
 
-
-def _parse_invoice_datetime(value: Any) -> Optional[datetime]:
-    parsed = _parse_order_datetime(value)
-    if parsed == datetime.min:
-        return None
-    if parsed.tzinfo is not None:
-        return parsed.astimezone(timezone.utc).replace(tzinfo=None)
-    return parsed
-
-
-def _invoice_timestamp(job: Any) -> Optional[datetime]:
-    if not isinstance(job, dict):
-        return None
-    issue_raw = job.get("issueDate") or job.get("issue_date")
-    issue_dt = _parse_invoice_datetime(issue_raw)
-    if issue_dt is not None:
-        return issue_dt
-    created_raw = job.get("createdAt") or job.get("created_at")
-    return _parse_invoice_datetime(created_raw)
-
-
-def _invoice_available_years(jobs: Any, current_year: int) -> List[int]:
-    years = {current_year, current_year - 1}
-    if isinstance(jobs, list):
-        for job in jobs:
-            timestamp = _invoice_timestamp(job)
-            if timestamp is not None:
-                years.add(timestamp.year)
-    return sorted(years, reverse=True)
-
-
-def _filter_invoices_by_year(jobs: Any, year: int) -> List[Dict[str, Any]]:
-    if not isinstance(jobs, list):
-        return []
-    start = datetime(year, 1, 1)
-    end = datetime(year + 1, 1, 1)
-    filtered: List[Dict[str, Any]] = []
-    for job in jobs:
-        if not isinstance(job, dict):
-            continue
-        issue_dt = _parse_invoice_datetime(job.get("issueDate") or job.get("issue_date"))
-        if issue_dt is not None:
-            if start <= issue_dt < end:
-                filtered.append(job)
-            continue
-        created_dt = _parse_invoice_datetime(job.get("createdAt") or job.get("created_at"))
-        if created_dt is None:
-            continue
-        if start <= created_dt < end:
-            filtered.append(job)
-    return filtered
-
-
-def _normalize_invoice_year_param(value: Optional[str], current_year: int) -> Tuple[Optional[int], str]:
-    if value is None or value == "":
-        return current_year, "current"
-    text = str(value).strip().lower()
-    if text in ("current", "now", "this"):
-        return current_year, "current"
-    if text == "all":
-        return None, "all"
-    if re.fullmatch(r"\d{4}", text):
-        return int(text), text
-    raise ValueError("Invalid year. Use current, all, or YYYY.")
-
 app = FastAPI(title="LLM Order Extractor (Local)", version="1.0.0")
 
 # Configure CORS: accept comma‑separated FRONTEND_ORIGINS; fall back to safe defaults
@@ -540,25 +475,8 @@ def save_price_config(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 # Invoice jobs now persist on the server (shared across devices)
 @app.get("/api/invoices")
-def get_invoices(year: Optional[str] = Query(default=None)) -> Dict[str, Any]:
-    data = _load_invoices()
-    jobs = data.get("jobs") if isinstance(data, dict) else []
-    current_year = datetime.now().year
-    try:
-        selected_year, normalized = _normalize_invoice_year_param(year, current_year)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    if normalized == "all" or selected_year is None:
-        filtered = list(jobs) if isinstance(jobs, list) else []
-    else:
-        filtered = _filter_invoices_by_year(jobs, selected_year)
-    available_years = _invoice_available_years(jobs, current_year)
-    return {
-        "jobs": filtered,
-        "invoices": filtered,
-        "availableYears": available_years,
-        "currentYear": current_year,
-    }
+def get_invoices() -> Dict[str, Any]:
+    return _load_invoices()
 
 
 @app.post("/api/invoices")
