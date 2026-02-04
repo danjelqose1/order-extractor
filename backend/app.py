@@ -293,6 +293,19 @@ def _filter_invoices_by_year(jobs: Any, year: int) -> List[Dict[str, Any]]:
             filtered.append(job)
     return filtered
 
+
+def _normalize_invoice_year_param(value: Optional[str], current_year: int) -> Tuple[Optional[int], str]:
+    if value is None or value == "":
+        return current_year, "current"
+    text = str(value).strip().lower()
+    if text in ("current", "now", "this"):
+        return current_year, "current"
+    if text == "all":
+        return None, "all"
+    if re.fullmatch(r"\d{4}", text):
+        return int(text), text
+    raise ValueError("Invalid year. Use current, all, or YYYY.")
+
 app = FastAPI(title="LLM Order Extractor (Local)", version="1.0.0")
 
 # Configure CORS: accept comma‑separated FRONTEND_ORIGINS; fall back to safe defaults
@@ -527,14 +540,25 @@ def save_price_config(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 # Invoice jobs now persist on the server (shared across devices)
 @app.get("/api/invoices")
-def get_invoices(year: Optional[int] = Query(default=None)) -> Dict[str, Any]:
+def get_invoices(year: Optional[str] = Query(default=None)) -> Dict[str, Any]:
     data = _load_invoices()
     jobs = data.get("jobs") if isinstance(data, dict) else []
     current_year = datetime.now().year
-    selected_year = year if year is not None else current_year
-    filtered = _filter_invoices_by_year(jobs, selected_year)
+    try:
+        selected_year, normalized = _normalize_invoice_year_param(year, current_year)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if normalized == "all" or selected_year is None:
+        filtered = list(jobs) if isinstance(jobs, list) else []
+    else:
+        filtered = _filter_invoices_by_year(jobs, selected_year)
     available_years = _invoice_available_years(jobs, current_year)
-    return {"jobs": filtered, "availableYears": available_years}
+    return {
+        "jobs": filtered,
+        "invoices": filtered,
+        "availableYears": available_years,
+        "currentYear": current_year,
+    }
 
 
 @app.post("/api/invoices")
