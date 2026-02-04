@@ -263,7 +263,7 @@ def _invoice_timestamp(job: Any) -> Optional[datetime]:
 
 
 def _invoice_available_years(jobs: Any, current_year: int) -> List[int]:
-    years = {current_year}
+    years = {current_year, current_year - 1}
     if isinstance(jobs, list):
         for job in jobs:
             timestamp = _invoice_timestamp(job)
