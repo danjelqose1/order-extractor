@@ -26,6 +26,9 @@ def test_invoices_year_filter_current(monkeypatch):
     ids = {job["id"] for job in data.get("jobs", [])}
     assert ids == {"issue-current", "created-current"}
     assert data.get("currentYear") == current_year
+    available = set(data.get("availableYears", []))
+    assert current_year in available
+    assert current_year - 1 in available
 
 
 def test_invoices_year_filter_specific_year(monkeypatch):
@@ -49,6 +52,7 @@ def test_invoices_year_filter_specific_year(monkeypatch):
 
 
 def test_invoices_year_filter_all(monkeypatch):
+    current_year = datetime.now().year
     payload = {
         "jobs": [
             {"id": "issue-2024", "issueDate": "2024-06-01T00:00:00Z"},
@@ -64,6 +68,9 @@ def test_invoices_year_filter_all(monkeypatch):
 
     ids = {job["id"] for job in data.get("jobs", [])}
     assert ids == {"issue-2024", "created-2025"}
+    available = set(data.get("availableYears", []))
+    assert current_year in available
+    assert current_year - 1 in available
 
 
 def test_invoices_year_filter_defaults_to_current(monkeypatch):
@@ -83,3 +90,18 @@ def test_invoices_year_filter_defaults_to_current(monkeypatch):
 
     ids = {job["id"] for job in data.get("jobs", [])}
     assert ids == {"current"}
+
+
+def test_invoices_available_years_always_includes_current_and_previous(monkeypatch):
+    current_year = datetime.now().year
+    payload = {"jobs": []}
+    monkeypatch.setattr(app_module, "_load_invoices", lambda: payload)
+    client = TestClient(app_module.app)
+
+    response = client.get("/api/invoices?year=all")
+    assert response.status_code == 200
+    data = response.json()
+
+    available = set(data.get("availableYears", []))
+    assert current_year in available
+    assert current_year - 1 in available
