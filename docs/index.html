@@ -123,12 +123,6 @@
     .history-detail-actions{display:flex;gap:8px}
     .history-detail-subheader{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:10px}
     .history-empty,.empty-state{padding:16px;border-radius:12px;background:#f8f9ff;border:1px dashed var(--border);text-align:center;color:var(--muted);font-size:14px}
-    .invoice-year-toggle{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:12px}
-    .segmented{display:inline-flex;flex-wrap:wrap;border:1px solid var(--border-dark);border-radius:999px;overflow:hidden;background:#f8fafc}
-    .segmented-btn{border:0;background:transparent;padding:6px 14px;font-size:13px;color:var(--muted);cursor:pointer;transition:background 0.15s ease,color 0.15s ease}
-    .segmented-btn + .segmented-btn{border-left:1px solid var(--border-dark)}
-    .segmented-btn.active{background:var(--primary);color:#fff;font-weight:600}
-    .segmented-btn:focus{outline:2px solid var(--primary-soft);outline-offset:-2px}
     .invoice-filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;align-items:flex-end}
     .invoice-filters label{display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:500;color:var(--muted)}
     .invoice-filters input,.invoice-filters select{padding:8px 10px;border:1px solid var(--border-dark);border-radius:10px;font-size:14px;background:#fbfcff}
@@ -797,11 +791,11 @@
           </div>
           <div class="invoice-summary" id="invoiceSummary"></div>
         </div>
-        <div class="invoice-year-toggle">
-          <span class="muted small">Year</span>
-          <div class="segmented" id="invoiceYearToggle" role="group" aria-label="Invoice year"></div>
-        </div>
         <div class="invoice-filters" style="margin-top:12px">
+          <label>
+            <span>Year</span>
+            <select id="invoiceYearFilter"></select>
+          </label>
           <label>
             <span>Client</span>
             <input type="search" id="invoiceFilterClient" placeholder="Search client…" />
@@ -1141,7 +1135,8 @@ const appState = {
   invoices: {
     jobs: [],
     activeJobId: null,
-    year: getCurrentYearString(),
+    year: "current",
+    currentYear: Number(getCurrentYearString()),
     availableYears: [],
     priceLists: {
       glass: getDefaultGlassPrices(),
@@ -1256,7 +1251,7 @@ const wysiwygPreview = document.getElementById("motherSheetPreview");
 const invoiceJobsWrap = document.getElementById("invoiceJobsWrap");
 const invoiceStatusEl = document.getElementById("invoiceStatus");
 const invoiceSummaryEl = document.getElementById("invoiceSummary");
-const invoiceYearToggle = document.getElementById("invoiceYearToggle");
+const invoiceYearFilter = document.getElementById("invoiceYearFilter");
 const invoiceDetailMeta = document.getElementById("invoiceDetailMeta");
 const invoiceLinesWrap = document.getElementById("invoiceLinesWrap");
 const invoiceTotalsEl = document.getElementById("invoiceTotals");
@@ -5679,13 +5674,15 @@ function normalizeInvoiceJobs(jobs){
 
 function coerceInvoiceYear(value){
   if (value == null) return null;
-  const text = String(value).trim();
-  if (!/^\d{4}$/.test(text)) return null;
-  return text;
+  const text = String(value).trim().toLowerCase();
+  if (!text) return null;
+  if (text === "current" || text === "all") return text;
+  if (/^\d{4}$/.test(text)) return text;
+  return null;
 }
 
 function normalizeInvoiceYear(value){
-  return coerceInvoiceYear(value) || getCurrentYearString();
+  return coerceInvoiceYear(value) || "current";
 }
 
 function readInvoiceYearFromUrl(){
@@ -5728,16 +5725,9 @@ function extractInvoiceYear(job){
   return String(date.getFullYear());
 }
 
-function invoiceJobMatchesYear(job, yearValue){
-  const date = getInvoiceDateForYear(job);
-  if (!date) return false;
-  const year = normalizeInvoiceYear(yearValue);
-  return String(date.getFullYear()) === year;
-}
-
-function deriveInvoiceYearsFromJobs(jobs){
+function deriveInvoiceYearsFromJobs(jobs, currentYear){
   const years = new Set();
-  years.add(getCurrentYearString());
+  if (currentYear) years.add(String(currentYear));
   (jobs || []).forEach(job=>{
     const year = extractInvoiceYear(job);
     if (year) years.add(year);
@@ -5745,12 +5735,12 @@ function deriveInvoiceYearsFromJobs(jobs){
   return Array.from(years).sort((a,b)=> Number(b) - Number(a));
 }
 
-function normalizeInvoiceAvailableYears(rawYears, jobs){
+function normalizeInvoiceAvailableYears(rawYears, jobs, currentYear){
   const years = new Set();
-  years.add(getCurrentYearString());
+  if (currentYear) years.add(String(currentYear));
   (rawYears || []).forEach(year=>{
     const normalized = coerceInvoiceYear(year);
-    if (normalized) years.add(normalized);
+    if (normalized && normalized !== "current" && normalized !== "all") years.add(normalized);
   });
   (jobs || []).forEach(job=>{
     const jobYear = extractInvoiceYear(job);
@@ -5767,14 +5757,31 @@ function syncInvoiceYearSelection(yearValue, opts = {}){
   }
 }
 
-function renderInvoiceYearToggle(){
-  if (!invoiceYearToggle) return;
-  const years = normalizeInvoiceAvailableYears(appState.invoices.availableYears, appState.invoices.jobs || []);
+function renderInvoiceYearOptions(){
+  if (!invoiceYearFilter) return;
+  const currentYear = Number(appState.invoices.currentYear || getCurrentYearString());
+  const availableYears = normalizeInvoiceAvailableYears(
+    appState.invoices.availableYears,
+    appState.invoices.jobs || [],
+    currentYear,
+  );
   const selected = normalizeInvoiceYear(appState.invoices.year);
-  invoiceYearToggle.innerHTML = years.map(year=>{
-    const active = year === selected ? "active" : "";
-    return `<button class="segmented-btn ${active}" type="button" data-year="${escapeHtml(year)}">${escapeHtml(year)}</button>`;
-  }).join("");
+  const selectedIsYear = /^\d{4}$/.test(selected);
+  const mergedYears = new Set(availableYears.map(year => String(year)));
+  if (selectedIsYear) mergedYears.add(selected);
+  const yearsList = Array.from(mergedYears).sort((a,b)=> Number(b) - Number(a));
+  const options = [];
+  const currentLabel = `Current Year (${currentYear})`;
+  options.push(`<option value="current">${escapeHtml(currentLabel)}</option>`);
+  yearsList.forEach(year=>{
+    if (String(year) === String(currentYear)) return;
+    options.push(`<option value="${escapeHtml(year)}">${escapeHtml(year)}</option>`);
+  });
+  options.push(`<option value="all">All</option>`);
+  invoiceYearFilter.innerHTML = options.join("");
+  if (selected && invoiceYearFilter.value !== selected){
+    invoiceYearFilter.value = selected;
+  }
 }
 
 async function handleInvoiceYearChange(nextYear){
@@ -5828,10 +5835,7 @@ function addClientToJob(job, clientName){
 }
 
 function getVisibleInvoiceJobs(){
-  const selectedYear = normalizeInvoiceYear(appState.invoices.year);
-  return (appState.invoices.jobs || [])
-    .filter(job => !job.hidden)
-    .filter(job => invoiceJobMatchesYear(job, selectedYear));
+  return (appState.invoices.jobs || []).filter(job => !job.hidden);
 }
 
 function hideInvoiceJobsContainingOrders(orderNumbers, keepId){
@@ -5897,6 +5901,7 @@ async function fetchInvoiceJobsFromServer(year){
   return {
     jobs: normalizeInvoiceJobs((data && data.jobs) || []),
     availableYears: Array.isArray(data?.availableYears) ? data.availableYears : [],
+    currentYear: Number(data?.currentYear) || Number(getCurrentYearString()),
   };
 }
 
@@ -5910,11 +5915,15 @@ async function ensureInvoiceJobsLoaded(opts = {}){
   invoiceRuntime.jobsPromise = (async ()=>{
     let jobs = [];
     let availableYears = [];
+    let currentYear = Number(getCurrentYearString());
     let fetchFailed = false;
     try{
       const result = await fetchInvoiceJobsFromServer(targetYear);
       jobs = result.jobs || [];
       availableYears = result.availableYears || [];
+      if (result.currentYear){
+        currentYear = Number(result.currentYear) || currentYear;
+      }
     }catch(error){
       fetchFailed = true;
       console.warn("Failed to fetch invoices from server", error);
@@ -5930,7 +5939,12 @@ async function ensureInvoiceJobsLoaded(opts = {}){
       }
     }
     appState.invoices.jobs = normalizeInvoiceJobs(jobs);
-    appState.invoices.availableYears = normalizeInvoiceAvailableYears(availableYears, appState.invoices.jobs);
+    appState.invoices.currentYear = currentYear;
+    appState.invoices.availableYears = normalizeInvoiceAvailableYears(
+      availableYears,
+      appState.invoices.jobs,
+      currentYear,
+    );
     for (const job of appState.invoices.jobs){
       await recalcInvoiceJob(job, { allowPrompt: false });
     }
@@ -5950,7 +5964,11 @@ async function ensureInvoiceJobsLoaded(opts = {}){
 async function saveInvoiceJobs(jobsOverride){
   const normalized = normalizeInvoiceJobs(jobsOverride || appState.invoices.jobs);
   appState.invoices.jobs = normalized;
-  appState.invoices.availableYears = normalizeInvoiceAvailableYears(appState.invoices.availableYears, appState.invoices.jobs);
+  appState.invoices.availableYears = normalizeInvoiceAvailableYears(
+    appState.invoices.availableYears,
+    appState.invoices.jobs,
+    appState.invoices.currentYear || Number(getCurrentYearString()),
+  );
   const serialized = normalized.map(job => {
     const { calculated, ...rest } = job;
     return rest;
@@ -7094,15 +7112,13 @@ function applyInvoiceFilters(jobs){
   const clientQuery = (filters.client || "").trim().toLowerCase();
   const orderQuery = (filters.order || "").trim().toLowerCase();
   const statusFilter = (filters.status || "").trim().toLowerCase();
-  const selectedYear = normalizeInvoiceYear(appState.invoices.year);
   return (jobs || [])
     .filter(job => !job.hidden)
-    .filter(job => invoiceJobMatchesYear(job, selectedYear))
     .filter(job=>{
-    const clientLabel = formatInvoiceClientLabel(job).toLowerCase();
-    const clientMatch = !clientQuery || clientLabel.includes(clientQuery);
-    const orderLabel = (job.orderNumbers || []).join(", ").toLowerCase();
-    const orderMatch = !orderQuery || orderLabel.includes(orderQuery);
+      const clientLabel = formatInvoiceClientLabel(job).toLowerCase();
+      const clientMatch = !clientQuery || clientLabel.includes(clientQuery);
+      const orderLabel = (job.orderNumbers || []).join(", ").toLowerCase();
+      const orderMatch = !orderQuery || orderLabel.includes(orderQuery);
     const statusMatch = !statusFilter || (job.status || "").toLowerCase() === statusFilter;
     return clientMatch && orderMatch && statusMatch;
   });
@@ -7461,8 +7477,12 @@ async function handleTypeCorrectionsSave(){
 
 function updateInvoicesUI(){
   if (!invoiceRuntime.initialized) return;
-  appState.invoices.availableYears = normalizeInvoiceAvailableYears(appState.invoices.availableYears, appState.invoices.jobs || []);
-  renderInvoiceYearToggle();
+  appState.invoices.availableYears = normalizeInvoiceAvailableYears(
+    appState.invoices.availableYears,
+    appState.invoices.jobs || [],
+    appState.invoices.currentYear || Number(getCurrentYearString()),
+  );
+  renderInvoiceYearOptions();
   if (invoiceFilterClient && invoiceFilterClient.value !== (appState.invoices.filters.client || "")){
     invoiceFilterClient.value = appState.invoices.filters.client || "";
   }
@@ -9228,11 +9248,9 @@ if (labelsJobsWrap){
   });
 }
 
-if (invoiceYearToggle){
-  invoiceYearToggle.addEventListener("click", (event)=>{
-    const button = event.target.closest("button[data-year]");
-    if (!button) return;
-    handleInvoiceYearChange(button.dataset.year);
+if (invoiceYearFilter){
+  invoiceYearFilter.addEventListener("change", (event)=>{
+    handleInvoiceYearChange(event.target.value);
   });
 }
 
