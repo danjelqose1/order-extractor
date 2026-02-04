@@ -5725,26 +5725,13 @@ function extractInvoiceYear(job){
   return String(date.getFullYear());
 }
 
-function deriveInvoiceYearsFromJobs(jobs, currentYear){
+function normalizeInvoiceAvailableYears(rawYears, currentYear){
   const years = new Set();
   if (currentYear) years.add(String(currentYear));
-  (jobs || []).forEach(job=>{
-    const year = extractInvoiceYear(job);
-    if (year) years.add(year);
-  });
-  return Array.from(years).sort((a,b)=> Number(b) - Number(a));
-}
-
-function normalizeInvoiceAvailableYears(rawYears, jobs, currentYear){
-  const years = new Set();
-  if (currentYear) years.add(String(currentYear));
+  if (currentYear) years.add(String(Number(currentYear) - 1));
   (rawYears || []).forEach(year=>{
     const normalized = coerceInvoiceYear(year);
     if (normalized && normalized !== "current" && normalized !== "all") years.add(normalized);
-  });
-  (jobs || []).forEach(job=>{
-    const jobYear = extractInvoiceYear(job);
-    if (jobYear) years.add(jobYear);
   });
   return Array.from(years).sort((a,b)=> Number(b) - Number(a));
 }
@@ -5762,7 +5749,6 @@ function renderInvoiceYearOptions(){
   const currentYear = Number(appState.invoices.currentYear || getCurrentYearString());
   const availableYears = normalizeInvoiceAvailableYears(
     appState.invoices.availableYears,
-    appState.invoices.jobs || [],
     currentYear,
   );
   const selected = normalizeInvoiceYear(appState.invoices.year);
@@ -5898,8 +5884,9 @@ async function fetchInvoiceJobsFromServer(year){
     throw new Error(text || `Server responded with ${res.status}`);
   }
   const data = await res.json();
+  const rawInvoices = Array.isArray(data?.invoices) ? data.invoices : (data && data.jobs) || [];
   return {
-    jobs: normalizeInvoiceJobs((data && data.jobs) || []),
+    jobs: normalizeInvoiceJobs(rawInvoices),
     availableYears: Array.isArray(data?.availableYears) ? data.availableYears : [],
     currentYear: Number(data?.currentYear) || Number(getCurrentYearString()),
   };
@@ -5942,7 +5929,6 @@ async function ensureInvoiceJobsLoaded(opts = {}){
     appState.invoices.currentYear = currentYear;
     appState.invoices.availableYears = normalizeInvoiceAvailableYears(
       availableYears,
-      appState.invoices.jobs,
       currentYear,
     );
     for (const job of appState.invoices.jobs){
@@ -5966,7 +5952,6 @@ async function saveInvoiceJobs(jobsOverride){
   appState.invoices.jobs = normalized;
   appState.invoices.availableYears = normalizeInvoiceAvailableYears(
     appState.invoices.availableYears,
-    appState.invoices.jobs,
     appState.invoices.currentYear || Number(getCurrentYearString()),
   );
   const serialized = normalized.map(job => {
@@ -7479,7 +7464,6 @@ function updateInvoicesUI(){
   if (!invoiceRuntime.initialized) return;
   appState.invoices.availableYears = normalizeInvoiceAvailableYears(
     appState.invoices.availableYears,
-    appState.invoices.jobs || [],
     appState.invoices.currentYear || Number(getCurrentYearString()),
   );
   renderInvoiceYearOptions();
