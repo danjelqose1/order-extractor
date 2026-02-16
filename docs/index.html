@@ -3363,6 +3363,11 @@ function syncProcessingStateProcessedRows(){
     };
   };
 
+  const normalizeOrderId = (value) => {
+    const text = value != null ? String(value).trim() : "";
+    return text || "—";
+  };
+
   const previewGroups = [];
   groups.forEach(group => {
     const groupHeaderText = typeof group?.headerText === "string" ? group.headerText : "";
@@ -3372,7 +3377,9 @@ function syncProcessingStateProcessedRows(){
         const orderHeaderText = typeof section?.orderHeaderText === "string" ? section.orderHeaderText : "";
         const blockHeaderText = [groupHeaderText, orderHeaderText].filter(Boolean).join("\n");
         const sectionRows = Array.isArray(section?.lines) ? section.lines : [];
+        const sectionOrderId = normalizeOrderId(section?.orderId);
         previewGroups.push({
+          orderId: sectionOrderId,
           headerText: blockHeaderText,
           rows: sectionRows.map(row => mapPreviewRow(row, blockHeaderText)),
         });
@@ -3381,9 +3388,31 @@ function syncProcessingStateProcessedRows(){
     }
 
     const groupRows = Array.isArray(group?.lines) ? group.lines : [];
-    previewGroups.push({
-      headerText: groupHeaderText,
-      rows: groupRows.map(row => mapPreviewRow(row, groupHeaderText)),
+    const orderBuckets = new Map();
+    const orderedOrderIds = [];
+    groupRows.forEach(row => {
+      const rowOrderId = normalizeOrderId(row?.orderId);
+      if (!orderBuckets.has(rowOrderId)){
+        orderBuckets.set(rowOrderId, []);
+        orderedOrderIds.push(rowOrderId);
+      }
+      orderBuckets.get(rowOrderId).push(row);
+    });
+    if (!orderedOrderIds.length){
+      previewGroups.push({
+        orderId: "—",
+        headerText: groupHeaderText,
+        rows: [],
+      });
+      return;
+    }
+    orderedOrderIds.forEach(orderId => {
+      const rowsForOrder = orderBuckets.get(orderId) || [];
+      previewGroups.push({
+        orderId,
+        headerText: groupHeaderText,
+        rows: rowsForOrder.map(row => mapPreviewRow(row, groupHeaderText)),
+      });
     });
   });
 
@@ -3462,6 +3491,52 @@ function renderSeparatedGroup(headerText, rows){
   };
 }
 
+function buildPerOrderSections(previewGroups){
+  const safePreviewGroups = Array.isArray(previewGroups) ? previewGroups : [];
+  const buckets = [];
+  const bucketMap = new Map();
+  safePreviewGroups.forEach(group => {
+    if (!group || typeof group !== "object") return;
+    const orderId = (group.orderId != null ? String(group.orderId).trim() : "") || "—";
+    if (!bucketMap.has(orderId)){
+      const bucket = { orderId, groups: [] };
+      bucketMap.set(orderId, bucket);
+      buckets.push(bucket);
+    }
+    bucketMap.get(orderId).groups.push(group);
+  });
+
+  const sections = [];
+  buckets.forEach(bucket => {
+    const groupSections = [];
+    bucket.groups.forEach(group => {
+      const headerText = typeof group?.headerText === "string" ? group.headerText : "";
+      const rows = Array.isArray(group?.rows) ? group.rows : [];
+      const rendered = renderSeparatedGroup(headerText, rows);
+      if (rendered){
+        groupSections.push({
+          ...rendered,
+          kind: "previewGroup",
+          orderId: bucket.orderId,
+        });
+      }
+    });
+    if (!groupSections.length) return;
+    const hasExplicitOrderLine = groupSections.some(section => /\[Order[^\]]+\]/.test(section.headerText || ""));
+    if (!hasExplicitOrderLine){
+      sections.push({
+        kind: "orderDivider",
+        orderId: bucket.orderId,
+        headerText: `[Order ${bucket.orderId}]`,
+        showHeader: true,
+        groups: [],
+      });
+    }
+    sections.push(...groupSections);
+  });
+  return sections;
+}
+
 function computeSpacerOutput(previewGroups, mergeAcrossOrders){
   const safePreviewGroups = Array.isArray(previewGroups) ? previewGroups : [];
   if (!safePreviewGroups.length){
@@ -3477,13 +3552,7 @@ function computeSpacerOutput(previewGroups, mergeAcrossOrders){
   if (mergeAcrossOrders){
     sections = buildSpacerSections(safePreviewGroups, true);
   }else{
-    sections = safePreviewGroups
-      .map(group => {
-        const headerText = typeof group?.headerText === "string" ? group.headerText : "";
-        const rows = Array.isArray(group?.rows) ? group.rows : [];
-        return renderSeparatedGroup(headerText, rows);
-      })
-      .filter(Boolean);
+    sections = buildPerOrderSections(safePreviewGroups);
   }
 
   const text = sections.length
@@ -3503,6 +3572,11 @@ function formatSpacerProcessingText(sections){
   if (!safeSections.length) return "";
   const lines = [];
   safeSections.forEach((section, sectionIndex) => {
+    if (section.kind === "orderDivider"){
+      lines.push(section.headerText || "[Order —]");
+      lines.push("");
+      return;
+    }
     if (section.showHeader){
       lines.push(section.headerText || "(No header)");
       lines.push("");
@@ -3525,7 +3599,10 @@ function formatSpacerProcessingText(sections){
       lines.push("");
     });
 
-    if (sectionIndex < safeSections.length - 1){
+    const next = safeSections[sectionIndex + 1];
+    if (next && next.kind === "orderDivider"){
+      lines.push("");
+    }else if (sectionIndex < safeSections.length - 1){
       lines.push("");
     }
   });
