@@ -686,6 +686,7 @@
               <input type="checkbox" id="spacerMergeOrdersToggle" checked>
               <span>Merge across orders</span>
             </label>
+            <span id="spacerModeDebug" class="muted small"></span>
             <button class="btn" id="spacerGeneratePdf">Generate PDF</button>
             <button class="btn" id="spacerCopyAll">Copy All</button>
           </div>
@@ -1268,6 +1269,7 @@ const processingExportPdfBtn = document.getElementById("processingExportPdf");
 const processingExportCsvBtn = document.getElementById("processingExportCsv");
 const spacerOutputEl = document.getElementById("spacerOutput");
 const spacerMergeOrdersToggle = document.getElementById("spacerMergeOrdersToggle");
+const spacerModeDebugEl = document.getElementById("spacerModeDebug");
 const spacerGeneratePdfBtn = document.getElementById("spacerGeneratePdf");
 const spacerCopyAllBtn = document.getElementById("spacerCopyAll");
 const processingRoundingStatus = document.getElementById("processingRoundingStatus");
@@ -3414,7 +3416,11 @@ function buildHeightGroupsFromRows(rows){
 function buildSpacerSections(previewGroups, mergeAcrossOrders){
   const safePreviewGroups = Array.isArray(previewGroups) ? previewGroups : [];
   if (mergeAcrossOrders){
-    const allRows = safePreviewGroups.flatMap(group => Array.isArray(group?.rows) ? group.rows : []);
+    const allRows = safePreviewGroups.flatMap(group => {
+      const headerText = typeof group?.headerText === "string" ? group.headerText : "";
+      const rows = Array.isArray(group?.rows) ? group.rows : [];
+      return rows.map(row => ({ ...row, _header: headerText }));
+    });
     const groups = buildHeightGroupsFromRows(allRows);
     return groups.length ? [{ headerText: "", showHeader: false, groups }] : [];
   }
@@ -3432,6 +3438,52 @@ function buildSpacerSections(previewGroups, mergeAcrossOrders){
     });
   });
   return sections;
+}
+
+function renderSeparatedGroup(headerText, rows){
+  const groups = buildHeightGroupsFromRows(rows);
+  if (!groups.length) return null;
+  return {
+    headerText: headerText || "(No header)",
+    showHeader: true,
+    groups,
+  };
+}
+
+function computeSpacerOutput(previewGroups, mergeAcrossOrders){
+  const safePreviewGroups = Array.isArray(previewGroups) ? previewGroups : [];
+  if (!safePreviewGroups.length){
+    return {
+      sections: [],
+      text: "No processed order loaded",
+      hasPreviewGroups: false,
+      modeLabel: mergeAcrossOrders ? "Mode: Merged" : "Mode: Per-Order",
+    };
+  }
+
+  let sections = [];
+  if (mergeAcrossOrders){
+    sections = buildSpacerSections(safePreviewGroups, true);
+  }else{
+    sections = safePreviewGroups
+      .map(group => {
+        const headerText = typeof group?.headerText === "string" ? group.headerText : "";
+        const rows = Array.isArray(group?.rows) ? group.rows : [];
+        return renderSeparatedGroup(headerText, rows);
+      })
+      .filter(Boolean);
+  }
+
+  const text = sections.length
+    ? formatSpacerProcessingText(sections)
+    : "No valid spacer rows in processed order";
+
+  return {
+    sections,
+    text,
+    hasPreviewGroups: true,
+    modeLabel: mergeAcrossOrders ? "Mode: Merged" : "Mode: Per-Order",
+  };
 }
 
 function formatSpacerProcessingText(sections){
@@ -3474,19 +3526,16 @@ function updateSpacerProcessingUI(){
   if (spacerMergeOrdersToggle && spacerMergeOrdersToggle.checked !== mergeAcrossOrders){
     spacerMergeOrdersToggle.checked = mergeAcrossOrders;
   }
-  const sections = buildSpacerSections(previewGroups, mergeAcrossOrders);
-  spacerProcessingState.sections = sections;
-  spacerProcessingState.hasPreviewGroups = previewGroups.length > 0;
-  if (!previewGroups.length){
-    spacerProcessingState.text = "No processed order loaded";
-  }else if (!sections.length){
-    spacerProcessingState.text = "No valid spacer rows in processed order";
-  }else{
-    spacerProcessingState.text = formatSpacerProcessingText(sections);
+  const output = computeSpacerOutput(previewGroups, mergeAcrossOrders);
+  spacerProcessingState.sections = output.sections;
+  spacerProcessingState.text = output.text;
+  spacerProcessingState.hasPreviewGroups = output.hasPreviewGroups;
+  if (spacerModeDebugEl){
+    spacerModeDebugEl.textContent = output.modeLabel;
   }
   if (spacerOutputEl){
     spacerOutputEl.textContent = spacerProcessingState.text;
-    spacerOutputEl.classList.toggle("empty", !sections.length);
+    spacerOutputEl.classList.toggle("empty", !spacerProcessingState.sections.length);
   }
 }
 
@@ -4630,8 +4679,8 @@ async function copySpacerProcessingText(){
 
 async function exportSpacerProcessingPdf(){
   updateSpacerProcessingUI();
-  const sections = Array.isArray(spacerProcessingState.sections) ? spacerProcessingState.sections : [];
-  if (!sections.length){
+  const outputText = String(spacerProcessingState.text || "");
+  if (!spacerProcessingState.sections.length){
     setStatusMessage(
       spacerProcessingState.hasPreviewGroups
         ? "No valid spacer rows in processed order."
@@ -4652,6 +4701,7 @@ async function exportSpacerProcessingPdf(){
   const marginRight = 14 * mmToPt;
   const marginTop = 14 * mmToPt;
   const marginBottom = 14 * mmToPt;
+  const contentWidth = pageWidth - marginLeft - marginRight;
 
   const SECTION_HEADER_SIZE = 18;
   const HEIGHT_HEADER_SIZE = 24;
@@ -4665,14 +4715,14 @@ async function exportSpacerProcessingPdf(){
   let page = pdfDoc.addPage([pageWidth, pageHeight]);
   let cursorY = pageHeight - marginTop;
 
-  const ensureSpace = (requiredHeight = BODY_LINE_HEIGHT)=>{
+  const ensureSpace = (requiredHeight = BODY_LINE_HEIGHT) => {
     if (cursorY - requiredHeight < marginBottom){
       page = pdfDoc.addPage([pageWidth, pageHeight]);
       cursorY = pageHeight - marginTop;
     }
   };
 
-  const drawLineText = (text, font, size, lineHeight)=>{
+  const drawLineText = (text, font, size, lineHeight) => {
     ensureSpace(lineHeight);
     page.drawText(String(text || ""), {
       x: marginLeft,
@@ -4684,10 +4734,16 @@ async function exportSpacerProcessingPdf(){
     cursorY -= lineHeight;
   };
 
-  sections.forEach((section, sectionIndex) => {
-    if (section.showHeader){
-      drawLineText(section.headerText || "(No header)", headerFont, SECTION_HEADER_SIZE, SECTION_HEADER_LINE_HEIGHT);
-      cursorY -= 4;
+  const separator = "----------------------------------------";
+  const lines = outputText.split("\n");
+  lines.forEach(line => {
+    const text = String(line ?? "");
+    if (!text.trim()){
+      cursorY -= BODY_LINE_HEIGHT * 0.6;
+      ensureSpace(BODY_LINE_HEIGHT);
+      return;
+    }
+    if (text.trim() === separator){
       ensureSpace(4);
       page.drawLine({
         start: { x: marginLeft, y: cursorY },
@@ -4695,34 +4751,28 @@ async function exportSpacerProcessingPdf(){
         thickness: 1,
         color: rgb(0.55, 0.58, 0.63),
       });
-      cursorY -= GROUP_GAP;
+      cursorY -= GROUP_GAP * 0.7;
+      return;
     }
 
-    const groups = Array.isArray(section.groups) ? section.groups : [];
-    groups.forEach(group => {
-      drawLineText(`${formatSpacerNumber(group.height)}x${formatSpacerNumber(group.total_qty)}`, headerFont, HEIGHT_HEADER_SIZE, HEIGHT_HEADER_LINE_HEIGHT);
+    const isHeightHeader = /^\d+(?:\.\d+)?x\d+(?:\.\d+)?$/.test(text.trim());
+    const isRowLine = /-/.test(text) && /x/.test(text);
+    if (isHeightHeader){
+      drawLineText(text, headerFont, HEIGHT_HEADER_SIZE, HEIGHT_HEADER_LINE_HEIGHT);
       cursorY -= HEADER_EXTRA_GAP;
-
-      const items = Array.isArray(group.items) ? group.items : [];
-      items.forEach(item => {
-        const hasDisplayNo = Number.isFinite(toSpacerNumber(item.display_no));
-        const label = hasDisplayNo ? formatSpacerNumber(item.display_no) : String(item.position ?? "");
-        drawLineText(`${label}-${formatSpacerNumber(item.width_mm)}x${formatSpacerNumber(item.quantity)}`, bodyFont, BODY_SIZE, BODY_LINE_HEIGHT);
-      });
-
-      cursorY -= 6;
-      ensureSpace(4);
-      page.drawLine({
-        start: { x: marginLeft, y: cursorY },
-        end: { x: pageWidth - marginRight, y: cursorY },
-        thickness: 1,
-        color: rgb(0.55, 0.58, 0.63),
-      });
-      cursorY -= GROUP_GAP;
-    });
-
-    if (sectionIndex < sections.length - 1){
-      cursorY -= 6;
+      return;
+    }
+    if (isRowLine){
+      drawLineText(text, bodyFont, BODY_SIZE, BODY_LINE_HEIGHT);
+      return;
+    }
+    const clipped = text.length > 0 ? text : "";
+    const fontSize = SECTION_HEADER_SIZE;
+    const roughWidth = headerFont.widthOfTextAtSize(clipped, fontSize);
+    if (roughWidth > contentWidth){
+      drawLineText(clipped, headerFont, Math.max(12, SECTION_HEADER_SIZE - 2), SECTION_HEADER_LINE_HEIGHT);
+    }else{
+      drawLineText(clipped, headerFont, SECTION_HEADER_SIZE, SECTION_HEADER_LINE_HEIGHT);
     }
   });
 
