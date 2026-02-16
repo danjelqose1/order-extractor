@@ -222,6 +222,23 @@
     .processing-actions{display:flex;flex-direction:column;gap:8px}
     .processing-actions .btn{width:100%}
     .processing-warning{color:#facc15;font-size:12px;margin-top:6px}
+    .spacer-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+    .spacer-actions{display:flex;gap:8px;flex-wrap:wrap}
+    .spacer-output{
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:#111827;
+      color:#f9fafb;
+      padding:18px;
+      min-height:360px;
+      max-height:70vh;
+      overflow:auto;
+      white-space:pre-wrap;
+      font-family:"Courier New",Courier,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+      font-size:24px;
+      line-height:1.4;
+    }
+    .spacer-output.empty{color:#9ca3af}
     #motherSheet,.mother-sheet{--ms-family-base:var(--ms-sans-system);--ms-family-header:var(--ms-sans-system);--ms-family-rows:var(--ms-sans-system);background:#fff;color:#131722;font-family:var(--ms-family-base);line-height:var(--ms-body-line-height);font-size:var(--ms-body-size)}
     #motherSheet h1,.mother-sheet h1{font-family:var(--ms-family-header);font-size:var(--ms-header-size);font-weight:700;margin:0 0 12px}
     #motherSheet .ms-order-info,#motherSheet .order-info,#motherSheet .meta-line,.mother-sheet .ms-order-info,.mother-sheet .order-info,.mother-sheet .meta-line{font-family:var(--ms-family-header);font-size:var(--ms-subheader-size);font-weight:500;color:#444;margin:0 0 14px}
@@ -256,6 +273,7 @@
       .processing-controls .card{order:-1}
       .processing-order-list{max-height:none}
       .igu-grid{grid-template-columns:1fr;}
+      .spacer-output{font-size:20px}
     }
     @media (max-width:600px){
       main.app{padding:18px 12px 36px}
@@ -337,6 +355,7 @@
       <button class="tab active" data-tab="extract">Dashboard</button>
       <button class="tab" data-tab="history">History</button>
       <button class="tab" data-tab="processing">Processing</button>
+      <button class="tab" data-tab="spacer">Spacer Processing</button>
       <button class="tab" data-tab="labels">Labels</button>
       <button class="tab" data-tab="analysis">Analysis</button>
       <button class="tab" data-tab="invoices">Invoices</button>
@@ -655,6 +674,19 @@
         <div id="processingRoundingStatus" class="muted small"></div>
       </div>
         </div>
+      </div>
+    </section>
+
+    <section id="tabSpacer" class="tab-panel">
+      <div class="card">
+        <div class="spacer-toolbar">
+          <h2>Spacer Processing</h2>
+          <div class="spacer-actions">
+            <button class="btn" id="spacerGeneratePdf">Generate PDF</button>
+            <button class="btn" id="spacerCopyAll">Copy All</button>
+          </div>
+        </div>
+        <div id="spacerOutput" class="spacer-output empty">No processed order loaded</div>
       </div>
     </section>
 
@@ -1145,6 +1177,17 @@ const appState = {
   },
 };
 
+const processingState = {
+  processedRows: [],
+  previewGroups: [],
+};
+
+const spacerProcessingState = {
+  sections: [],
+  text: "No processed order loaded",
+  hasPreviewGroups: false,
+};
+
 const analysisState = {
   initialized: false,
   loading: false,
@@ -1173,6 +1216,7 @@ const panels = {
   extract: document.getElementById("tabExtract"),
   history: document.getElementById("tabHistory"),
   processing: document.getElementById("tabProcessing"),
+  spacer: document.getElementById("tabSpacer"),
   labels: document.getElementById("tabLabels"),
   analysis: document.getElementById("tabAnalysis"),
   invoices: document.getElementById("tabInvoices"),
@@ -1217,6 +1261,9 @@ const processingGroupBtn = document.getElementById("processingGroup");
 const processingCopyBtn = document.getElementById("processingCopy");
 const processingExportPdfBtn = document.getElementById("processingExportPdf");
 const processingExportCsvBtn = document.getElementById("processingExportCsv");
+const spacerOutputEl = document.getElementById("spacerOutput");
+const spacerGeneratePdfBtn = document.getElementById("spacerGeneratePdf");
+const spacerCopyAllBtn = document.getElementById("spacerCopyAll");
 const processingRoundingStatus = document.getElementById("processingRoundingStatus");
 const processingAutoDankoToggle = document.getElementById("processingAutoDankoToggle");
 const labelsJobsWrap = document.getElementById("labelsJobsWrap");
@@ -1308,6 +1355,8 @@ function activateTab(name){
     ensureHistoryLoaded();
     rebuildProcessingRows();
     updateProcessingUI();
+  }else if (name === "spacer"){
+    updateSpacerProcessingUI();
   }else if (name === "analysis"){
     ensureAnalysisReady();
     if (analysisState.initialized && analysisState.allOrdersDirty){
@@ -3013,6 +3062,7 @@ function generateMotherSheet(rows, options){
         const idx = assignIndex();
         const line = {
           idx,
+          display_no: idx,
           width: entry.width,
           height: entry.height,
           widthDisplay: entry.widthDisplay,
@@ -3043,9 +3093,11 @@ function generateMotherSheet(rows, options){
       totalLines += groupLines.length;
       const groupAreaValue = computeGroupArea(groupLines);
       const groupAreaDisplay = groupAreaValue != null ? `${formatM2(groupAreaValue, decimalSeparator)} m²` : null;
+      const groupHeaderText = groupAreaDisplay ? `${display} — Area: ${groupAreaDisplay}` : display;
       groups.push({
         raw,
         display,
+        headerText: groupHeaderText,
         lines: groupLines,
         sections: null,
         areaValue: groupAreaValue,
@@ -3111,6 +3163,7 @@ function generateMotherSheet(rows, options){
         const idx = assignIndex();
         const line = {
           idx,
+          display_no: idx,
           width: entry.width,
           height: entry.height,
           widthDisplay: entry.widthDisplay,
@@ -3144,9 +3197,11 @@ function generateMotherSheet(rows, options){
     totalLines += groupLines.length;
     const groupAreaValue = computeGroupArea(groupLines);
     const groupAreaDisplay = groupAreaValue != null ? `${formatM2(groupAreaValue, decimalSeparator)} m²` : null;
+    const groupHeaderText = groupAreaDisplay ? `${display} — Area: ${groupAreaDisplay}` : display;
     groups.push({
       raw,
       display,
+      headerText: groupHeaderText,
       lines: groupLines,
       sections,
       areaValue: groupAreaValue,
@@ -3163,9 +3218,8 @@ function generateMotherSheet(rows, options){
 
   const linesOut = [headerLine, ""];
   groups.forEach((group, groupIndex) => {
-    const groupLabel = group && group.display ? group.display : "(Header not set)";
-    const groupAreaDisplay = group && group.areaDisplay;
-    linesOut.push(groupAreaDisplay ? `${groupLabel} — Area: ${groupAreaDisplay}` : groupLabel);
+    const groupHeader = group && group.headerText ? group.headerText : ((group && group.display) ? group.display : "(Header not set)");
+    linesOut.push(groupHeader);
     if (!mergeAcrossOrders && group.sections && group.sections.length){
       group.sections.forEach((section, sectionIndex) => {
         const orderLabel = section.orderId && section.orderId.trim().length ? section.orderId : "—";
@@ -3264,6 +3318,174 @@ function convertOrderToProcessingEntry(order){
   };
 }
 
+function toSpacerNumber(value){
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function formatSpacerNumber(value){
+  if (!Number.isFinite(value)) return "";
+  const rounded = Number(value.toFixed(3));
+  return Number.isFinite(rounded) ? String(rounded) : String(value);
+}
+
+function syncProcessingStateProcessedRows(){
+  const preview = appState.processing.preview || { groups: [] };
+  const groups = Array.isArray(preview.groups) ? preview.groups : [];
+  const previewGroups = groups.map(group => {
+    const headerText = typeof group?.headerText === "string" ? group.headerText : "";
+    const sourceLines = [];
+    const sections = Array.isArray(group?.sections) && group.sections.length ? group.sections : null;
+    if (sections){
+      sections.forEach(section => {
+        const lines = Array.isArray(section?.lines) ? section.lines : [];
+        lines.forEach(line => sourceLines.push(line));
+      });
+    }else{
+      const lines = Array.isArray(group?.lines) ? group.lines : [];
+      lines.forEach(line => sourceLines.push(line));
+    }
+    const rows = sourceLines.map(row => {
+      const width = toSpacerNumber(row?.width_mm ?? row?.width ?? row?.__original?.width);
+      const height = toSpacerNumber(row?.height_mm ?? row?.height ?? row?.__original?.height);
+      const quantity = toSpacerNumber(row?.qty ?? row?.quantity);
+      const position = row?.position != null ? String(row.position) : "";
+      const displayNoRaw = toSpacerNumber(row?.display_no ?? row?.idx);
+      const display_no = Number.isFinite(displayNoRaw) ? displayNoRaw : null;
+      return {
+        position,
+        width_mm: width,
+        height_mm: height,
+        quantity,
+        display_no,
+        _headerText: headerText,
+      };
+    });
+    return {
+      headerText,
+      rows,
+    };
+  });
+
+  processingState.previewGroups = previewGroups;
+  processingState.processedRows = previewGroups.flatMap(group => group.rows || []);
+}
+
+function buildSpacerSections(previewGroups){
+  const safePreviewGroups = Array.isArray(previewGroups) ? previewGroups : [];
+  const headerBuckets = new Map();
+
+  safePreviewGroups.forEach(previewGroup => {
+    const groupHeaderRaw = typeof previewGroup?.headerText === "string" ? previewGroup.headerText : "";
+    const rows = Array.isArray(previewGroup?.rows) ? previewGroup.rows : [];
+    rows.forEach(row => {
+      if (!row || typeof row !== "object") return;
+      const rowHeaderRaw = typeof row._headerText === "string" ? row._headerText : "";
+      const headerText = rowHeaderRaw || groupHeaderRaw || "(No header)";
+      if (!headerBuckets.has(headerText)){
+        headerBuckets.set(headerText, {
+          headerText,
+          rows: [],
+        });
+      }
+      headerBuckets.get(headerText).rows.push(row);
+    });
+  });
+
+  const sections = [];
+  Array.from(headerBuckets.values()).forEach(sectionBucket => {
+    const heightBuckets = new Map();
+    const rows = Array.isArray(sectionBucket.rows) ? sectionBucket.rows : [];
+    rows.forEach(row => {
+      const height = toSpacerNumber(row.height_mm);
+      const width = toSpacerNumber(row.width_mm);
+      const quantity = toSpacerNumber(row.quantity);
+      if (height == null || width == null || quantity == null || quantity <= 0) return;
+      if (!heightBuckets.has(height)){
+        heightBuckets.set(height, {
+          height,
+          items: [],
+          total_qty: 0,
+        });
+      }
+      const group = heightBuckets.get(height);
+      group.items.push({
+        position: row.position != null ? String(row.position) : "",
+        width_mm: width,
+        quantity,
+        display_no: Number.isFinite(toSpacerNumber(row.display_no)) ? toSpacerNumber(row.display_no) : null,
+      });
+      group.total_qty += quantity;
+    });
+
+    const sortedHeightGroups = Array.from(heightBuckets.values()).sort((a, b) => {
+      if (b.total_qty !== a.total_qty){
+        return b.total_qty - a.total_qty;
+      }
+      return a.height - b.height;
+    });
+
+    if (sortedHeightGroups.length){
+      sections.push({
+        headerText: sectionBucket.headerText || "(No header)",
+        groups: sortedHeightGroups,
+      });
+    }
+  });
+
+  return sections;
+}
+
+function formatSpacerProcessingText(sections){
+  const safeSections = Array.isArray(sections) ? sections : [];
+  if (!safeSections.length) return "";
+  const lines = [];
+  safeSections.forEach((section, sectionIndex) => {
+    lines.push(section.headerText || "(No header)");
+    lines.push("");
+    lines.push("----------------------------------------");
+    lines.push("");
+
+    const groups = Array.isArray(section.groups) ? section.groups : [];
+    groups.forEach(group => {
+      lines.push(`${formatSpacerNumber(group.height)}x${formatSpacerNumber(group.total_qty)}`);
+      lines.push("");
+      const items = Array.isArray(group.items) ? group.items : [];
+      items.forEach(item => {
+        const hasDisplayNo = Number.isFinite(toSpacerNumber(item.display_no));
+        const label = hasDisplayNo ? formatSpacerNumber(item.display_no) : String(item.position ?? "");
+        lines.push(`${label}-${formatSpacerNumber(item.width_mm)}x${formatSpacerNumber(item.quantity)}`);
+      });
+      lines.push("");
+      lines.push("----------------------------------------");
+      lines.push("");
+    });
+
+    if (sectionIndex < safeSections.length - 1){
+      lines.push("");
+    }
+  });
+  return lines.join("\n").trim();
+}
+
+function updateSpacerProcessingUI(){
+  const previewGroups = Array.isArray(processingState.previewGroups) ? processingState.previewGroups : [];
+  const sections = buildSpacerSections(previewGroups);
+  spacerProcessingState.sections = sections;
+  spacerProcessingState.hasPreviewGroups = previewGroups.length > 0;
+  if (!previewGroups.length){
+    spacerProcessingState.text = "No processed order loaded";
+  }else if (!sections.length){
+    spacerProcessingState.text = "No valid spacer rows in processed order";
+  }else{
+    spacerProcessingState.text = formatSpacerProcessingText(sections);
+  }
+  if (spacerOutputEl){
+    spacerOutputEl.textContent = spacerProcessingState.text;
+    spacerOutputEl.classList.toggle("empty", !sections.length);
+  }
+}
+
 function rebuildProcessingRows(){
   const combined = [];
   appState.processing.cart.forEach(entry => {
@@ -3319,6 +3541,8 @@ function rebuildProcessingRows(){
     };
     setProcessingRoundingMessage("");
   }
+  syncProcessingStateProcessedRows();
+  updateSpacerProcessingUI();
 }
 
 function formatProcessingMeta(meta){
@@ -3665,9 +3889,10 @@ function renderMotherSheetHTML(preview){
 
       const title = document.createElement("h2");
       title.className = "ms-section-title ms-group-title";
-      const label = group && group.display ? group.display : "(Header not set)";
-      const areaText = group && group.areaDisplay;
-      title.textContent = areaText ? `${label} — Area: ${areaText}` : label;
+      const headerText = group && group.headerText
+        ? group.headerText
+        : ((group && group.display) ? group.display : "(Header not set)");
+      title.textContent = headerText;
       section.appendChild(title);
 
       const subSections = Array.isArray(group.sections) && group.sections.length ? group.sections : null;
@@ -3772,6 +3997,8 @@ function clearProcessing(){
   appState.processing.headerOverrides = {};
   appState.processing.grouped = false;
   appState.processing.preview = { text: "", groups: [], meta: { clientLabel: "—", orders: [], date: new Date(), rows: 0 } };
+  syncProcessingStateProcessedRows();
+  updateSpacerProcessingUI();
   updateProcessingUI();
   updateLabelsUI();
 }
@@ -4379,6 +4606,133 @@ async function copyProcessingText(){
   }
 }
 
+async function copySpacerProcessingText(){
+  updateSpacerProcessingUI();
+  if (!spacerProcessingState.sections.length){
+    setStatusMessage(
+      spacerProcessingState.hasPreviewGroups
+        ? "No valid spacer rows in processed order."
+        : "No processed order loaded."
+    );
+    return;
+  }
+  try{
+    await navigator.clipboard.writeText(spacerProcessingState.text);
+    setStatusMessage("Spacer Processing copied to clipboard.");
+  }catch(error){
+    setStatusMessage("Copy failed: " + (error.message || error));
+  }
+}
+
+async function exportSpacerProcessingPdf(){
+  updateSpacerProcessingUI();
+  const sections = Array.isArray(spacerProcessingState.sections) ? spacerProcessingState.sections : [];
+  if (!sections.length){
+    setStatusMessage(
+      spacerProcessingState.hasPreviewGroups
+        ? "No valid spacer rows in processed order."
+        : "No processed order loaded."
+    );
+    return;
+  }
+  await ensurePdfLib();
+  const { PDFDocument, StandardFonts, rgb } = PDFLib;
+  const mmToPt = 2.83464567;
+  const pdfDoc = await PDFDocument.create();
+  const headerFont = await pdfDoc.embedFont(StandardFonts.CourierBold);
+  const bodyFont = await pdfDoc.embedFont(StandardFonts.Courier);
+
+  const pageWidth = 210 * mmToPt;
+  const pageHeight = 297 * mmToPt;
+  const marginLeft = 14 * mmToPt;
+  const marginRight = 14 * mmToPt;
+  const marginTop = 14 * mmToPt;
+  const marginBottom = 14 * mmToPt;
+
+  const SECTION_HEADER_SIZE = 18;
+  const HEIGHT_HEADER_SIZE = 24;
+  const BODY_SIZE = 16;
+  const SECTION_HEADER_LINE_HEIGHT = SECTION_HEADER_SIZE * 1.3;
+  const HEIGHT_HEADER_LINE_HEIGHT = HEIGHT_HEADER_SIZE * 1.25;
+  const BODY_LINE_HEIGHT = BODY_SIZE * 1.35;
+  const HEADER_EXTRA_GAP = 6;
+  const GROUP_GAP = 14;
+
+  let page = pdfDoc.addPage([pageWidth, pageHeight]);
+  let cursorY = pageHeight - marginTop;
+
+  const ensureSpace = (requiredHeight = BODY_LINE_HEIGHT)=>{
+    if (cursorY - requiredHeight < marginBottom){
+      page = pdfDoc.addPage([pageWidth, pageHeight]);
+      cursorY = pageHeight - marginTop;
+    }
+  };
+
+  const drawLineText = (text, font, size, lineHeight)=>{
+    ensureSpace(lineHeight);
+    page.drawText(String(text || ""), {
+      x: marginLeft,
+      y: cursorY,
+      size,
+      font,
+      color: rgb(0.08, 0.1, 0.14),
+    });
+    cursorY -= lineHeight;
+  };
+
+  sections.forEach((section, sectionIndex) => {
+    drawLineText(section.headerText || "(No header)", headerFont, SECTION_HEADER_SIZE, SECTION_HEADER_LINE_HEIGHT);
+    cursorY -= 4;
+    ensureSpace(4);
+    page.drawLine({
+      start: { x: marginLeft, y: cursorY },
+      end: { x: pageWidth - marginRight, y: cursorY },
+      thickness: 1,
+      color: rgb(0.55, 0.58, 0.63),
+    });
+    cursorY -= GROUP_GAP;
+
+    const groups = Array.isArray(section.groups) ? section.groups : [];
+    groups.forEach(group => {
+      drawLineText(`${formatSpacerNumber(group.height)}x${formatSpacerNumber(group.total_qty)}`, headerFont, HEIGHT_HEADER_SIZE, HEIGHT_HEADER_LINE_HEIGHT);
+      cursorY -= HEADER_EXTRA_GAP;
+
+      const items = Array.isArray(group.items) ? group.items : [];
+      items.forEach(item => {
+        const hasDisplayNo = Number.isFinite(toSpacerNumber(item.display_no));
+        const label = hasDisplayNo ? formatSpacerNumber(item.display_no) : String(item.position ?? "");
+        drawLineText(`${label}-${formatSpacerNumber(item.width_mm)}x${formatSpacerNumber(item.quantity)}`, bodyFont, BODY_SIZE, BODY_LINE_HEIGHT);
+      });
+
+      cursorY -= 6;
+      ensureSpace(4);
+      page.drawLine({
+        start: { x: marginLeft, y: cursorY },
+        end: { x: pageWidth - marginRight, y: cursorY },
+        thickness: 1,
+        color: rgb(0.55, 0.58, 0.63),
+      });
+      cursorY -= GROUP_GAP;
+    });
+
+    if (sectionIndex < sections.length - 1){
+      cursorY -= 6;
+    }
+  });
+
+  const pdfBytes = await pdfDoc.save();
+  const blob = new Blob([pdfBytes], { type: "application/pdf" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "spacer-processing.pdf";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  setStatusMessage("Spacer Processing PDF exported.");
+}
+
 async function exportProcessingPdf(){
   const preview = appState.processing.preview;
   if (!preview || !preview.groups || !preview.groups.length){
@@ -4466,9 +4820,9 @@ async function exportProcessingPdf(){
       cursorY -= GROUP_GAP_PT;
       ensureSpace();
     }
-    const label = group && group.display ? group.display : "(Header not set)";
-    const groupAreaText = group && group.areaDisplay;
-    const headerText = groupAreaText ? `${label} — Area: ${groupAreaText}` : label;
+    const headerText = group && group.headerText
+      ? group.headerText
+      : ((group && group.display) ? group.display : "(Header not set)");
     drawTextBlock(headerText, boldFont, HEADER_SIZE, HEADER_LINE_HEIGHT);
     cursorY -= HEADER_GAP_PT;
 
@@ -9017,6 +9371,26 @@ if (processingCopyBtn){
   processingCopyBtn.addEventListener("click", ()=>{ copyProcessingText(); });
 }
 
+if (spacerCopyAllBtn){
+  spacerCopyAllBtn.addEventListener("click", async ()=>{
+    try{
+      await copySpacerProcessingText();
+    }catch(error){
+      setStatusMessage("Copy failed: " + (error.message || error));
+    }
+  });
+}
+
+if (spacerGeneratePdfBtn){
+  spacerGeneratePdfBtn.addEventListener("click", async ()=>{
+    try{
+      await exportSpacerProcessingPdf();
+    }catch(error){
+      setStatusMessage("PDF export failed: " + (error.message || error));
+    }
+  });
+}
+
 if (processingExportPdfBtn){
   processingExportPdfBtn.addEventListener("click", async ()=>{
     try{
@@ -10676,6 +11050,8 @@ initIguCalculator();
 updateExtractUI();
 updateHistoryDetailUI();
 updateProcessingUI();
+syncProcessingStateProcessedRows();
+updateSpacerProcessingUI();
 updateLabelsUI();
 </script>
 </body>
