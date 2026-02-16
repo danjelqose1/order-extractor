@@ -3164,6 +3164,7 @@ function generateMotherSheet(rows, options){
       const section = {
         orderId: orderKey,
         client: clientDisplay,
+        orderHeaderText: `[Order ${orderKey} — ${clientDisplay}]`,
         lines: [],
       };
 
@@ -3230,9 +3231,14 @@ function generateMotherSheet(rows, options){
     linesOut.push(groupHeader);
     if (!mergeAcrossOrders && group.sections && group.sections.length){
       group.sections.forEach((section, sectionIndex) => {
-        const orderLabel = section.orderId && section.orderId.trim().length ? section.orderId : "—";
-        const clientLabelForSection = section.client && section.client.trim().length ? section.client : UNKNOWN_CLIENT_LABEL;
-        linesOut.push(`[Order ${orderLabel} — ${clientLabelForSection}]`);
+        const orderHeaderText = typeof section.orderHeaderText === "string" && section.orderHeaderText.trim().length
+          ? section.orderHeaderText
+          : (() => {
+              const orderLabel = section.orderId && section.orderId.trim().length ? section.orderId : "—";
+              const clientLabelForSection = section.client && section.client.trim().length ? section.client : UNKNOWN_CLIENT_LABEL;
+              return `[Order ${orderLabel} — ${clientLabelForSection}]`;
+            })();
+        linesOut.push(orderHeaderText);
         section.lines.forEach(line => {
           const widthText = formatProcessingNumber(line.width, line.widthDisplay, decimalSeparator);
           const heightText = formatProcessingNumber(line.height, line.heightDisplay, decimalSeparator);
@@ -3340,39 +3346,45 @@ function formatSpacerNumber(value){
 function syncProcessingStateProcessedRows(){
   const preview = appState.processing.preview || { groups: [] };
   const groups = Array.isArray(preview.groups) ? preview.groups : [];
-  const previewGroups = groups.map(group => {
-    const headerText = typeof group?.headerText === "string" ? group.headerText : "";
-    const sourceLines = [];
+  const mapPreviewRow = (row, headerText) => {
+    const width = toSpacerNumber(row?.width_mm ?? row?.width ?? row?.__original?.width);
+    const height = toSpacerNumber(row?.height_mm ?? row?.height ?? row?.__original?.height);
+    const quantity = toSpacerNumber(row?.qty ?? row?.quantity);
+    const position = row?.position != null ? String(row.position) : "";
+    const displayNoRaw = toSpacerNumber(row?.display_no ?? row?.idx);
+    const display_no = Number.isFinite(displayNoRaw) ? displayNoRaw : null;
+    return {
+      position,
+      width_mm: width,
+      height_mm: height,
+      quantity,
+      display_no,
+      _headerText: headerText,
+    };
+  };
+
+  const previewGroups = [];
+  groups.forEach(group => {
+    const groupHeaderText = typeof group?.headerText === "string" ? group.headerText : "";
     const sections = Array.isArray(group?.sections) && group.sections.length ? group.sections : null;
     if (sections){
       sections.forEach(section => {
-        const lines = Array.isArray(section?.lines) ? section.lines : [];
-        lines.forEach(line => sourceLines.push(line));
+        const orderHeaderText = typeof section?.orderHeaderText === "string" ? section.orderHeaderText : "";
+        const blockHeaderText = [groupHeaderText, orderHeaderText].filter(Boolean).join("\n");
+        const sectionRows = Array.isArray(section?.lines) ? section.lines : [];
+        previewGroups.push({
+          headerText: blockHeaderText,
+          rows: sectionRows.map(row => mapPreviewRow(row, blockHeaderText)),
+        });
       });
-    }else{
-      const lines = Array.isArray(group?.lines) ? group.lines : [];
-      lines.forEach(line => sourceLines.push(line));
+      return;
     }
-    const rows = sourceLines.map(row => {
-      const width = toSpacerNumber(row?.width_mm ?? row?.width ?? row?.__original?.width);
-      const height = toSpacerNumber(row?.height_mm ?? row?.height ?? row?.__original?.height);
-      const quantity = toSpacerNumber(row?.qty ?? row?.quantity);
-      const position = row?.position != null ? String(row.position) : "";
-      const displayNoRaw = toSpacerNumber(row?.display_no ?? row?.idx);
-      const display_no = Number.isFinite(displayNoRaw) ? displayNoRaw : null;
-      return {
-        position,
-        width_mm: width,
-        height_mm: height,
-        quantity,
-        display_no,
-        _headerText: headerText,
-      };
+
+    const groupRows = Array.isArray(group?.lines) ? group.lines : [];
+    previewGroups.push({
+      headerText: groupHeaderText,
+      rows: groupRows.map(row => mapPreviewRow(row, groupHeaderText)),
     });
-    return {
-      headerText,
-      rows,
-    };
   });
 
   processingState.previewGroups = previewGroups;
@@ -3953,9 +3965,14 @@ function renderMotherSheetHTML(preview){
         subSections.forEach(sub => {
           const orderInfo = document.createElement("div");
           orderInfo.className = "ms-order-info ms-orderline";
-          const orderLabel = sub && sub.orderId ? sub.orderId : "—";
-          const clientLabel = sub && sub.client ? sub.client : UNKNOWN_CLIENT_LABEL;
-          orderInfo.textContent = `[Order ${orderLabel} — ${clientLabel}]`;
+          const orderHeaderText = (sub && typeof sub.orderHeaderText === "string" && sub.orderHeaderText.trim().length)
+            ? sub.orderHeaderText
+            : (() => {
+                const orderLabel = sub && sub.orderId ? sub.orderId : "—";
+                const clientLabel = sub && sub.client ? sub.client : UNKNOWN_CLIENT_LABEL;
+                return `[Order ${orderLabel} — ${clientLabel}]`;
+              })();
+          orderInfo.textContent = orderHeaderText;
           section.appendChild(orderInfo);
           section.appendChild(buildGroupTable(sub && Array.isArray(sub.lines) ? sub.lines : [], data));
         });
@@ -4885,9 +4902,14 @@ async function exportProcessingPdf(){
     const sections = Array.isArray(group?.sections) ? group.sections : null;
     if (sections && sections.length){
       sections.forEach(section => {
-        const orderLabel = section?.orderId ? String(section.orderId).trim() : "—";
-        const clientLabel = section?.client ? String(section.client).trim() : UNKNOWN_CLIENT_LABEL;
-        drawTextBlock(`[Order ${orderLabel} — ${clientLabel}]`, regularFont, BODY_SIZE, ORDER_LINE_HEIGHT);
+        const orderHeaderText = (section && typeof section.orderHeaderText === "string" && section.orderHeaderText.trim().length)
+          ? section.orderHeaderText
+          : (() => {
+              const orderLabel = section?.orderId ? String(section.orderId).trim() : "—";
+              const clientLabel = section?.client ? String(section.client).trim() : UNKNOWN_CLIENT_LABEL;
+              return `[Order ${orderLabel} — ${clientLabel}]`;
+            })();
+        drawTextBlock(orderHeaderText, regularFont, BODY_SIZE, ORDER_LINE_HEIGHT);
 
         const lines = Array.isArray(section?.lines) ? section.lines : [];
         if (!lines.length){
