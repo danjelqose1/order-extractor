@@ -229,14 +229,131 @@
       border-radius:12px;
       background:#111827;
       color:#f9fafb;
-      padding:18px;
+      padding:24px;
       min-height:360px;
       max-height:70vh;
       overflow:auto;
       white-space:pre-wrap;
       font-family:"Courier New",Courier,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-      font-size:24px;
-      line-height:1.4;
+      font-size:16px;
+      line-height:1.6;
+    }
+    .spacer-output.wysiwyg{
+      background:#eef2f7;
+      color:#111827;
+      white-space:normal;
+      font-family:var(--ms-sans-system);
+      line-height:1.3;
+      padding:14px;
+    }
+    .spacer-output.pdf-preview{
+      font-size:13px;
+      line-height:1.25;
+      padding:14px;
+      column-count:2;
+      column-gap:24px;
+      column-fill:auto;
+    }
+    .spacer-output.wysiwyg.pdf-preview{
+      column-count:1;
+      column-gap:0;
+      column-fill:auto;
+    }
+    .spacer-pages{
+      display:flex;
+      flex-direction:column;
+      gap:16px;
+      align-items:center;
+    }
+    .spacer-page{
+      width:210mm;
+      height:297mm;
+      background:#fff;
+      border:1px solid #d1d5db;
+      box-shadow:0 10px 28px rgba(15,23,42,0.12);
+      color:#111827;
+      display:flex;
+      flex-direction:column;
+      padding:10mm;
+    }
+    .spacer-page-header{
+      font-family:"Courier New",Courier,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+      margin-bottom:0;
+    }
+    .spacer-page-title{
+      font-size:14pt;
+      line-height:17pt;
+      font-weight:700;
+      color:#111827;
+    }
+    .spacer-page-mode{
+      font-size:10pt;
+      line-height:13pt;
+      color:#4b5563;
+    }
+    .spacer-page-columns{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:8mm;
+      flex:1;
+      min-height:0;
+    }
+    .spacer-page-columns.with-header{
+      margin-top:4pt;
+    }
+    .spacer-page-column{
+      min-height:0;
+    }
+    .spacer-block{
+      font-family:"Courier New",Courier,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+      color:#111827;
+      display:flex;
+      flex-direction:column;
+    }
+    .spacer-block-line{
+      white-space:pre;
+      overflow-wrap:normal;
+      word-break:normal;
+    }
+    .spacer-block-line.header{
+      font-size:11pt;
+      line-height:13.5pt;
+      font-weight:400;
+    }
+    .spacer-block-line.height{
+      font-size:13pt;
+      line-height:16pt;
+      font-weight:700;
+    }
+    .spacer-block-line.row{
+      font-size:11pt;
+      line-height:13.5pt;
+      font-weight:400;
+    }
+    .spacer-block-spacer.header-rule-top{height:3pt}
+    .spacer-block-spacer.header-rule-bottom{height:8pt}
+    .spacer-block-spacer.group-blank{height:13.5pt}
+    .spacer-block-spacer.group-rule-top{height:3pt}
+    .spacer-block-spacer.group-rule-bottom{height:13.5pt}
+    .spacer-block-rule{
+      width:100%;
+      background:#6b7280;
+    }
+    .spacer-block-rule.header{
+      height:1.6pt;
+      background:#4b5563;
+    }
+    .spacer-block-rule.group{
+      height:1pt;
+      background:#9ca3af;
+    }
+    .spacer-measure-root{
+      position:absolute;
+      left:-100000px;
+      top:-100000px;
+      visibility:hidden;
+      pointer-events:none;
+      z-index:-1;
     }
     .spacer-output.empty{color:#9ca3af}
     #motherSheet,.mother-sheet{--ms-family-base:var(--ms-sans-system);--ms-family-header:var(--ms-sans-system);--ms-family-rows:var(--ms-sans-system);background:#fff;color:#131722;font-family:var(--ms-family-base);line-height:var(--ms-body-line-height);font-size:var(--ms-body-size)}
@@ -273,7 +390,17 @@
       .processing-controls .card{order:-1}
       .processing-order-list{max-height:none}
       .igu-grid{grid-template-columns:1fr;}
-      .spacer-output{font-size:20px}
+      .spacer-output{font-size:16px}
+      .spacer-output.pdf-preview{column-count:1}
+      .spacer-page{
+        width:100%;
+        height:auto;
+        min-height:auto;
+      }
+      .spacer-page-columns{
+        grid-template-columns:1fr;
+        gap:12px;
+      }
     }
     @media (max-width:600px){
       main.app{padding:18px 12px 36px}
@@ -685,6 +812,14 @@
             <label class="inline-toggle">
               <input type="checkbox" id="spacerMergeOrdersToggle" checked>
               <span>Merge across orders</span>
+            </label>
+            <label class="inline-toggle">
+              <input type="checkbox" id="spacerPdfPreviewToggle">
+              <span>Preview (PDF style)</span>
+            </label>
+            <label class="inline-toggle">
+              <input type="checkbox" id="spacerWysiwygToggle">
+              <span>Live HTML Preview (WYSIWYG)</span>
             </label>
             <span id="spacerModeDebug" class="muted small"></span>
             <button class="btn" id="spacerGeneratePdf">Generate PDF</button>
@@ -1192,6 +1327,9 @@ const spacerProcessingState = {
   text: "No processed order loaded",
   hasPreviewGroups: false,
   mergeAcrossOrders: true,
+  pdfPreview: false,
+  liveHtmlPreview: false,
+  layoutModel: null,
 };
 
 const analysisState = {
@@ -1269,6 +1407,8 @@ const processingExportPdfBtn = document.getElementById("processingExportPdf");
 const processingExportCsvBtn = document.getElementById("processingExportCsv");
 const spacerOutputEl = document.getElementById("spacerOutput");
 const spacerMergeOrdersToggle = document.getElementById("spacerMergeOrdersToggle");
+const spacerPdfPreviewToggle = document.getElementById("spacerPdfPreviewToggle");
+const spacerWysiwygToggle = document.getElementById("spacerWysiwygToggle");
 const spacerModeDebugEl = document.getElementById("spacerModeDebug");
 const spacerGeneratePdfBtn = document.getElementById("spacerGeneratePdf");
 const spacerCopyAllBtn = document.getElementById("spacerCopyAll");
@@ -3609,11 +3749,442 @@ function formatSpacerProcessingText(sections){
   return lines.join("\n").trim();
 }
 
+const SPACER_MM_TO_PT = 2.83464567;
+const SPACER_MM_TO_PX = 96 / 25.4;
+const SPACER_PT_TO_PX = 96 / 72;
+let spacerMeasureRoot = null;
+let spacerMeasureCanvasCtx = null;
+
+function getSpacerModeDisplayText(){
+  return spacerProcessingState.mergeAcrossOrders ? "Mode: Merged" : "Mode: Per Order";
+}
+
+function getSpacerLayoutConfig(){
+  const pageWidthMm = 210;
+  const pageHeightMm = 297;
+  const marginMm = 10;
+  const columnGapMm = 8;
+  const titleSizePt = 14;
+  const headerSizePt = 11;
+  const heightSizePt = 13;
+  const rowSizePt = 11;
+  const modeSizePt = 10;
+  const titleLeadingPt = 17;
+  const modeLeadingPt = 13;
+  const headerLeadingPt = 13.5;
+  const heightLeadingPt = 16;
+  const rowLeadingPt = 13.5;
+  const blankLeadingPt = 13.5;
+  const headerRuleTopGapPt = 3;
+  const headerRuleBottomGapPt = 8;
+  const groupRuleTopGapPt = 3;
+  const groupRuleBottomGapPt = 13.5;
+  const headerRuleThicknessPt = 1.6;
+  const groupRuleThicknessPt = 1.0;
+  const titleBlockHeightPt = titleLeadingPt + modeLeadingPt + 4;
+
+  const pageWidthPt = pageWidthMm * SPACER_MM_TO_PT;
+  const pageHeightPt = pageHeightMm * SPACER_MM_TO_PT;
+  const marginPt = marginMm * SPACER_MM_TO_PT;
+  const columnGapPt = columnGapMm * SPACER_MM_TO_PT;
+  const columnWidthPt = (pageWidthPt - (marginPt * 2) - columnGapPt) / 2;
+  const columnTopPt = pageHeightPt - marginPt;
+  const firstPageColumnTopPt = columnTopPt - titleBlockHeightPt;
+  const columnHeightPt = columnTopPt - marginPt;
+  const firstPageColumnHeightPt = firstPageColumnTopPt - marginPt;
+
+  const pageWidthPx = pageWidthMm * SPACER_MM_TO_PX;
+  const pageHeightPx = pageHeightMm * SPACER_MM_TO_PX;
+  const marginPx = marginMm * SPACER_MM_TO_PX;
+  const columnGapPx = columnGapMm * SPACER_MM_TO_PX;
+  const columnWidthPx = (pageWidthPx - (marginPx * 2) - columnGapPx) / 2;
+  const titleBlockHeightPx = titleBlockHeightPt * SPACER_PT_TO_PX;
+  const columnHeightPx = pageHeightPx - (marginPx * 2);
+  const firstPageColumnHeightPx = columnHeightPx - titleBlockHeightPx;
+
+  return {
+    pageWidthMm,
+    pageHeightMm,
+    marginMm,
+    columnGapMm,
+    titleSizePt,
+    headerSizePt,
+    heightSizePt,
+    rowSizePt,
+    modeSizePt,
+    titleLeadingPt,
+    modeLeadingPt,
+    headerLeadingPt,
+    heightLeadingPt,
+    rowLeadingPt,
+    blankLeadingPt,
+    headerRuleTopGapPt,
+    headerRuleBottomGapPt,
+    groupRuleTopGapPt,
+    groupRuleBottomGapPt,
+    headerRuleThicknessPt,
+    groupRuleThicknessPt,
+    titleBlockHeightPt,
+    pageWidthPt,
+    pageHeightPt,
+    marginPt,
+    columnGapPt,
+    columnWidthPt,
+    columnTopPt,
+    firstPageColumnTopPt,
+    columnHeightPt,
+    firstPageColumnHeightPt,
+    pageWidthPx,
+    pageHeightPx,
+    marginPx,
+    columnGapPx,
+    columnWidthPx,
+    columnHeightPx,
+    firstPageColumnHeightPx,
+  };
+}
+
+function getSpacerLayoutSignature(){
+  const sections = Array.isArray(spacerProcessingState.sections) ? spacerProcessingState.sections : [];
+  return JSON.stringify({
+    mergeAcrossOrders: !!spacerProcessingState.mergeAcrossOrders,
+    sections,
+  });
+}
+
+function ensureSpacerMeasureRoot(){
+  if (spacerMeasureRoot && document.body.contains(spacerMeasureRoot)){
+    return spacerMeasureRoot;
+  }
+  spacerMeasureRoot = document.createElement("div");
+  spacerMeasureRoot.className = "spacer-measure-root";
+  document.body.appendChild(spacerMeasureRoot);
+  return spacerMeasureRoot;
+}
+
+function getSpacerMeasureCanvasCtx(){
+  if (spacerMeasureCanvasCtx){
+    return spacerMeasureCanvasCtx;
+  }
+  const canvas = document.createElement("canvas");
+  spacerMeasureCanvasCtx = canvas.getContext("2d");
+  return spacerMeasureCanvasCtx;
+}
+
+function measureSpacerTextWidthPx(text, fontSizePt, fontWeight = 400){
+  const ctx = getSpacerMeasureCanvasCtx();
+  if (!ctx){
+    return String(text || "").length * (fontSizePt * SPACER_PT_TO_PX * 0.6);
+  }
+  const sizePx = fontSizePt * SPACER_PT_TO_PX;
+  const weight = Number(fontWeight) >= 600 ? "700" : "400";
+  ctx.font = `${weight} ${sizePx}px "Courier New", Courier, monospace`;
+  return ctx.measureText(String(text || "")).width;
+}
+
+function wrapSpacerLineToWidthPx(line, maxWidthPx, fontSizePt, fontWeight = 400){
+  const source = String(line ?? "");
+  if (!source.length) return [""];
+  if (measureSpacerTextWidthPx(source, fontSizePt, fontWeight) <= maxWidthPx){
+    return [source];
+  }
+  const words = source.split(" ");
+  if (words.length <= 1){
+    const chunks = [];
+    let current = "";
+    for (const ch of source){
+      const candidate = current + ch;
+      if (current && measureSpacerTextWidthPx(candidate, fontSizePt, fontWeight) > maxWidthPx){
+        chunks.push(current);
+        current = ch;
+      }else{
+        current = candidate;
+      }
+    }
+    if (current) chunks.push(current);
+    return chunks.length ? chunks : [source];
+  }
+  const out = [];
+  let current = "";
+  words.forEach(word => {
+    const candidate = current ? `${current} ${word}` : word;
+    if (current && measureSpacerTextWidthPx(candidate, fontSizePt, fontWeight) > maxWidthPx){
+      out.push(current);
+      current = word;
+    }else{
+      current = candidate;
+    }
+  });
+  if (current) out.push(current);
+  return out.length ? out : [source];
+}
+
+function buildSpacerLayoutBlocks(sections, layoutConfig){
+  const safeSections = Array.isArray(sections) ? sections : [];
+  const blocks = [];
+  const pushHeaderBlock = (headerText) => {
+    const rawLines = String(headerText ?? "").split(/\r?\n/);
+    const wrappedLines = [];
+    rawLines.forEach(line => {
+      const nextLines = wrapSpacerLineToWidthPx(line, layoutConfig.columnWidthPx, layoutConfig.headerSizePt, 400);
+      nextLines.forEach(next => wrappedLines.push(next));
+    });
+    if (!wrappedLines.length){
+      wrappedLines.push("");
+    }
+    blocks.push({
+      type: "header",
+      lines: wrappedLines,
+      key: `header|${wrappedLines.join("\n")}`,
+    });
+  };
+
+  safeSections.forEach(section => {
+    if (!section || typeof section !== "object") return;
+    if (section.kind === "orderDivider"){
+      pushHeaderBlock(section.headerText || `[Order ${section.orderId || "—"}]`);
+      return;
+    }
+    if (section.showHeader){
+      pushHeaderBlock(section.headerText || "(No header)");
+    }
+    const groups = Array.isArray(section.groups) ? section.groups : [];
+    groups.forEach(group => {
+      const heightLine = `${formatSpacerNumber(group.height)} x ${formatSpacerNumber(group.total_qty)}`;
+      const items = Array.isArray(group?.items) ? group.items : [];
+      const rowLines = items.map(item => {
+        const hasDisplayNo = Number.isFinite(toSpacerNumber(item.display_no));
+        const label = hasDisplayNo ? formatSpacerNumber(item.display_no) : String(item.position ?? "");
+        return `${label} – ${formatSpacerNumber(item.width_mm)} x ${formatSpacerNumber(item.quantity)}`;
+      });
+      const lines = [
+        heightLine,
+        "",
+        ...rowLines,
+        "----------------------------------------",
+        "",
+      ];
+      blocks.push({
+        type: "group",
+        lines,
+        heightLine,
+        rowLines,
+        key: `group|${lines.join("\n")}`,
+      });
+    });
+  });
+  return blocks;
+}
+
+function createSpacerBlockElement(block){
+  const blockEl = document.createElement("div");
+  blockEl.className = "spacer-block";
+  if (!block || typeof block !== "object"){
+    return blockEl;
+  }
+
+  const appendLine = (text, lineClass) => {
+    const lineEl = document.createElement("div");
+    lineEl.className = `spacer-block-line ${lineClass}`;
+    lineEl.textContent = text;
+    blockEl.appendChild(lineEl);
+  };
+  const appendSpacer = (className) => {
+    const spacerEl = document.createElement("div");
+    spacerEl.className = `spacer-block-spacer ${className}`;
+    blockEl.appendChild(spacerEl);
+  };
+  const appendRule = (className) => {
+    const ruleEl = document.createElement("div");
+    ruleEl.className = `spacer-block-rule ${className}`;
+    blockEl.appendChild(ruleEl);
+  };
+
+  if (block.type === "header"){
+    const lines = Array.isArray(block.lines) ? block.lines : [""];
+    lines.forEach(line => appendLine(line, "header"));
+    appendSpacer("header-rule-top");
+    appendRule("header");
+    appendSpacer("header-rule-bottom");
+    return blockEl;
+  }
+
+  if (block.type === "group"){
+    appendLine(block.heightLine || "", "height");
+    appendSpacer("group-blank");
+    const rowLines = Array.isArray(block.rowLines) ? block.rowLines : [];
+    rowLines.forEach(line => appendLine(line, "row"));
+    appendSpacer("group-rule-top");
+    appendRule("group");
+    appendSpacer("group-rule-bottom");
+    return blockEl;
+  }
+
+  return blockEl;
+}
+
+function measureSpacerBlockHeightPx(block, layoutConfig, cache){
+  const key = `${layoutConfig.columnWidthPx}|${block.key || ""}`;
+  if (cache.has(key)){
+    return cache.get(key);
+  }
+  const root = ensureSpacerMeasureRoot();
+  root.style.width = `${layoutConfig.columnWidthPx}px`;
+  root.replaceChildren();
+  const blockEl = createSpacerBlockElement(block);
+  root.appendChild(blockEl);
+  const measured = blockEl.getBoundingClientRect().height;
+  cache.set(key, measured);
+  return measured;
+}
+
+function paginateSpacerBlocks(blocks, layoutConfig){
+  const safeBlocks = Array.isArray(blocks) ? blocks : [];
+  if (!safeBlocks.length){
+    return [];
+  }
+  const maxColumnHeight = (pageIndex) => (
+    pageIndex === 0
+      ? layoutConfig.firstPageColumnHeightPx
+      : layoutConfig.columnHeightPx
+  );
+  const pages = [
+    { index: 0, columns: [[], []], usedHeight: [0, 0] },
+  ];
+  let pageRef = pages[0];
+  let columnIndex = 0;
+  const measurementCache = new Map();
+
+  const advanceCursor = () => {
+    if (columnIndex === 0){
+      columnIndex = 1;
+      return;
+    }
+    const nextPage = {
+      index: pages.length,
+      columns: [[], []],
+      usedHeight: [0, 0],
+    };
+    pages.push(nextPage);
+    pageRef = nextPage;
+    columnIndex = 0;
+  };
+
+  safeBlocks.forEach(block => {
+    const blockHeight = measureSpacerBlockHeightPx(block, layoutConfig, measurementCache);
+    const currentMax = maxColumnHeight(pageRef.index);
+    const currentUsed = pageRef.usedHeight[columnIndex];
+    const columnHasContent = currentUsed > 0;
+    if (columnHasContent && (currentUsed + blockHeight) > currentMax){
+      advanceCursor();
+    }
+    pageRef.columns[columnIndex].push(block);
+    pageRef.usedHeight[columnIndex] += blockHeight;
+  });
+
+  return pages.map(page => ({
+    index: page.index,
+    leftBlocks: page.columns[0],
+    rightBlocks: page.columns[1],
+  }));
+}
+
+function buildSpacerLayoutModel(){
+  const layoutConfig = getSpacerLayoutConfig();
+  const sections = Array.isArray(spacerProcessingState.sections) ? spacerProcessingState.sections : [];
+  const blocks = buildSpacerLayoutBlocks(sections, layoutConfig);
+  const pages = paginateSpacerBlocks(blocks, layoutConfig);
+  return {
+    signature: getSpacerLayoutSignature(),
+    title: "Spacer Processing",
+    modeText: getSpacerModeDisplayText(),
+    config: layoutConfig,
+    blocks,
+    pages,
+  };
+}
+
+function ensureSpacerLayoutModel(force = false){
+  const signature = getSpacerLayoutSignature();
+  if (!force && spacerProcessingState.layoutModel && spacerProcessingState.layoutModel.signature === signature){
+    return spacerProcessingState.layoutModel;
+  }
+  const nextModel = buildSpacerLayoutModel();
+  spacerProcessingState.layoutModel = nextModel;
+  return nextModel;
+}
+
+function renderSpacerWysiwygPreview(layoutModel){
+  if (!spacerOutputEl){
+    return;
+  }
+  spacerOutputEl.replaceChildren();
+  const safePages = Array.isArray(layoutModel?.pages) ? layoutModel.pages : [];
+  if (!safePages.length){
+    spacerOutputEl.textContent = spacerProcessingState.text;
+    spacerOutputEl.classList.add("empty");
+    return;
+  }
+
+  const pagesWrap = document.createElement("div");
+  pagesWrap.className = "spacer-pages";
+
+  safePages.forEach((page, pageIndex) => {
+    const pageEl = document.createElement("div");
+    pageEl.className = "spacer-page";
+
+    if (pageIndex === 0){
+      const headerEl = document.createElement("div");
+      headerEl.className = "spacer-page-header";
+      const titleEl = document.createElement("div");
+      titleEl.className = "spacer-page-title";
+      titleEl.textContent = layoutModel.title || "Spacer Processing";
+      headerEl.appendChild(titleEl);
+      const modeEl = document.createElement("div");
+      modeEl.className = "spacer-page-mode";
+      modeEl.textContent = layoutModel.modeText || getSpacerModeDisplayText();
+      headerEl.appendChild(modeEl);
+      pageEl.appendChild(headerEl);
+    }
+
+    const columnsEl = document.createElement("div");
+    columnsEl.className = `spacer-page-columns${pageIndex === 0 ? " with-header" : ""}`;
+    const leftCol = document.createElement("div");
+    leftCol.className = "spacer-page-column left";
+    const rightCol = document.createElement("div");
+    rightCol.className = "spacer-page-column right";
+
+    const leftBlocks = Array.isArray(page?.leftBlocks) ? page.leftBlocks : [];
+    const rightBlocks = Array.isArray(page?.rightBlocks) ? page.rightBlocks : [];
+    leftBlocks.forEach(block => {
+      leftCol.appendChild(createSpacerBlockElement(block));
+    });
+    rightBlocks.forEach(block => {
+      rightCol.appendChild(createSpacerBlockElement(block));
+    });
+
+    columnsEl.appendChild(leftCol);
+    columnsEl.appendChild(rightCol);
+    pageEl.appendChild(columnsEl);
+    pagesWrap.appendChild(pageEl);
+  });
+
+  spacerOutputEl.appendChild(pagesWrap);
+}
+
 function updateSpacerProcessingUI(){
   const previewGroups = Array.isArray(processingState.previewGroups) ? processingState.previewGroups : [];
   const mergeAcrossOrders = !!spacerProcessingState.mergeAcrossOrders;
+  const pdfPreview = !!spacerProcessingState.pdfPreview;
+  const liveHtmlPreview = !!spacerProcessingState.liveHtmlPreview;
   if (spacerMergeOrdersToggle && spacerMergeOrdersToggle.checked !== mergeAcrossOrders){
     spacerMergeOrdersToggle.checked = mergeAcrossOrders;
+  }
+  if (spacerPdfPreviewToggle && spacerPdfPreviewToggle.checked !== pdfPreview){
+    spacerPdfPreviewToggle.checked = pdfPreview;
+  }
+  if (spacerWysiwygToggle && spacerWysiwygToggle.checked !== liveHtmlPreview){
+    spacerWysiwygToggle.checked = liveHtmlPreview;
   }
   const output = computeSpacerOutput(previewGroups, mergeAcrossOrders);
   spacerProcessingState.sections = output.sections;
@@ -3623,8 +4194,17 @@ function updateSpacerProcessingUI(){
     spacerModeDebugEl.textContent = output.modeLabel;
   }
   if (spacerOutputEl){
-    spacerOutputEl.textContent = spacerProcessingState.text;
-    spacerOutputEl.classList.toggle("empty", !spacerProcessingState.sections.length);
+    const hasSections = spacerProcessingState.sections.length > 0;
+    const useWysiwyg = liveHtmlPreview && hasSections;
+    spacerOutputEl.classList.toggle("empty", !hasSections);
+    spacerOutputEl.classList.toggle("pdf-preview", pdfPreview && !useWysiwyg);
+    spacerOutputEl.classList.toggle("wysiwyg", useWysiwyg);
+    if (useWysiwyg){
+      const layoutModel = ensureSpacerLayoutModel();
+      renderSpacerWysiwygPreview(layoutModel);
+    }else{
+      spacerOutputEl.textContent = spacerProcessingState.text;
+    }
   }
 }
 
@@ -4773,7 +5353,6 @@ async function copySpacerProcessingText(){
 
 async function exportSpacerProcessingPdf(){
   updateSpacerProcessingUI();
-  const outputText = String(spacerProcessingState.text || "");
   if (!spacerProcessingState.sections.length){
     setStatusMessage(
       spacerProcessingState.hasPreviewGroups
@@ -4782,252 +5361,129 @@ async function exportSpacerProcessingPdf(){
     );
     return;
   }
-  await ensurePdfLib();
-  const { PDFDocument, StandardFonts, rgb } = PDFLib;
-  const mmToPt = 2.83464567;
-  const pdfDoc = await PDFDocument.create();
-  const boldFont = await pdfDoc.embedFont(StandardFonts.CourierBold);
-  const regularFont = await pdfDoc.embedFont(StandardFonts.Courier);
-
-  const pageWidth = 210 * mmToPt;
-  const pageHeight = 297 * mmToPt;
-  const marginLeft = 10 * mmToPt;
-  const marginRight = 10 * mmToPt;
-  const marginTop = 10 * mmToPt;
-  const marginBottom = 10 * mmToPt;
-  const columnGap = 8 * mmToPt;
-  const columnWidth = (pageWidth - marginLeft - marginRight - columnGap) / 2;
-
-  const TITLE_SIZE = 14;
-  const HEADER_SIZE = 11;
-  const HEIGHT_SIZE = 13;
-  const ROW_SIZE = 11;
-  const MODE_SIZE = 10;
-  const TITLE_LEADING = 17;
-  const MODE_LEADING = 13;
-  const HEADER_LEADING = 13.5;
-  const HEIGHT_LEADING = 16;
-  const ROW_LEADING = 13.5;
-  const BLANK_LEADING = 13.5;
-  const HEADER_LINE_GAP_TOP = 3;
-  const HEADER_LINE_GAP_BOTTOM = 8;
-  const GROUP_LINE_GAP_TOP = 3;
-  const GROUP_LINE_GAP_BOTTOM = 13.5;
-  const HEADER_RULE_THICKNESS = 1.6;
-  const GROUP_RULE_THICKNESS = 1.0;
-  const TITLE_BLOCK_HEIGHT = TITLE_LEADING + MODE_LEADING + 4;
-
-  const pages = [];
-  const addPage = () => {
-    const page = pdfDoc.addPage([pageWidth, pageHeight]);
-    pages.push(page);
-    return page;
-  };
-
-  let page = addPage();
-  let pageIndex = 0;
-  let columnIndex = 0;
-
-  const getColumnX = () => marginLeft + columnIndex * (columnWidth + columnGap);
-  const getColumnTop = () => (pageIndex === 0 ? pageHeight - marginTop - TITLE_BLOCK_HEIGHT : pageHeight - marginTop);
-  let cursorY = getColumnTop();
-
-  const modeText = spacerProcessingState.mergeAcrossOrders ? "Mode: Merged" : "Mode: Per Order";
-  const titleY = pageHeight - marginTop - TITLE_SIZE;
-  const modeY = titleY - TITLE_LEADING;
-  page.drawText("Spacer Processing", {
-    x: marginLeft,
-    y: titleY,
-    size: TITLE_SIZE,
-    font: boldFont,
-    color: rgb(0.08, 0.1, 0.14),
-  });
-  page.drawText(modeText, {
-    x: marginLeft,
-    y: modeY,
-    size: MODE_SIZE,
-    font: regularFont,
-    color: rgb(0.35, 0.38, 0.42),
-  });
-
-  const wrapLine = (line, font, size, maxWidth) => {
-    const source = String(line ?? "");
-    if (!source.length) return [""];
-    if (font.widthOfTextAtSize(source, size) <= maxWidth) return [source];
-    const words = source.split(" ");
-    if (words.length <= 1){
-      const chunks = [];
-      let current = "";
-      for (const ch of source){
-        const candidate = current + ch;
-        if (current && font.widthOfTextAtSize(candidate, size) > maxWidth){
-          chunks.push(current);
-          current = ch;
-        }else{
-          current = candidate;
-        }
-      }
-      if (current) chunks.push(current);
-      return chunks.length ? chunks : [source];
-    }
-    const out = [];
-    let current = "";
-    words.forEach(word => {
-      const candidate = current ? `${current} ${word}` : word;
-      if (current && font.widthOfTextAtSize(candidate, size) > maxWidth){
-        out.push(current);
-        current = word;
-      }else{
-        current = candidate;
-      }
-    });
-    if (current) out.push(current);
-    return out.length ? out : [source];
-  };
-
-  const expandHeaderLines = (headerText) => {
-    const rawLines = String(headerText ?? "").split(/\r?\n/);
-    const lines = [];
-    rawLines.forEach(raw => {
-      const wrapped = wrapLine(raw, regularFont, HEADER_SIZE, columnWidth);
-      wrapped.forEach(line => lines.push(line));
-    });
-    return lines.length ? lines : [""];
-  };
-
-  const measureHeaderBlock = (lines) => {
-    const lineCount = Array.isArray(lines) ? lines.length : 0;
-    return (lineCount * HEADER_LEADING) + HEADER_LINE_GAP_TOP + HEADER_RULE_THICKNESS + HEADER_LINE_GAP_BOTTOM;
-  };
-
-  const formatGroupHeightLine = (group) => `${formatSpacerNumber(group.height)} x ${formatSpacerNumber(group.total_qty)}`;
-  const formatGroupRowLines = (group) => {
-    const items = Array.isArray(group?.items) ? group.items : [];
-    return items.map(item => {
-      const hasDisplayNo = Number.isFinite(toSpacerNumber(item.display_no));
-      const label = hasDisplayNo ? formatSpacerNumber(item.display_no) : String(item.position ?? "");
-      return `${label} – ${formatSpacerNumber(item.width_mm)} x ${formatSpacerNumber(item.quantity)}`;
-    });
-  };
-
-  const measureGroupBlock = (rowLines) => {
-    const rowCount = Array.isArray(rowLines) ? rowLines.length : 0;
-    return HEIGHT_LEADING + BLANK_LEADING + (rowCount * ROW_LEADING) + GROUP_LINE_GAP_TOP + GROUP_RULE_THICKNESS + GROUP_LINE_GAP_BOTTOM;
-  };
-
-  const moveToNextColumnOrPage = () => {
-    if (columnIndex === 0){
-      columnIndex = 1;
-      cursorY = getColumnTop();
-      return;
-    }
-    page = addPage();
-    pageIndex = pages.length - 1;
-    columnIndex = 0;
-    cursorY = getColumnTop();
-  };
-
-  const ensureBlockFits = (blockHeight) => {
-    const maxColumnHeight = getColumnTop() - marginBottom;
-    if (blockHeight > maxColumnHeight){
-      if (cursorY !== getColumnTop()){
-        moveToNextColumnOrPage();
-      }
-      return;
-    }
-    if (cursorY - blockHeight < marginBottom){
-      moveToNextColumnOrPage();
-    }
-  };
-
-  const drawHeaderBlock = (headerText) => {
-    const lines = expandHeaderLines(headerText);
-    const blockHeight = measureHeaderBlock(lines);
-    ensureBlockFits(blockHeight);
-    const x = getColumnX();
-    lines.forEach(line => {
-      page.drawText(line, {
-        x,
-        y: cursorY,
-        size: HEADER_SIZE,
-        font: regularFont,
-        color: rgb(0.11, 0.13, 0.17),
-      });
-      cursorY -= HEADER_LEADING;
-    });
-    cursorY -= HEADER_LINE_GAP_TOP;
-    page.drawLine({
-      start: { x, y: cursorY },
-      end: { x: x + columnWidth, y: cursorY },
-      thickness: HEADER_RULE_THICKNESS,
-      color: rgb(0.30, 0.33, 0.38),
-    });
-    cursorY -= HEADER_LINE_GAP_BOTTOM;
-  };
-
-  const drawGroupBlock = (group) => {
-    const x = getColumnX();
-    const heightLine = formatGroupHeightLine(group);
-    const rowLines = formatGroupRowLines(group);
-    const blockHeight = measureGroupBlock(rowLines);
-    ensureBlockFits(blockHeight);
-
-    page.drawText(heightLine, {
-      x,
-      y: cursorY,
-      size: HEIGHT_SIZE,
-      font: boldFont,
-      color: rgb(0.08, 0.1, 0.14),
-    });
-    cursorY -= HEIGHT_LEADING;
-    cursorY -= BLANK_LEADING;
-
-    rowLines.forEach(line => {
-      page.drawText(line, {
-        x,
-        y: cursorY,
-        size: ROW_SIZE,
-        font: regularFont,
-        color: rgb(0.08, 0.1, 0.14),
-      });
-      cursorY -= ROW_LEADING;
-    });
-
-    cursorY -= GROUP_LINE_GAP_TOP;
-    page.drawLine({
-      start: { x, y: cursorY },
-      end: { x: x + columnWidth, y: cursorY },
-      thickness: GROUP_RULE_THICKNESS,
-      color: rgb(0.55, 0.58, 0.63),
-    });
-    cursorY -= GROUP_LINE_GAP_BOTTOM;
-  };
-
-  const sections = Array.isArray(spacerProcessingState.sections) ? spacerProcessingState.sections : [];
+  const outputText = String(spacerProcessingState.text || "");
   if (!outputText.trim()){
     setStatusMessage("No valid spacer rows in processed order.");
     return;
   }
-  sections.forEach(section => {
-    if (section.kind === "orderDivider"){
-      drawHeaderBlock(section.headerText || `[Order ${section.orderId || "—"}]`);
-      return;
+  const layoutModel = ensureSpacerLayoutModel();
+  const layoutPages = Array.isArray(layoutModel?.pages) ? layoutModel.pages : [];
+  if (!layoutPages.length){
+    setStatusMessage("No valid spacer rows in processed order.");
+    return;
+  }
+
+  await ensurePdfLib();
+  const { PDFDocument, StandardFonts, rgb } = PDFLib;
+  const layoutConfig = layoutModel?.config || getSpacerLayoutConfig();
+  const pdfDoc = await PDFDocument.create();
+  const boldFont = await pdfDoc.embedFont(StandardFonts.CourierBold);
+  const regularFont = await pdfDoc.embedFont(StandardFonts.Courier);
+  const drawBlock = (page, block, x, startY) => {
+    let cursorY = startY;
+    if (!block || typeof block !== "object"){
+      return cursorY;
     }
-    if (section.showHeader){
-      drawHeaderBlock(section.headerText || "(No header)");
+    if (block.type === "header"){
+      const lines = Array.isArray(block.lines) ? block.lines : [""];
+      lines.forEach(line => {
+        page.drawText(line, {
+          x,
+          y: cursorY,
+          size: layoutConfig.headerSizePt,
+          font: regularFont,
+          color: rgb(0.11, 0.13, 0.17),
+        });
+        cursorY -= layoutConfig.headerLeadingPt;
+      });
+      cursorY -= layoutConfig.headerRuleTopGapPt;
+      page.drawLine({
+        start: { x, y: cursorY },
+        end: { x: x + layoutConfig.columnWidthPt, y: cursorY },
+        thickness: layoutConfig.headerRuleThicknessPt,
+        color: rgb(0.30, 0.33, 0.38),
+      });
+      cursorY -= layoutConfig.headerRuleBottomGapPt;
+      return cursorY;
     }
-    const groups = Array.isArray(section.groups) ? section.groups : [];
-    groups.forEach(group => drawGroupBlock(group));
+    if (block.type === "group"){
+      page.drawText(block.heightLine || "", {
+        x,
+        y: cursorY,
+        size: layoutConfig.heightSizePt,
+        font: boldFont,
+        color: rgb(0.08, 0.1, 0.14),
+      });
+      cursorY -= layoutConfig.heightLeadingPt;
+      cursorY -= layoutConfig.blankLeadingPt;
+      const rowLines = Array.isArray(block.rowLines) ? block.rowLines : [];
+      rowLines.forEach(line => {
+        page.drawText(line, {
+          x,
+          y: cursorY,
+          size: layoutConfig.rowSizePt,
+          font: regularFont,
+          color: rgb(0.08, 0.1, 0.14),
+        });
+        cursorY -= layoutConfig.rowLeadingPt;
+      });
+      cursorY -= layoutConfig.groupRuleTopGapPt;
+      page.drawLine({
+        start: { x, y: cursorY },
+        end: { x: x + layoutConfig.columnWidthPt, y: cursorY },
+        thickness: layoutConfig.groupRuleThicknessPt,
+        color: rgb(0.55, 0.58, 0.63),
+      });
+      cursorY -= layoutConfig.groupRuleBottomGapPt;
+      return cursorY;
+    }
+    return cursorY;
+  };
+
+  const pdfPages = [];
+  layoutPages.forEach((layoutPage, pageIndex) => {
+    const page = pdfDoc.addPage([layoutConfig.pageWidthPt, layoutConfig.pageHeightPt]);
+    pdfPages.push(page);
+    if (pageIndex === 0){
+      const titleY = layoutConfig.pageHeightPt - layoutConfig.marginPt - layoutConfig.titleSizePt;
+      const modeY = titleY - layoutConfig.titleLeadingPt;
+      page.drawText("Spacer Processing", {
+        x: layoutConfig.marginPt,
+        y: titleY,
+        size: layoutConfig.titleSizePt,
+        font: boldFont,
+        color: rgb(0.08, 0.1, 0.14),
+      });
+      page.drawText(layoutModel.modeText || getSpacerModeDisplayText(), {
+        x: layoutConfig.marginPt,
+        y: modeY,
+        size: layoutConfig.modeSizePt,
+        font: regularFont,
+        color: rgb(0.35, 0.38, 0.42),
+      });
+    }
+
+    const renderColumn = (blocks, columnIndex) => {
+      const safeBlocks = Array.isArray(blocks) ? blocks : [];
+      const x = layoutConfig.marginPt + (columnIndex * (layoutConfig.columnWidthPt + layoutConfig.columnGapPt));
+      let cursorY = pageIndex === 0 ? layoutConfig.firstPageColumnTopPt : layoutConfig.columnTopPt;
+      safeBlocks.forEach(block => {
+        cursorY = drawBlock(page, block, x, cursorY);
+      });
+    };
+
+    renderColumn(layoutPage?.leftBlocks, 0);
+    renderColumn(layoutPage?.rightBlocks, 1);
   });
 
-  const totalPages = pages.length;
-  pages.forEach((p, index) => {
+  const totalPages = pdfPages.length;
+  pdfPages.forEach((p, index) => {
     const footer = `Page ${index + 1} / ${totalPages}`;
     const footerSize = 9;
     const footerWidth = regularFont.widthOfTextAtSize(footer, footerSize);
     p.drawText(footer, {
-      x: pageWidth - marginRight - footerWidth,
-      y: Math.max(8, marginBottom - 8),
+      x: layoutConfig.pageWidthPt - layoutConfig.marginPt - footerWidth,
+      y: Math.max(8, layoutConfig.marginPt - 8),
       size: footerSize,
       font: regularFont,
       color: rgb(0.45, 0.48, 0.53),
@@ -9694,6 +10150,22 @@ if (spacerMergeOrdersToggle){
   spacerMergeOrdersToggle.checked = !!spacerProcessingState.mergeAcrossOrders;
   spacerMergeOrdersToggle.addEventListener("change", (event)=>{
     spacerProcessingState.mergeAcrossOrders = !!event.target.checked;
+    updateSpacerProcessingUI();
+  });
+}
+
+if (spacerPdfPreviewToggle){
+  spacerPdfPreviewToggle.checked = !!spacerProcessingState.pdfPreview;
+  spacerPdfPreviewToggle.addEventListener("change", (event)=>{
+    spacerProcessingState.pdfPreview = !!event.target.checked;
+    updateSpacerProcessingUI();
+  });
+}
+
+if (spacerWysiwygToggle){
+  spacerWysiwygToggle.checked = !!spacerProcessingState.liveHtmlPreview;
+  spacerWysiwygToggle.addEventListener("change", (event)=>{
+    spacerProcessingState.liveHtmlPreview = !!event.target.checked;
     updateSpacerProcessingUI();
   });
 }
