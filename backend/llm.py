@@ -258,7 +258,6 @@ def call_llm_for_extraction(pasted_text: str) -> Dict[str, Any]:
     messages = build_messages(prepared_text, corrections)
 
     preferred_models = [
-        "gpt-4o-turbo",
         "gpt-4o-mini",
     ]
 
@@ -431,7 +430,7 @@ def _update_carry_from_rows(rows: List[Dict[str, Any]], carry: Dict[str, str]) -
 
 def call_llm_for_extraction_multi(pages_text: List[str]) -> Dict[str, Any]:
     client = get_client()
-    preferred = ["gpt-4o-turbo", "gpt-4o-mini"]
+    preferred = ["gpt-4o-mini"]
     carry: Dict[str, str] = {"order_number": "", "glass_type": ""}
     all_rows: List[Dict[str, Any]] = []
     all_warnings: List[str] = []
