@@ -933,7 +933,10 @@
           </label>
           <button type="button" class="btn small" id="analysisRefresh">Refresh</button>
         </div>
-        <div id="analysisPeriodMeta" class="muted small" style="margin-top:10px"></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px">
+          <div id="analysisPeriodMeta" class="muted small"></div>
+          <div id="analysisFreshness" class="muted small"></div>
+        </div>
       </div>
 
       <div class="card" id="analysisKpisCard">
@@ -1291,6 +1294,10 @@ const DEFAULT_APPEARANCE_SETTINGS = Object.freeze({
 });
 const MOTHER_SHEET_SELECTOR = "#motherSheet, .mother-sheet";
 const ANALYSIS_MAX_DATASET_CHARS = 50000;
+const ANALYSIS_SNAPSHOT_TTL_MS = 7 * 60 * 1000;
+const ANALYSIS_SNAPSHOT_STORAGE_KEY = "loe.analysis.snapshots.v1";
+const ANALYSIS_SNAPSHOT_VERSION = 1;
+const ANALYSIS_MAX_SNAPSHOTS = 40;
 const INVOICE_PRICES_KEY = "loe.invoices.prices.v1";
 const INVOICE_JOBS_KEY = "loe.invoices.jobs.v1";
 const INVOICE_COUNTER_KEY = "loe.invoices.counter.v1";
@@ -1491,7 +1498,6 @@ const analysisState = {
   currentPeriod: null,
   previousPeriod: null,
   insights: [],
-  insightsLoading: false,
   advancedDataset: null,
   tolerance: 1,
   orientationAgnostic: true,
@@ -1513,6 +1519,10 @@ const analysisState = {
   allOrdersCache: [],
   allOrdersPromise: null,
   allOrdersDirty: true,
+  revalidating: false,
+  hasRenderedSnapshot: false,
+  currentSnapshotKey: "",
+  currentSnapshotComputedAt: "",
   renderRunId: 0,
   ai: {
     loading: false,
@@ -1593,6 +1603,7 @@ const analysisClientFilter = document.getElementById("analysisClientFilter");
 const analysisTypeFilter = document.getElementById("analysisTypeFilter");
 const analysisRefreshBtn = document.getElementById("analysisRefresh");
 const analysisPeriodMetaEl = document.getElementById("analysisPeriodMeta");
+const analysisFreshnessEl = document.getElementById("analysisFreshness");
 const analysisKpisEl = document.getElementById("analysisKpis");
 const analysisInsightsEl = document.getElementById("analysisInsights");
 const analysisAreaChartEl = document.getElementById("analysisAreaChart");
@@ -1693,8 +1704,8 @@ function activateTab(name){
     updateSpacerProcessingUI();
   }else if (name === "analysis"){
     ensureAnalysisReady();
-    if (analysisState.initialized && analysisState.allOrdersDirty){
-      refreshAnalysis();
+    if (analysisState.initialized){
+      refreshAnalysis({ reason: "tab-open" });
     }
   }else if (name === "labels"){
     updateLabelsUI();
@@ -2430,6 +2441,162 @@ function getAnalysisSessionId(){
   return analysisState.sessionId;
 }
 
+/**
+ * @typedef {Object} AnalysisSnapshotFilters
+ * @property {string} startDate
+ * @property {string} endDate
+ * @property {boolean} compareToPrevious
+ * @property {string} client
+ * @property {string} glassType
+ * @property {number} tolerance
+ * @property {boolean} orientationAgnostic
+ */
+
+/**
+ * @typedef {Object} AnalysisSnapshotPayload
+ * @property {AnalysisSnapshotFilters} filters
+ * @property {Object} kpis
+ * @property {Object} charts
+ * @property {Array<Object>} topClients
+ * @property {Array<Object>} topGlassTypes
+ * @property {Array<Object>} topDimensions
+ * @property {Array<Object>} insights
+ * @property {{clients:string[], glassTypes:string[]}} availableFilters
+ * @property {Object} period
+ * @property {Object|null} previousPeriod
+ * @property {Object} current
+ * @property {Object|null} previous
+ * @property {string} computedAt
+ * @property {"fresh"|"stale"} cacheStatus
+ */
+
+function createStableHash(value){
+  const text = JSON.stringify(value || {});
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1){
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `a${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+function normalizeSnapshotFilters(settings){
+  return {
+    startDate: String(settings?.startDate || ""),
+    endDate: String(settings?.endDate || ""),
+    compareToPrevious: !!settings?.comparePrevious,
+    client: String(settings?.client || ""),
+    glassType: String(settings?.glassType || ""),
+    tolerance: Number(settings?.tolerance) || 0,
+    orientationAgnostic: !!settings?.orientationAgnostic,
+  };
+}
+
+function buildSnapshotCacheKey(filters){
+  const normalized = normalizeSnapshotFilters(filters);
+  return createStableHash(normalized);
+}
+
+const analysisSnapshotRepo = {
+  map: new Map(),
+  hydrated: false,
+};
+
+function hydrateAnalysisSnapshotRepo(){
+  if (analysisSnapshotRepo.hydrated) return;
+  analysisSnapshotRepo.hydrated = true;
+  try{
+    const raw = localStorage.getItem(ANALYSIS_SNAPSHOT_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return;
+    parsed.forEach(entry => {
+      if (!entry || typeof entry !== "object") return;
+      if (entry.version !== ANALYSIS_SNAPSHOT_VERSION) return;
+      const key = String(entry.key || "").trim();
+      if (!key) return;
+      analysisSnapshotRepo.map.set(key, entry);
+    });
+  }catch{
+    /* ignore local cache parse failures */
+  }
+}
+
+function persistAnalysisSnapshotRepo(){
+  try{
+    const entries = Array.from(analysisSnapshotRepo.map.values())
+      .sort((a, b)=> {
+        const ta = new Date(a?.payload?.computedAt || 0).getTime();
+        const tb = new Date(b?.payload?.computedAt || 0).getTime();
+        return tb - ta;
+      })
+      .slice(0, ANALYSIS_MAX_SNAPSHOTS);
+    localStorage.setItem(ANALYSIS_SNAPSHOT_STORAGE_KEY, JSON.stringify(entries));
+  }catch{
+    /* ignore local cache quota failures */
+  }
+}
+
+function getAnalysisSnapshot(filters){
+  hydrateAnalysisSnapshotRepo();
+  const key = buildSnapshotCacheKey(filters);
+  return analysisSnapshotRepo.map.get(key) || null;
+}
+
+function saveAnalysisSnapshot(snapshot){
+  if (!snapshot || typeof snapshot !== "object") return;
+  hydrateAnalysisSnapshotRepo();
+  const key = String(snapshot.key || "").trim();
+  if (!key) return;
+  analysisSnapshotRepo.map.set(key, snapshot);
+  persistAnalysisSnapshotRepo();
+}
+
+function getSnapshotAgeMs(snapshot){
+  const computedAt = snapshot?.payload?.computedAt;
+  const computedTs = computedAt ? new Date(computedAt).getTime() : 0;
+  if (!computedTs) return Number.POSITIVE_INFINITY;
+  return Math.max(0, Date.now() - computedTs);
+}
+
+function shouldRevalidateSnapshot(snapshot, options = {}){
+  if (options.force) return true;
+  if (!snapshot) return true;
+  if (options.sourceDirty) return true;
+  const ageMs = getSnapshotAgeMs(snapshot);
+  return ageMs > ANALYSIS_SNAPSHOT_TTL_MS;
+}
+
+function formatSnapshotFreshness(computedAt, isRefreshing = false){
+  if (!computedAt){
+    return isRefreshing ? "Refreshing…" : "";
+  }
+  const timestamp = new Date(computedAt).getTime();
+  if (!timestamp){
+    return isRefreshing ? "Refreshing…" : "";
+  }
+  const diffMs = Math.max(0, Date.now() - timestamp);
+  let label = "Updated just now";
+  if (diffMs >= 60 * 1000){
+    const minutes = Math.floor(diffMs / (60 * 1000));
+    if (minutes < 60){
+      label = `Updated ${minutes} min ago`;
+    }else{
+      const hours = Math.floor(minutes / 60);
+      label = `Updated ${hours}h ago`;
+    }
+  }
+  if (isRefreshing){
+    label += " • Refreshing…";
+  }
+  return label;
+}
+
+function setAnalysisFreshnessLabel(computedAt, isRefreshing = false){
+  if (!analysisFreshnessEl) return;
+  analysisFreshnessEl.textContent = formatSnapshotFreshness(computedAt, isRefreshing);
+}
+
 function formatNumber(value, { decimals = 0 } = {}){
   const number = Number(value) || 0;
   return number.toLocaleString(undefined, {
@@ -2695,6 +2862,27 @@ function populateAnalysisFilterOptions(orders){
       .concat(Array.from(types).sort(compareStrings).map(type => `<option value="${escapeHtml(type)}">${escapeHtml(type)}</option>`));
     analysisTypeFilter.innerHTML = options.join("");
     analysisTypeFilter.value = types.has(currentType) ? currentType : "";
+    analysisState.controls.glassType = analysisTypeFilter.value || "";
+  }
+}
+
+function populateAnalysisFilterOptionsFromSnapshot(availableFilters){
+  const clients = Array.isArray(availableFilters?.clients) ? availableFilters.clients : [];
+  const types = Array.isArray(availableFilters?.glassTypes) ? availableFilters.glassTypes : [];
+  if (analysisClientFilter && clients.length){
+    const selected = analysisState.controls.client || "";
+    const options = ['<option value="">All clients</option>']
+      .concat(clients.slice().sort(compareStrings).map(client => `<option value="${escapeHtml(client)}">${escapeHtml(client)}</option>`));
+    analysisClientFilter.innerHTML = options.join("");
+    analysisClientFilter.value = clients.includes(selected) ? selected : "";
+    analysisState.controls.client = analysisClientFilter.value || "";
+  }
+  if (analysisTypeFilter && types.length){
+    const selected = analysisState.controls.glassType || "";
+    const options = ['<option value="">All glass types</option>']
+      .concat(types.slice().sort(compareStrings).map(type => `<option value="${escapeHtml(type)}">${escapeHtml(type)}</option>`));
+    analysisTypeFilter.innerHTML = options.join("");
+    analysisTypeFilter.value = types.includes(selected) ? selected : "";
     analysisState.controls.glassType = analysisTypeFilter.value || "";
   }
 }
@@ -3385,7 +3573,7 @@ function buildSignalsSummary(context){
   };
 }
 
-function buildAdvancedAnalysisDataset(context){
+function buildAdvancedAnalysisDataset(context, insights = analysisState.insights || []){
   return {
     scope: "filtered-period",
     meta: {
@@ -3401,22 +3589,75 @@ function buildAdvancedAnalysisDataset(context){
       current: context?.current || {},
       previous: context?.previous || null,
       compare_enabled: !!context?.previous,
-      insights: analysisState.insights || [],
+      insights: insights || [],
     },
     orders: [],
     processing_orders: [],
   };
 }
 
-async function runAnalysisPipeline(options = {}){
-  const settings = readAnalysisSettings();
-  const context = buildAnalysisContext(analysisState.orders || [], settings);
+function buildAnalysisSnapshotPayload(filters, context, insights, computedAt, cacheStatus = "fresh"){
+  const availableClients = Array.from(new Set((analysisState.orders || []).map(order => {
+    const client = (order?.client || "—").trim() || "—";
+    return client;
+  }))).sort(compareStrings);
+  const availableTypes = (() => {
+    const typeSet = new Set();
+    (analysisState.orders || []).forEach(order => {
+      if (!order || !Array.isArray(order.rows)) return;
+      order.rows.forEach(row => {
+        const type = (row?.type || "—").trim() || "—";
+        typeSet.add(type);
+      });
+    });
+    return Array.from(typeSet).sort(compareStrings);
+  })();
+  return {
+    filters: normalizeSnapshotFilters(filters),
+    period: context?.period || {},
+    previousPeriod: context?.previousPeriod || null,
+    current: context?.current || {},
+    previous: context?.previous || null,
+    kpis: context?.current?.totals || {},
+    charts: {
+      daily: context?.current?.daily || [],
+      topClients: context?.current?.topClients || [],
+      topGlassTypes: context?.current?.topTypes || [],
+    },
+    topClients: context?.current?.topClients || [],
+    topGlassTypes: context?.current?.topTypes || [],
+    topDimensions: context?.current?.topDimensions || [],
+    insights: Array.isArray(insights) ? insights : [],
+    availableFilters: {
+      clients: availableClients,
+      glassTypes: availableTypes,
+    },
+    computedAt: computedAt || new Date().toISOString(),
+    cacheStatus,
+  };
+}
+
+function applyAnalysisSnapshotPayload(payload, options = {}){
+  if (!payload || typeof payload !== "object"){
+    return;
+  }
+  populateAnalysisFilterOptionsFromSnapshot(payload.availableFilters);
+  const context = {
+    period: payload.period || {},
+    previousPeriod: payload.previousPeriod || null,
+    current: payload.current || { totals: payload.kpis || {} },
+    previous: payload.previous || null,
+  };
   analysisState.currentPeriod = context.current;
   analysisState.previousPeriod = context.previous;
-  analysisState.metrics = context.current?.totals || null;
-  analysisState.topClients = context.current?.topClients || [];
-  analysisState.topTypes = context.current?.topTypes || [];
-  analysisState.topDimensions = context.current?.topDimensions || [];
+  analysisState.metrics = context.current?.totals || payload.kpis || null;
+  analysisState.topClients = Array.isArray(payload.topClients) ? payload.topClients.slice() : [];
+  analysisState.topTypes = Array.isArray(payload.topGlassTypes) ? payload.topGlassTypes.slice() : [];
+  analysisState.topDimensions = Array.isArray(payload.topDimensions) ? payload.topDimensions.slice() : [];
+  analysisState.insights = Array.isArray(payload.insights) ? payload.insights.slice() : [];
+  analysisState.currentSnapshotComputedAt = payload.computedAt || "";
+  analysisState.hasRenderedSnapshot = true;
+  analysisState.advancedDataset = buildAdvancedAnalysisDataset(context, analysisState.insights);
   renderPeriodMeta(context);
   renderAnalysisKpis(context);
   renderTopClients(analysisState.topClients);
@@ -3424,58 +3665,128 @@ async function runAnalysisPipeline(options = {}){
   renderTopDimensions(analysisState.topDimensions);
   renderCharts(context);
   renderSortIndicators();
-  analysisState.advancedDataset = buildAdvancedAnalysisDataset(context);
-  if (options.skipInsights){
-    return context;
-  }
-  const runId = ++analysisState.renderRunId;
-  analysisState.insightsLoading = true;
-  renderInsights([], context, true);
-  try{
-    const summary = buildSignalsSummary(context);
-    const signals = await fetchAnalysisSignals(summary);
-    if (runId !== analysisState.renderRunId) return context;
-    analysisState.insights = signals;
-  }catch(error){
-    console.warn("Analysis signals unavailable:", error);
-    if (runId !== analysisState.renderRunId) return context;
-    analysisState.insights = [];
-  }finally{
-    if (runId === analysisState.renderRunId){
-      analysisState.insightsLoading = false;
-      renderInsights(analysisState.insights, context, false);
-      analysisState.advancedDataset = buildAdvancedAnalysisDataset(context);
-    }
-  }
-  return context;
+  renderInsights(analysisState.insights, context, false);
+  setAnalysisFreshnessLabel(payload.computedAt || "", !!options.refreshing);
 }
 
-async function refreshAnalysis(forceReload = false){
+async function ensureAnalysisOrdersLoaded(settings, options = {}){
+  const forceReload = !!options.forceReload;
+  const alreadyLoaded = analysisState.dataset && Array.isArray(analysisState.orders) && analysisState.orders.length > 0;
+  if (alreadyLoaded && !forceReload && !analysisState.allOrdersDirty){
+    return;
+  }
+  await ensureHistoryLoaded();
+  const dataset = await buildAllTimeAnalysisDataset(settings);
+  analysisState.dataset = dataset;
+  analysisState.orders = mergeOrdersForAnalysis(dataset);
+  populateAnalysisFilterOptions(analysisState.orders);
+  setAnalysisControlDefaults(analysisState.orders);
+  analysisState.allOrdersDirty = false;
+}
+
+function setAnalysisRefreshingState(isRefreshing, { manual = false } = {}){
+  analysisState.revalidating = !!isRefreshing;
+  setAnalysisFreshnessLabel(analysisState.currentSnapshotComputedAt || "", analysisState.revalidating);
+  if (analysisRefreshBtn){
+    analysisRefreshBtn.disabled = !!manual && !!isRefreshing;
+    analysisRefreshBtn.textContent = (manual && isRefreshing) ? "Refreshing…" : "Refresh";
+  }
+}
+
+async function computeAnalysisSnapshot(settings, options = {}){
+  const filters = normalizeSnapshotFilters(settings);
+  await ensureAnalysisOrdersLoaded(settings, { forceReload: !!options.forceReload });
+  const context = buildAnalysisContext(analysisState.orders || [], settings);
+  const runId = ++analysisState.renderRunId;
+  let signals = [];
+  try{
+    const summary = buildSignalsSummary(context);
+    signals = await fetchAnalysisSignals(summary);
+  }catch(error){
+    console.warn("Analysis signals unavailable:", error);
+    signals = [];
+  }
+  if (runId !== analysisState.renderRunId){
+    return null;
+  }
+  const computedAt = new Date().toISOString();
+  const payload = buildAnalysisSnapshotPayload(filters, context, signals, computedAt, "fresh");
+  const key = buildSnapshotCacheKey(filters);
+  saveAnalysisSnapshot({
+    version: ANALYSIS_SNAPSHOT_VERSION,
+    key,
+    filters,
+    payload,
+  });
+  return payload;
+}
+
+async function refreshAnalysis(options = {}){
+  const opts = typeof options === "object" && options != null ? options : { force: !!options };
+  const force = !!opts.force;
+  const manual = !!opts.manual || force;
   const settings = readAnalysisSettings();
+  const filters = normalizeSnapshotFilters(settings);
+  const snapshotKey = buildSnapshotCacheKey(filters);
+  const cachedEntry = getAnalysisSnapshot(filters);
+  const hasCached = !!cachedEntry?.payload;
+  const stale = hasCached ? shouldRevalidateSnapshot(cachedEntry, { sourceDirty: analysisState.allOrdersDirty }) : true;
+
   if (analysisState.loading){
-    return analysisState.promise;
+    if (!force){
+      return analysisState.promise;
+    }
+    await analysisState.promise;
   }
-  if (forceReload){
-    analysisState.allOrdersDirty = true;
+
+  if (hasCached && !force){
+    const cachedPayload = {
+      ...cachedEntry.payload,
+      cacheStatus: stale ? "stale" : "fresh",
+    };
+    analysisState.currentSnapshotKey = snapshotKey;
+    applyAnalysisSnapshotPayload(cachedPayload, { refreshing: stale });
+    setAnalysisStatus("");
+    if (!stale){
+      return cachedPayload;
+    }
+  }else{
+    setAnalysisStatus(analysisState.hasRenderedSnapshot ? "Refreshing selected filters…" : "Preparing analysis snapshot…");
+    if (!analysisState.hasRenderedSnapshot){
+      renderInsights([], null, true);
+    }
   }
+
+  const shouldCompute = force || !hasCached || stale;
+  if (!shouldCompute){
+    return cachedEntry.payload;
+  }
+
+  setAnalysisRefreshingState(true, { manual });
   analysisState.loading = true;
-  setAnalysisStatus("Loading analysis…");
   const task = (async ()=>{
     try{
-      await ensureHistoryLoaded();
-      const dataset = await buildAllTimeAnalysisDataset(settings);
-      analysisState.dataset = dataset;
-      analysisState.orders = mergeOrdersForAnalysis(dataset);
-      populateAnalysisFilterOptions(analysisState.orders);
-      setAnalysisControlDefaults(analysisState.orders);
-      const context = await runAnalysisPipeline();
-      const message = analysisState.orders.length
-        ? `Updated ${new Date().toLocaleTimeString()}`
-        : "No analysis data available.";
-      setAnalysisStatus(message);
-      return { dataset, context };
+      const payload = await computeAnalysisSnapshot(settings, {
+        forceReload: force || analysisState.allOrdersDirty || !hasCached,
+      });
+      if (!payload){
+        return hasCached ? cachedEntry.payload : null;
+      }
+      const latestFilters = normalizeSnapshotFilters(readAnalysisSettings());
+      const latestKey = buildSnapshotCacheKey(latestFilters);
+      if (latestKey === snapshotKey){
+        analysisState.currentSnapshotKey = snapshotKey;
+        applyAnalysisSnapshotPayload(payload, { refreshing: false });
+        setAnalysisStatus("");
+      }
+      return payload;
     }catch(error){
       console.error("Analysis refresh failed:", error);
+      if (hasCached){
+        setAnalysisStatus("Refresh failed — showing cached analysis.");
+        applyAnalysisSnapshotPayload(cachedEntry.payload, { refreshing: false });
+        return cachedEntry.payload;
+      }
       setAnalysisStatus("Analysis unavailable — check connection.");
       analysisState.dataset = null;
       analysisState.orders = [];
@@ -3487,15 +3798,18 @@ async function refreshAnalysis(forceReload = false){
       analysisState.previousPeriod = null;
       analysisState.insights = [];
       analysisState.advancedDataset = null;
+      analysisState.currentSnapshotComputedAt = "";
       renderAnalysisKpis({ current: { totals: null } });
       renderTopClients([]);
       renderTopTypes([]);
       renderTopDimensions([]);
       renderCharts({ current: { daily: [], topClients: [], topTypes: [] } });
       renderInsights([], null, false);
+      setAnalysisFreshnessLabel("", false);
       return null;
     }finally{
       analysisState.loading = false;
+      setAnalysisRefreshingState(false, { manual });
     }
   })();
   analysisState.promise = task;
@@ -3504,13 +3818,7 @@ async function refreshAnalysis(forceReload = false){
 
 function recalculateDimensionBuckets(){
   readAnalysisSettings();
-  if (!analysisState.dataset || !Array.isArray(analysisState.orders) || !analysisState.orders.length){
-    refreshAnalysis();
-    return;
-  }
-  runAnalysisPipeline().then(()=>{
-    setAnalysisStatus("Dimensions recalculated.");
-  });
+  refreshAnalysis({ reason: "dimension-recalc" });
 }
 
 function ensureAnalysisReady(){
@@ -3559,8 +3867,7 @@ function bindAnalysisSortHandlers(){
 
 function bindAnalysisFilterHandlers(){
   const runLocal = ()=> {
-    if (!analysisState.orders.length) return;
-    runAnalysisPipeline();
+    refreshAnalysis({ reason: "filter-change" });
   };
   if (analysisDateStartInput) analysisDateStartInput.addEventListener("change", runLocal);
   if (analysisDateEndInput) analysisDateEndInput.addEventListener("change", runLocal);
@@ -3568,7 +3875,7 @@ function bindAnalysisFilterHandlers(){
   if (analysisClientFilter) analysisClientFilter.addEventListener("change", runLocal);
   if (analysisTypeFilter) analysisTypeFilter.addEventListener("change", runLocal);
   if (analysisRefreshBtn){
-    analysisRefreshBtn.addEventListener("click", ()=> refreshAnalysis(true));
+    analysisRefreshBtn.addEventListener("click", ()=> refreshAnalysis({ force: true, manual: true, reason: "manual-refresh" }));
   }
   if (analysisDistributionMetricEl){
     analysisDistributionMetricEl.addEventListener("click", event => {
@@ -3601,9 +3908,10 @@ function initAnalysis(){
   renderTopDimensions([]);
   renderCharts({ current: { daily: [], topClients: [], topTypes: [] } });
   renderInsights([], null, false);
+  setAnalysisFreshnessLabel("", false);
   bindAnalysisFilterHandlers();
   bindAnalysisSortHandlers();
-  refreshAnalysis();
+  refreshAnalysis({ reason: "init" });
   if (analysisToleranceInput){
     analysisToleranceInput.addEventListener("change", ()=> recalculateDimensionBuckets());
     analysisToleranceInput.addEventListener("input", ()=> readAnalysisSettings());
@@ -3723,10 +4031,10 @@ async function submitAnalysisQuestion(){
   if (analysisState.loading){
     await analysisState.promise;
   }
-  if (!analysisState.dataset){
+  if (!analysisState.advancedDataset){
     await refreshAnalysis();
   }
-  if (!analysisState.dataset){
+  if (!analysisState.advancedDataset){
     setAnalysisAnswerPlaceholder("AI analysis is unavailable. The dashboard above still works offline.", true);
     return;
   }
