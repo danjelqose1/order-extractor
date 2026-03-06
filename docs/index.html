@@ -60,6 +60,52 @@
     .summary{margin:14px 0 10px;font-weight:600;font-size:15px;display:flex;gap:12px;flex-wrap:wrap;align-items:center}
     .pill{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:999px;background:var(--primary-soft);color:var(--primary);font-size:12px}
     .pill.warn{background:#fef3c7;color:#b45309}
+    .analysis-filter-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;align-items:end}
+    .analysis-filter-grid label{display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:600;color:var(--muted)}
+    .analysis-filter-grid input,.analysis-filter-grid select{padding:8px 10px;border:1px solid var(--border-dark);border-radius:10px;background:#fbfcff;font-size:13px;color:var(--text)}
+    .analysis-filter-grid input:focus,.analysis-filter-grid select:focus{outline:2px solid var(--primary-soft);border-color:var(--primary)}
+    .analysis-filter-grid .inline-toggle{align-self:center;padding-top:18px}
+    .analysis-kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:12px}
+    .analysis-kpi-card{border:1px solid var(--border);border-radius:12px;background:#f9fbff;padding:10px;display:flex;flex-direction:column;gap:6px;min-height:94px}
+    .analysis-kpi-label{font-size:12px;color:var(--muted);font-weight:600}
+    .analysis-kpi-value{font-size:20px;font-weight:700;color:var(--text);line-height:1.2}
+    .analysis-kpi-footer{display:flex;align-items:center;justify-content:space-between;gap:8px}
+    .analysis-delta{font-size:12px;font-weight:600}
+    .analysis-delta.up{color:#065f46}
+    .analysis-delta.down{color:#991b1b}
+    .analysis-delta.flat{color:var(--muted)}
+    .analysis-sparkline{width:70px;height:24px}
+    .analysis-charts-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+    .analysis-chart-card{border:1px solid var(--border);border-radius:12px;padding:12px;background:#fbfcff;display:flex;flex-direction:column;gap:10px;min-height:210px}
+    .analysis-chart-header{display:flex;align-items:center;justify-content:space-between;gap:10px}
+    .analysis-chart-header h4{margin:0;font-size:14px}
+    .analysis-chart-subtitle{font-size:12px;color:var(--muted)}
+    .analysis-chart-body{flex:1;min-height:140px}
+    .analysis-chart-body svg{width:100%;height:160px;display:block}
+    .analysis-chart-empty{height:160px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;border:1px dashed var(--border);border-radius:10px;background:#fff}
+    .analysis-bars{display:flex;flex-direction:column;gap:8px}
+    .analysis-bar-row{display:grid;grid-template-columns:minmax(84px,1fr) 3fr auto;gap:8px;align-items:center;font-size:12px}
+    .analysis-bar-label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)}
+    .analysis-bar-track{height:8px;border-radius:999px;background:#e5e7eb;overflow:hidden}
+    .analysis-bar-fill{height:100%;border-radius:999px;background:#4c5cff}
+    .analysis-bar-value{color:var(--muted);font-variant-numeric:tabular-nums}
+    .analysis-insights-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
+    .analysis-insight-card{border:1px solid var(--border);border-radius:12px;padding:12px;background:#fbfcff;display:flex;flex-direction:column;gap:6px}
+    .analysis-insight-card.high{border-color:#fca5a5;background:#fff7f7}
+    .analysis-insight-card.medium{border-color:#fcd34d;background:#fffbeb}
+    .analysis-insight-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:700;letter-spacing:.03em}
+    .analysis-insight-title{margin:0;font-size:14px}
+    .analysis-insight-explain{margin:0;font-size:13px;color:#334155}
+    .analysis-insight-card details{margin:0}
+    .analysis-insight-card summary{font-size:12px;color:var(--primary)}
+    .analysis-table-header{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+    .analysis-table-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .analysis-table-sort button{border:none;background:none;color:inherit;font:inherit;font-weight:600;cursor:pointer;padding:0}
+    .analysis-table-sort button.active{color:var(--primary)}
+    .analysis-split-grid{display:grid;grid-template-columns:minmax(260px,1fr) minmax(320px,2fr);gap:12px}
+    .analysis-quick-actions{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+    .analysis-distribution-toggle{display:flex;gap:6px;flex-wrap:wrap}
+    .analysis-distribution-toggle .btn.small.active{background:#e9edff;border-color:var(--primary);color:#22306f}
     .table-responsive{width:100%;max-width:100%;overflow-x:auto;border-radius:12px;border:1px solid var(--border);background:var(--card-bg)}
     table{width:100%;border-collapse:collapse;min-width:640px}
     .editable-table{min-width:720px;table-layout:auto}
@@ -390,6 +436,7 @@
       .processing-controls .card{order:-1}
       .processing-order-list{max-height:none}
       .igu-grid{grid-template-columns:1fr;}
+      .analysis-split-grid{grid-template-columns:1fr}
       .spacer-output{font-size:16px}
       .spacer-output.pdf-preview{column-count:1}
       .spacer-page{
@@ -851,59 +898,148 @@
     <section id="tabAnalysis" class="tab-panel">
       <div class="card">
         <h2 style="margin-top:0">Analysis</h2>
-        <p class="muted small">AI-assisted analytics on your orders.</p>
+        <p class="muted small">Deterministic analytics with explainable signals for daily factory planning.</p>
         <div class="status-row">
           <span id="analysisStatus" class="muted small"></span>
         </div>
         <button type="button" class="btn small" id="analysisDebugToggle" style="display:none;margin-top:8px">Log dataset rows</button>
       </div>
 
+      <div class="card" id="analysisControlsCard">
+        <div class="analysis-filter-grid">
+          <label>
+            <span>Start date</span>
+            <input type="date" id="analysisDateStart" />
+          </label>
+          <label>
+            <span>End date</span>
+            <input type="date" id="analysisDateEnd" />
+          </label>
+          <label class="inline-toggle">
+            <input type="checkbox" id="analysisCompareToggle" checked />
+            <span>Compare to previous period</span>
+          </label>
+          <label>
+            <span>Client</span>
+            <select id="analysisClientFilter">
+              <option value="">All clients</option>
+            </select>
+          </label>
+          <label>
+            <span>Glass type</span>
+            <select id="analysisTypeFilter">
+              <option value="">All glass types</option>
+            </select>
+          </label>
+          <button type="button" class="btn small" id="analysisRefresh">Refresh</button>
+        </div>
+        <div id="analysisPeriodMeta" class="muted small" style="margin-top:10px"></div>
+      </div>
+
       <div class="card" id="analysisKpisCard">
         <h3 style="margin-top:0">KPIs</h3>
-        <div class="summary" id="analysisKpis">
-          <span class="pill"><span class="muted small">Orders</span><strong id="analysisKpiOrders">0</strong></span>
-          <span class="pill"><span class="muted small">Units</span><strong id="analysisKpiUnits">0</strong></span>
-          <span class="pill"><span class="muted small">m²</span><strong id="analysisKpiArea">0</strong></span>
-          <span class="pill"><span class="muted small">Avg m²/order</span><strong id="analysisKpiAvgArea">0</strong></span>
-          <span class="pill"><span class="muted small">Avg units/order</span><strong id="analysisKpiAvgUnits">0</strong></span>
+        <div id="analysisKpis" class="analysis-kpi-grid"></div>
+      </div>
+
+      <div class="card" id="analysisInsightsCard">
+        <div class="analysis-table-header">
+          <h3 style="margin:0">Smart Insights</h3>
+          <span class="muted small">Traceable to computed metrics</span>
+        </div>
+        <div id="analysisInsights" class="analysis-insights-grid" style="margin-top:10px">
+          <div class="analysis-insight-card">
+            <p class="muted small" style="margin:0">No insights yet.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="analysisChartsCard">
+        <h3 style="margin-top:0">Charts</h3>
+        <div class="analysis-charts-grid">
+          <div class="analysis-chart-card">
+            <div class="analysis-chart-header">
+              <h4>Area over time</h4>
+            </div>
+            <div id="analysisAreaChart" class="analysis-chart-body"></div>
+          </div>
+          <div class="analysis-chart-card">
+            <div class="analysis-chart-header">
+              <h4>Units over time</h4>
+            </div>
+            <div id="analysisUnitsChart" class="analysis-chart-body"></div>
+          </div>
+          <div class="analysis-chart-card">
+            <div class="analysis-chart-header">
+              <h4>Top clients by area</h4>
+            </div>
+            <div id="analysisTopClientsChart" class="analysis-chart-body"></div>
+          </div>
+          <div class="analysis-chart-card">
+            <div class="analysis-chart-header">
+              <h4>Glass type distribution</h4>
+              <div class="analysis-distribution-toggle" id="analysisDistributionMetric">
+                <button type="button" class="btn small active" data-metric="area">Area</button>
+                <button type="button" class="btn small" data-metric="units">Units</button>
+                <button type="button" class="btn small" data-metric="lines">Lines</button>
+              </div>
+            </div>
+            <div id="analysisTypeDistributionChart" class="analysis-chart-body"></div>
+          </div>
         </div>
       </div>
 
       <div class="card" id="analysisTopClientsCard">
-        <h3 style="margin-top:0">Top Clients</h3>
-        <div class="table-responsive">
-          <table>
-            <thead>
-              <tr>
-                <th>Client</th>
-                <th>Orders</th>
-                <th>Units</th>
-                <th>Area (m²)</th>
-              </tr>
-            </thead>
-            <tbody id="analysisTopClientsBody">
-              <tr>
-                <td colspan="4" class="muted">No data.</td>
-              </tr>
-            </tbody>
-          </table>
+        <div class="analysis-table-header">
+          <h3 style="margin:0">Top Clients</h3>
+          <span class="muted small">Sortable and period-aware</span>
+        </div>
+        <div class="analysis-split-grid" style="margin-top:10px">
+          <div id="analysisTopClientsMiniChart" class="analysis-chart-card">
+            <div class="analysis-chart-header"><h4>Share by area</h4></div>
+            <div id="analysisTopClientsBars" class="analysis-chart-body"></div>
+          </div>
+          <div class="table-responsive">
+            <table>
+              <thead id="analysisTopClientsHead">
+                <tr>
+                  <th class="analysis-table-sort"><button type="button" data-table="clients" data-sort="client">Client</button></th>
+                  <th class="analysis-table-sort"><button type="button" data-table="clients" data-sort="orders">Orders</button></th>
+                  <th class="analysis-table-sort"><button type="button" data-table="clients" data-sort="units">Units</button></th>
+                  <th class="analysis-table-sort"><button type="button" data-table="clients" data-sort="area">Area (m²)</button></th>
+                  <th class="analysis-table-sort"><button type="button" data-table="clients" data-sort="share">Share</button></th>
+                  <th class="analysis-table-sort"><button type="button" data-table="clients" data-sort="growth">Growth</button></th>
+                </tr>
+              </thead>
+              <tbody id="analysisTopClientsBody">
+                <tr>
+                  <td colspan="6" class="muted">No data.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
       <div class="card" id="analysisTopTypesCard">
-        <h3 style="margin-top:0">Top Glass Types</h3>
-        <div class="table-responsive">
+        <div class="analysis-table-header">
+          <h3 style="margin:0">Top Glass Types</h3>
+          <span class="muted small">Sortable mix with share and growth</span>
+        </div>
+        <div class="table-responsive" style="margin-top:10px">
           <table>
-            <thead>
+            <thead id="analysisTopTypesHead">
               <tr>
-                <th>Type</th>
-                <th>Lines</th>
-                <th>Units</th>
+                <th class="analysis-table-sort"><button type="button" data-table="types" data-sort="type">Type</button></th>
+                <th class="analysis-table-sort"><button type="button" data-table="types" data-sort="lines">Lines</button></th>
+                <th class="analysis-table-sort"><button type="button" data-table="types" data-sort="units">Units</button></th>
+                <th class="analysis-table-sort"><button type="button" data-table="types" data-sort="area">Area (m²)</button></th>
+                <th class="analysis-table-sort"><button type="button" data-table="types" data-sort="share">Share</button></th>
+                <th class="analysis-table-sort"><button type="button" data-table="types" data-sort="growth">Growth</button></th>
               </tr>
             </thead>
             <tbody id="analysisTopTypesBody">
               <tr>
-                <td colspan="3" class="muted">No data.</td>
+                <td colspan="6" class="muted">No data.</td>
               </tr>
             </tbody>
           </table>
@@ -927,17 +1063,21 @@
         </div>
         <div class="table-responsive">
           <table>
-            <thead>
+            <thead id="analysisDimensionsHead">
               <tr>
-                <th>Dimension</th>
-                <th>Qty</th>
-                <th>Orders</th>
-                <th>Clients</th>
+                <th class="analysis-table-sort"><button type="button" data-table="dimensions" data-sort="dimension">Dimension</button></th>
+                <th class="analysis-table-sort"><button type="button" data-table="dimensions" data-sort="qty">Qty</button></th>
+                <th class="analysis-table-sort"><button type="button" data-table="dimensions" data-sort="orders">Orders</button></th>
+                <th class="analysis-table-sort"><button type="button" data-table="dimensions" data-sort="clients">Clients</button></th>
+                <th class="analysis-table-sort"><button type="button" data-table="dimensions" data-sort="repeatScore">Repeat score</button></th>
+                <th class="analysis-table-sort"><button type="button" data-table="dimensions" data-sort="orderSpread">Order spread</button></th>
+                <th class="analysis-table-sort"><button type="button" data-table="dimensions" data-sort="clientSpread">Client spread</button></th>
+                <th class="analysis-table-sort"><button type="button" data-table="dimensions" data-sort="batching">Batching</button></th>
               </tr>
             </thead>
             <tbody id="analysisDimensionsBody">
               <tr>
-                <td colspan="4" class="muted">No data.</td>
+                <td colspan="8" class="muted">No data.</td>
               </tr>
             </tbody>
           </table>
@@ -945,12 +1085,19 @@
       </div>
 
       <div class="card" id="analysisAiCard">
-        <h3 style="margin-top:0">AI Prompt</h3>
+        <h3 style="margin-top:0">Advanced Analysis</h3>
+        <div class="analysis-quick-actions" id="analysisQuickActions">
+          <button type="button" class="btn small" data-question="Compare periods for volume, area, and client concentration.">Compare periods</button>
+          <button type="button" class="btn small" data-question="Detect anomalies using deterministic metrics and explain thresholds.">Detect anomalies</button>
+          <button type="button" class="btn small" data-question="Analyze top clients by share, growth, and contribution risk.">Analyze top clients</button>
+          <button type="button" class="btn small" data-question="Explain glass type mix changes and likely production impact.">Explain glass mix</button>
+          <button type="button" class="btn small" data-question="Summarize repeated dimensions and batching opportunities.">Summarize repeated dimensions</button>
+        </div>
         <div class="controls" style="align-items:stretch">
-          <input type="text" id="analysisQuestion" placeholder="e.g., Which client ordered the most units last month?" style="flex:1;min-width:200px;padding:8px 12px;border:1px solid var(--border-dark);border-radius:10px;background:#fbfcff" />
+          <input type="text" id="analysisQuestion" placeholder="Ask about current aggregated analysis (no raw rows)." style="flex:1;min-width:200px;padding:8px 12px;border:1px solid var(--border-dark);border-radius:10px;background:#fbfcff" />
           <button type="button" class="btn primary" id="analysisAsk">Ask</button>
         </div>
-        <div id="analysisAnswer" class="muted small" style="margin-top:12px">Ask a question to see AI insights.</div>
+        <div id="analysisAnswer" class="muted small" style="margin-top:12px">Ask a question based on the computed analysis above.</div>
       </div>
     </section>
 
@@ -1336,17 +1483,37 @@ const analysisState = {
   initialized: false,
   loading: false,
   dataset: null,
+  orders: [],
   metrics: null,
   topClients: [],
   topTypes: [],
   topDimensions: [],
+  currentPeriod: null,
+  previousPeriod: null,
+  insights: [],
+  insightsLoading: false,
+  advancedDataset: null,
   tolerance: 1,
   orientationAgnostic: true,
+  distributionMetric: "area",
+  controls: {
+    startDate: "",
+    endDate: "",
+    comparePrevious: true,
+    client: "",
+    glassType: "",
+  },
+  sort: {
+    clients: { key: "area", direction: "desc" },
+    types: { key: "area", direction: "desc" },
+    dimensions: { key: "qty", direction: "desc" },
+  },
   promise: Promise.resolve(),
   sessionId: null,
   allOrdersCache: [],
   allOrdersPromise: null,
   allOrdersDirty: true,
+  renderRunId: 0,
   ai: {
     loading: false,
     lastQuestion: "",
@@ -1419,6 +1586,24 @@ const labelsSummaryEl = document.getElementById("labelsSummary");
 const labelsStatusEl = document.getElementById("labelsStatus");
 const labelsFromProcessingBtn = document.getElementById("labelsFromProcessing");
 const analysisStatusEl = document.getElementById("analysisStatus");
+const analysisDateStartInput = document.getElementById("analysisDateStart");
+const analysisDateEndInput = document.getElementById("analysisDateEnd");
+const analysisCompareToggle = document.getElementById("analysisCompareToggle");
+const analysisClientFilter = document.getElementById("analysisClientFilter");
+const analysisTypeFilter = document.getElementById("analysisTypeFilter");
+const analysisRefreshBtn = document.getElementById("analysisRefresh");
+const analysisPeriodMetaEl = document.getElementById("analysisPeriodMeta");
+const analysisKpisEl = document.getElementById("analysisKpis");
+const analysisInsightsEl = document.getElementById("analysisInsights");
+const analysisAreaChartEl = document.getElementById("analysisAreaChart");
+const analysisUnitsChartEl = document.getElementById("analysisUnitsChart");
+const analysisTopClientsChartEl = document.getElementById("analysisTopClientsChart");
+const analysisTopClientsBarsEl = document.getElementById("analysisTopClientsBars");
+const analysisTypeDistributionChartEl = document.getElementById("analysisTypeDistributionChart");
+const analysisDistributionMetricEl = document.getElementById("analysisDistributionMetric");
+const analysisTopClientsHead = document.getElementById("analysisTopClientsHead");
+const analysisTopTypesHead = document.getElementById("analysisTopTypesHead");
+const analysisDimensionsHead = document.getElementById("analysisDimensionsHead");
 const analysisKpiOrdersEl = document.getElementById("analysisKpiOrders");
 const analysisKpiUnitsEl = document.getElementById("analysisKpiUnits");
 const analysisKpiAreaEl = document.getElementById("analysisKpiArea");
@@ -1433,6 +1618,7 @@ const analysisRecalcBtn = document.getElementById("analysisRecalc");
 const analysisQuestionInput = document.getElementById("analysisQuestion");
 const analysisAskBtn = document.getElementById("analysisAsk");
 const analysisAnswerEl = document.getElementById("analysisAnswer");
+const analysisQuickActionsEl = document.getElementById("analysisQuickActions");
 const analysisDebugToggle = document.getElementById("analysisDebugToggle");
 const wysiwygToggle = document.getElementById("processingWysiwygToggle");
 const wysiwygPreview = document.getElementById("motherSheetPreview");
@@ -1933,7 +2119,7 @@ function mapProcessingOrderForAnalysis(entry){
     order_numbers: orderNumbers,
     order_number: orderNumbers.length === 1 ? orderNumbers[0] : undefined,
     client,
-    created_at: entry.createdAt || null,
+    created_at: entry.createdAt || new Date().toISOString(),
     parsed_units: units,
     parsed_area: area,
     rows,
@@ -2244,21 +2430,6 @@ function getAnalysisSessionId(){
   return analysisState.sessionId;
 }
 
-function computeAnalysisMetrics(orders){
-  const count = orders.length;
-  const unitsSum = orders.reduce((sum, order)=> sum + (Number(order.parsed_units) || 0), 0);
-  const areaSum = orders.reduce((sum, order)=> sum + (Number(order.parsed_area) || 0), 0);
-  const avgArea = count ? areaSum / count : 0;
-  const avgUnits = count ? unitsSum / count : 0;
-  return {
-    ordersCount: count,
-    unitsSum,
-    areaSum,
-    avgArea,
-    avgUnits,
-  };
-}
-
 function formatNumber(value, { decimals = 0 } = {}){
   const number = Number(value) || 0;
   return number.toLocaleString(undefined, {
@@ -2271,105 +2442,9 @@ function formatAreaMetric(value, decimals = 3){
   return `${formatNumber(value, { decimals })}\u202Fm²`;
 }
 
-function renderAnalysisKpis(metrics){
-  const safeMetrics = metrics || { ordersCount: 0, unitsSum: 0, areaSum: 0, avgArea: 0, avgUnits: 0 };
-  if (analysisKpiOrdersEl) analysisKpiOrdersEl.textContent = formatNumber(safeMetrics.ordersCount);
-  if (analysisKpiUnitsEl) analysisKpiUnitsEl.textContent = formatNumber(safeMetrics.unitsSum);
-  if (analysisKpiAreaEl) analysisKpiAreaEl.textContent = formatAreaMetric(safeMetrics.areaSum);
-  if (analysisKpiAvgAreaEl) analysisKpiAvgAreaEl.textContent = formatAreaMetric(safeMetrics.avgArea);
-  if (analysisKpiAvgUnitsEl) analysisKpiAvgUnitsEl.textContent = formatNumber(safeMetrics.avgUnits, { decimals: 1 });
-}
-
-function computeTopClients(orders){
-  const map = new Map();
-  orders.forEach(order => {
-    if (!order) return;
-    const client = (order.client && String(order.client).trim()) || "—";
-    if (!map.has(client)){
-      map.set(client, { client, units: 0, area: 0, orderIds: new Set() });
-    }
-    const entry = map.get(client);
-    entry.units += Number(order.parsed_units) || 0;
-    entry.area += Number(order.parsed_area) || 0;
-    if (order.id != null){
-      const key = String(order.id).trim();
-      if (key) entry.orderIds.add(key);
-    }else if (order.order_numbers && order.order_numbers.length){
-      order.order_numbers.forEach(num => {
-        const key = num != null ? String(num).trim() : "";
-        if (key) entry.orderIds.add(key);
-      });
-    }else if (order.order_number){
-      const key = String(order.order_number).trim();
-      if (key) entry.orderIds.add(key);
-    }
-  });
-  return Array.from(map.values()).map(entry => ({
-    client: entry.client,
-    units: entry.units,
-    area: entry.area,
-    orders: entry.orderIds.size || (entry.units > 0 ? 1 : 0),
-  })).sort((a, b)=>{
-    if (b.area !== a.area) return b.area - a.area;
-    if (b.units !== a.units) return b.units - a.units;
-    return a.client.localeCompare(b.client);
-  }).slice(0, 10);
-}
-
-function computeTopGlassTypes(orders){
-  const map = new Map();
-  orders.forEach(order => {
-    if (!order || !Array.isArray(order.rows)) return;
-    order.rows.forEach(row => {
-      if (!row) return;
-      const type = (row.type && String(row.type).trim()) || "—";
-      if (!map.has(type)){
-        map.set(type, { type, lines: 0, units: 0 });
-      }
-      const entry = map.get(type);
-      entry.lines += 1;
-      entry.units += Number(row.qty) || 0;
-    });
-  });
-  return Array.from(map.values()).sort((a, b)=>{
-    if (b.units !== a.units) return b.units - a.units;
-    if (b.lines !== a.lines) return b.lines - a.lines;
-    return a.type.localeCompare(b.type);
-  }).slice(0, 10);
-}
-
 function renderNoDataRow(bodyEl, colspan){
   if (!bodyEl) return;
   bodyEl.innerHTML = `<tr><td colspan="${colspan}" class="muted">No data.</td></tr>`;
-}
-
-function renderTopClients(rows){
-  if (!analysisTopClientsBody) return;
-  if (!rows.length){
-    renderNoDataRow(analysisTopClientsBody, 4);
-    return;
-  }
-  const html = rows.map(entry => `<tr>
-    <td>${escapeHtml(entry.client)}</td>
-    <td>${formatNumber(entry.orders)}</td>
-    <td>${formatNumber(entry.units)}</td>
-    <td>${formatAreaMetric(entry.area)}</td>
-  </tr>`).join("");
-  analysisTopClientsBody.innerHTML = html;
-}
-
-function renderTopTypes(rows){
-  if (!analysisTopTypesBody) return;
-  if (!rows.length){
-    renderNoDataRow(analysisTopTypesBody, 3);
-    return;
-  }
-  const html = rows.map(entry => `<tr>
-    <td>${escapeHtml(entry.type)}</td>
-    <td>${formatNumber(entry.lines)}</td>
-    <td>${formatNumber(entry.units)}</td>
-  </tr>`).join("");
-  analysisTopTypesBody.innerHTML = html;
 }
 
 function buildDimensionBuckets(rows, tolerance, orientationAgnostic){
@@ -2444,6 +2519,10 @@ function buildDimensionBuckets(rows, tolerance, orientationAgnostic){
       qty: bucket.qty,
       orders: bucket.orderIds.size,
       clients: bucket.clients.size,
+      repeatScore: Number((bucket.qty * (1 + (bucket.orderIds.size / 5) + (bucket.clients.size / 5))).toFixed(2)),
+      orderSpread: bucket.orderIds.size,
+      clientSpread: bucket.clients.size,
+      batchingOpportunity: bucket.orderIds.size >= 3 && bucket.clients.size >= 2 && bucket.qty >= 8,
       sortQty: bucket.qty,
     };
   }).sort((a, b)=>{
@@ -2452,19 +2531,172 @@ function buildDimensionBuckets(rows, tolerance, orientationAgnostic){
   }).slice(0, 20);
 }
 
-function renderTopDimensions(rows){
-  if (!analysisDimensionsBody) return;
-  if (!rows.length){
-    renderNoDataRow(analysisDimensionsBody, 4);
+function formatPercent(value, decimals = 1){
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "—";
+  return `${formatNumber(num, { decimals })}%`;
+}
+
+function formatSignedPercent(value, decimals = 1){
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "—";
+  const sign = num > 0 ? "+" : "";
+  return `${sign}${formatNumber(num, { decimals })}%`;
+}
+
+function computePercentDelta(currentValue, previousValue){
+  const current = Number(currentValue) || 0;
+  const previous = Number(previousValue) || 0;
+  if (previous === 0){
+    if (current === 0) return 0;
+    return null;
+  }
+  return ((current - previous) / previous) * 100;
+}
+
+function toDateInputValue(date){
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function parseDateInput(value, endOfDay = false){
+  if (!value) return null;
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return null;
+  if (endOfDay){
+    date.setHours(23, 59, 59, 999);
+  }
+  return date;
+}
+
+function dateKeyFromDate(date){
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatDateLabel(dateKey){
+  if (!dateKey) return "—";
+  const date = new Date(`${dateKey}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return dateKey;
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function compareStrings(a, b){
+  return String(a || "").localeCompare(String(b || ""), undefined, { sensitivity: "base" });
+}
+
+function sortByConfig(rows, sortConfig){
+  const list = Array.isArray(rows) ? rows.slice() : [];
+  const rawKey = sortConfig?.key || "";
+  const keyMap = {
+    area: "area_m2",
+    share: "share_area_pct",
+    growth: "growth_pct",
+  };
+  const key = keyMap[rawKey] || rawKey;
+  const direction = sortConfig?.direction === "asc" ? 1 : -1;
+  if (!key) return list;
+  return list.sort((a, b)=>{
+    const left = a?.[key];
+    const right = b?.[key];
+    if (typeof left === "string" || typeof right === "string"){
+      return compareStrings(left, right) * direction;
+    }
+    const leftNum = Number(left);
+    const rightNum = Number(right);
+    const safeLeft = Number.isFinite(leftNum) ? leftNum : -Infinity;
+    const safeRight = Number.isFinite(rightNum) ? rightNum : -Infinity;
+    if (safeLeft === safeRight){
+      const fallbackKey = key === "client" ? "client" : key === "type" ? "type" : "dimension";
+      return compareStrings(a?.[fallbackKey], b?.[fallbackKey]);
+    }
+    return (safeLeft - safeRight) * direction;
+  });
+}
+
+function toggleSortState(tableName, key){
+  const target = analysisState.sort?.[tableName];
+  if (!target) return;
+  if (target.key === key){
+    target.direction = target.direction === "desc" ? "asc" : "desc";
+  }else{
+    const textKeys = new Set(["client", "type", "dimension"]);
+    target.key = key;
+    target.direction = textKeys.has(key) ? "asc" : "desc";
+  }
+}
+
+function renderSortIndicators(){
+  const allButtons = document.querySelectorAll("#tabAnalysis thead button[data-table][data-sort]");
+  allButtons.forEach(button => {
+    const tableName = button.dataset.table;
+    const sortKey = button.dataset.sort;
+    const state = analysisState.sort?.[tableName];
+    const baseLabel = button.textContent.replace(/\s*[↑↓]\s*$/, "");
+    if (state && state.key === sortKey){
+      button.classList.add("active");
+      button.textContent = `${baseLabel} ${state.direction === "desc" ? "↓" : "↑"}`;
+    }else{
+      button.classList.remove("active");
+      button.textContent = baseLabel;
+    }
+  });
+}
+
+function setAnalysisControlDefaults(orders){
+  if (!Array.isArray(orders) || !orders.length) return;
+  if (analysisState.controls.startDate && analysisState.controls.endDate){
     return;
   }
-  const html = rows.map(entry => `<tr>
-    <td>${escapeHtml(entry.dimension)}</td>
-    <td>${formatNumber(entry.qty)}</td>
-    <td>${formatNumber(entry.orders)}</td>
-    <td>${formatNumber(entry.clients)}</td>
-  </tr>`).join("");
-  analysisDimensionsBody.innerHTML = html;
+  const datedOrders = orders
+    .map(order => extractOrderDate(order))
+    .filter(date => date instanceof Date && !Number.isNaN(date.getTime()))
+    .sort((a, b)=> a.getTime() - b.getTime());
+  if (!datedOrders.length) return;
+  const latest = datedOrders[datedOrders.length - 1];
+  const start = new Date(latest.getTime());
+  start.setDate(start.getDate() - 29);
+  analysisState.controls.startDate = toDateInputValue(start);
+  analysisState.controls.endDate = toDateInputValue(latest);
+  if (analysisDateStartInput) analysisDateStartInput.value = analysisState.controls.startDate;
+  if (analysisDateEndInput) analysisDateEndInput.value = analysisState.controls.endDate;
+}
+
+function populateAnalysisFilterOptions(orders){
+  const currentClient = analysisState.controls.client || "";
+  const currentType = analysisState.controls.glassType || "";
+  const clients = new Set();
+  const types = new Set();
+  (orders || []).forEach(order => {
+    const client = (order?.client || "—").trim() || "—";
+    clients.add(client);
+    if (Array.isArray(order?.rows)){
+      order.rows.forEach(row => {
+        const type = (row?.type || "—").trim() || "—";
+        types.add(type);
+      });
+    }
+  });
+  if (analysisClientFilter){
+    const options = ['<option value="">All clients</option>']
+      .concat(Array.from(clients).sort(compareStrings).map(client => `<option value="${escapeHtml(client)}">${escapeHtml(client)}</option>`));
+    analysisClientFilter.innerHTML = options.join("");
+    analysisClientFilter.value = clients.has(currentClient) ? currentClient : "";
+    analysisState.controls.client = analysisClientFilter.value || "";
+  }
+  if (analysisTypeFilter){
+    const options = ['<option value="">All glass types</option>']
+      .concat(Array.from(types).sort(compareStrings).map(type => `<option value="${escapeHtml(type)}">${escapeHtml(type)}</option>`));
+    analysisTypeFilter.innerHTML = options.join("");
+    analysisTypeFilter.value = types.has(currentType) ? currentType : "";
+    analysisState.controls.glassType = analysisTypeFilter.value || "";
+  }
 }
 
 function readAnalysisSettings(){
@@ -2476,13 +2708,755 @@ function readAnalysisSettings(){
   const orientationAgnostic = analysisOrientationToggle ? !!analysisOrientationToggle.checked : true;
   analysisState.tolerance = tolerance;
   analysisState.orientationAgnostic = orientationAgnostic;
-  return { tolerance, orientationAgnostic };
+  if (analysisDateStartInput){
+    analysisState.controls.startDate = (analysisDateStartInput.value || "").trim();
+  }
+  if (analysisDateEndInput){
+    analysisState.controls.endDate = (analysisDateEndInput.value || "").trim();
+  }
+  if (analysisCompareToggle){
+    analysisState.controls.comparePrevious = !!analysisCompareToggle.checked;
+  }
+  if (analysisClientFilter){
+    analysisState.controls.client = (analysisClientFilter.value || "").trim();
+  }
+  if (analysisTypeFilter){
+    analysisState.controls.glassType = (analysisTypeFilter.value || "").trim();
+  }
+  if (
+    analysisState.controls.startDate &&
+    analysisState.controls.endDate &&
+    analysisState.controls.startDate > analysisState.controls.endDate
+  ){
+    const tmp = analysisState.controls.startDate;
+    analysisState.controls.startDate = analysisState.controls.endDate;
+    analysisState.controls.endDate = tmp;
+    if (analysisDateStartInput) analysisDateStartInput.value = analysisState.controls.startDate;
+    if (analysisDateEndInput) analysisDateEndInput.value = analysisState.controls.endDate;
+  }
+  return {
+    tolerance,
+    orientationAgnostic,
+    startDate: analysisState.controls.startDate,
+    endDate: analysisState.controls.endDate,
+    comparePrevious: analysisState.controls.comparePrevious,
+    client: analysisState.controls.client,
+    glassType: analysisState.controls.glassType,
+  };
 }
 
-async function refreshAnalysis(){
+function derivePreviousPeriod(startDate, endDate){
+  if (!startDate || !endDate) return null;
+  const start = parseDateInput(startDate, false);
+  const end = parseDateInput(endDate, true);
+  if (!start || !end) return null;
+  const rangeMs = end.getTime() - start.getTime();
+  if (rangeMs < 0) return null;
+  const prevEnd = new Date(start.getTime() - 1);
+  const prevStart = new Date(prevEnd.getTime() - rangeMs);
+  return {
+    start: toDateInputValue(prevStart),
+    end: toDateInputValue(prevEnd),
+  };
+}
+
+function orderMatchesDateRange(order, startDate, endDate){
+  if (!startDate && !endDate) return true;
+  const timestamp = getOrderTimestampForAnalysis(order);
+  if (!timestamp) return false;
+  const start = startDate ? parseDateInput(startDate, false) : null;
+  const end = endDate ? parseDateInput(endDate, true) : null;
+  if (start && timestamp < start.getTime()) return false;
+  if (end && timestamp > end.getTime()) return false;
+  return true;
+}
+
+function buildOrderRecord(order, glassTypeFilter){
+  if (!order || !Array.isArray(order.rows)) return null;
+  const orderId = getOrderLabel(order);
+  const client = (order.client || "—").trim() || "—";
+  const filteredRows = [];
+  let units = 0;
+  let area = 0;
+  const typeSet = new Set();
+  order.rows.forEach(row => {
+    if (!row) return;
+    const type = (row.type || "—").trim() || "—";
+    if (glassTypeFilter && type !== glassTypeFilter) return;
+    const qty = Number(row.qty) || 0;
+    const rowArea = computeRowArea(row);
+    units += qty;
+    area += rowArea;
+    typeSet.add(type);
+    filteredRows.push({
+      ...row,
+      type,
+      qty,
+      orderId: row.orderId || orderId,
+      client: row.client || client,
+      area_m2: rowArea,
+    });
+  });
+  if (!filteredRows.length){
+    return null;
+  }
+  return {
+    orderId,
+    client,
+    created_at: order.created_at || order.createdAt || null,
+    units,
+    area_m2: area,
+    rows: filteredRows,
+    lineCount: filteredRows.length,
+    distinctTypes: typeSet,
+  };
+}
+
+function buildPeriodRecords(orders, settings, period){
+  const records = [];
+  (orders || []).forEach(order => {
+    if (!order) return;
+    if (!orderMatchesDateRange(order, period?.start || "", period?.end || "")){
+      return;
+    }
+    if (settings.client){
+      const client = (order.client || "—").trim() || "—";
+      if (client !== settings.client) return;
+    }
+    const record = buildOrderRecord(order, settings.glassType);
+    if (!record) return;
+    records.push(record);
+  });
+  return records;
+}
+
+function computeDailySeries(records, period){
+  const map = new Map();
+  function ensureBucket(dateKey){
+    if (!map.has(dateKey)){
+      map.set(dateKey, { date: dateKey, orders: 0, units: 0, area_m2: 0 });
+    }
+    return map.get(dateKey);
+  }
+  records.forEach(record => {
+    const date = extractOrderDate(record) || extractOrderDate({ created_at: record.created_at });
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) return;
+    const key = dateKeyFromDate(date);
+    if (!key) return;
+    const bucket = ensureBucket(key);
+    bucket.orders += 1;
+    bucket.units += Number(record.units) || 0;
+    bucket.area_m2 += Number(record.area_m2) || 0;
+  });
+  const rangeStart = period?.start ? parseDateInput(period.start, false) : null;
+  const rangeEnd = period?.end ? parseDateInput(period.end, false) : null;
+  if (rangeStart && rangeEnd){
+    const cursor = new Date(rangeStart.getTime());
+    while (cursor.getTime() <= rangeEnd.getTime()){
+      ensureBucket(dateKeyFromDate(cursor));
+      cursor.setDate(cursor.getDate() + 1);
+    }
+  }
+  return Array.from(map.values()).sort((a, b)=> compareStrings(a.date, b.date)).map(item => ({
+    ...item,
+    label: formatDateLabel(item.date),
+    avgAreaPerOrder: item.orders ? item.area_m2 / item.orders : 0,
+    avgUnitsPerOrder: item.orders ? item.units / item.orders : 0,
+  }));
+}
+
+function computePeriodAnalytics(records, settings, period){
+  const totals = {
+    orders: records.length,
+    units: 0,
+    area_m2: 0,
+    avg_area_per_order: 0,
+    avg_units_per_order: 0,
+    distinct_clients: 0,
+    distinct_types: 0,
+  };
+  const clientMap = new Map();
+  const typeMap = new Map();
+  const allRows = [];
+  const typeSet = new Set();
+  const orderContributions = [];
+  records.forEach(record => {
+    const units = Number(record.units) || 0;
+    const area = Number(record.area_m2) || 0;
+    totals.units += units;
+    totals.area_m2 += area;
+    const client = record.client || "—";
+    if (!clientMap.has(client)){
+      clientMap.set(client, { client, orders: 0, units: 0, area_m2: 0 });
+    }
+    const clientEntry = clientMap.get(client);
+    clientEntry.orders += 1;
+    clientEntry.units += units;
+    clientEntry.area_m2 += area;
+    orderContributions.push({
+      order_id: record.orderId,
+      client,
+      area_m2: area,
+    });
+    (record.rows || []).forEach(row => {
+      const type = (row.type || "—").trim() || "—";
+      typeSet.add(type);
+      if (!typeMap.has(type)){
+        typeMap.set(type, { type, lines: 0, units: 0, area_m2: 0 });
+      }
+      const entry = typeMap.get(type);
+      entry.lines += 1;
+      entry.units += Number(row.qty) || 0;
+      entry.area_m2 += Number(row.area_m2) || 0;
+      allRows.push({
+        ...row,
+        orderId: row.orderId || record.orderId,
+        client: row.client || record.client,
+      });
+    });
+  });
+  totals.avg_area_per_order = totals.orders ? totals.area_m2 / totals.orders : 0;
+  totals.avg_units_per_order = totals.orders ? totals.units / totals.orders : 0;
+  totals.distinct_clients = clientMap.size;
+  totals.distinct_types = typeSet.size;
+  const topClients = Array.from(clientMap.values()).map(entry => ({
+    ...entry,
+    share_area_pct: totals.area_m2 ? (entry.area_m2 / totals.area_m2) * 100 : 0,
+  }));
+  const topTypes = Array.from(typeMap.values()).map(entry => ({
+    ...entry,
+    share_area_pct: totals.area_m2 ? (entry.area_m2 / totals.area_m2) * 100 : 0,
+  }));
+  const dimensions = buildDimensionBuckets(allRows, settings.tolerance, settings.orientationAgnostic);
+  const contributionSorted = orderContributions
+    .map(entry => ({
+      ...entry,
+      area_share_pct: totals.area_m2 ? (entry.area_m2 / totals.area_m2) * 100 : 0,
+    }))
+    .sort((a, b)=> b.area_share_pct - a.area_share_pct);
+  const daily = computeDailySeries(records, period);
+  return {
+    period,
+    totals,
+    topClients,
+    topTypes,
+    topDimensions: dimensions,
+    orderContributions: contributionSorted,
+    daily,
+  };
+}
+
+function indexBy(rows, key){
+  const map = new Map();
+  (rows || []).forEach(row => {
+    const value = row?.[key];
+    if (value == null) return;
+    map.set(String(value), row);
+  });
+  return map;
+}
+
+function attachGrowth(rows, previousRows, keyField, metricField){
+  const previousMap = indexBy(previousRows, keyField);
+  return (rows || []).map(row => {
+    const prev = previousMap.get(String(row[keyField]));
+    const previousMetric = prev ? Number(prev[metricField]) || 0 : 0;
+    const currentMetric = Number(row[metricField]) || 0;
+    return {
+      ...row,
+      growth_pct: computePercentDelta(currentMetric, previousMetric),
+    };
+  });
+}
+
+function buildAnalysisContext(orders, settings){
+  const period = { start: settings.startDate || "", end: settings.endDate || "" };
+  const currentRecords = buildPeriodRecords(orders, settings, period);
+  const current = computePeriodAnalytics(currentRecords, settings, period);
+  let previousPeriod = null;
+  let previous = null;
+  if (settings.comparePrevious && settings.startDate && settings.endDate){
+    previousPeriod = derivePreviousPeriod(settings.startDate, settings.endDate);
+    if (previousPeriod){
+      const previousRecords = buildPeriodRecords(orders, settings, previousPeriod);
+      previous = computePeriodAnalytics(previousRecords, settings, previousPeriod);
+    }
+  }
+  current.topClients = attachGrowth(current.topClients, previous?.topClients || [], "client", "area_m2");
+  current.topTypes = attachGrowth(current.topTypes, previous?.topTypes || [], "type", "area_m2");
+  return {
+    period,
+    previousPeriod,
+    current,
+    previous,
+    settings: {
+      client: settings.client,
+      glassType: settings.glassType,
+      comparePrevious: settings.comparePrevious,
+      tolerance: settings.tolerance,
+      orientationAgnostic: settings.orientationAgnostic,
+      distributionMetric: analysisState.distributionMetric,
+    },
+  };
+}
+
+function deltaClass(delta){
+  if (!Number.isFinite(delta) || delta === 0) return "flat";
+  return delta > 0 ? "up" : "down";
+}
+
+function makeSparkline(values, color = "#4c5cff"){
+  const clean = (values || []).map(v => Number(v) || 0);
+  if (!clean.length){
+    return '<svg class="analysis-sparkline" viewBox="0 0 70 24"></svg>';
+  }
+  const min = Math.min(...clean);
+  const max = Math.max(...clean);
+  const range = max - min || 1;
+  const step = clean.length > 1 ? 68 / (clean.length - 1) : 68;
+  const points = clean.map((value, index) => {
+    const x = 1 + (index * step);
+    const y = 22 - (((value - min) / range) * 18);
+    return `${x.toFixed(2)},${y.toFixed(2)}`;
+  }).join(" ");
+  return `<svg class="analysis-sparkline" viewBox="0 0 70 24" preserveAspectRatio="none">
+    <polyline fill="none" stroke="${color}" stroke-width="2" points="${points}" />
+  </svg>`;
+}
+
+function renderAnalysisKpis(context){
+  if (!analysisKpisEl) return;
+  const current = context?.current?.totals || {
+    orders: 0, units: 0, area_m2: 0, avg_area_per_order: 0, avg_units_per_order: 0, distinct_clients: 0, distinct_types: 0,
+  };
+  const previous = context?.previous?.totals || null;
+  const daily = context?.current?.daily || [];
+  const cards = [
+    {
+      key: "orders",
+      label: "Orders",
+      value: formatNumber(current.orders),
+      delta: computePercentDelta(current.orders, previous?.orders || 0),
+      trend: daily.map(item => item.orders),
+    },
+    {
+      key: "units",
+      label: "Units",
+      value: formatNumber(current.units),
+      delta: computePercentDelta(current.units, previous?.units || 0),
+      trend: daily.map(item => item.units),
+    },
+    {
+      key: "area",
+      label: "Total area (m²)",
+      value: formatAreaMetric(current.area_m2),
+      delta: computePercentDelta(current.area_m2, previous?.area_m2 || 0),
+      trend: daily.map(item => item.area_m2),
+    },
+    {
+      key: "avgArea",
+      label: "Avg m² / order",
+      value: formatAreaMetric(current.avg_area_per_order),
+      delta: computePercentDelta(current.avg_area_per_order, previous?.avg_area_per_order || 0),
+      trend: daily.map(item => item.avgAreaPerOrder),
+    },
+    {
+      key: "avgUnits",
+      label: "Avg units / order",
+      value: formatNumber(current.avg_units_per_order, { decimals: 1 }),
+      delta: computePercentDelta(current.avg_units_per_order, previous?.avg_units_per_order || 0),
+      trend: daily.map(item => item.avgUnitsPerOrder),
+    },
+    {
+      key: "clients",
+      label: "Distinct clients",
+      value: formatNumber(current.distinct_clients),
+      delta: computePercentDelta(current.distinct_clients, previous?.distinct_clients || 0),
+      trend: [previous?.distinct_clients || 0, current.distinct_clients],
+    },
+    {
+      key: "types",
+      label: "Distinct glass types",
+      value: formatNumber(current.distinct_types),
+      delta: computePercentDelta(current.distinct_types, previous?.distinct_types || 0),
+      trend: [previous?.distinct_types || 0, current.distinct_types],
+    },
+  ];
+  const html = cards.map(card => {
+    const delta = card.delta;
+    const deltaText = previous
+      ? (delta == null ? "new / no baseline" : formatSignedPercent(delta))
+      : "comparison off";
+    const deltaState = deltaClass(delta);
+    const trendColor = deltaState === "down" ? "#b91c1c" : deltaState === "up" ? "#0f766e" : "#64748b";
+    return `<article class="analysis-kpi-card">
+      <div class="analysis-kpi-label">${escapeHtml(card.label)}</div>
+      <div class="analysis-kpi-value">${escapeHtml(card.value)}</div>
+      <div class="analysis-kpi-footer">
+        <span class="analysis-delta ${deltaState}">${escapeHtml(deltaText)}</span>
+        ${makeSparkline(card.trend, trendColor)}
+      </div>
+    </article>`;
+  }).join("");
+  analysisKpisEl.innerHTML = html;
+}
+
+function renderBarList(container, rows, valueKey, labelFormatter){
+  if (!container) return;
+  const list = Array.isArray(rows) ? rows.slice(0, 8) : [];
+  if (!list.length){
+    container.innerHTML = '<div class="analysis-chart-empty">No data for selected filters.</div>';
+    return;
+  }
+  const maxValue = Math.max(...list.map(item => Number(item[valueKey]) || 0), 1);
+  container.innerHTML = `<div class="analysis-bars">${list.map(item => {
+    const value = Number(item[valueKey]) || 0;
+    const widthPct = Math.max(3, (value / maxValue) * 100);
+    return `<div class="analysis-bar-row">
+      <span class="analysis-bar-label">${escapeHtml(item.label)}</span>
+      <span class="analysis-bar-track"><span class="analysis-bar-fill" style="width:${widthPct}%"></span></span>
+      <span class="analysis-bar-value">${escapeHtml(labelFormatter(item))}</span>
+    </div>`;
+  }).join("")}</div>`;
+}
+
+function renderLineChart(container, series, key, stroke){
+  if (!container) return;
+  const values = (series || []).map(item => Number(item[key]) || 0);
+  if (!values.length){
+    container.innerHTML = '<div class="analysis-chart-empty">No data for selected filters.</div>';
+    return;
+  }
+  const width = 560;
+  const height = 160;
+  const padX = 20;
+  const padY = 16;
+  const innerWidth = width - (padX * 2);
+  const innerHeight = height - (padY * 2);
+  const max = Math.max(...values, 0);
+  const min = Math.min(...values, 0);
+  const range = max - min || 1;
+  const step = values.length > 1 ? innerWidth / (values.length - 1) : innerWidth;
+  const points = values.map((value, index) => {
+    const x = padX + (index * step);
+    const y = padY + innerHeight - (((value - min) / range) * innerHeight);
+    return `${x.toFixed(2)},${y.toFixed(2)}`;
+  }).join(" ");
+  const baselineY = padY + innerHeight;
+  container.innerHTML = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true">
+    <line x1="${padX}" y1="${baselineY}" x2="${width - padX}" y2="${baselineY}" stroke="#d9dce5" stroke-width="1"></line>
+    <polyline fill="none" stroke="${stroke}" stroke-width="2.5" points="${points}"></polyline>
+  </svg>`;
+}
+
+function renderBarChart(container, series, key, fillColor){
+  if (!container) return;
+  const values = (series || []).map(item => Number(item[key]) || 0);
+  if (!values.length){
+    container.innerHTML = '<div class="analysis-chart-empty">No data for selected filters.</div>';
+    return;
+  }
+  const width = 560;
+  const height = 160;
+  const padX = 20;
+  const padY = 16;
+  const innerWidth = width - (padX * 2);
+  const innerHeight = height - (padY * 2);
+  const max = Math.max(...values, 1);
+  const barWidth = Math.max(3, innerWidth / Math.max(values.length, 1) - 2);
+  let cursorX = padX;
+  const bars = values.map(value => {
+    const h = (value / max) * innerHeight;
+    const y = padY + (innerHeight - h);
+    const markup = `<rect x="${cursorX.toFixed(2)}" y="${y.toFixed(2)}" width="${barWidth.toFixed(2)}" height="${h.toFixed(2)}" rx="2" ry="2" fill="${fillColor}"></rect>`;
+    cursorX += barWidth + 2;
+    return markup;
+  }).join("");
+  const baselineY = padY + innerHeight;
+  container.innerHTML = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true">
+    <line x1="${padX}" y1="${baselineY}" x2="${width - padX}" y2="${baselineY}" stroke="#d9dce5" stroke-width="1"></line>
+    ${bars}
+  </svg>`;
+}
+
+function renderTopClients(rows){
+  if (!analysisTopClientsBody) return;
+  const sorted = sortByConfig(rows, analysisState.sort.clients);
+  if (!sorted.length){
+    renderNoDataRow(analysisTopClientsBody, 6);
+    return;
+  }
+  analysisTopClientsBody.innerHTML = sorted.map(entry => `<tr>
+    <td>${escapeHtml(entry.client)}</td>
+    <td>${formatNumber(entry.orders)}</td>
+    <td>${formatNumber(entry.units)}</td>
+    <td>${formatAreaMetric(entry.area_m2)}</td>
+    <td>${formatPercent(entry.share_area_pct)}</td>
+    <td class="${deltaClass(entry.growth_pct)}">${entry.growth_pct == null ? "—" : formatSignedPercent(entry.growth_pct)}</td>
+  </tr>`).join("");
+}
+
+function renderTopTypes(rows){
+  if (!analysisTopTypesBody) return;
+  const sorted = sortByConfig(rows, analysisState.sort.types);
+  if (!sorted.length){
+    renderNoDataRow(analysisTopTypesBody, 6);
+    return;
+  }
+  analysisTopTypesBody.innerHTML = sorted.map(entry => `<tr>
+    <td>${escapeHtml(entry.type)}</td>
+    <td>${formatNumber(entry.lines)}</td>
+    <td>${formatNumber(entry.units)}</td>
+    <td>${formatAreaMetric(entry.area_m2)}</td>
+    <td>${formatPercent(entry.share_area_pct)}</td>
+    <td class="${deltaClass(entry.growth_pct)}">${entry.growth_pct == null ? "—" : formatSignedPercent(entry.growth_pct)}</td>
+  </tr>`).join("");
+}
+
+function renderTopDimensions(rows){
+  if (!analysisDimensionsBody) return;
+  const normalized = (rows || []).map(entry => ({
+    ...entry,
+    batching: entry.batchingOpportunity ? 1 : 0,
+  }));
+  const sorted = sortByConfig(normalized, analysisState.sort.dimensions);
+  if (!sorted.length){
+    renderNoDataRow(analysisDimensionsBody, 8);
+    return;
+  }
+  analysisDimensionsBody.innerHTML = sorted.map(entry => `<tr>
+    <td>${escapeHtml(entry.dimension)}</td>
+    <td>${formatNumber(entry.qty)}</td>
+    <td>${formatNumber(entry.orders)}</td>
+    <td>${formatNumber(entry.clients)}</td>
+    <td>${formatNumber(entry.repeatScore, { decimals: 2 })}</td>
+    <td>${formatNumber(entry.orderSpread)}</td>
+    <td>${formatNumber(entry.clientSpread)}</td>
+    <td>${entry.batchingOpportunity ? '<span class="pill">Yes</span>' : '<span class="muted">No</span>'}</td>
+  </tr>`).join("");
+}
+
+function renderCharts(context){
+  const current = context?.current || {};
+  renderLineChart(analysisAreaChartEl, current.daily || [], "area_m2", "#1d4ed8");
+  renderBarChart(analysisUnitsChartEl, current.daily || [], "units", "#4c5cff");
+  const topClientRows = (current.topClients || []).slice(0, 8).map(item => ({
+    label: item.client,
+    area_m2: item.area_m2,
+    share_area_pct: item.share_area_pct,
+  }));
+  renderBarList(
+    analysisTopClientsChartEl,
+    topClientRows,
+    "area_m2",
+    item => `${formatAreaMetric(item.area_m2)} (${formatPercent(item.share_area_pct)})`
+  );
+  renderBarList(
+    analysisTopClientsBarsEl,
+    topClientRows,
+    "area_m2",
+    item => formatPercent(item.share_area_pct)
+  );
+  const metric = analysisState.distributionMetric || "area";
+  const topTypes = (current.topTypes || []).slice(0, 10).map(item => ({
+    label: item.type,
+    area: item.area_m2,
+    units: item.units,
+    lines: item.lines,
+  }));
+  const metricKey = metric === "units" ? "units" : metric === "lines" ? "lines" : "area";
+  const metricLabel = metric === "units" ? (item => formatNumber(item.units)) : metric === "lines" ? (item => formatNumber(item.lines)) : (item => formatAreaMetric(item.area));
+  renderBarList(analysisTypeDistributionChartEl, topTypes, metricKey, metricLabel);
+}
+
+function renderPeriodMeta(context){
+  if (!analysisPeriodMetaEl) return;
+  const period = context?.period || {};
+  const previous = context?.previousPeriod || null;
+  const rangeText = (period.start && period.end)
+    ? `${period.start} -> ${period.end}`
+    : "All available dates";
+  const filterParts = [];
+  if (analysisState.controls.client) filterParts.push(`client: ${analysisState.controls.client}`);
+  if (analysisState.controls.glassType) filterParts.push(`glass type: ${analysisState.controls.glassType}`);
+  const filterText = filterParts.length ? ` | Filters: ${filterParts.join(", ")}` : "";
+  const compareText = previous
+    ? ` | Comparison: ${previous.start} -> ${previous.end}`
+    : (analysisState.controls.comparePrevious ? " | Comparison unavailable (set date range)." : " | Comparison off");
+  analysisPeriodMetaEl.textContent = `Period: ${rangeText}${compareText}${filterText}`;
+}
+
+function formatInsightMetaValue(value){
+  if (value == null) return "—";
+  if (typeof value === "object"){
+    try{
+      return JSON.stringify(value);
+    }catch{
+      return String(value);
+    }
+  }
+  return String(value);
+}
+
+function renderInsights(signals, context, loading = false){
+  if (!analysisInsightsEl) return;
+  if (loading){
+    analysisInsightsEl.innerHTML = '<div class="analysis-insight-card"><p class="muted small" style="margin:0">Computing deterministic insights…</p></div>';
+    return;
+  }
+  const list = Array.isArray(signals) ? signals : [];
+  if (!list.length){
+    analysisInsightsEl.innerHTML = '<div class="analysis-insight-card"><p class="muted small" style="margin:0">No deterministic alerts for the selected filters.</p></div>';
+    return;
+  }
+  analysisInsightsEl.innerHTML = list.map(signal => {
+    const severity = (signal.severity || "low").toLowerCase();
+    const meta = signal.meta && typeof signal.meta === "object" ? signal.meta : {};
+    const metaLines = Object.entries(meta)
+      .slice(0, 5)
+      .map(([key, value]) => `<div><strong>${escapeHtml(key)}:</strong> ${escapeHtml(formatInsightMetaValue(value))}</div>`)
+      .join("");
+    return `<article class="analysis-insight-card ${escapeHtml(severity)}">
+      <div class="analysis-insight-meta">
+        <span>${escapeHtml((signal.type || "signal").replace(/_/g, " "))}</span>
+        <span>${escapeHtml(severity)}</span>
+      </div>
+      <h4 class="analysis-insight-title">${escapeHtml(signal.title || "Insight")}</h4>
+      <p class="analysis-insight-explain">${escapeHtml(signal.explanation || "")}</p>
+      <details>
+        <summary>Why this insight</summary>
+        <div class="muted small" style="margin-top:6px">${metaLines || "No metadata."}</div>
+      </details>
+    </article>`;
+  }).join("");
+}
+
+function buildSignalsSummary(context){
+  const mappedDimensions = (context?.current?.topDimensions || []).map(entry => ({
+    dimension: entry.dimension,
+    qty: entry.qty,
+    orders: entry.orders,
+    clients: entry.clients,
+    repeat_score: entry.repeatScore,
+    order_spread: entry.orderSpread,
+    client_spread: entry.clientSpread,
+    batching_opportunity: !!entry.batchingOpportunity,
+  }));
+  const mappedPrevDimensions = (context?.previous?.topDimensions || []).map(entry => ({
+    dimension: entry.dimension,
+    qty: entry.qty,
+    orders: entry.orders,
+    clients: entry.clients,
+    repeat_score: entry.repeatScore,
+    order_spread: entry.orderSpread,
+    client_spread: entry.clientSpread,
+    batching_opportunity: !!entry.batchingOpportunity,
+  }));
+  return {
+    compare_enabled: !!context?.previous,
+    period: context?.period || {},
+    previous_period: context?.previousPeriod || {},
+    current: {
+      totals: context?.current?.totals || {},
+      top_clients: context?.current?.topClients || [],
+      top_types: context?.current?.topTypes || [],
+      top_dimensions: mappedDimensions,
+      order_contributions: context?.current?.orderContributions || [],
+      daily: context?.current?.daily || [],
+    },
+    previous: context?.previous ? {
+      totals: context.previous.totals || {},
+      top_clients: context.previous.topClients || [],
+      top_types: context.previous.topTypes || [],
+      top_dimensions: mappedPrevDimensions,
+      order_contributions: context.previous.orderContributions || [],
+      daily: context.previous.daily || [],
+    } : {},
+    meta: {
+      thresholds: {
+        growth_delta_medium_pct: 10,
+        growth_delta_high_pct: 20,
+        client_share_medium_pct: 35,
+        client_share_high_pct: 45,
+        mix_shift_medium_pct: 10,
+        mix_shift_high_pct: 16,
+      },
+    },
+  };
+}
+
+function buildAdvancedAnalysisDataset(context){
+  return {
+    scope: "filtered-period",
+    meta: {
+      generated_at: new Date().toISOString(),
+      period: context?.period || {},
+      previous_period: context?.previousPeriod || {},
+      filters: {
+        client: analysisState.controls.client || "",
+        glass_type: analysisState.controls.glassType || "",
+      },
+    },
+    aggregates: {
+      current: context?.current || {},
+      previous: context?.previous || null,
+      compare_enabled: !!context?.previous,
+      insights: analysisState.insights || [],
+    },
+    orders: [],
+    processing_orders: [],
+  };
+}
+
+async function runAnalysisPipeline(options = {}){
+  const settings = readAnalysisSettings();
+  const context = buildAnalysisContext(analysisState.orders || [], settings);
+  analysisState.currentPeriod = context.current;
+  analysisState.previousPeriod = context.previous;
+  analysisState.metrics = context.current?.totals || null;
+  analysisState.topClients = context.current?.topClients || [];
+  analysisState.topTypes = context.current?.topTypes || [];
+  analysisState.topDimensions = context.current?.topDimensions || [];
+  renderPeriodMeta(context);
+  renderAnalysisKpis(context);
+  renderTopClients(analysisState.topClients);
+  renderTopTypes(analysisState.topTypes);
+  renderTopDimensions(analysisState.topDimensions);
+  renderCharts(context);
+  renderSortIndicators();
+  analysisState.advancedDataset = buildAdvancedAnalysisDataset(context);
+  if (options.skipInsights){
+    return context;
+  }
+  const runId = ++analysisState.renderRunId;
+  analysisState.insightsLoading = true;
+  renderInsights([], context, true);
+  try{
+    const summary = buildSignalsSummary(context);
+    const signals = await fetchAnalysisSignals(summary);
+    if (runId !== analysisState.renderRunId) return context;
+    analysisState.insights = signals;
+  }catch(error){
+    console.warn("Analysis signals unavailable:", error);
+    if (runId !== analysisState.renderRunId) return context;
+    analysisState.insights = [];
+  }finally{
+    if (runId === analysisState.renderRunId){
+      analysisState.insightsLoading = false;
+      renderInsights(analysisState.insights, context, false);
+      analysisState.advancedDataset = buildAdvancedAnalysisDataset(context);
+    }
+  }
+  return context;
+}
+
+async function refreshAnalysis(forceReload = false){
   const settings = readAnalysisSettings();
   if (analysisState.loading){
     return analysisState.promise;
+  }
+  if (forceReload){
+    analysisState.allOrdersDirty = true;
   }
   analysisState.loading = true;
   setAnalysisStatus("Loading analysis…");
@@ -2491,35 +3465,37 @@ async function refreshAnalysis(){
       await ensureHistoryLoaded();
       const dataset = await buildAllTimeAnalysisDataset(settings);
       analysisState.dataset = dataset;
-      const orders = mergeOrdersForAnalysis(dataset);
-      analysisState.metrics = computeAnalysisMetrics(orders);
-      analysisState.topClients = computeTopClients(orders);
-      analysisState.topTypes = computeTopGlassTypes(orders);
-      const rows = collectAnalysisRows(orders);
-      analysisState.topDimensions = buildDimensionBuckets(rows, analysisState.tolerance, analysisState.orientationAgnostic);
-      renderAnalysisKpis(analysisState.metrics);
-      renderTopClients(analysisState.topClients);
-      renderTopTypes(analysisState.topTypes);
-      renderTopDimensions(analysisState.topDimensions);
-      const truncatedNotice = dataset?.meta?.truncated ? " (dataset truncated for AI)" : "";
-      const message = orders.length ? `Updated ${new Date().toLocaleTimeString()}${truncatedNotice}` : "No analysis data available.";
+      analysisState.orders = mergeOrdersForAnalysis(dataset);
+      populateAnalysisFilterOptions(analysisState.orders);
+      setAnalysisControlDefaults(analysisState.orders);
+      const context = await runAnalysisPipeline();
+      const message = analysisState.orders.length
+        ? `Updated ${new Date().toLocaleTimeString()}`
+        : "No analysis data available.";
       setAnalysisStatus(message);
-      analysisState.loading = false;
-      return dataset;
+      return { dataset, context };
     }catch(error){
       console.error("Analysis refresh failed:", error);
       setAnalysisStatus("Analysis unavailable — check connection.");
       analysisState.dataset = null;
+      analysisState.orders = [];
       analysisState.metrics = null;
       analysisState.topClients = [];
       analysisState.topTypes = [];
       analysisState.topDimensions = [];
-      renderAnalysisKpis(null);
+      analysisState.currentPeriod = null;
+      analysisState.previousPeriod = null;
+      analysisState.insights = [];
+      analysisState.advancedDataset = null;
+      renderAnalysisKpis({ current: { totals: null } });
       renderTopClients([]);
       renderTopTypes([]);
       renderTopDimensions([]);
-      analysisState.loading = false;
+      renderCharts({ current: { daily: [], topClients: [], topTypes: [] } });
+      renderInsights([], null, false);
       return null;
+    }finally{
+      analysisState.loading = false;
     }
   })();
   analysisState.promise = task;
@@ -2528,25 +3504,13 @@ async function refreshAnalysis(){
 
 function recalculateDimensionBuckets(){
   readAnalysisSettings();
-  if (!analysisState.dataset){
+  if (!analysisState.dataset || !Array.isArray(analysisState.orders) || !analysisState.orders.length){
     refreshAnalysis();
     return;
   }
-  const orders = mergeOrdersForAnalysis(analysisState.dataset);
-  const rows = collectAnalysisRows(orders);
-  analysisState.topDimensions = buildDimensionBuckets(rows, analysisState.tolerance, analysisState.orientationAgnostic);
-  renderTopDimensions(analysisState.topDimensions);
-  if (analysisState.dataset){
-    analysisState.dataset.aggregates = computeAggregatesForAllTime(
-      analysisState.dataset.orders || [],
-      analysisState.dataset.processing_orders || [],
-      {
-        tolerance: analysisState.tolerance,
-        orientationAgnostic: analysisState.orientationAgnostic,
-      }
-    );
-  }
-  setAnalysisStatus(orders.length ? "Dimensions recalculated." : "No analysis data available.");
+  runAnalysisPipeline().then(()=>{
+    setAnalysisStatus("Dimensions recalculated.");
+  });
 }
 
 function ensureAnalysisReady(){
@@ -2555,27 +3519,97 @@ function ensureAnalysisReady(){
   }
 }
 
+function bindAnalysisSortHandlers(){
+  const handler = event => {
+    const button = event.target.closest("button[data-table][data-sort]");
+    if (!button) return;
+    event.preventDefault();
+    const tableName = button.dataset.table;
+    const sortKey = button.dataset.sort;
+    toggleSortState(tableName, sortKey);
+    const context = {
+      current: {
+        totals: analysisState.metrics,
+        topClients: analysisState.topClients,
+        topTypes: analysisState.topTypes,
+        topDimensions: analysisState.topDimensions,
+        daily: analysisState.currentPeriod?.daily || [],
+      },
+      previous: analysisState.previousPeriod,
+      period: { start: analysisState.controls.startDate, end: analysisState.controls.endDate },
+      previousPeriod: derivePreviousPeriod(analysisState.controls.startDate, analysisState.controls.endDate),
+    };
+    renderTopClients(analysisState.topClients);
+    renderTopTypes(analysisState.topTypes);
+    renderTopDimensions(analysisState.topDimensions);
+    renderSortIndicators();
+    renderCharts({
+      current: {
+        daily: analysisState.currentPeriod?.daily || [],
+        topClients: analysisState.topClients,
+        topTypes: analysisState.topTypes,
+      },
+    });
+    renderPeriodMeta(context);
+  };
+  if (analysisTopClientsHead) analysisTopClientsHead.addEventListener("click", handler);
+  if (analysisTopTypesHead) analysisTopTypesHead.addEventListener("click", handler);
+  if (analysisDimensionsHead) analysisDimensionsHead.addEventListener("click", handler);
+}
+
+function bindAnalysisFilterHandlers(){
+  const runLocal = ()=> {
+    if (!analysisState.orders.length) return;
+    runAnalysisPipeline();
+  };
+  if (analysisDateStartInput) analysisDateStartInput.addEventListener("change", runLocal);
+  if (analysisDateEndInput) analysisDateEndInput.addEventListener("change", runLocal);
+  if (analysisCompareToggle) analysisCompareToggle.addEventListener("change", runLocal);
+  if (analysisClientFilter) analysisClientFilter.addEventListener("change", runLocal);
+  if (analysisTypeFilter) analysisTypeFilter.addEventListener("change", runLocal);
+  if (analysisRefreshBtn){
+    analysisRefreshBtn.addEventListener("click", ()=> refreshAnalysis(true));
+  }
+  if (analysisDistributionMetricEl){
+    analysisDistributionMetricEl.addEventListener("click", event => {
+      const button = event.target.closest("button[data-metric]");
+      if (!button) return;
+      const metric = button.dataset.metric;
+      if (!metric) return;
+      analysisState.distributionMetric = metric;
+      analysisDistributionMetricEl.querySelectorAll("button[data-metric]").forEach(item => {
+        item.classList.toggle("active", item.dataset.metric === metric);
+      });
+      renderCharts({
+        current: {
+          daily: analysisState.currentPeriod?.daily || [],
+          topClients: analysisState.topClients,
+          topTypes: analysisState.topTypes,
+        },
+      });
+    });
+  }
+}
+
 function initAnalysis(){
   if (analysisState.initialized) return;
   analysisState.initialized = true;
   readAnalysisSettings();
-  renderAnalysisKpis(null);
+  renderAnalysisKpis({ current: { totals: null } });
   renderTopClients([]);
   renderTopTypes([]);
   renderTopDimensions([]);
+  renderCharts({ current: { daily: [], topClients: [], topTypes: [] } });
+  renderInsights([], null, false);
+  bindAnalysisFilterHandlers();
+  bindAnalysisSortHandlers();
   refreshAnalysis();
   if (analysisToleranceInput){
-    analysisToleranceInput.addEventListener("change", ()=>{
-      readAnalysisSettings();
-      recalculateDimensionBuckets();
-    });
+    analysisToleranceInput.addEventListener("change", ()=> recalculateDimensionBuckets());
     analysisToleranceInput.addEventListener("input", ()=> readAnalysisSettings());
   }
   if (analysisOrientationToggle){
-    analysisOrientationToggle.addEventListener("change", ()=>{
-      readAnalysisSettings();
-      recalculateDimensionBuckets();
-    });
+    analysisOrientationToggle.addEventListener("change", ()=> recalculateDimensionBuckets());
   }
   if (analysisRecalcBtn){
     analysisRecalcBtn.addEventListener("click", ()=> recalculateDimensionBuckets());
@@ -2583,13 +3617,19 @@ function initAnalysis(){
   if (analysisAskBtn){
     analysisAskBtn.addEventListener("click", ()=> submitAnalysisQuestion());
   }
+  if (analysisQuickActionsEl){
+    analysisQuickActionsEl.addEventListener("click", event => {
+      const button = event.target.closest("button[data-question]");
+      if (!button || !analysisQuestionInput) return;
+      analysisQuestionInput.value = button.dataset.question || "";
+      analysisQuestionInput.focus();
+    });
+  }
   if (analysisQuestionInput){
     analysisQuestionInput.addEventListener("keydown", event => {
-      if (event.key === "Enter"){
-        if (event.metaKey || event.ctrlKey){
-          event.preventDefault();
-          submitAnalysisQuestion();
-        }
+      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)){
+        event.preventDefault();
+        submitAnalysisQuestion();
       }
     });
   }
@@ -2608,7 +3648,7 @@ function initAnalysis(){
       const processingRows = Array.isArray(dataset.processing_orders)
         ? dataset.processing_orders.reduce((sum, order)=> sum + (Array.isArray(order.rows) ? order.rows.length : 0), 0)
         : 0;
-      console.log(`[analysis debug] orders=${ordersCount} rows=${orderRows}, processing=${processingCount} rows=${processingRows}, truncated=${dataset.meta?.truncated ? "yes" : "no"}`);
+      console.log(`[analysis debug] orders=${ordersCount} rows=${orderRows}, processing=${processingCount} rows=${processingRows}`);
     });
   }
 }
@@ -2686,24 +3726,55 @@ async function submitAnalysisQuestion(){
   if (!analysisState.dataset){
     await refreshAnalysis();
   }
-  const dataset = analysisState.dataset;
-  if (!dataset){
+  if (!analysisState.dataset){
     setAnalysisAnswerPlaceholder("AI analysis is unavailable. The dashboard above still works offline.", true);
     return;
   }
-  const { dataset: payloadDataset, serialized, truncated } = prepareDatasetForTransmission(dataset, {
-    tolerance: analysisState.tolerance,
-    orientationAgnostic: analysisState.orientationAgnostic,
-  });
-  if (analysisState.dataset){
-    const payloadMeta = payloadDataset.meta || {};
-    analysisState.dataset.meta = {
-      ...(analysisState.dataset.meta || {}),
-      truncated: !!payloadMeta.truncated,
-      size: payloadMeta.size ?? serialized.length,
-      notes: Array.isArray(payloadMeta.notes) ? payloadMeta.notes.slice() : (analysisState.dataset.meta?.notes || []),
-    };
+  const context = {
+    period: { start: analysisState.controls.startDate, end: analysisState.controls.endDate },
+    previousPeriod: derivePreviousPeriod(analysisState.controls.startDate, analysisState.controls.endDate),
+    current: {
+      totals: analysisState.metrics || {},
+      topClients: analysisState.topClients || [],
+      topTypes: analysisState.topTypes || [],
+      topDimensions: analysisState.topDimensions || [],
+      orderContributions: analysisState.currentPeriod?.orderContributions || [],
+      daily: analysisState.currentPeriod?.daily || [],
+    },
+    previous: analysisState.previousPeriod || null,
+  };
+  let payloadDataset = analysisState.advancedDataset
+    ? JSON.parse(JSON.stringify(analysisState.advancedDataset))
+    : buildAdvancedAnalysisDataset(context);
+  payloadDataset.orders = [];
+  payloadDataset.processing_orders = [];
+  payloadDataset.meta = payloadDataset.meta && typeof payloadDataset.meta === "object"
+    ? payloadDataset.meta
+    : {};
+  payloadDataset.meta.notes = Array.isArray(payloadDataset.meta.notes) ? payloadDataset.meta.notes : [];
+  let serialized = JSON.stringify(payloadDataset);
+  if (serialized.length > ANALYSIS_MAX_DATASET_CHARS){
+    payloadDataset.meta.truncated = true;
+    const current = payloadDataset.aggregates?.current;
+    if (current && Array.isArray(current.daily) && current.daily.length > 60){
+      current.daily = current.daily.slice(-60);
+      payloadDataset.meta.notes.push("daily series trimmed to last 60 points");
+    }
+    if (current && Array.isArray(current.topClients) && current.topClients.length > 20){
+      current.topClients = current.topClients.slice(0, 20);
+      payloadDataset.meta.notes.push("top clients trimmed to 20");
+    }
+    if (current && Array.isArray(current.topTypes) && current.topTypes.length > 20){
+      current.topTypes = current.topTypes.slice(0, 20);
+      payloadDataset.meta.notes.push("top types trimmed to 20");
+    }
+    if (current && Array.isArray(current.topDimensions) && current.topDimensions.length > 20){
+      current.topDimensions = current.topDimensions.slice(0, 20);
+      payloadDataset.meta.notes.push("top dimensions trimmed to 20");
+    }
+    serialized = JSON.stringify(payloadDataset);
   }
+  payloadDataset.meta.size = serialized.length;
   const sessionId = getAnalysisSessionId();
   const headers = { "Content-Type": "application/json" };
   if (sessionId){
@@ -2715,6 +3786,11 @@ async function submitAnalysisQuestion(){
     settings: {
       tolerance_mm: analysisState.tolerance,
       orient_agnostic: analysisState.orientationAgnostic,
+      compare_previous: analysisState.controls.comparePrevious,
+      period_start: analysisState.controls.startDate || null,
+      period_end: analysisState.controls.endDate || null,
+      client_filter: analysisState.controls.client || null,
+      glass_type_filter: analysisState.controls.glassType || null,
       decimal_separator: appState.processing.options.decimalSeparator === "dot" ? "dot" : "comma",
     },
   };
@@ -9590,6 +10666,20 @@ async function fetchOrder(id){
     throw new Error(text || ("HTTP " + res.status));
   }
   return res.json();
+}
+
+async function fetchAnalysisSignals(summary){
+  const res = await fetch(API_BASE + "/analysis/signals", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ summary }),
+  });
+  if (!res.ok){
+    const text = await res.text();
+    throw new Error(text || ("HTTP " + res.status));
+  }
+  const data = await res.json();
+  return Array.isArray(data?.signals) ? data.signals : [];
 }
 
 async function deleteOrder(id){
