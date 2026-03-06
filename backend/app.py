@@ -41,6 +41,7 @@ from dimension_repair import apply_dimension_repair
 from area_dimension_validator import apply_area_dimension_validation
 from utils_text import clean_dimension, parse_declared_totals
 from prompts import PROMPTS
+from analysis_signals import generate_analysis_signals
 ENV_PATH = Path(__file__).parent / ".env"
 load_dotenv(ENV_PATH, override=True)
 
@@ -285,6 +286,10 @@ class AnalysisAskPayload(BaseModel):
     question: str
     dataset: Dict[str, Any]
     settings: Optional[Dict[str, Any]] = None
+
+
+class AnalysisSignalsPayload(BaseModel):
+    summary: Dict[str, Any]
 
 
 def _debug_log_rows(rows):
@@ -1144,6 +1149,19 @@ def ask_analysis(request: Request, payload: AnalysisAskPayload) -> Dict[str, str
     }
 
     return {"answerMarkdown": answer}
+
+
+@app.post("/analysis/signals")
+def analysis_signals(payload: AnalysisSignalsPayload) -> Dict[str, Any]:
+    summary = payload.summary or {}
+    if not isinstance(summary, dict):
+        raise HTTPException(status_code=400, detail="Summary must be an object.")
+    signals = generate_analysis_signals(summary)
+    return {
+        "signals": signals,
+        "count": len(signals),
+        "generated_at": datetime.utcnow().isoformat() + "Z",
+    }
 
 @app.get("/diag")
 def diag():
