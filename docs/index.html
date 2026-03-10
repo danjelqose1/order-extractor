@@ -268,6 +268,39 @@
     .processing-actions{display:flex;flex-direction:column;gap:8px}
     .processing-actions .btn{width:100%}
     .processing-warning{color:#facc15;font-size:12px;margin-top:6px}
+    .scan-studio-layout{display:grid;grid-template-columns:280px minmax(0,1fr);gap:14px}
+    .scan-studio-sidebar{display:flex;flex-direction:column;gap:12px}
+    .scan-dropzone{margin:0;padding:18px;border:2px dashed #c9cfea;border-radius:12px;text-align:center;background:#fbfcff;color:var(--muted);cursor:pointer;transition:border-color .2s ease,background .2s ease}
+    .scan-dropzone.hover{background:var(--primary-soft);border-color:var(--primary);color:var(--text)}
+    .scan-hint{margin-top:6px;font-size:12px;color:var(--muted)}
+    .scan-status{font-size:12px;color:var(--muted);min-height:18px}
+    .scan-page-list{border:1px solid var(--border);border-radius:12px;background:#fff;max-height:520px;overflow:auto;padding:8px;display:flex;flex-direction:column;gap:8px}
+    .scan-page-empty{padding:20px 10px;text-align:center;color:var(--muted);font-size:13px}
+    .scan-page-item{display:grid;grid-template-columns:54px minmax(0,1fr);gap:8px;border:1px solid var(--border);border-radius:10px;padding:6px;background:#fbfcff;cursor:pointer}
+    .scan-page-item.active{border-color:var(--primary);background:#eef1ff}
+    .scan-page-item.drag-over{border-color:#3b82f6;background:#eff6ff}
+    .scan-thumb{width:54px;height:68px;object-fit:cover;border-radius:8px;border:1px solid var(--border)}
+    .scan-page-meta{min-width:0}
+    .scan-page-name{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .scan-page-sub{font-size:11px;color:var(--muted);margin-top:2px}
+    .scan-page-actions{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
+    .scan-page-actions .btn{padding:3px 6px;font-size:11px}
+    .scan-editor{display:flex;flex-direction:column;gap:12px}
+    .scan-editor-controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+    .scan-control{border:1px solid var(--border);border-radius:10px;padding:10px;background:#fbfcff}
+    .scan-control h4{margin:0 0 8px;font-size:13px}
+    .scan-control .btn-row{display:flex;gap:6px;flex-wrap:wrap}
+    .scan-control .btn-row .btn{padding:6px 10px}
+    .scan-control .btn.active{background:#e9edff;border-color:var(--primary);color:#22306f}
+    .scan-filter-select{width:100%;padding:7px 8px;border:1px solid var(--border-dark);border-radius:8px;background:#fff}
+    .scan-slider{display:grid;grid-template-columns:86px minmax(0,1fr) 40px;align-items:center;gap:6px;font-size:12px}
+    .scan-slider input[type="range"]{width:100%}
+    .scan-preview-wrap{border:1px solid var(--border);border-radius:12px;background:#101623;padding:10px}
+    .scan-preview-stage{position:relative;width:100%;min-height:520px;background:#0b1220;border-radius:10px;overflow:hidden}
+    .scan-preview-canvas,.scan-overlay-canvas{position:absolute;inset:0;width:100%;height:100%}
+    .scan-overlay-canvas{touch-action:none;cursor:crosshair}
+    .scan-output-actions{display:flex;flex-wrap:wrap;gap:8px}
+    .scan-output-actions .btn{padding:8px 12px}
     .spacer-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
     .spacer-actions{display:flex;gap:8px;flex-wrap:wrap}
     .spacer-output{
@@ -437,6 +470,8 @@
       .processing-order-list{max-height:none}
       .igu-grid{grid-template-columns:1fr;}
       .analysis-split-grid{grid-template-columns:1fr}
+      .scan-studio-layout{grid-template-columns:1fr}
+      .scan-preview-stage{min-height:420px}
       .spacer-output{font-size:16px}
       .spacer-output.pdf-preview{column-count:1}
       .spacer-page{
@@ -455,6 +490,7 @@
       .tab-bar button{width:100%}
       .controls,.filter-actions,.history-detail-actions{flex-direction:column;align-items:stretch}
       .history-pagination{flex-direction:column;align-items:stretch}
+      .scan-preview-stage{min-height:360px}
       .dropzone{padding:20px}
       th,td{font-size:13px}
     }
@@ -527,6 +563,7 @@
 
     <nav class="tab-bar">
       <button class="tab active" data-tab="extract">Dashboard</button>
+      <button class="tab" data-tab="scanstudio">Scan Studio</button>
       <button class="tab" data-tab="history">History</button>
       <button class="tab" data-tab="processing">Processing</button>
       <button class="tab" data-tab="spacer">Spacer Processing</button>
@@ -691,6 +728,97 @@
         <h3 style="margin-top:0">Breakdown</h3>
         <div class="table-responsive" id="iguBreakdownWrap">
           <div class="igu-breakdown-empty">Select orders to see item totals.</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="tabScanStudio" class="tab-panel">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+          <div>
+            <h2 style="margin:0">Scan Studio</h2>
+            <p class="muted small" style="margin:4px 0 0">Upload WhatsApp order images, clean readability, then print or export.</p>
+          </div>
+          <div id="scanStatus" class="scan-status"></div>
+        </div>
+      </div>
+
+      <div class="scan-studio-layout">
+        <div class="scan-studio-sidebar">
+          <div class="card">
+            <div id="scanDropZone" class="scan-dropzone">Drop JPG/PNG/WebP images here or click to upload.</div>
+            <div class="scan-hint">Supports multiple pages: .jpg .jpeg .png .webp</div>
+          </div>
+          <div class="card" style="padding:12px">
+            <h3 style="margin:0 0 8px;font-size:15px">Pages</h3>
+            <div id="scanPageList" class="scan-page-list">
+              <div class="scan-page-empty">No pages uploaded yet.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="scan-editor">
+          <div class="card scan-editor-controls">
+            <div class="scan-control">
+              <h4>Transform</h4>
+              <div class="btn-row">
+                <button type="button" id="scanRotateLeft" class="btn small">Rotate Left</button>
+                <button type="button" id="scanRotateRight" class="btn small">Rotate Right</button>
+              </div>
+            </div>
+            <div class="scan-control">
+              <h4>Crop</h4>
+              <div class="btn-row">
+                <button type="button" id="scanCropToggle" class="btn small">Crop Mode</button>
+                <button type="button" id="scanCropReset" class="btn small">Reset Crop</button>
+              </div>
+            </div>
+            <div class="scan-control">
+              <h4>Perspective</h4>
+              <div class="btn-row">
+                <button type="button" id="scanPerspectiveToggle" class="btn small">Handles</button>
+                <button type="button" id="scanPerspectiveReset" class="btn small">Reset</button>
+              </div>
+            </div>
+            <div class="scan-control">
+              <h4>Filter</h4>
+              <select id="scanFilter" class="scan-filter-select">
+                <option value="original">Original</option>
+                <option value="grayscale">Greyscale</option>
+                <option value="document">Document</option>
+                <option value="bw">High-contrast B&amp;W</option>
+              </select>
+            </div>
+            <div class="scan-control">
+              <h4>Brightness / Contrast</h4>
+              <label class="scan-slider">
+                <span>Brightness</span>
+                <input id="scanBrightness" type="range" min="-100" max="100" step="1" value="0" />
+                <span id="scanBrightnessValue">0</span>
+              </label>
+              <label class="scan-slider" style="margin-top:6px">
+                <span>Contrast</span>
+                <input id="scanContrast" type="range" min="-100" max="100" step="1" value="0" />
+                <span id="scanContrastValue">0</span>
+              </label>
+            </div>
+            <div class="scan-control">
+              <h4>Output</h4>
+              <div class="scan-output-actions">
+                <button type="button" id="scanPrintCurrent" class="btn small">Print Current</button>
+                <button type="button" id="scanPrintAll" class="btn small">Print All</button>
+                <button type="button" id="scanExportPdf" class="btn small">Export PDF</button>
+                <button type="button" id="scanExportImage" class="btn small">Export Image</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card scan-preview-wrap">
+            <div id="scanPreviewStage" class="scan-preview-stage">
+              <canvas id="scanPreviewCanvas" class="scan-preview-canvas"></canvas>
+              <canvas id="scanOverlayCanvas" class="scan-overlay-canvas"></canvas>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -1278,6 +1406,7 @@
   </div>
 
   <input type="file" id="pdfInput" accept="application/pdf" hidden />
+  <input type="file" id="scanFileInput" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple hidden />
 
 <script>
 const API_BASE = "https://order-extractor-kdih.onrender.com";
@@ -1303,6 +1432,9 @@ const INVOICE_JOBS_KEY = "loe.invoices.jobs.v1";
 const INVOICE_COUNTER_KEY = "loe.invoices.counter.v1";
 const TYPE_CORRECTIONS_STORAGE_KEY = "invoice_type_corrections_v1";
 const IGU_INNER_FILL_MM = 5;
+const SCAN_ALLOWED_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp"]);
+const SCAN_PREVIEW_MAX_SIDE = 1600;
+const SCAN_EXPORT_MAX_SIDE = 2800;
 const IGU_SETTINGS_DEFAULTS = Object.freeze({
   spacerSource: "item",
   spacerOverride: null,
@@ -1486,6 +1618,39 @@ const spacerProcessingState = {
   layoutModel: null,
 };
 
+/**
+ * @typedef {Object} ScanPage
+ * @property {string} id
+ * @property {string} originalSrc
+ * @property {number} rotation
+ * @property {{ x: number; y: number; width: number; height: number } | null} crop
+ * @property {"original" | "grayscale" | "document" | "bw"} filter
+ * @property {number} brightness
+ * @property {number} contrast
+ * @property {number} orderIndex
+ */
+const scanStudioState = {
+  pages: [],
+  selectedPageId: "",
+  draggingPageId: "",
+  cropMode: false,
+  perspectiveMode: false,
+  cropStart: null,
+  cropDraft: null,
+  draggingPerspectiveIndex: -1,
+  renderToken: 0,
+  preview: {
+    imageCanvas: null,
+    baseCanvas: null,
+    scale: 1,
+    offsetX: 0,
+    offsetY: 0,
+    width: 0,
+    height: 0,
+  },
+};
+const scanStudioImageCache = new Map();
+
 const analysisState = {
   initialized: false,
   loading: false,
@@ -1535,6 +1700,7 @@ const analysisState = {
 const tabs = document.querySelectorAll(".tab-bar .tab");
 const panels = {
   extract: document.getElementById("tabExtract"),
+  scanstudio: document.getElementById("tabScanStudio"),
   history: document.getElementById("tabHistory"),
   processing: document.getElementById("tabProcessing"),
   spacer: document.getElementById("tabSpacer"),
@@ -1591,6 +1757,28 @@ const spacerGeneratePdfBtn = document.getElementById("spacerGeneratePdf");
 const spacerCopyAllBtn = document.getElementById("spacerCopyAll");
 const processingRoundingStatus = document.getElementById("processingRoundingStatus");
 const processingAutoDankoToggle = document.getElementById("processingAutoDankoToggle");
+const scanStatusEl = document.getElementById("scanStatus");
+const scanDropZone = document.getElementById("scanDropZone");
+const scanFileInput = document.getElementById("scanFileInput");
+const scanPageListEl = document.getElementById("scanPageList");
+const scanRotateLeftBtn = document.getElementById("scanRotateLeft");
+const scanRotateRightBtn = document.getElementById("scanRotateRight");
+const scanCropToggleBtn = document.getElementById("scanCropToggle");
+const scanCropResetBtn = document.getElementById("scanCropReset");
+const scanPerspectiveToggleBtn = document.getElementById("scanPerspectiveToggle");
+const scanPerspectiveResetBtn = document.getElementById("scanPerspectiveReset");
+const scanFilterSelect = document.getElementById("scanFilter");
+const scanBrightnessInput = document.getElementById("scanBrightness");
+const scanBrightnessValue = document.getElementById("scanBrightnessValue");
+const scanContrastInput = document.getElementById("scanContrast");
+const scanContrastValue = document.getElementById("scanContrastValue");
+const scanPrintCurrentBtn = document.getElementById("scanPrintCurrent");
+const scanPrintAllBtn = document.getElementById("scanPrintAll");
+const scanExportPdfBtn = document.getElementById("scanExportPdf");
+const scanExportImageBtn = document.getElementById("scanExportImage");
+const scanPreviewStage = document.getElementById("scanPreviewStage");
+const scanPreviewCanvas = document.getElementById("scanPreviewCanvas");
+const scanOverlayCanvas = document.getElementById("scanOverlayCanvas");
 const labelsJobsWrap = document.getElementById("labelsJobsWrap");
 const labelsSummaryEl = document.getElementById("labelsSummary");
 const labelsStatusEl = document.getElementById("labelsStatus");
@@ -1696,6 +1884,10 @@ function activateTab(name){
   });
   if (name === "history"){
     ensureHistoryLoaded();
+  }else if (name === "scanstudio"){
+    renderScanPageList();
+    syncScanControlsFromSelectedPage();
+    renderScanPreview();
   }else if (name === "processing"){
     ensureHistoryLoaded();
     rebuildProcessingRows();
@@ -4215,6 +4407,1217 @@ function ensureMotherSheetObserver(){
 
 function setStatusMessage(msg){
   statusEl.innerHTML = msg || "";
+}
+
+function setScanStatus(message, isError = false){
+  if (!scanStatusEl) return;
+  scanStatusEl.textContent = message || "";
+  scanStatusEl.style.color = isError ? "#b91c1c" : "var(--muted)";
+}
+
+function clampScanValue(value, min, max){
+  return Math.min(max, Math.max(min, value));
+}
+
+function createScanId(){
+  if (window.crypto && typeof window.crypto.randomUUID === "function"){
+    return window.crypto.randomUUID();
+  }
+  return `scan-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function normalizeScanRotation(rotation){
+  const normalized = Number(rotation) || 0;
+  const wrapped = normalized % 360;
+  return wrapped < 0 ? wrapped + 360 : wrapped;
+}
+
+function getScanSortedPages(){
+  return [...scanStudioState.pages].sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+}
+
+function normalizeScanPageOrder(){
+  getScanSortedPages().forEach((page, index)=>{
+    page.orderIndex = index;
+  });
+}
+
+function getSelectedScanPage(){
+  if (!scanStudioState.selectedPageId) return null;
+  return scanStudioState.pages.find(page => page.id === scanStudioState.selectedPageId) || null;
+}
+
+function createScanCanvas(width, height){
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(width));
+  canvas.height = Math.max(1, Math.round(height));
+  return canvas;
+}
+
+function isValidScanCrop(crop){
+  if (!crop || typeof crop !== "object") return false;
+  const { x, y, width, height } = crop;
+  if (![x, y, width, height].every(Number.isFinite)) return false;
+  return width > 0.001 && height > 0.001;
+}
+
+function getDefaultScanPerspective(){
+  return [
+    { x: 0, y: 0 },
+    { x: 1, y: 0 },
+    { x: 1, y: 1 },
+    { x: 0, y: 1 },
+  ];
+}
+
+function normalizeScanPerspective(points){
+  const base = Array.isArray(points) && points.length === 4 ? points : getDefaultScanPerspective();
+  return base.map(point => ({
+    x: clampScanValue(Number(point?.x) || 0, 0, 1),
+    y: clampScanValue(Number(point?.y) || 0, 0, 1),
+  }));
+}
+
+function isScanPerspectiveIdentity(points){
+  const normalized = normalizeScanPerspective(points);
+  const defaults = getDefaultScanPerspective();
+  return normalized.every((point, index)=> (
+    Math.abs(point.x - defaults[index].x) < 0.0001
+      && Math.abs(point.y - defaults[index].y) < 0.0001
+  ));
+}
+
+function getScanFileExtension(fileName){
+  const lower = String(fileName || "").toLowerCase();
+  const idx = lower.lastIndexOf(".");
+  if (idx < 0) return "";
+  return lower.slice(idx + 1);
+}
+
+function isScanImageFile(file){
+  if (!file) return false;
+  const ext = getScanFileExtension(file.name || "");
+  if (ext && SCAN_ALLOWED_EXTENSIONS.has(ext)) return true;
+  const mime = String(file.type || "").toLowerCase();
+  return mime === "image/jpeg" || mime === "image/png" || mime === "image/webp";
+}
+
+function loadScanImage(src){
+  return new Promise((resolve, reject)=>{
+    const img = new Image();
+    img.onload = ()=> resolve(img);
+    img.onerror = ()=> reject(new Error("Failed to decode image."));
+    img.src = src;
+  });
+}
+
+function ensureScanPageExists(){
+  const pages = getScanSortedPages();
+  if (!pages.length){
+    scanStudioState.selectedPageId = "";
+    return;
+  }
+  if (!getSelectedScanPage()){
+    scanStudioState.selectedPageId = pages[0].id;
+  }
+}
+
+function clearScanDragHoverState(){
+  if (!scanPageListEl) return;
+  scanPageListEl.querySelectorAll(".scan-page-item.drag-over").forEach(node => node.classList.remove("drag-over"));
+}
+
+function renderScanPageList(){
+  if (!scanPageListEl) return;
+  normalizeScanPageOrder();
+  ensureScanPageExists();
+  const pages = getScanSortedPages();
+  if (!pages.length){
+    scanPageListEl.innerHTML = `<div class="scan-page-empty">No pages uploaded yet.</div>`;
+    updateScanControlState();
+    return;
+  }
+  const html = pages.map((page, index)=>{
+    const isActive = page.id === scanStudioState.selectedPageId;
+    const filterLabel = page.filter === "bw" ? "B&W" : (page.filter === "document" ? "Doc" : (page.filter === "grayscale" ? "Gray" : "Orig"));
+    return `<div class="scan-page-item${isActive ? " active" : ""}" draggable="true" data-scan-page-id="${escapeHtml(page.id)}">
+      <img class="scan-thumb" src="${escapeHtml(page.originalSrc)}" alt="Page ${index + 1}" />
+      <div class="scan-page-meta">
+        <div class="scan-page-name">Page ${index + 1} · ${escapeHtml(page.fileName || "image")}</div>
+        <div class="scan-page-sub">Rot ${normalizeScanRotation(page.rotation)}° · ${filterLabel}</div>
+        <div class="scan-page-actions">
+          <button type="button" class="btn small" data-scan-action="select" data-scan-page-id="${escapeHtml(page.id)}">Open</button>
+          <button type="button" class="btn small" data-scan-action="up" data-scan-page-id="${escapeHtml(page.id)}">Up</button>
+          <button type="button" class="btn small" data-scan-action="down" data-scan-page-id="${escapeHtml(page.id)}">Down</button>
+          <button type="button" class="btn small danger" data-scan-action="delete" data-scan-page-id="${escapeHtml(page.id)}">Delete</button>
+        </div>
+      </div>
+    </div>`;
+  }).join("");
+  scanPageListEl.innerHTML = html;
+  updateScanControlState();
+}
+
+function updateScanControlState(){
+  const page = getSelectedScanPage();
+  const disabled = !page;
+  const controls = [
+    scanRotateLeftBtn,
+    scanRotateRightBtn,
+    scanCropToggleBtn,
+    scanCropResetBtn,
+    scanPerspectiveToggleBtn,
+    scanPerspectiveResetBtn,
+    scanFilterSelect,
+    scanBrightnessInput,
+    scanContrastInput,
+    scanPrintCurrentBtn,
+    scanPrintAllBtn,
+    scanExportPdfBtn,
+    scanExportImageBtn,
+  ];
+  controls.forEach(control => {
+    if (control) control.disabled = disabled;
+  });
+  if (scanPrintAllBtn){
+    scanPrintAllBtn.disabled = scanStudioState.pages.length === 0;
+  }
+  if (scanExportPdfBtn){
+    scanExportPdfBtn.disabled = scanStudioState.pages.length === 0;
+  }
+}
+
+function syncScanControlsFromSelectedPage(){
+  const page = getSelectedScanPage();
+  updateScanControlState();
+  if (!page){
+    if (scanFilterSelect) scanFilterSelect.value = "original";
+    if (scanBrightnessInput) scanBrightnessInput.value = "0";
+    if (scanContrastInput) scanContrastInput.value = "0";
+    if (scanBrightnessValue) scanBrightnessValue.textContent = "0";
+    if (scanContrastValue) scanContrastValue.textContent = "0";
+    if (scanCropToggleBtn) scanCropToggleBtn.classList.remove("active");
+    if (scanPerspectiveToggleBtn) scanPerspectiveToggleBtn.classList.remove("active");
+    return;
+  }
+  if (scanFilterSelect) scanFilterSelect.value = page.filter || "original";
+  if (scanBrightnessInput) scanBrightnessInput.value = String(Number(page.brightness) || 0);
+  if (scanContrastInput) scanContrastInput.value = String(Number(page.contrast) || 0);
+  if (scanBrightnessValue) scanBrightnessValue.textContent = String(Math.round(Number(page.brightness) || 0));
+  if (scanContrastValue) scanContrastValue.textContent = String(Math.round(Number(page.contrast) || 0));
+  if (scanCropToggleBtn) scanCropToggleBtn.classList.toggle("active", !!scanStudioState.cropMode);
+  if (scanPerspectiveToggleBtn) scanPerspectiveToggleBtn.classList.toggle("active", !!scanStudioState.perspectiveMode);
+}
+
+function prepareScanPreviewCanvases(){
+  if (!scanPreviewStage || !scanPreviewCanvas || !scanOverlayCanvas){
+    return null;
+  }
+  const stageRect = scanPreviewStage.getBoundingClientRect();
+  const width = Math.max(320, Math.floor(stageRect.width || 0));
+  const height = Math.max(240, Math.floor(stageRect.height || 0));
+  const dpr = window.devicePixelRatio || 1;
+  const pxWidth = Math.max(1, Math.round(width * dpr));
+  const pxHeight = Math.max(1, Math.round(height * dpr));
+
+  [scanPreviewCanvas, scanOverlayCanvas].forEach(canvas => {
+    if (canvas.width !== pxWidth || canvas.height !== pxHeight){
+      canvas.width = pxWidth;
+      canvas.height = pxHeight;
+    }
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+  });
+
+  const previewCtx = scanPreviewCanvas.getContext("2d");
+  const overlayCtx = scanOverlayCanvas.getContext("2d");
+  previewCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  overlayCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { previewCtx, overlayCtx, width, height };
+}
+
+function drawEmptyScanPreview(message){
+  const prepared = prepareScanPreviewCanvases();
+  if (!prepared) return;
+  const { previewCtx, overlayCtx, width, height } = prepared;
+  previewCtx.clearRect(0, 0, width, height);
+  overlayCtx.clearRect(0, 0, width, height);
+  previewCtx.fillStyle = "#0b1220";
+  previewCtx.fillRect(0, 0, width, height);
+  previewCtx.fillStyle = "#8fa0b8";
+  previewCtx.font = "13px system-ui, -apple-system, Segoe UI, sans-serif";
+  previewCtx.textAlign = "center";
+  previewCtx.fillText(message || "Upload images to begin.", width / 2, height / 2);
+  scanStudioState.preview.imageCanvas = null;
+  scanStudioState.preview.baseCanvas = null;
+  scanStudioState.preview.width = 0;
+  scanStudioState.preview.height = 0;
+}
+
+function drawScanPreviewCanvas(imageCanvas, baseCanvas){
+  const prepared = prepareScanPreviewCanvases();
+  if (!prepared) return;
+  const { previewCtx, width, height } = prepared;
+  previewCtx.clearRect(0, 0, width, height);
+  previewCtx.fillStyle = "#0b1220";
+  previewCtx.fillRect(0, 0, width, height);
+
+  const imgW = imageCanvas.width;
+  const imgH = imageCanvas.height;
+  if (!imgW || !imgH){
+    drawEmptyScanPreview("Unable to render page.");
+    return;
+  }
+  const scale = Math.min(width / imgW, height / imgH);
+  const drawW = imgW * scale;
+  const drawH = imgH * scale;
+  const offsetX = (width - drawW) / 2;
+  const offsetY = (height - drawH) / 2;
+
+  previewCtx.imageSmoothingEnabled = true;
+  previewCtx.imageSmoothingQuality = "high";
+  previewCtx.drawImage(imageCanvas, offsetX, offsetY, drawW, drawH);
+
+  scanStudioState.preview.imageCanvas = imageCanvas;
+  scanStudioState.preview.baseCanvas = baseCanvas;
+  scanStudioState.preview.scale = scale;
+  scanStudioState.preview.offsetX = offsetX;
+  scanStudioState.preview.offsetY = offsetY;
+  scanStudioState.preview.width = imgW;
+  scanStudioState.preview.height = imgH;
+}
+
+function drawScanCropOverlay(ctx, page){
+  const transform = scanStudioState.preview;
+  const imageWidth = transform.width || 0;
+  const imageHeight = transform.height || 0;
+  if (!imageWidth || !imageHeight) return;
+  const crop = scanStudioState.cropDraft || (isValidScanCrop(page?.crop) ? page.crop : null);
+  if (!crop) return;
+
+  const x = transform.offsetX + (crop.x * imageWidth * transform.scale);
+  const y = transform.offsetY + (crop.y * imageHeight * transform.scale);
+  const width = crop.width * imageWidth * transform.scale;
+  const height = crop.height * imageHeight * transform.scale;
+  if (width <= 1 || height <= 1) return;
+
+  ctx.save();
+  ctx.fillStyle = "rgba(14,23,42,0.45)";
+  ctx.beginPath();
+  ctx.rect(transform.offsetX, transform.offsetY, imageWidth * transform.scale, imageHeight * transform.scale);
+  ctx.rect(x, y, width, height);
+  ctx.fill("evenodd");
+  ctx.strokeStyle = "#38bdf8";
+  ctx.lineWidth = 2;
+  ctx.setLineDash([6, 4]);
+  ctx.strokeRect(x, y, width, height);
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
+function drawScanPerspectiveOverlay(ctx, page){
+  const transform = scanStudioState.preview;
+  const imageWidth = transform.width || 0;
+  const imageHeight = transform.height || 0;
+  if (!imageWidth || !imageHeight) return;
+  const points = normalizeScanPerspective(page?.perspective);
+  const toDisplay = point => ({
+    x: transform.offsetX + (point.x * imageWidth * transform.scale),
+    y: transform.offsetY + (point.y * imageHeight * transform.scale),
+  });
+  const displayPoints = points.map(toDisplay);
+
+  ctx.save();
+  ctx.strokeStyle = "#22c55e";
+  ctx.fillStyle = "rgba(34,197,94,0.18)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(displayPoints[0].x, displayPoints[0].y);
+  for (let i = 1; i < displayPoints.length; i += 1){
+    ctx.lineTo(displayPoints[i].x, displayPoints[i].y);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  displayPoints.forEach((point, index)=>{
+    const active = index === scanStudioState.draggingPerspectiveIndex;
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, active ? 6 : 5, 0, Math.PI * 2);
+    ctx.fillStyle = active ? "#16a34a" : "#ffffff";
+    ctx.strokeStyle = "#16a34a";
+    ctx.lineWidth = 2;
+    ctx.fill();
+    ctx.stroke();
+  });
+  ctx.restore();
+}
+
+function drawScanOverlay(){
+  if (!scanOverlayCanvas) return;
+  const prepared = prepareScanPreviewCanvases();
+  if (!prepared) return;
+  const { overlayCtx, width, height } = prepared;
+  overlayCtx.clearRect(0, 0, width, height);
+  const page = getSelectedScanPage();
+  if (!page) return;
+  if (scanStudioState.cropMode){
+    drawScanCropOverlay(overlayCtx, page);
+  }
+  if (scanStudioState.perspectiveMode){
+    drawScanPerspectiveOverlay(overlayCtx, page);
+  }
+}
+
+function getScanPointerNormalized(event){
+  if (!scanPreviewStage || !scanStudioState.preview.width || !scanStudioState.preview.height) return null;
+  const rect = scanPreviewStage.getBoundingClientRect();
+  const x = event.clientX - rect.left;
+  const y = event.clientY - rect.top;
+  const transform = scanStudioState.preview;
+  const relativeX = (x - transform.offsetX) / (transform.width * transform.scale);
+  const relativeY = (y - transform.offsetY) / (transform.height * transform.scale);
+  if (!Number.isFinite(relativeX) || !Number.isFinite(relativeY)) return null;
+  return {
+    x: clampScanValue(relativeX, 0, 1),
+    y: clampScanValue(relativeY, 0, 1),
+    rawX: x,
+    rawY: y,
+  };
+}
+
+function getScanPerspectiveHandleIndex(pointer, points){
+  if (!pointer || !Array.isArray(points)) return -1;
+  const transform = scanStudioState.preview;
+  let bestIndex = -1;
+  let bestDistance = 14;
+  points.forEach((point, index)=>{
+    const px = transform.offsetX + (point.x * transform.width * transform.scale);
+    const py = transform.offsetY + (point.y * transform.height * transform.scale);
+    const dx = pointer.rawX - px;
+    const dy = pointer.rawY - py;
+    const distance = Math.hypot(dx, dy);
+    if (distance <= bestDistance){
+      bestDistance = distance;
+      bestIndex = index;
+    }
+  });
+  return bestIndex;
+}
+
+function resizeScanImageToLimit(image, maxSide){
+  const width = image.naturalWidth || image.width || 1;
+  const height = image.naturalHeight || image.height || 1;
+  const scale = Math.min(1, maxSide / Math.max(width, height));
+  const targetWidth = Math.max(1, Math.round(width * scale));
+  const targetHeight = Math.max(1, Math.round(height * scale));
+  const canvas = createScanCanvas(targetWidth, targetHeight);
+  const ctx = canvas.getContext("2d");
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(image, 0, 0, targetWidth, targetHeight);
+  return canvas;
+}
+
+function applyScanRotation(canvas, rotation){
+  const normalized = normalizeScanRotation(rotation);
+  if (normalized === 0) return canvas;
+  const swap = normalized === 90 || normalized === 270;
+  const output = createScanCanvas(swap ? canvas.height : canvas.width, swap ? canvas.width : canvas.height);
+  const ctx = output.getContext("2d");
+  ctx.save();
+  if (normalized === 90){
+    ctx.translate(output.width, 0);
+    ctx.rotate(Math.PI / 2);
+  }else if (normalized === 180){
+    ctx.translate(output.width, output.height);
+    ctx.rotate(Math.PI);
+  }else if (normalized === 270){
+    ctx.translate(0, output.height);
+    ctx.rotate(-Math.PI / 2);
+  }
+  ctx.drawImage(canvas, 0, 0);
+  ctx.restore();
+  return output;
+}
+
+function scanSampleBilinear(data, width, height, x, y){
+  const x0 = clampScanValue(Math.floor(x), 0, width - 1);
+  const y0 = clampScanValue(Math.floor(y), 0, height - 1);
+  const x1 = clampScanValue(x0 + 1, 0, width - 1);
+  const y1 = clampScanValue(y0 + 1, 0, height - 1);
+  const dx = x - x0;
+  const dy = y - y0;
+
+  const i00 = (y0 * width + x0) * 4;
+  const i10 = (y0 * width + x1) * 4;
+  const i01 = (y1 * width + x0) * 4;
+  const i11 = (y1 * width + x1) * 4;
+  const out = [0, 0, 0, 0];
+
+  for (let c = 0; c < 4; c += 1){
+    const top = data[i00 + c] * (1 - dx) + data[i10 + c] * dx;
+    const bottom = data[i01 + c] * (1 - dx) + data[i11 + c] * dx;
+    out[c] = top * (1 - dy) + bottom * dy;
+  }
+  return out;
+}
+
+function applyScanPerspective(canvas, perspective){
+  const points = normalizeScanPerspective(perspective);
+  if (!points || points.length !== 4) return canvas;
+  const srcCtx = canvas.getContext("2d");
+  const srcImageData = srcCtx.getImageData(0, 0, canvas.width, canvas.height);
+  const source = srcImageData.data;
+  const width = canvas.width;
+  const height = canvas.height;
+  const output = createScanCanvas(width, height);
+  const outCtx = output.getContext("2d");
+  const outImageData = outCtx.createImageData(width, height);
+  const target = outImageData.data;
+
+  const p0 = { x: points[0].x * (width - 1), y: points[0].y * (height - 1) };
+  const p1 = { x: points[1].x * (width - 1), y: points[1].y * (height - 1) };
+  const p2 = { x: points[2].x * (width - 1), y: points[2].y * (height - 1) };
+  const p3 = { x: points[3].x * (width - 1), y: points[3].y * (height - 1) };
+
+  for (let y = 0; y < height; y += 1){
+    const v = height <= 1 ? 0 : (y / (height - 1));
+    for (let x = 0; x < width; x += 1){
+      const u = width <= 1 ? 0 : (x / (width - 1));
+      const sourceX =
+        ((1 - u) * (1 - v) * p0.x) +
+        (u * (1 - v) * p1.x) +
+        (u * v * p2.x) +
+        ((1 - u) * v * p3.x);
+      const sourceY =
+        ((1 - u) * (1 - v) * p0.y) +
+        (u * (1 - v) * p1.y) +
+        (u * v * p2.y) +
+        ((1 - u) * v * p3.y);
+      const [r, g, b, a] = scanSampleBilinear(source, width, height, sourceX, sourceY);
+      const offset = (y * width + x) * 4;
+      target[offset] = r;
+      target[offset + 1] = g;
+      target[offset + 2] = b;
+      target[offset + 3] = a;
+    }
+  }
+
+  outCtx.putImageData(outImageData, 0, 0);
+  return output;
+}
+
+function applyScanCrop(canvas, crop){
+  if (!isValidScanCrop(crop)) return canvas;
+  const x = Math.round(clampScanValue(crop.x, 0, 1) * canvas.width);
+  const y = Math.round(clampScanValue(crop.y, 0, 1) * canvas.height);
+  const width = Math.round(clampScanValue(crop.width, 0, 1) * canvas.width);
+  const height = Math.round(clampScanValue(crop.height, 0, 1) * canvas.height);
+  if (width < 2 || height < 2) return canvas;
+  const maxWidth = Math.min(width, canvas.width - x);
+  const maxHeight = Math.min(height, canvas.height - y);
+  if (maxWidth < 2 || maxHeight < 2) return canvas;
+  const output = createScanCanvas(maxWidth, maxHeight);
+  const ctx = output.getContext("2d");
+  ctx.drawImage(canvas, x, y, maxWidth, maxHeight, 0, 0, maxWidth, maxHeight);
+  return output;
+}
+
+function applyScanFilters(canvas, page){
+  const output = createScanCanvas(canvas.width, canvas.height);
+  const ctx = output.getContext("2d");
+  ctx.drawImage(canvas, 0, 0);
+  const imageData = ctx.getImageData(0, 0, output.width, output.height);
+  const data = imageData.data;
+
+  const filter = page.filter || "original";
+  const brightness = clampScanValue(Number(page.brightness) || 0, -100, 100);
+  const contrast = clampScanValue(Number(page.contrast) || 0, -100, 100);
+  const brightnessShift = brightness * 2.55;
+  const contrastFactor = 1 + (contrast / 100) * 1.8;
+  const documentBoost = filter === "document" ? 1.28 : 1;
+  const bwThreshold = 148;
+
+  for (let i = 0; i < data.length; i += 4){
+    let r = data[i];
+    let g = data[i + 1];
+    let b = data[i + 2];
+
+    if (filter !== "original"){
+      const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      r = lum;
+      g = lum;
+      b = lum;
+    }
+
+    if (filter === "document"){
+      r = ((r - 128) * documentBoost) + 128;
+      g = ((g - 128) * documentBoost) + 128;
+      b = ((b - 128) * documentBoost) + 128;
+    }
+
+    r = ((r - 128) * contrastFactor) + 128 + brightnessShift;
+    g = ((g - 128) * contrastFactor) + 128 + brightnessShift;
+    b = ((b - 128) * contrastFactor) + 128 + brightnessShift;
+
+    if (filter === "bw"){
+      const avg = (r + g + b) / 3;
+      const value = avg >= bwThreshold ? 255 : 0;
+      r = value;
+      g = value;
+      b = value;
+    }else if (filter === "document"){
+      const avg = (r + g + b) / 3;
+      if (avg > 220){
+        r = 255;
+        g = 255;
+        b = 255;
+      }else if (avg < 35){
+        r = 0;
+        g = 0;
+        b = 0;
+      }
+    }
+
+    data[i] = clampScanValue(Math.round(r), 0, 255);
+    data[i + 1] = clampScanValue(Math.round(g), 0, 255);
+    data[i + 2] = clampScanValue(Math.round(b), 0, 255);
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+  return output;
+}
+
+async function renderScanPageCanvas(page, options = {}){
+  if (!page) return null;
+  const cacheEntry = scanStudioImageCache.get(page.id);
+  if (!cacheEntry || !cacheEntry.image) return null;
+  const maxSide = Number(options.maxSide) || SCAN_PREVIEW_MAX_SIDE;
+  const ignoreCrop = !!options.ignoreCrop;
+
+  const scaled = resizeScanImageToLimit(cacheEntry.image, maxSide);
+  const rotated = applyScanRotation(scaled, page.rotation);
+  const usePerspective = page.perspective && !isScanPerspectiveIdentity(page.perspective);
+  const perspective = usePerspective ? applyScanPerspective(rotated, page.perspective) : rotated;
+  const baseCanvas = perspective;
+  const cropped = ignoreCrop ? baseCanvas : applyScanCrop(baseCanvas, page.crop);
+  const outputCanvas = applyScanFilters(cropped, page);
+
+  return { baseCanvas, outputCanvas };
+}
+
+async function renderScanPreview(){
+  const page = getSelectedScanPage();
+  if (!page){
+    drawEmptyScanPreview("Upload images to begin.");
+    return;
+  }
+  const token = ++scanStudioState.renderToken;
+  const result = await renderScanPageCanvas(page, {
+    maxSide: SCAN_PREVIEW_MAX_SIDE,
+    ignoreCrop: scanStudioState.cropMode || scanStudioState.perspectiveMode,
+  });
+  if (token !== scanStudioState.renderToken) return;
+  if (!result){
+    drawEmptyScanPreview("Preview unavailable.");
+    return;
+  }
+  drawScanPreviewCanvas(result.outputCanvas, result.baseCanvas);
+  drawScanOverlay();
+}
+
+function moveScanPageToIndex(pageId, targetIndex){
+  const ordered = getScanSortedPages();
+  const sourceIndex = ordered.findIndex(page => page.id === pageId);
+  if (sourceIndex < 0) return;
+  const boundedTarget = clampScanValue(targetIndex, 0, ordered.length - 1);
+  if (boundedTarget === sourceIndex) return;
+  const [moved] = ordered.splice(sourceIndex, 1);
+  ordered.splice(boundedTarget, 0, moved);
+  ordered.forEach((page, index)=>{
+    page.orderIndex = index;
+  });
+  renderScanPageList();
+  renderScanPreview();
+}
+
+function selectScanPage(pageId){
+  const exists = scanStudioState.pages.some(page => page.id === pageId);
+  if (!exists) return;
+  scanStudioState.selectedPageId = pageId;
+  syncScanControlsFromSelectedPage();
+  renderScanPageList();
+  renderScanPreview();
+}
+
+function resetScanModes(){
+  scanStudioState.cropMode = false;
+  scanStudioState.perspectiveMode = false;
+  scanStudioState.cropDraft = null;
+  scanStudioState.draggingPerspectiveIndex = -1;
+}
+
+function removeScanPage(pageId){
+  const index = scanStudioState.pages.findIndex(page => page.id === pageId);
+  if (index < 0) return;
+  const [removed] = scanStudioState.pages.splice(index, 1);
+  if (removed?.originalSrc && removed.originalSrc.startsWith("blob:")){
+    try{ URL.revokeObjectURL(removed.originalSrc); }catch{/* noop */}
+  }
+  scanStudioImageCache.delete(pageId);
+  normalizeScanPageOrder();
+  if (scanStudioState.selectedPageId === pageId){
+    scanStudioState.selectedPageId = scanStudioState.pages[0]?.id || "";
+  }
+  resetScanModes();
+  syncScanControlsFromSelectedPage();
+  renderScanPageList();
+  renderScanPreview();
+}
+
+async function addScanFiles(fileList){
+  const files = Array.from(fileList || []);
+  if (!files.length){
+    setScanStatus("No files selected.");
+    return;
+  }
+  const validFiles = files.filter(isScanImageFile);
+  const rejected = files.length - validFiles.length;
+  if (!validFiles.length){
+    setScanStatus("Only JPG, PNG, or WebP images are supported.", true);
+    return;
+  }
+
+  setScanStatus("Loading images…");
+  const createdPages = [];
+  for (const file of validFiles){
+    const src = URL.createObjectURL(file);
+    try{
+      const image = await loadScanImage(src);
+      const page = {
+        id: createScanId(),
+        originalSrc: src,
+        rotation: 0,
+        crop: null,
+        filter: "original",
+        brightness: 0,
+        contrast: 0,
+        orderIndex: scanStudioState.pages.length + createdPages.length,
+        fileName: file.name || "image",
+        perspective: null,
+      };
+      scanStudioImageCache.set(page.id, {
+        image,
+        width: image.naturalWidth || image.width || 0,
+        height: image.naturalHeight || image.height || 0,
+        mimeType: file.type || "image/png",
+      });
+      createdPages.push(page);
+    }catch(error){
+      console.warn("Scan image load failed", error);
+      try{ URL.revokeObjectURL(src); }catch{/* noop */}
+    }
+  }
+
+  if (!createdPages.length){
+    setScanStatus("Image load failed.", true);
+    return;
+  }
+
+  scanStudioState.pages.push(...createdPages);
+  normalizeScanPageOrder();
+  if (!scanStudioState.selectedPageId){
+    scanStudioState.selectedPageId = createdPages[0].id;
+  }else{
+    scanStudioState.selectedPageId = createdPages[createdPages.length - 1].id;
+  }
+
+  renderScanPageList();
+  syncScanControlsFromSelectedPage();
+  await renderScanPreview();
+
+  const loadedCount = createdPages.length;
+  const suffix = loadedCount === 1 ? "" : "s";
+  if (rejected > 0){
+    setScanStatus(`Loaded ${loadedCount} page${suffix}. Skipped ${rejected} unsupported file${rejected === 1 ? "" : "s"}.`);
+  }else{
+    setScanStatus(`Loaded ${loadedCount} page${suffix}.`);
+  }
+}
+
+async function renderSelectedScanPageForExport(){
+  const page = getSelectedScanPage();
+  if (!page) return null;
+  return renderScanPageCanvas(page, {
+    maxSide: SCAN_EXPORT_MAX_SIDE,
+    ignoreCrop: false,
+  });
+}
+
+async function renderAllScanPagesForExport(){
+  const pages = getScanSortedPages();
+  const rendered = [];
+  for (const page of pages){
+    const result = await renderScanPageCanvas(page, {
+      maxSide: SCAN_EXPORT_MAX_SIDE,
+      ignoreCrop: false,
+    });
+    if (result?.outputCanvas){
+      rendered.push({ page, canvas: result.outputCanvas });
+    }
+  }
+  return rendered;
+}
+
+function scanCanvasToBlob(canvas, type = "image/png", quality = 0.95){
+  return new Promise((resolve, reject)=>{
+    canvas.toBlob(blob => {
+      if (!blob){
+        reject(new Error("Failed to generate file."));
+        return;
+      }
+      resolve(blob);
+    }, type, quality);
+  });
+}
+
+function downloadScanBlob(blob, fileName){
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function getScanDownloadBaseName(page){
+  const raw = String(page?.fileName || "scan-page").trim();
+  const clean = raw.replace(/\.[a-z0-9]+$/i, "").replace(/[^a-z0-9-_]+/gi, "-").replace(/^-+|-+$/g, "");
+  return clean || "scan-page";
+}
+
+async function exportScanCurrentImage(){
+  const page = getSelectedScanPage();
+  if (!page){
+    setScanStatus("Select a page first.", true);
+    return;
+  }
+  try{
+    setScanStatus("Exporting cleaned image…");
+    const rendered = await renderSelectedScanPageForExport();
+    if (!rendered?.outputCanvas){
+      throw new Error("Nothing to export.");
+    }
+    const blob = await scanCanvasToBlob(rendered.outputCanvas, "image/png", 0.95);
+    downloadScanBlob(blob, `${getScanDownloadBaseName(page)}-cleaned.png`);
+    setScanStatus("Cleaned image exported.");
+  }catch(error){
+    setScanStatus(error?.message || "Image export failed.", true);
+  }
+}
+
+async function exportScanPdf(){
+  const renderedPages = await renderAllScanPagesForExport();
+  if (!renderedPages.length){
+    setScanStatus("No pages to export.", true);
+    return;
+  }
+  try{
+    setScanStatus("Building PDF…");
+    await ensurePdfLib();
+    const { PDFDocument } = window.PDFLib;
+    const pdfDoc = await PDFDocument.create();
+    const a4Portrait = { width: 595.28, height: 841.89 };
+    const a4Landscape = { width: 841.89, height: 595.28 };
+
+    for (const entry of renderedPages){
+      const canvas = entry.canvas;
+      const imageData = canvas.toDataURL("image/png");
+      const embedded = await pdfDoc.embedPng(imageData);
+      const imageRatio = embedded.width / embedded.height;
+      const pageSize = imageRatio > 1 ? a4Landscape : a4Portrait;
+      const page = pdfDoc.addPage([pageSize.width, pageSize.height]);
+      const margin = 24;
+      const maxWidth = pageSize.width - (margin * 2);
+      const maxHeight = pageSize.height - (margin * 2);
+      const fitScale = Math.min(maxWidth / embedded.width, maxHeight / embedded.height);
+      const drawWidth = embedded.width * fitScale;
+      const drawHeight = embedded.height * fitScale;
+      const x = (pageSize.width - drawWidth) / 2;
+      const y = (pageSize.height - drawHeight) / 2;
+      page.drawImage(embedded, { x, y, width: drawWidth, height: drawHeight });
+    }
+
+    const bytes = await pdfDoc.save();
+    const blob = new Blob([bytes], { type: "application/pdf" });
+    downloadScanBlob(blob, "scan-studio.pdf");
+    setScanStatus("PDF exported.");
+  }catch(error){
+    console.error("Scan Studio PDF export failed", error);
+    setScanStatus("PDF export failed.", true);
+  }
+}
+
+async function printScanPages(scope = "current"){
+  let pages = [];
+  if (scope === "all"){
+    pages = await renderAllScanPagesForExport();
+  }else{
+    const rendered = await renderSelectedScanPageForExport();
+    const selected = getSelectedScanPage();
+    if (rendered?.outputCanvas && selected){
+      pages = [{ page: selected, canvas: rendered.outputCanvas }];
+    }
+  }
+  if (!pages.length){
+    setScanStatus("No pages to print.", true);
+    return;
+  }
+  try{
+    setScanStatus("Preparing print preview…");
+    const images = pages.map(entry => entry.canvas.toDataURL("image/png"));
+    const printWindow = window.open("", "_blank");
+    if (!printWindow){
+      setScanStatus("Allow popups to print.", true);
+      return;
+    }
+    const body = images.map((src, index)=> (
+      `<div class="print-page${index < images.length - 1 ? " page-break" : ""}"><img src="${src}" alt="Scan page ${index + 1}" /></div>`
+    )).join("");
+    printWindow.document.open();
+    printWindow.document.write(`<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Scan Studio Print</title>
+  <style>
+    html,body{margin:0;padding:0;background:#fff}
+    .print-page{padding:10mm;box-sizing:border-box}
+    .print-page img{width:100%;height:auto;display:block}
+    .page-break{page-break-after:always}
+  </style>
+</head>
+<body>${body}</body>
+</html>`);
+    printWindow.document.close();
+    const triggerPrint = ()=>{
+      printWindow.focus();
+      printWindow.print();
+    };
+    if (printWindow.document.readyState === "complete"){
+      setTimeout(triggerPrint, 50);
+    }else{
+      printWindow.addEventListener("load", ()=> setTimeout(triggerPrint, 50), { once: true });
+    }
+    setScanStatus("Print dialog opened.");
+  }catch(error){
+    console.error("Scan print failed", error);
+    setScanStatus("Print failed.", true);
+  }
+}
+
+function handleScanOverlayPointerDown(event){
+  const page = getSelectedScanPage();
+  if (!page) return;
+  const pointer = getScanPointerNormalized(event);
+  if (!pointer) return;
+
+  if (scanStudioState.perspectiveMode){
+    page.perspective = normalizeScanPerspective(page.perspective);
+    const handleIndex = getScanPerspectiveHandleIndex(pointer, page.perspective);
+    if (handleIndex >= 0){
+      scanStudioState.draggingPerspectiveIndex = handleIndex;
+      scanOverlayCanvas?.setPointerCapture?.(event.pointerId);
+      drawScanOverlay();
+      return;
+    }
+  }
+
+  if (scanStudioState.cropMode){
+    scanStudioState.cropStart = { x: pointer.x, y: pointer.y };
+    scanStudioState.cropDraft = { x: pointer.x, y: pointer.y, width: 0, height: 0 };
+    scanOverlayCanvas?.setPointerCapture?.(event.pointerId);
+    drawScanOverlay();
+  }
+}
+
+function handleScanOverlayPointerMove(event){
+  const page = getSelectedScanPage();
+  if (!page) return;
+  const pointer = getScanPointerNormalized(event);
+  if (!pointer) return;
+
+  if (scanStudioState.perspectiveMode && scanStudioState.draggingPerspectiveIndex >= 0){
+    page.perspective = normalizeScanPerspective(page.perspective);
+    page.perspective[scanStudioState.draggingPerspectiveIndex] = {
+      x: pointer.x,
+      y: pointer.y,
+    };
+    renderScanPreview();
+    return;
+  }
+
+  if (scanStudioState.cropMode && scanStudioState.cropStart){
+    const start = scanStudioState.cropStart;
+    const x = Math.min(start.x, pointer.x);
+    const y = Math.min(start.y, pointer.y);
+    const width = Math.abs(pointer.x - start.x);
+    const height = Math.abs(pointer.y - start.y);
+    scanStudioState.cropDraft = { x, y, width, height };
+    drawScanOverlay();
+  }
+}
+
+function finalizeScanOverlayPointer(){
+  const page = getSelectedScanPage();
+  if (!page) return;
+
+  if (scanStudioState.perspectiveMode && scanStudioState.draggingPerspectiveIndex >= 0){
+    scanStudioState.draggingPerspectiveIndex = -1;
+    renderScanPreview();
+  }
+
+  if (scanStudioState.cropMode && scanStudioState.cropStart){
+    const crop = scanStudioState.cropDraft;
+    page.crop = isValidScanCrop(crop) ? crop : null;
+    scanStudioState.cropStart = null;
+    scanStudioState.cropDraft = null;
+    renderScanPreview();
+  }
+}
+
+function handleScanPageListClick(event){
+  const actionButton = event.target.closest("[data-scan-action][data-scan-page-id]");
+  if (actionButton){
+    const action = actionButton.dataset.scanAction;
+    const pageId = actionButton.dataset.scanPageId;
+    if (!pageId) return;
+    if (action === "select"){
+      selectScanPage(pageId);
+    }else if (action === "delete"){
+      removeScanPage(pageId);
+      setScanStatus("Page removed.");
+    }else if (action === "up"){
+      const ordered = getScanSortedPages();
+      const index = ordered.findIndex(page => page.id === pageId);
+      moveScanPageToIndex(pageId, index - 1);
+    }else if (action === "down"){
+      const ordered = getScanSortedPages();
+      const index = ordered.findIndex(page => page.id === pageId);
+      moveScanPageToIndex(pageId, index + 1);
+    }
+    return;
+  }
+
+  const pageNode = event.target.closest("[data-scan-page-id]");
+  if (pageNode){
+    const pageId = pageNode.dataset.scanPageId;
+    if (pageId) selectScanPage(pageId);
+  }
+}
+
+async function initScanStudio(){
+  if (!scanDropZone || !scanFileInput || !scanPageListEl){
+    return;
+  }
+
+  const prevent = event => {
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  ["dragenter", "dragover"].forEach(type => {
+    scanDropZone.addEventListener(type, event => {
+      prevent(event);
+      scanDropZone.classList.add("hover");
+      if (event.dataTransfer){
+        event.dataTransfer.dropEffect = "copy";
+      }
+    });
+  });
+  ["dragleave", "dragend"].forEach(type => {
+    scanDropZone.addEventListener(type, event => {
+      prevent(event);
+      scanDropZone.classList.remove("hover");
+    });
+  });
+  scanDropZone.addEventListener("drop", async event => {
+    prevent(event);
+    scanDropZone.classList.remove("hover");
+    await addScanFiles(event.dataTransfer?.files || []);
+  });
+  scanDropZone.addEventListener("click", ()=> scanFileInput.click());
+  scanFileInput.addEventListener("change", async event => {
+    const files = event.target.files;
+    event.target.value = "";
+    await addScanFiles(files || []);
+  });
+
+  scanPageListEl.addEventListener("click", handleScanPageListClick);
+  scanPageListEl.addEventListener("dragstart", event => {
+    const node = event.target.closest("[data-scan-page-id]");
+    if (!node) return;
+    scanStudioState.draggingPageId = node.dataset.scanPageId || "";
+    if (event.dataTransfer){
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", scanStudioState.draggingPageId);
+    }
+  });
+  scanPageListEl.addEventListener("dragover", event => {
+    event.preventDefault();
+    const node = event.target.closest("[data-scan-page-id]");
+    clearScanDragHoverState();
+    if (node && node.dataset.scanPageId !== scanStudioState.draggingPageId){
+      node.classList.add("drag-over");
+    }
+  });
+  scanPageListEl.addEventListener("drop", event => {
+    event.preventDefault();
+    const targetNode = event.target.closest("[data-scan-page-id]");
+    clearScanDragHoverState();
+    if (!targetNode) return;
+    const targetId = targetNode.dataset.scanPageId;
+    const sourceId = scanStudioState.draggingPageId || event.dataTransfer?.getData("text/plain");
+    if (!sourceId || !targetId || sourceId === targetId) return;
+    const ordered = getScanSortedPages();
+    const targetIndex = ordered.findIndex(page => page.id === targetId);
+    moveScanPageToIndex(sourceId, targetIndex);
+  });
+  scanPageListEl.addEventListener("dragend", ()=> {
+    scanStudioState.draggingPageId = "";
+    clearScanDragHoverState();
+  });
+
+  if (scanRotateLeftBtn){
+    scanRotateLeftBtn.addEventListener("click", ()=>{
+      const page = getSelectedScanPage();
+      if (!page) return;
+      page.rotation = normalizeScanRotation((page.rotation || 0) - 90);
+      renderScanPageList();
+      renderScanPreview();
+    });
+  }
+  if (scanRotateRightBtn){
+    scanRotateRightBtn.addEventListener("click", ()=>{
+      const page = getSelectedScanPage();
+      if (!page) return;
+      page.rotation = normalizeScanRotation((page.rotation || 0) + 90);
+      renderScanPageList();
+      renderScanPreview();
+    });
+  }
+  if (scanCropToggleBtn){
+    scanCropToggleBtn.addEventListener("click", ()=>{
+      const page = getSelectedScanPage();
+      if (!page) return;
+      scanStudioState.cropMode = !scanStudioState.cropMode;
+      if (scanStudioState.cropMode){
+        scanStudioState.perspectiveMode = false;
+      }
+      scanStudioState.cropDraft = null;
+      scanStudioState.cropStart = null;
+      syncScanControlsFromSelectedPage();
+      renderScanPreview();
+    });
+  }
+  if (scanCropResetBtn){
+    scanCropResetBtn.addEventListener("click", ()=>{
+      const page = getSelectedScanPage();
+      if (!page) return;
+      page.crop = null;
+      scanStudioState.cropDraft = null;
+      renderScanPreview();
+    });
+  }
+  if (scanPerspectiveToggleBtn){
+    scanPerspectiveToggleBtn.addEventListener("click", ()=>{
+      const page = getSelectedScanPage();
+      if (!page) return;
+      scanStudioState.perspectiveMode = !scanStudioState.perspectiveMode;
+      if (scanStudioState.perspectiveMode){
+        scanStudioState.cropMode = false;
+        page.perspective = normalizeScanPerspective(page.perspective);
+      }else{
+        scanStudioState.draggingPerspectiveIndex = -1;
+      }
+      syncScanControlsFromSelectedPage();
+      renderScanPreview();
+    });
+  }
+  if (scanPerspectiveResetBtn){
+    scanPerspectiveResetBtn.addEventListener("click", ()=>{
+      const page = getSelectedScanPage();
+      if (!page) return;
+      page.perspective = null;
+      scanStudioState.draggingPerspectiveIndex = -1;
+      renderScanPreview();
+    });
+  }
+  if (scanFilterSelect){
+    scanFilterSelect.addEventListener("change", event => {
+      const page = getSelectedScanPage();
+      if (!page) return;
+      const value = String(event.target.value || "original");
+      if (!["original", "grayscale", "document", "bw"].includes(value)) return;
+      page.filter = value;
+      renderScanPageList();
+      renderScanPreview();
+    });
+  }
+  if (scanBrightnessInput){
+    scanBrightnessInput.addEventListener("input", event => {
+      const page = getSelectedScanPage();
+      if (!page) return;
+      const value = clampScanValue(Number(event.target.value) || 0, -100, 100);
+      page.brightness = value;
+      if (scanBrightnessValue) scanBrightnessValue.textContent = String(Math.round(value));
+      renderScanPreview();
+    });
+  }
+  if (scanContrastInput){
+    scanContrastInput.addEventListener("input", event => {
+      const page = getSelectedScanPage();
+      if (!page) return;
+      const value = clampScanValue(Number(event.target.value) || 0, -100, 100);
+      page.contrast = value;
+      if (scanContrastValue) scanContrastValue.textContent = String(Math.round(value));
+      renderScanPreview();
+    });
+  }
+
+  if (scanPrintCurrentBtn){
+    scanPrintCurrentBtn.addEventListener("click", ()=> printScanPages("current"));
+  }
+  if (scanPrintAllBtn){
+    scanPrintAllBtn.addEventListener("click", ()=> printScanPages("all"));
+  }
+  if (scanExportPdfBtn){
+    scanExportPdfBtn.addEventListener("click", ()=> exportScanPdf());
+  }
+  if (scanExportImageBtn){
+    scanExportImageBtn.addEventListener("click", ()=> exportScanCurrentImage());
+  }
+
+  if (scanOverlayCanvas){
+    scanOverlayCanvas.addEventListener("pointerdown", handleScanOverlayPointerDown);
+    scanOverlayCanvas.addEventListener("pointermove", handleScanOverlayPointerMove);
+    scanOverlayCanvas.addEventListener("pointerup", finalizeScanOverlayPointer);
+    scanOverlayCanvas.addEventListener("pointercancel", finalizeScanOverlayPointer);
+    scanOverlayCanvas.addEventListener("pointerleave", ()=>{
+      if (!scanStudioState.cropStart && scanStudioState.draggingPerspectiveIndex < 0) return;
+      finalizeScanOverlayPointer();
+    });
+  }
+
+  window.addEventListener("resize", ()=>{
+    if (panels.scanstudio && panels.scanstudio.classList.contains("active")){
+      renderScanPreview();
+    }
+  });
+
+  renderScanPageList();
+  syncScanControlsFromSelectedPage();
+  drawEmptyScanPreview("Upload images to begin.");
 }
 
 function escapeHtml(value){
@@ -13243,6 +14646,9 @@ function initIguCalculator(){
   loadIguOrderList();
 }
 
+initScanStudio().catch(error => {
+  console.error("Scan Studio init failed", error);
+});
 initIguCalculator();
 updateExtractUI();
 updateHistoryDetailUI();
