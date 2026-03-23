@@ -60,6 +60,10 @@
     .summary{margin:14px 0 10px;font-weight:600;font-size:15px;display:flex;gap:12px;flex-wrap:wrap;align-items:center}
     .pill{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:999px;background:var(--primary-soft);color:var(--primary);font-size:12px}
     .pill.warn{background:#fef3c7;color:#b45309}
+    .confidence-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:700}
+    .confidence-badge.high{background:#dcfce7;color:#166534}
+    .confidence-badge.medium{background:#fef3c7;color:#92400e}
+    .confidence-badge.low{background:#fee2e2;color:#b91c1c}
     .analysis-filter-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;align-items:end}
     .analysis-filter-grid label{display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:600;color:var(--muted)}
     .analysis-filter-grid input,.analysis-filter-grid select{padding:8px 10px;border:1px solid var(--border-dark);border-radius:10px;background:#fbfcff;font-size:13px;color:var(--text)}
@@ -120,6 +124,8 @@
     .editable-table td[data-col="dimension"]{min-width:160px}
     .editable-table th[data-col="position"],
     .editable-table td[data-col="position"]{min-width:100px}
+    .editable-table th[data-col="confidence"],
+    .editable-table td[data-col="confidence"]{min-width:96px}
     .editable-table th[data-col="qty"],
     .editable-table td[data-col="qty"]{min-width:90px}
     .editable-table th[data-col="area"],
@@ -214,6 +220,16 @@
     .editable-table input,.editable-table select{width:100%;padding:6px 8px;border:1px solid var(--border-dark);border-radius:8px;font-size:13px;background:#fff}
     .editable-table input:focus{outline:2px solid var(--primary-soft);border-color:var(--primary)}
     .editable-badge{display:inline-flex;align-items:center;padding:2px 6px;border-radius:6px;background:#fee2e2;color:#9f1239;font-size:11px}
+    .confidence-indicator{display:inline-flex;align-items:center;justify-content:center;min-width:52px;padding:2px 6px;border-radius:999px;font-size:11px;font-weight:700}
+    .confidence-indicator.high{background:#dcfce7;color:#166534}
+    .confidence-indicator.medium{background:#fef3c7;color:#92400e}
+    .confidence-indicator.low{background:#fee2e2;color:#b91c1c}
+    .confidence-tooltip{position:fixed;top:0;left:0;max-width:300px;padding:8px 10px;border-radius:8px;background:#111827;color:#f9fafb;font-size:12px;line-height:1.35;box-shadow:0 10px 30px rgba(0,0,0,0.25);z-index:9999;pointer-events:none;opacity:0;transform:translateY(4px);transition:opacity .12s ease,transform .12s ease}
+    .confidence-tooltip.visible{opacity:1;transform:translateY(0)}
+    .confidence-tooltip-title{font-weight:700;margin-bottom:6px}
+    .confidence-tooltip-list{margin:0;padding-left:16px}
+    .confidence-tooltip-list li{margin:0 0 2px 0}
+    .confidence-tooltip-empty{color:#d1d5db}
     .order-chip-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px}
     .order-chips{display:flex;flex-wrap:wrap;gap:6px}
     .order-chip{display:inline-flex;align-items:center;gap:6px;padding:2px 10px;border-radius:999px;background:#eef2ff;color:#374151;font-size:12px}
@@ -590,6 +606,10 @@
             <input type="checkbox" data-group-toggle id="groupToggle" disabled>
             <span>Group identical sizes</span>
           </label>
+          <label class="inline-toggle">
+            <input type="checkbox" id="lowConfidenceOnly">
+            <span>Low confidence only</span>
+          </label>
           <details id="logoPanel">
             <summary>Logos</summary>
             <div style="display:flex;gap:12px;align-items:center;margin-top:8px;flex-wrap:wrap">
@@ -884,10 +904,16 @@
         </div>
         <div class="history-detail-subheader">
           <div class="muted small">Grouping toggle applies to both Extract and History views.</div>
-          <label class="inline-toggle">
-            <input type="checkbox" data-group-toggle id="historyGroupToggle">
-            <span>Group identical sizes</span>
-          </label>
+          <div class="controls" style="margin:0">
+            <label class="inline-toggle">
+              <input type="checkbox" data-group-toggle id="historyGroupToggle">
+              <span>Group identical sizes</span>
+            </label>
+            <label class="inline-toggle">
+              <input type="checkbox" id="historyLowConfidenceOnly">
+              <span>Low confidence only</span>
+            </label>
+          </div>
         </div>
         <div id="historyOrderInfo" class="muted small"></div>
         <div id="historyDeclaredBanner" class="warning-list" hidden></div>
@@ -1407,6 +1433,7 @@
 
   <input type="file" id="pdfInput" accept="application/pdf" hidden />
   <input type="file" id="scanFileInput" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple hidden />
+  <div id="confidenceTooltip" class="confidence-tooltip" role="tooltip" hidden></div>
 
 <script>
 const API_BASE = "https://order-extractor-kdih.onrender.com";
@@ -1539,6 +1566,7 @@ const appState = {
     rows: [],
     rowWarnings: {},
     warnings: [],
+    lowConfidenceOnly: false,
     draftId: null,
     status: "idle",
     savedOrderId: null,
@@ -1551,18 +1579,25 @@ const appState = {
     parsedArea: 0,
     nextRid: 0,
     client: "—",
+    orderConfidenceScore: null,
+    orderConfidenceLabel: "",
+    orderConfidenceReasons: [],
   },
   historyDetail: {
     order: null,
     rows: [],
     rowWarnings: {},
     warnings: [],
+    lowConfidenceOnly: false,
     notes: "",
     declaredUnits: null,
     declaredArea: null,
     parsedUnits: 0,
     parsedArea: 0,
     nextRid: 0,
+    orderConfidenceScore: null,
+    orderConfidenceLabel: "",
+    orderConfidenceReasons: [],
   },
   processing: {
     cart: [],
@@ -1873,6 +1908,10 @@ const typeCorrectionsSaveBtn = document.getElementById("typeCorrectionsSave");
 const typeCorrectionsCancelBtn = document.getElementById("typeCorrectionsCancel");
 
 const groupToggles = document.querySelectorAll("[data-group-toggle]");
+const lowConfidenceOnlyToggle = document.getElementById("lowConfidenceOnly");
+const historyLowConfidenceOnlyToggle = document.getElementById("historyLowConfidenceOnly");
+const confidenceTooltipEl = document.getElementById("confidenceTooltip");
+let activeConfidenceIndicator = null;
 
 function activateTab(name){
   tabs.forEach(btn => {
@@ -1967,6 +2006,60 @@ function setGroupState(value){
 
 groupToggles.forEach(toggle=>{
   toggle.addEventListener("change", (event)=> setGroupState(event.target.checked));
+});
+
+if (lowConfidenceOnlyToggle){
+  lowConfidenceOnlyToggle.addEventListener("change", (event)=>{
+    appState.extract.lowConfidenceOnly = !!event.target.checked;
+    updateExtractUI();
+  });
+}
+
+if (historyLowConfidenceOnlyToggle){
+  historyLowConfidenceOnlyToggle.addEventListener("change", (event)=>{
+    appState.historyDetail.lowConfidenceOnly = !!event.target.checked;
+    updateHistoryDetailUI();
+  });
+}
+
+document.addEventListener("mouseenter", (event)=>{
+  const indicator = event.target && event.target.closest ? event.target.closest(".confidence-indicator") : null;
+  if (!indicator) return;
+  showConfidenceTooltip(indicator);
+}, true);
+
+document.addEventListener("mouseleave", (event)=>{
+  const indicator = event.target && event.target.closest ? event.target.closest(".confidence-indicator") : null;
+  if (!indicator) return;
+  if (activeConfidenceIndicator === indicator){
+    hideConfidenceTooltip();
+  }
+}, true);
+
+document.addEventListener("focusin", (event)=>{
+  const indicator = event.target && event.target.closest ? event.target.closest(".confidence-indicator") : null;
+  if (!indicator) return;
+  showConfidenceTooltip(indicator);
+});
+
+document.addEventListener("focusout", (event)=>{
+  const indicator = event.target && event.target.closest ? event.target.closest(".confidence-indicator") : null;
+  if (!indicator) return;
+  if (activeConfidenceIndicator === indicator){
+    hideConfidenceTooltip();
+  }
+});
+
+window.addEventListener("scroll", ()=>{
+  if (activeConfidenceIndicator){
+    placeConfidenceTooltip(activeConfidenceIndicator);
+  }
+}, true);
+
+window.addEventListener("resize", ()=>{
+  if (activeConfidenceIndicator){
+    placeConfidenceTooltip(activeConfidenceIndicator);
+  }
 });
 
 setGroupState(false);
@@ -8681,15 +8774,22 @@ function removeRow(scope, rowKey){
 }
 
 function renderEditableTable(scope, containerId, rows, rowWarnings){
+  hideConfidenceTooltip();
   const container = typeof containerId === "string" ? document.getElementById(containerId) : containerId;
   if (!container) return;
-  if (!Array.isArray(rows) || !rows.length){
-    container.innerHTML = '<div class="empty-state">No rows yet — run an extraction.</div>';
+  const bucket = scope === "history" ? appState.historyDetail : appState.extract;
+  const sourceRows = Array.isArray(rows) ? rows : [];
+  const filteredRows = bucket.lowConfidenceOnly
+    ? sourceRows.filter(row => normalizeConfidenceValue(row?.confidence_score, 0.99) < 0.75)
+    : sourceRows;
+  if (!filteredRows.length){
+    container.innerHTML = bucket.lowConfidenceOnly
+      ? '<div class="empty-state">No low-confidence rows found.</div>'
+      : '<div class="empty-state">No rows yet — run an extraction.</div>';
     return;
   }
-  const bucket = scope === "history" ? appState.historyDetail : appState.extract;
   const indexMap = new Map((bucket.rows || []).map((row, idx) => [row._rid || `rid-${idx}`, idx]));
-  const groups = summarizeByOrder(rows);
+  const groups = summarizeByOrder(filteredRows);
   let globalIndex = 0;
   let html = "";
   for (const [order, items] of groups.entries()){
@@ -8705,6 +8805,7 @@ function renderEditableTable(scope, containerId, rows, rowWarnings){
         <tr>
           <th>#</th>
           <th>Warnings</th>
+          <th data-col="confidence">Confidence</th>
           <th>Order</th>
           <th data-col="type">Type</th>
           <th data-col="dimension">Dimension</th>
@@ -8748,9 +8849,11 @@ function renderEditableTable(scope, containerId, rows, rowWarnings){
       const fixBtn = mismatch ? `<button type="button" class="btn small" data-fix-area="${rowIndex}" title="Set area to ${computed?.toFixed(3) ?? ""}">Fix</button>` : "";
       const removeBtn = `<button type="button" class="btn small danger" data-remove-row="${escapeHtml(row._rid)}">Remove</button>`;
       const actionButtons = [fixBtn, removeBtn].filter(Boolean).join(" ");
+      const confidenceCell = renderConfidenceIndicator(row.confidence_score, row.confidence_reasons);
       html += `<tr data-index="${rowIndex}" data-order="${escapeHtml(order)}">
         <td>${globalIndex + 1}</td>
         <td>${warningBadge}</td>
+        <td data-col="confidence">${confidenceCell}</td>
         <td><input ${inputBase} data-field="order_number" data-key="${orderKey}" value="${escapeHtml(row.order_number || "")}" /></td>
         <td data-col="type"><input ${inputBase} data-field="type" data-key="${typeKey}" value="${escapeHtml(row.type || "")}" /></td>
         <td data-col="dimension"><input ${inputBase} data-field="dimension" data-key="${dimKey}" inputmode="text" value="${escapeHtml(row.dimension || "")}" /></td>
@@ -8949,6 +9052,100 @@ function formatArea(value){
   return num.toFixed(3);
 }
 
+function normalizeConfidenceValue(value, fallback = null){
+  const num = Number(value);
+  if (!Number.isFinite(num)) return fallback;
+  return Math.min(Math.max(num, 0.05), 0.99);
+}
+
+function confidenceLabelFromScore(score){
+  if (!Number.isFinite(score)) return "high";
+  if (score >= 0.90) return "high";
+  if (score >= 0.75) return "medium";
+  return "low";
+}
+
+const CONFIDENCE_REASON_LABELS = Object.freeze({
+  area_dimension_mismatch: "Area and dimension mismatch",
+  suspicious_truncation: "Suspicious truncation detected",
+  dimension_repair_applied: "Dimension repair was applied",
+  merged_header_warning: "Merged/header warning detected",
+  quantity_missing_or_defaulted: "Quantity missing or defaulted",
+  type_missing_or_propagated: "Type missing or propagated",
+  weak_position_format: "Weak position format",
+  weak_dimension_format: "Weak dimension format",
+});
+
+function normalizeConfidenceReasons(reasons){
+  if (!Array.isArray(reasons)) return [];
+  return reasons
+    .map(item => String(item || "").trim())
+    .filter(Boolean)
+    .map(item => CONFIDENCE_REASON_LABELS[item] || item.replace(/[_-]+/g, " "));
+}
+
+function parseConfidenceReasonsPayload(payload){
+  if (!payload) return [];
+  try{
+    const parsed = JSON.parse(payload);
+    return normalizeConfidenceReasons(parsed);
+  }catch(_error){
+    return [];
+  }
+}
+
+function buildConfidenceTooltipHtml(reasons){
+  if (!reasons.length){
+    return '<div class="confidence-tooltip-title">Confidence reasons</div><div class="confidence-tooltip-empty">No issues detected</div>';
+  }
+  const items = reasons.map(reason => `<li>${escapeHtml(reason)}</li>`).join("");
+  return `<div class="confidence-tooltip-title">Confidence reasons</div><ul class="confidence-tooltip-list">${items}</ul>`;
+}
+
+function placeConfidenceTooltip(target){
+  if (!confidenceTooltipEl || !target) return;
+  const margin = 8;
+  const targetRect = target.getBoundingClientRect();
+  const tooltipRect = confidenceTooltipEl.getBoundingClientRect();
+  let left = targetRect.left + (targetRect.width / 2) - (tooltipRect.width / 2);
+  left = Math.max(margin, Math.min(left, window.innerWidth - tooltipRect.width - margin));
+  let top = targetRect.top - tooltipRect.height - margin;
+  if (top < margin){
+    top = targetRect.bottom + margin;
+  }
+  confidenceTooltipEl.style.left = `${Math.round(left)}px`;
+  confidenceTooltipEl.style.top = `${Math.round(top)}px`;
+}
+
+function hideConfidenceTooltip(){
+  if (!confidenceTooltipEl) return;
+  confidenceTooltipEl.classList.remove("visible");
+  confidenceTooltipEl.hidden = true;
+  activeConfidenceIndicator = null;
+}
+
+function showConfidenceTooltip(target){
+  if (!confidenceTooltipEl || !target) return;
+  const reasons = parseConfidenceReasonsPayload(target.dataset.confidenceReasons || "");
+  confidenceTooltipEl.innerHTML = buildConfidenceTooltipHtml(reasons);
+  confidenceTooltipEl.hidden = false;
+  activeConfidenceIndicator = target;
+  placeConfidenceTooltip(target);
+  confidenceTooltipEl.classList.add("visible");
+}
+
+function renderConfidenceIndicator(scoreValue, reasons){
+  const score = normalizeConfidenceValue(scoreValue, null);
+  if (score == null){
+    return '<span class="muted small">—</span>';
+  }
+  const label = confidenceLabelFromScore(score);
+  const reasonItems = normalizeConfidenceReasons(reasons);
+  const reasonText = reasonItems.length ? reasonItems.join(", ") : "No issues detected";
+  const reasonPayload = escapeHtml(JSON.stringify(reasonItems));
+  return `<span class="confidence-indicator ${label}" data-confidence-reasons="${reasonPayload}" title="${escapeHtml(reasonText)}">${score.toFixed(2)}</span>`;
+}
+
 // --- CSV + grouping helpers -------------------------------------------------
 function groupWithinOrders(rows){
   const keyOf = (r) => `${(r.order_number||"").trim()}|${(r.type||"").trim()}|${(r.dimension||"").trim()}`;
@@ -8962,7 +9159,9 @@ function groupWithinOrders(rows){
         dimension: r.dimension || "",
         position: "— (grouped)",
         quantity: 0,
-        area: 0
+        area: 0,
+        _confidence_sum: 0,
+        _confidence_count: 0,
       });
     }
     const agg = map.get(key);
@@ -8970,8 +9169,21 @@ function groupWithinOrders(rows){
     const area = Number(r.area || 0);
     agg.quantity += qty;
     agg.area += area;
+    const confidence = normalizeConfidenceValue(r.confidence_score, null);
+    if (confidence != null){
+      agg._confidence_sum += confidence;
+      agg._confidence_count += 1;
+    }
   }
-  return Array.from(map.values());
+  const grouped = Array.from(map.values());
+  grouped.forEach(item => {
+    if (item._confidence_count > 0){
+      item.confidence_score = Number((item._confidence_sum / item._confidence_count).toFixed(2));
+    }
+    delete item._confidence_sum;
+    delete item._confidence_count;
+  });
+  return grouped;
 }
 
 function toCSV(rows){
@@ -12006,6 +12218,10 @@ function updateExtractUI(){
         groupToggleEl.checked = groupState;
       }
     }
+    const lowToggleEl = document.getElementById("lowConfidenceOnly");
+    if (lowToggleEl){
+      lowToggleEl.checked = !!appState.extract.lowConfidenceOnly;
+    }
 
     recalcParsedTotals(appState.extract);
 
@@ -12044,6 +12260,19 @@ function buildSummaryHtml(rows, totalsParam){
   return html;
 }
 
+function buildOrderConfidenceBadge(scoreValue, explicitLabel, reasons){
+  const score = normalizeConfidenceValue(scoreValue, null);
+  if (score == null){
+    return "";
+  }
+  const label = (explicitLabel || confidenceLabelFromScore(score)).toLowerCase();
+  const text = label === "high" ? "High" : (label === "medium" ? "Medium" : "Low");
+  const reasonText = Array.isArray(reasons) && reasons.length
+    ? reasons.join(", ")
+    : `Confidence ${text.toLowerCase()}`;
+  return ` <span class="confidence-badge ${label}" title="${escapeHtml(reasonText)}">Confidence: ${score.toFixed(2)} (${text})</span>`;
+}
+
 function updateOrderInfo(scope){
   const bucket = scope === "history" ? appState.historyDetail : appState.extract;
   const rows = bucket.rows || [];
@@ -12073,7 +12302,11 @@ function updateTotalsUI(scope){
   const summaryEl = document.getElementById(summaryId);
   const totals = computeTotals(rows);
   if (summaryEl){
-    summaryEl.innerHTML = buildSummaryHtml(rows, totals);
+    summaryEl.innerHTML = buildSummaryHtml(rows, totals) + buildOrderConfidenceBadge(
+      bucket.orderConfidenceScore,
+      bucket.orderConfidenceLabel,
+      bucket.orderConfidenceReasons,
+    );
   }
   bucket.parsedUnits = totals.units;
   bucket.parsedArea = totals.area;
@@ -12115,6 +12348,7 @@ function updateHistoryDetailUI(){
     const container = document.getElementById("historyTableWrap");
     const empty = document.getElementById("historyDetailEmpty");
     const approveBtn = document.getElementById("historyApprove");
+    const historyLowToggle = document.getElementById("historyLowConfidenceOnly");
     const order = appState.historyDetail.order;
     recalcParsedTotals(appState.historyDetail);
     const fixAllBtn = document.getElementById("historyFixAllAreas");
@@ -12129,8 +12363,16 @@ function updateHistoryDetailUI(){
       if (historyProcessingBtn) historyProcessingBtn.disabled = true;
       historyMetaEl.textContent = "";
       if (fixAllBtn) fixAllBtn.hidden = true;
+      if (historyLowToggle){
+        historyLowToggle.checked = !!appState.historyDetail.lowConfidenceOnly;
+        historyLowToggle.disabled = true;
+      }
       updateTotalsUI("history");
       return;
+    }
+    if (historyLowToggle){
+      historyLowToggle.checked = !!appState.historyDetail.lowConfidenceOnly;
+      historyLowToggle.disabled = false;
     }
     const status = (order.status || "").toLowerCase();
     const clientName = order.client || order.client_hint || "—";
@@ -12169,6 +12411,7 @@ function updateHistoryDetailUI(){
 }
 
 function render(rows, opts={}){
+  hideConfidenceTooltip();
   const scope = opts.scope || "extract";
   if (!(scope in renderTargets)) return;
   if (rows === undefined || rows === null){
@@ -12177,8 +12420,12 @@ function render(rows, opts={}){
     renderState[scope].rows = Array.isArray(rows) ? rows : [];
   }
   const sourceRows = Array.isArray(rows) ? rows : [];
+  const bucket = scope === "history" ? appState.historyDetail : appState.extract;
+  const filteredRows = bucket.lowConfidenceOnly
+    ? sourceRows.filter(row => normalizeConfidenceValue(row?.confidence_score, 0.99) < 0.75)
+    : sourceRows;
   const useGrouped = groupState;
-  const rowsForView = useGrouped ? groupWithinOrders(sourceRows) : sourceRows;
+  const rowsForView = useGrouped ? groupWithinOrders(filteredRows) : filteredRows;
   renderState[scope].displayed = rowsForView;
 
   const target = renderTargets[scope];
@@ -12188,7 +12435,7 @@ function render(rows, opts={}){
 
   if (!tableWrap) return;
 
-  if (!sourceRows.length){
+  if (!filteredRows.length){
     tableWrap.innerHTML = "";
     if (summaryEl) summaryEl.textContent = "";
     if (orderInfoEl) orderInfoEl.textContent = "";
@@ -12225,6 +12472,7 @@ function render(rows, opts={}){
     }
     html += `<table class="editable-table read-only-table"><thead><tr>
       <th>#</th>
+      <th data-col="confidence">Confidence</th>
       <th>Order</th>
       <th data-col="type">Type</th>
       <th data-col="dimension">Dimension</th>
@@ -12233,8 +12481,10 @@ function render(rows, opts={}){
       <th data-col="area">Area (m²)</th>
     </tr></thead><tbody>`;
     rowsForOrder.forEach((row, idx)=>{
+      const confidenceCell = renderConfidenceIndicator(row.confidence_score, row.confidence_reasons);
       html += `<tr>
         <td>${idx + 1}</td>
+        <td data-col="confidence">${confidenceCell}</td>
         <td class="mono">${row.order_number || ""}</td>
         <td data-col="type">${row.type || ""}</td>
         <td class="mono" data-col="dimension">${row.dimension ? row.dimension : "—"}</td>
@@ -12637,6 +12887,9 @@ function renderOrderDetail(){
     appState.historyDetail.rowWarnings = {};
     appState.historyDetail.warnings = [];
     appState.historyDetail.notes = "";
+    appState.historyDetail.orderConfidenceScore = null;
+    appState.historyDetail.orderConfidenceLabel = "";
+    appState.historyDetail.orderConfidenceReasons = [];
     updateHistoryDetailUI();
     return;
   }
@@ -12665,6 +12918,11 @@ function renderOrderDetail(){
   appState.historyDetail.declaredArea = order.declared_area ?? null;
   appState.historyDetail.parsedUnits = order.parsed_units ?? null;
   appState.historyDetail.parsedArea = order.parsed_area ?? null;
+  appState.historyDetail.orderConfidenceScore = normalizeConfidenceValue(order.order_confidence_score, null);
+  appState.historyDetail.orderConfidenceLabel = String(order.order_confidence_label || "");
+  appState.historyDetail.orderConfidenceReasons = Array.isArray(order.order_confidence_reasons)
+    ? order.order_confidence_reasons.slice()
+    : [];
   updateHistoryDetailUI();
 }
 
@@ -13697,6 +13955,11 @@ function applyExtractionResult(data){
   appState.extract.parsedUnits = data?.parsed_units ?? null;
   appState.extract.parsedArea = data?.parsed_area ?? null;
   appState.extract.client = data?.client || "—";
+  appState.extract.orderConfidenceScore = normalizeConfidenceValue(data?.order_confidence_score, null);
+  appState.extract.orderConfidenceLabel = String(data?.order_confidence_label || "");
+  appState.extract.orderConfidenceReasons = Array.isArray(data?.order_confidence_reasons)
+    ? data.order_confidence_reasons.slice()
+    : [];
   historyState.needsRefresh = true;
   analysisState.allOrdersDirty = true;
   if (data?.saved_order_id){
@@ -13785,6 +14048,11 @@ document.getElementById("approveSave").addEventListener("click", async ()=>{
     appState.extract.declaredArea = resp?.declared_area ?? appState.extract.declaredArea;
     appState.extract.parsedUnits = resp?.parsed_units ?? appState.extract.parsedUnits;
     appState.extract.parsedArea = resp?.parsed_area ?? appState.extract.parsedArea;
+    appState.extract.orderConfidenceScore = normalizeConfidenceValue(resp?.order_confidence_score, appState.extract.orderConfidenceScore);
+    appState.extract.orderConfidenceLabel = String(resp?.order_confidence_label || appState.extract.orderConfidenceLabel || "");
+    appState.extract.orderConfidenceReasons = Array.isArray(resp?.order_confidence_reasons)
+      ? resp.order_confidence_reasons.slice()
+      : (appState.extract.orderConfidenceReasons || []);
     updateExtractUI();
     historyState.needsRefresh = true;
     analysisState.allOrdersDirty = true;
