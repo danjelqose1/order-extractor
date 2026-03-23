@@ -42,6 +42,11 @@ from area_dimension_validator import apply_area_dimension_validation
 from utils_text import clean_dimension, parse_declared_totals
 from prompts import PROMPTS
 from analysis_signals import generate_analysis_signals
+from confidence import (
+    annotate_rows_with_confidence,
+    compute_order_confidence,
+    has_declared_totals_hint,
+)
 ENV_PATH = Path(__file__).parent / ".env"
 load_dotenv(ENV_PATH, override=True)
 
@@ -541,8 +546,12 @@ def extract(inb: PasteIn, x_app_key: Optional[str] = Header(default=None)) -> Di
         repaired_rows = apply_dimension_repair(inb.text, rows_dict)
         validation = validate_rows(repaired_rows, context={"prepared_text": bundle.get("prepared_text")})
         normalized_rows = validation.get("rows", repaired_rows)
-        final_rows = apply_area_dimension_validation(normalized_rows)
+        rows_for_storage = apply_area_dimension_validation(normalized_rows)
         row_warnings = validation.get("row_warnings", {})
+        final_rows, confidence_stats = annotate_rows_with_confidence(
+            rows_for_storage,
+            row_warnings=row_warnings,
+        )
 
         combined_warnings: List[str] = []
         for source_list in (
@@ -562,7 +571,7 @@ def extract(inb: PasteIn, x_app_key: Optional[str] = Header(default=None)) -> Di
         llm_output_json = json.dumps(raw_payload, ensure_ascii=False)
         declared_units = bundle.get("declared_units")
         declared_area = bundle.get("declared_area")
-        totals = _summarize_totals(final_rows)
+        totals = _summarize_totals(rows_for_storage)
         if declared_units is not None and declared_units != totals["units"]:
             combined_warnings.append(
                 f"declared_units_mismatch: declared {declared_units}, parsed {totals['units']}"
@@ -571,10 +580,20 @@ def extract(inb: PasteIn, x_app_key: Optional[str] = Header(default=None)) -> Di
             combined_warnings.append(
                 f"declared_area_mismatch: declared {declared_area:.3f}, parsed {totals['area']:.3f}"
             )
+        order_confidence = compute_order_confidence(
+            rows=final_rows,
+            warnings=combined_warnings,
+            declared_units=declared_units,
+            declared_area=declared_area,
+            parsed_units=totals["units"],
+            parsed_area=totals["area"],
+            expected_declared_totals=has_declared_totals_hint(prepared_text or inb.text),
+            repaired_row_count=confidence_stats.get("repaired_row_count"),
+        )
 
         insert_result = insert_extraction_with_rows(
             source="paste",
-            rows=final_rows,
+            rows=rows_for_storage,
             raw_input=inb.text,
             prepared_text=prepared_text,
             llm_output_json=llm_output_json,
@@ -600,6 +619,9 @@ def extract(inb: PasteIn, x_app_key: Optional[str] = Header(default=None)) -> Di
             "parsed_units": totals["units"],
             "parsed_area": totals["area"],
             "client": client_name or "—",
+            "order_confidence_score": order_confidence["order_confidence_score"],
+            "order_confidence_label": order_confidence["order_confidence_label"],
+            "order_confidence_reasons": order_confidence["order_confidence_reasons"],
         }
         return payload
     except ValidationError as ve:
@@ -676,8 +698,12 @@ async def extract_pdf(file: UploadFile = File(...), x_app_key: Optional[str] = H
         repaired_rows = apply_dimension_repair(raw_joined, rows_dict)
         validation = validate_rows(repaired_rows, context={"prepared_text": prepared_text})
         normalized_rows = validation.get("rows", repaired_rows)
-        final_rows = apply_area_dimension_validation(normalized_rows)
+        rows_for_storage = apply_area_dimension_validation(normalized_rows)
         row_warnings = validation.get("row_warnings", {})
+        final_rows, confidence_stats = annotate_rows_with_confidence(
+            rows_for_storage,
+            row_warnings=row_warnings,
+        )
 
         combined_warnings: List[str] = []
         for source_list in (
@@ -695,7 +721,7 @@ async def extract_pdf(file: UploadFile = File(...), x_app_key: Optional[str] = H
         llm_output_json = json.dumps(raw_payload, ensure_ascii=False)
         declared_units = bundle.get("declared_units")
         declared_area = bundle.get("declared_area")
-        totals = _summarize_totals(final_rows)
+        totals = _summarize_totals(rows_for_storage)
         if declared_units is not None and declared_units != totals["units"]:
             combined_warnings.append(
                 f"declared_units_mismatch: declared {declared_units}, parsed {totals['units']}"
@@ -704,10 +730,20 @@ async def extract_pdf(file: UploadFile = File(...), x_app_key: Optional[str] = H
             combined_warnings.append(
                 f"declared_area_mismatch: declared {declared_area:.3f}, parsed {totals['area']:.3f}"
             )
+        order_confidence = compute_order_confidence(
+            rows=final_rows,
+            warnings=combined_warnings,
+            declared_units=declared_units,
+            declared_area=declared_area,
+            parsed_units=totals["units"],
+            parsed_area=totals["area"],
+            expected_declared_totals=has_declared_totals_hint(prepared_text or raw_joined),
+            repaired_row_count=confidence_stats.get("repaired_row_count"),
+        )
 
         insert_result = insert_extraction_with_rows(
             source="pdf",
-            rows=final_rows,
+            rows=rows_for_storage,
             raw_input=raw_joined,
             prepared_text=prepared_text,
             llm_output_json=llm_output_json,
@@ -733,6 +769,9 @@ async def extract_pdf(file: UploadFile = File(...), x_app_key: Optional[str] = H
             "parsed_units": totals["units"],
             "parsed_area": totals["area"],
             "client": client_name or "—",
+            "order_confidence_score": order_confidence["order_confidence_score"],
+            "order_confidence_label": order_confidence["order_confidence_label"],
+            "order_confidence_reasons": order_confidence["order_confidence_reasons"],
         }
         return payload
     except ValidationError as ve:
@@ -815,8 +854,12 @@ def get_order_detail(order_id: int) -> Dict[str, Any]:
     extraction = order.get("extraction") or {}
     validation = validate_rows([dict(row) for row in rows], context={"prepared_text": extraction.get("prepared_text", "")})
     normalized_rows = validation.get("rows", rows)
-    order["rows"] = apply_area_dimension_validation(normalized_rows)
+    enriched_rows = apply_area_dimension_validation(normalized_rows)
     order["row_warnings"] = validation.get("row_warnings", {})
+    order["rows"], confidence_stats = annotate_rows_with_confidence(
+        enriched_rows,
+        row_warnings=order["row_warnings"],
+    )
     order["warnings"] = validation.get("warnings", [])
     declared_units, declared_area = parse_declared_totals(extraction.get("prepared_text", ""))
     order["declared_units"] = declared_units
@@ -832,6 +875,17 @@ def get_order_detail(order_id: int) -> Dict[str, Any]:
         order["warnings"].append(
             f"declared_area_mismatch: declared {declared_area:.3f}, parsed {totals['area']:.3f}"
         )
+    order_confidence = compute_order_confidence(
+        rows=order["rows"],
+        warnings=order["warnings"],
+        declared_units=declared_units,
+        declared_area=declared_area,
+        parsed_units=totals["units"],
+        parsed_area=totals["area"],
+        expected_declared_totals=has_declared_totals_hint(extraction.get("prepared_text", "")),
+        repaired_row_count=confidence_stats.get("repaired_row_count"),
+    )
+    order.update(order_confidence)
     return order
 
 
@@ -917,6 +971,11 @@ def approve_order(order_id: int, payload: ApprovePayload) -> Dict[str, Any]:
                 prepared_text=prepared_text,
                 notes=payload.notes,
             )
+    annotated_rows, confidence_stats = annotate_rows_with_confidence(
+        [dict(row) for row in updated_order.get("rows") or []],
+        row_warnings=row_warnings,
+    )
+    updated_order["rows"] = annotated_rows
     totals = _summarize_totals(updated_order.get("rows") or [])
     if declared_units is not None and declared_units != totals["units"]:
         combined_warnings.append(
@@ -926,6 +985,16 @@ def approve_order(order_id: int, payload: ApprovePayload) -> Dict[str, Any]:
         combined_warnings.append(
             f"declared_area_mismatch: declared {declared_area:.3f}, parsed {totals['area']:.3f}"
         )
+    order_confidence = compute_order_confidence(
+        rows=updated_order.get("rows") or [],
+        warnings=combined_warnings,
+        declared_units=declared_units,
+        declared_area=declared_area,
+        parsed_units=totals["units"],
+        parsed_area=totals["area"],
+        expected_declared_totals=has_declared_totals_hint(prepared_text),
+        repaired_row_count=confidence_stats.get("repaired_row_count"),
+    )
     return {
         "saved_order_id": order_id,
         "warnings": combined_warnings,
@@ -936,6 +1005,9 @@ def approve_order(order_id: int, payload: ApprovePayload) -> Dict[str, Any]:
         "declared_area": declared_area,
         "parsed_units": totals["units"],
         "parsed_area": totals["area"],
+        "order_confidence_score": order_confidence["order_confidence_score"],
+        "order_confidence_label": order_confidence["order_confidence_label"],
+        "order_confidence_reasons": order_confidence["order_confidence_reasons"],
     }
 
 
