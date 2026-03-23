@@ -181,7 +181,7 @@ def ocr_png_with_openai(image_bytes: bytes, model: Optional[str] = None) -> str:
     b64 = base64.b64encode(image_bytes).decode("ascii")
     data_url = f"data:image/png;base64,{b64}"
     system_prompt = "You are a strict OCR engine. Output only the exact text you see. Preserve line breaks; no commentary."
-    model = model or os.getenv("OCR_MODEL", "gpt-4o-mini")
+    model = model or os.getenv("OCR_MODEL", "gpt-5-mini")
     response = client.chat.completions.create(
         model=model,
         messages=[
@@ -194,7 +194,7 @@ def ocr_png_with_openai(image_bytes: bytes, model: Optional[str] = None) -> str:
                 ],
             },
         ],
-        temperature=0.0,
+    
     )
     return (response.choices[0].message.content or "").strip()
 
@@ -258,7 +258,7 @@ def call_llm_for_extraction(pasted_text: str) -> Dict[str, Any]:
     messages = build_messages(prepared_text, corrections)
 
     preferred_models = [
-        "gpt-4o-mini",
+        "gpt-5-mini",
     ]
 
     completion = None
@@ -274,7 +274,7 @@ def call_llm_for_extraction(pasted_text: str) -> Dict[str, Any]:
                     "type": "json_schema",
                     "json_schema": JSON_SCHEMA,
                 },
-                temperature=0.0,
+
             )
             model_used = model_name
             break  # success
@@ -430,7 +430,7 @@ def _update_carry_from_rows(rows: List[Dict[str, Any]], carry: Dict[str, str]) -
 
 def call_llm_for_extraction_multi(pages_text: List[str]) -> Dict[str, Any]:
     client = get_client()
-    preferred = ["gpt-4o-mini"]
+    preferred = ["gpt-5-mini"]
     carry: Dict[str, str] = {"order_number": "", "glass_type": ""}
     all_rows: List[Dict[str, Any]] = []
     all_warnings: List[str] = []
@@ -465,7 +465,7 @@ def call_llm_for_extraction_multi(pages_text: List[str]) -> Dict[str, Any]:
                     model=model_name,
                     messages=messages,
                     response_format={"type": "json_schema", "json_schema": JSON_SCHEMA},
-                    temperature=0.0,
+                    
                 )
                 model_used = model_name
                 model_used_global = model_used
