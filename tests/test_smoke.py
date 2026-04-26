@@ -142,6 +142,7 @@ def test_text_pdf_extracts_rows(monkeypatch):
     stored = calls["insert_extraction_with_rows"][0]
     assert stored["raw_input"].startswith("data:application/pdf;base64,")
     assert stored["model_used"] == "gpt-5-mini"
+    assert stored["client_name"] == "Client A"
 
 
 def test_pdf_visual_llm_uses_input_file_payload(monkeypatch):
@@ -316,6 +317,87 @@ def test_approved_orders_not_overwritten(monkeypatch):
     assert data["status"] == "approved"
     assert data["saved_order_id"] == 77
     assert calls["update_order_rows"] == []
+
+
+def test_approve_payload_client_name_is_passed_to_save(monkeypatch):
+    app_module, _ = _load_app(monkeypatch, legacy_enabled="false")
+    row = {
+        "order_number": "R-26-0379",
+        "type": "2 VETRI C.CALDO 28mm",
+        "dimension": "522x1262",
+        "position": "1-1",
+        "quantity": 1,
+        "area": 0.66,
+    }
+    calls: List[Dict[str, Any]] = []
+
+    app_module.get_order_with_extraction = lambda order_id: {
+        "id": order_id,
+        "status": "draft",
+        "rows": [row],
+        "extraction": {"prepared_text": ""},
+    }
+
+    def _update_order_rows(order_id, rows, **kwargs):
+        calls.append({"order_id": order_id, "rows": rows, "kwargs": kwargs})
+        return {
+            "id": order_id,
+            "status": kwargs.get("status"),
+            "client_name": kwargs.get("client_name"),
+            "client": kwargs.get("client_name"),
+            "rows": rows,
+        }
+
+    app_module.update_order_rows = _update_order_rows
+    client = TestClient(app_module.app)
+    response = client.post(
+        "/orders/12/approve",
+        json={"rows": [row], "client_name": "DEDA PALLATI VAZHDIM FAZA 3"},
+    )
+
+    assert response.status_code == 200
+    assert calls[0]["kwargs"]["client_name"] == "DEDA PALLATI VAZHDIM FAZA 3"
+    assert response.json()["order"]["client_name"] == "DEDA PALLATI VAZHDIM FAZA 3"
+
+
+def test_approve_legacy_client_payload_is_normalized(monkeypatch):
+    app_module, _ = _load_app(monkeypatch, legacy_enabled="false")
+    row = {
+        "order_number": "R-26-0380",
+        "type": "2 VETRI C.CALDO 28mm",
+        "dimension": "522x1262",
+        "position": "1-1",
+        "quantity": 1,
+        "area": 0.66,
+    }
+    captured: List[str] = []
+
+    app_module.get_order_with_extraction = lambda order_id: {
+        "id": order_id,
+        "status": "draft",
+        "rows": [row],
+        "extraction": {"prepared_text": ""},
+    }
+
+    def _update_order_rows(order_id, rows, **kwargs):
+        captured.append(kwargs.get("client_name"))
+        return {
+            "id": order_id,
+            "status": kwargs.get("status"),
+            "client_name": kwargs.get("client_name"),
+            "client": kwargs.get("client_name"),
+            "rows": rows,
+        }
+
+    app_module.update_order_rows = _update_order_rows
+    client = TestClient(app_module.app)
+
+    response = client.post("/orders/12/approve", json={"rows": [row], "client": "Legacy Client"})
+    assert response.status_code == 200
+    response = client.post("/orders/12/approve", json={"rows": [row], "clientName": "Legacy Camel Client"})
+    assert response.status_code == 200
+
+    assert captured == ["Legacy Client", "Legacy Camel Client"]
 
 
 def test_legacy_ocr_not_called_when_disabled(monkeypatch):
