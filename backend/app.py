@@ -1,5 +1,5 @@
 from __future__ import annotations
-import csv, hashlib, json, os, re
+import base64, csv, hashlib, json, os, re
 from copy import deepcopy
 from datetime import datetime
 from io import StringIO
@@ -13,6 +13,7 @@ from schema import ExtractionResult, Row
 from llm import (
     call_llm_for_extraction,
     call_llm_for_extraction_multi,
+    call_llm_for_pdf_base64_visual,
     pdf_to_png_pages,
     ocr_png_with_openai,
     _prepare_text,
@@ -27,6 +28,7 @@ from db import (
     init_db,
     insert_extraction_with_rows,
     update_order_rows,
+    update_order_status,
     get_orders,
     get_orders_by_identifiers,
     get_order_with_extraction,
@@ -35,6 +37,10 @@ from db import (
     save_correction,
     list_corrections,
     delete_correction,
+    normalize_order_status,
+    is_processing_eligible_status,
+    ORDER_STATUS_SEQUENCE,
+    APPROVABLE_STATUSES,
 )
 from validators import validate_rows
 from dimension_repair import apply_dimension_repair
@@ -42,11 +48,6 @@ from area_dimension_validator import apply_area_dimension_validation
 from utils_text import clean_dimension, parse_declared_totals
 from prompts import PROMPTS
 from analysis_signals import generate_analysis_signals
-from confidence import (
-    annotate_rows_with_confidence,
-    compute_order_confidence,
-    has_declared_totals_hint,
-)
 ENV_PATH = Path(__file__).parent / ".env"
 load_dotenv(ENV_PATH, override=True)
 
@@ -57,6 +58,8 @@ INVOICES_PATH = DATA_DIR / "invoices.json"
 
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "*")
 APP_KEY = os.getenv("APP_KEY")  # optional shared secret
+EXTRACTION_MODEL = os.getenv("EXTRACTION_MODEL", "gpt-5-mini")
+LEGACY_OCR_ENABLED = os.getenv("LEGACY_OCR_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 ANALYSIS_MODEL = os.getenv("ANALYSIS_MODEL", "gpt-4o-mini")
 try:
@@ -287,6 +290,11 @@ class ApprovePayload(BaseModel):
     notes: Optional[str] = None
 
 
+class StatusUpdatePayload(BaseModel):
+    status: str
+    note: Optional[str] = None
+
+
 class AnalysisAskPayload(BaseModel):
     question: str
     dataset: Dict[str, Any]
@@ -330,6 +338,17 @@ def _compute_hash(content: Optional[str]) -> Optional[str]:
     if not content:
         return None
     return hashlib.sha1(content.encode("utf-8", "ignore")).hexdigest()
+
+
+def _compute_hash_bytes(content: bytes) -> Optional[str]:
+    if not content:
+        return None
+    return hashlib.sha1(content).hexdigest()
+
+
+def _pdf_data_url(pdf_bytes: bytes) -> str:
+    encoded = base64.b64encode(pdf_bytes).decode("ascii")
+    return f"data:application/pdf;base64,{encoded}"
 
 
 def _rows_to_dicts(rows: List[Any]) -> List[Dict[str, Any]]:
@@ -546,12 +565,8 @@ def extract(inb: PasteIn, x_app_key: Optional[str] = Header(default=None)) -> Di
         repaired_rows = apply_dimension_repair(inb.text, rows_dict)
         validation = validate_rows(repaired_rows, context={"prepared_text": bundle.get("prepared_text")})
         normalized_rows = validation.get("rows", repaired_rows)
-        rows_for_storage = apply_area_dimension_validation(normalized_rows)
+        final_rows = apply_area_dimension_validation(normalized_rows)
         row_warnings = validation.get("row_warnings", {})
-        final_rows, confidence_stats = annotate_rows_with_confidence(
-            rows_for_storage,
-            row_warnings=row_warnings,
-        )
 
         combined_warnings: List[str] = []
         for source_list in (
@@ -571,7 +586,7 @@ def extract(inb: PasteIn, x_app_key: Optional[str] = Header(default=None)) -> Di
         llm_output_json = json.dumps(raw_payload, ensure_ascii=False)
         declared_units = bundle.get("declared_units")
         declared_area = bundle.get("declared_area")
-        totals = _summarize_totals(rows_for_storage)
+        totals = _summarize_totals(final_rows)
         if declared_units is not None and declared_units != totals["units"]:
             combined_warnings.append(
                 f"declared_units_mismatch: declared {declared_units}, parsed {totals['units']}"
@@ -580,25 +595,16 @@ def extract(inb: PasteIn, x_app_key: Optional[str] = Header(default=None)) -> Di
             combined_warnings.append(
                 f"declared_area_mismatch: declared {declared_area:.3f}, parsed {totals['area']:.3f}"
             )
-        order_confidence = compute_order_confidence(
-            rows=final_rows,
-            warnings=combined_warnings,
-            declared_units=declared_units,
-            declared_area=declared_area,
-            parsed_units=totals["units"],
-            parsed_area=totals["area"],
-            expected_declared_totals=has_declared_totals_hint(prepared_text or inb.text),
-            repaired_row_count=confidence_stats.get("repaired_row_count"),
-        )
 
         insert_result = insert_extraction_with_rows(
             source="paste",
-            rows=rows_for_storage,
+            rows=final_rows,
             raw_input=inb.text,
             prepared_text=prepared_text,
             llm_output_json=llm_output_json,
             model_used=bundle.get("model_used"),
             hash_value=hash_value,
+            confidence=(bundle.get("data") or {}).get("confidence"),
         )
         draft_order_id = insert_result["order_id"]
         status = insert_result.get("status", "draft")
@@ -612,6 +618,10 @@ def extract(inb: PasteIn, x_app_key: Optional[str] = Header(default=None)) -> Di
             "draft_order_id": draft_order_id,
             "saved_order_id": saved_order_id,
             "status": status,
+            "version": insert_result.get("version", 1),
+            "source_hash": insert_result.get("source_hash"),
+            "created_new_version": bool(insert_result.get("created_new_version")),
+            "protected_order_id": insert_result.get("protected_order_id"),
             "applied_corrections": applied,
             "model_used": bundle.get("model_used"),
             "declared_units": declared_units,
@@ -619,9 +629,6 @@ def extract(inb: PasteIn, x_app_key: Optional[str] = Header(default=None)) -> Di
             "parsed_units": totals["units"],
             "parsed_area": totals["area"],
             "client": client_name or "—",
-            "order_confidence_score": order_confidence["order_confidence_score"],
-            "order_confidence_label": order_confidence["order_confidence_label"],
-            "order_confidence_reasons": order_confidence["order_confidence_reasons"],
         }
         return payload
     except ValidationError as ve:
@@ -630,9 +637,43 @@ def extract(inb: PasteIn, x_app_key: Optional[str] = Header(default=None)) -> Di
         print("[extract] fatal error:\n" + "".join(traceback.format_exc()))
         raise HTTPException(status_code=500, detail=f"Extraction failed: {str(e)}")
 
+
+def _extract_pdf_via_legacy_ocr(raw_bytes: bytes) -> Dict[str, Any]:
+    """Legacy OCR pipeline retained for rollback behind LEGACY_OCR_ENABLED."""
+    try:
+        png_pages = pdf_to_png_pages(raw_bytes)
+    except Exception as exc:
+        raise RuntimeError(f"OCR pipeline failed: {exc}") from exc
+
+    if not png_pages:
+        raise RuntimeError("The PDF appears to contain no pages.")
+
+    try:
+        raw_ocr_pages: List[str] = []
+        prepared_pages: List[str] = []
+        for image_bytes in png_pages:
+            ocr_text = ocr_png_with_openai(image_bytes)
+            cleaned = (ocr_text or "").strip()
+            raw_ocr_pages.append(cleaned)
+            prepared = (_prepare_text(ocr_text) if ocr_text else "") or cleaned
+            prepared_pages.append(prepared)
+    except Exception as exc:
+        raise RuntimeError(f"OCR pipeline failed: {exc}") from exc
+
+    if not any((page or "").strip() for page in raw_ocr_pages):
+        raise RuntimeError("The PDF contains no legible text after OCR.")
+
+    bundle = call_llm_for_extraction_multi(prepared_pages)
+    return {
+        "bundle": bundle,
+        "raw_joined": "\n\n".join(page for page in raw_ocr_pages if page),
+        "client_name": extract_client_name("\n".join(raw_ocr_pages)),
+    }
+
+
 @app.post("/extract_pdf")
 async def extract_pdf(file: UploadFile = File(...), x_app_key: Optional[str] = Header(default=None)) -> Dict[str, Any]:
-    """Accept a PDF file upload, OCR each page, then run the multi-page LLM extraction."""
+    """Accept a PDF file upload and run base64 PDF visual extraction."""
     if APP_KEY and x_app_key != APP_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
@@ -647,63 +688,53 @@ async def extract_pdf(file: UploadFile = File(...), x_app_key: Optional[str] = H
     if not raw_bytes:
         raise HTTPException(
             status_code=422,
-            detail="The PDF contains no extractable text (document may be blank or OCR is disabled).",
+            detail="The uploaded PDF is empty.",
         )
 
-    try:
-        png_pages = pdf_to_png_pages(raw_bytes)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"OCR pipeline failed: {e}")
-
-    if not png_pages:
-        raise HTTPException(
-            status_code=422,
-            detail="The PDF appears to contain no pages.",
-        )
+    filename = file.filename or "upload.pdf"
+    raw_pdf_data_url = _pdf_data_url(raw_bytes)
+    extraction_method = "base64_pdf_visual"
+    source = "pdf"
+    client_name = ""
+    prepared_text = ""
+    fallback_warning: Optional[str] = None
 
     try:
-        raw_ocr_pages: List[str] = []
-        prepared_pages: List[str] = []
-        for image_bytes in png_pages:
-            ocr_text = ocr_png_with_openai(image_bytes)
-            cleaned = (ocr_text or "").strip()
-            raw_ocr_pages.append(cleaned)
-            prepared = (_prepare_text(ocr_text) if ocr_text else "") or cleaned
-            prepared_pages.append(prepared)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"OCR pipeline failed: {e}")
-
-    if not any((page or "").strip() for page in raw_ocr_pages):
-        raise HTTPException(
-            status_code=422,
-            detail="The PDF contains no legible text after OCR.",
-        )
-
-    pages_for_llm = prepared_pages
-
-    full_text = "\n".join(raw_ocr_pages)
-    client_name = extract_client_name(full_text)
+        bundle = call_llm_for_pdf_base64_visual(raw_bytes, filename=filename)
+    except Exception as visual_exc:
+        if not LEGACY_OCR_ENABLED:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Base64 PDF extraction failed: {visual_exc}",
+            ) from visual_exc
+        try:
+            legacy_result = _extract_pdf_via_legacy_ocr(raw_bytes)
+            bundle = legacy_result["bundle"]
+            client_name = legacy_result.get("client_name") or ""
+            prepared_text = bundle.get("prepared_text") or legacy_result.get("raw_joined") or ""
+            extraction_method = "legacy_ocr"
+            fallback_warning = f"legacy_ocr_fallback_used: {visual_exc}"
+        except Exception as legacy_exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Base64 PDF extraction failed: {visual_exc}; legacy OCR failed: {legacy_exc}",
+            ) from legacy_exc
 
     try:
-        bundle = call_llm_for_extraction_multi(pages_for_llm)
         raw_payload = bundle.get("raw") or {}
-        result_raw = ExtractionResult(**raw_payload)
+        _ = ExtractionResult(**raw_payload)
         result_data = ExtractionResult(**(bundle.get("data") or raw_payload))
 
         _debug_log_rows(result_data.rows)
 
         rows_dict = _rows_to_dicts(result_data.rows)
-        prepared_text = bundle.get("prepared_text") or ""
-        raw_joined = "\n\n".join(page for page in raw_ocr_pages if page)
-        repaired_rows = apply_dimension_repair(raw_joined, rows_dict)
+        prepared_text = prepared_text or bundle.get("prepared_text") or ""
+        repair_context = prepared_text or (bundle.get("output_text") or "")
+        repaired_rows = apply_dimension_repair(repair_context, rows_dict)
         validation = validate_rows(repaired_rows, context={"prepared_text": prepared_text})
         normalized_rows = validation.get("rows", repaired_rows)
-        rows_for_storage = apply_area_dimension_validation(normalized_rows)
+        final_rows = apply_area_dimension_validation(normalized_rows)
         row_warnings = validation.get("row_warnings", {})
-        final_rows, confidence_stats = annotate_rows_with_confidence(
-            rows_for_storage,
-            row_warnings=row_warnings,
-        )
 
         combined_warnings: List[str] = []
         for source_list in (
@@ -712,16 +743,24 @@ async def extract_pdf(file: UploadFile = File(...), x_app_key: Optional[str] = H
             validation.get("warnings", []) or [],
         ):
             combined_warnings.extend(source_list)
+        if fallback_warning:
+            combined_warnings.append(fallback_warning)
 
         applied = bundle.get("applied_corrections") or []
         if applied:
             combined_warnings.append(f"auto_corrections_applied:{','.join(str(i) for i in applied)}")
 
-        hash_value = _compute_hash(prepared_text or raw_joined)
-        llm_output_json = json.dumps(raw_payload, ensure_ascii=False)
+        llm_output_payload = dict(raw_payload) if isinstance(raw_payload, dict) else {"raw_payload": raw_payload}
+        llm_output_payload["_meta"] = {
+            "raw_response": bundle.get("raw_response"),
+            "parsed_result": bundle.get("data") or raw_payload,
+            "extraction_method": extraction_method,
+        }
+        llm_output_json = json.dumps(llm_output_payload, ensure_ascii=False)
+        hash_value = _compute_hash_bytes(raw_bytes)
         declared_units = bundle.get("declared_units")
         declared_area = bundle.get("declared_area")
-        totals = _summarize_totals(rows_for_storage)
+        totals = _summarize_totals(final_rows)
         if declared_units is not None and declared_units != totals["units"]:
             combined_warnings.append(
                 f"declared_units_mismatch: declared {declared_units}, parsed {totals['units']}"
@@ -730,29 +769,27 @@ async def extract_pdf(file: UploadFile = File(...), x_app_key: Optional[str] = H
             combined_warnings.append(
                 f"declared_area_mismatch: declared {declared_area:.3f}, parsed {totals['area']:.3f}"
             )
-        order_confidence = compute_order_confidence(
-            rows=final_rows,
-            warnings=combined_warnings,
-            declared_units=declared_units,
-            declared_area=declared_area,
-            parsed_units=totals["units"],
-            parsed_area=totals["area"],
-            expected_declared_totals=has_declared_totals_hint(prepared_text or raw_joined),
-            repaired_row_count=confidence_stats.get("repaired_row_count"),
-        )
 
         insert_result = insert_extraction_with_rows(
-            source="pdf",
-            rows=rows_for_storage,
-            raw_input=raw_joined,
+            source=source,
+            rows=final_rows,
+            raw_input=raw_pdf_data_url,
             prepared_text=prepared_text,
             llm_output_json=llm_output_json,
-            model_used=bundle.get("model_used"),
+            model_used=bundle.get("model_used") or EXTRACTION_MODEL,
             hash_value=hash_value,
+            confidence=(bundle.get("data") or {}).get("confidence"),
         )
         draft_order_id = insert_result["order_id"]
         status = insert_result.get("status", "draft")
         saved_order_id = draft_order_id if status == "approved" else None
+
+        if not client_name:
+            client_name = (
+                (bundle.get("data") or {}).get("client_name")
+                or extract_client_name(prepared_text)
+                or ""
+            )
 
         payload = {
             "order_number": (bundle.get("data") or {}).get("order_number") or _primary_order_number(final_rows),
@@ -762,16 +799,19 @@ async def extract_pdf(file: UploadFile = File(...), x_app_key: Optional[str] = H
             "draft_order_id": draft_order_id,
             "saved_order_id": saved_order_id,
             "status": status,
+            "version": insert_result.get("version", 1),
+            "source_hash": insert_result.get("source_hash"),
+            "created_new_version": bool(insert_result.get("created_new_version")),
+            "protected_order_id": insert_result.get("protected_order_id"),
             "applied_corrections": applied,
             "model_used": bundle.get("model_used"),
             "declared_units": declared_units,
             "declared_area": declared_area,
             "parsed_units": totals["units"],
             "parsed_area": totals["area"],
+            "extraction_method": extraction_method,
+            "confidence": (bundle.get("data") or {}).get("confidence"),
             "client": client_name or "—",
-            "order_confidence_score": order_confidence["order_confidence_score"],
-            "order_confidence_label": order_confidence["order_confidence_label"],
-            "order_confidence_reasons": order_confidence["order_confidence_reasons"],
         }
         return payload
     except ValidationError as ve:
@@ -789,13 +829,30 @@ async def extract_pdf_dash_alias(file: UploadFile = File(...), x_app_key: Option
 @app.get("/orders")
 def list_orders(
     query: Optional[str] = Query(default=None, description="Search by order number or client hint"),
-    status: Optional[str] = Query(default=None, description="Filter by status draft|approved"),
+    status: Optional[str] = Query(
+        default=None,
+        description="Filter by status: draft|reviewed|approved|in_production|completed|archived",
+    ),
+    client: Optional[str] = Query(default=None, description="Filter by client (contains, case-insensitive)"),
+    date_from: Optional[str] = Query(default=None, description="Start date (inclusive), ISO date YYYY-MM-DD"),
+    date_to: Optional[str] = Query(default=None, description="End date (inclusive), ISO date YYYY-MM-DD"),
+    approved_only: bool = Query(default=False, description="Shortcut for status=approved"),
     year: Optional[str] = Query(default=None, description="Year filter: YYYY (defaults to current year) or all"),
     limit: int = Query(default=DEFAULT_HISTORY_LIMIT, ge=1, le=MAX_HISTORY_LIMIT),
     offset: int = Query(default=0, ge=0),
 ) -> Dict[str, Any]:
     try:
-        items = get_orders(query=query, status=status, year=year, limit=limit, offset=offset)
+        items = get_orders(
+            query=query,
+            status=status,
+            client=client,
+            date_from=date_from,
+            date_to=date_to,
+            approved_only=approved_only,
+            year=year,
+            limit=limit,
+            offset=offset,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {
@@ -854,12 +911,8 @@ def get_order_detail(order_id: int) -> Dict[str, Any]:
     extraction = order.get("extraction") or {}
     validation = validate_rows([dict(row) for row in rows], context={"prepared_text": extraction.get("prepared_text", "")})
     normalized_rows = validation.get("rows", rows)
-    enriched_rows = apply_area_dimension_validation(normalized_rows)
+    order["rows"] = apply_area_dimension_validation(normalized_rows)
     order["row_warnings"] = validation.get("row_warnings", {})
-    order["rows"], confidence_stats = annotate_rows_with_confidence(
-        enriched_rows,
-        row_warnings=order["row_warnings"],
-    )
     order["warnings"] = validation.get("warnings", [])
     declared_units, declared_area = parse_declared_totals(extraction.get("prepared_text", ""))
     order["declared_units"] = declared_units
@@ -875,17 +928,6 @@ def get_order_detail(order_id: int) -> Dict[str, Any]:
         order["warnings"].append(
             f"declared_area_mismatch: declared {declared_area:.3f}, parsed {totals['area']:.3f}"
         )
-    order_confidence = compute_order_confidence(
-        rows=order["rows"],
-        warnings=order["warnings"],
-        declared_units=declared_units,
-        declared_area=declared_area,
-        parsed_units=totals["units"],
-        parsed_area=totals["area"],
-        expected_declared_totals=has_declared_totals_hint(extraction.get("prepared_text", "")),
-        repaired_row_count=confidence_stats.get("repaired_row_count"),
-    )
-    order.update(order_confidence)
     return order
 
 
@@ -920,6 +962,12 @@ def approve_order(order_id: int, payload: ApprovePayload) -> Dict[str, Any]:
     snapshot = get_order_with_extraction(order_id)
     if not snapshot:
         raise HTTPException(status_code=404, detail="Order not found")
+    current_status = normalize_order_status(snapshot.get("status"))
+    if current_status not in APPROVABLE_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Order in status '{current_status}' cannot be approved.",
+        )
 
     rows_dict = [row.model_dump(mode="python") for row in payload.rows]
 
@@ -971,11 +1019,6 @@ def approve_order(order_id: int, payload: ApprovePayload) -> Dict[str, Any]:
                 prepared_text=prepared_text,
                 notes=payload.notes,
             )
-    annotated_rows, confidence_stats = annotate_rows_with_confidence(
-        [dict(row) for row in updated_order.get("rows") or []],
-        row_warnings=row_warnings,
-    )
-    updated_order["rows"] = annotated_rows
     totals = _summarize_totals(updated_order.get("rows") or [])
     if declared_units is not None and declared_units != totals["units"]:
         combined_warnings.append(
@@ -985,16 +1028,6 @@ def approve_order(order_id: int, payload: ApprovePayload) -> Dict[str, Any]:
         combined_warnings.append(
             f"declared_area_mismatch: declared {declared_area:.3f}, parsed {totals['area']:.3f}"
         )
-    order_confidence = compute_order_confidence(
-        rows=updated_order.get("rows") or [],
-        warnings=combined_warnings,
-        declared_units=declared_units,
-        declared_area=declared_area,
-        parsed_units=totals["units"],
-        parsed_area=totals["area"],
-        expected_declared_totals=has_declared_totals_hint(prepared_text),
-        repaired_row_count=confidence_stats.get("repaired_row_count"),
-    )
     return {
         "saved_order_id": order_id,
         "warnings": combined_warnings,
@@ -1005,10 +1038,52 @@ def approve_order(order_id: int, payload: ApprovePayload) -> Dict[str, Any]:
         "declared_area": declared_area,
         "parsed_units": totals["units"],
         "parsed_area": totals["area"],
-        "order_confidence_score": order_confidence["order_confidence_score"],
-        "order_confidence_label": order_confidence["order_confidence_label"],
-        "order_confidence_reasons": order_confidence["order_confidence_reasons"],
     }
+
+
+@app.post("/orders/{order_id}/status")
+def set_order_status(order_id: int, payload: StatusUpdatePayload) -> Dict[str, Any]:
+    target = normalize_order_status(payload.status)
+    if target not in ORDER_STATUS_SEQUENCE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status '{payload.status}'. Allowed: {', '.join(ORDER_STATUS_SEQUENCE)}",
+        )
+    try:
+        updated = update_order_status(
+            order_id,
+            status=target,
+            note=payload.note,
+            reason="api_status_update",
+        )
+        return {"ok": True, "order": updated}
+    except ValueError as exc:
+        message = str(exc)
+        code = 404 if "not found" in message.lower() else 400
+        raise HTTPException(status_code=code, detail=message)
+    except Exception as exc:
+        print("[set_order_status] update failed:\n" + "".join(traceback.format_exc()))
+        raise HTTPException(status_code=500, detail=f"Failed to update status: {exc}")
+
+
+@app.post("/orders/{order_id}/archive")
+def archive_order(order_id: int, payload: Optional[StatusUpdatePayload] = None) -> Dict[str, Any]:
+    note = payload.note if payload else None
+    try:
+        updated = update_order_status(
+            order_id,
+            status="archived",
+            note=note,
+            reason="archive",
+        )
+        return {"ok": True, "order": updated}
+    except ValueError as exc:
+        message = str(exc)
+        code = 404 if "not found" in message.lower() else 400
+        raise HTTPException(status_code=code, detail=message)
+    except Exception as exc:
+        print("[archive_order] update failed:\n" + "".join(traceback.format_exc()))
+        raise HTTPException(status_code=500, detail=f"Failed to archive order: {exc}")
 
 
 @app.get("/orders/{order_id}/csv")
@@ -1016,7 +1091,7 @@ def download_order_csv(order_id: int):
     order = get_order_with_extraction(order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    if (order.get("status") or "").lower() != "approved":
+    if not is_processing_eligible_status(order.get("status")):
         raise HTTPException(status_code=400, detail="Order not approved")
     csv_content = _rows_to_csv(order.get("rows") or [])
     filename = f"order-{order_id}.csv"
@@ -1027,7 +1102,10 @@ def download_order_csv(order_id: int):
 @app.get("/orders/export.csv")
 def export_all_orders_csv(
     query: Optional[str] = Query(default=None, description="Search by order number or client hint"),
-    status: Optional[str] = Query(default="approved", description="Filter by status draft|approved (default approved)"),
+    status: Optional[str] = Query(
+        default="approved",
+        description="Filter by status (default approved). Supports lifecycle statuses.",
+    ),
     year: Optional[str] = Query(default=None, description="Year filter: YYYY (defaults to current year) or all"),
 ):
     try:

@@ -27,6 +27,25 @@ def _ensure_quantity(value: Any) -> int:
     return max(qty, 1)
 
 
+def _to_float(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).strip()
+    if not text:
+        return None
+    text = text.replace(" ", "")
+    if "," in text and "." in text:
+        text = text.replace(".", "").replace(",", ".")
+    elif "," in text:
+        text = text.replace(",", ".")
+    try:
+        return float(text)
+    except Exception:
+        return None
+
+
 def _stringify_warning(message: str, idx: Optional[int] = None) -> str:
     if idx is None:
         return message
@@ -80,13 +99,32 @@ def validate_rows(
                 per_row.append("auto_fix: dimension_normalized")
             elif working.get("dimension"):
                 per_row.append("warning: dimension_invalid_cleared")
+        if not (working.get("dimension") or "").strip():
+            per_row.append("warning: missing_required_field:dimension")
 
         # Quantity sanity
         original_qty = working.get("quantity")
+        if original_qty in (None, ""):
+            per_row.append("warning: missing_required_field:quantity")
         quantity = _ensure_quantity(original_qty)
         if quantity != original_qty:
             per_row.append("auto_fix: quantity_defaulted_to_one")
         working["quantity"] = quantity
+
+        # Required field checks
+        if not (working.get("type") or "").strip():
+            per_row.append("warning: missing_required_field:type")
+        if not (working.get("position") or "").strip():
+            per_row.append("warning: missing_required_field:position")
+        if not (working.get("order_number") or "").strip():
+            per_row.append("warning: missing_required_field:order_number")
+
+        # Area numeric check
+        area_value = _to_float(working.get("area"))
+        if area_value is None:
+            per_row.append("warning: area_not_numeric")
+            area_value = 0.0
+        working["area"] = area_value
 
         # Subtotal bleed check
         if _looks_like_subtotal(working) and working.get("quantity", 0) > 1:

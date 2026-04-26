@@ -4,6 +4,8 @@ import base64
 import json
 import os
 import re
+import time
+import httpx
 import fitz  # PyMuPDF
 from openai import OpenAI
 from utils_text import build_signature, parse_declared_totals
@@ -15,6 +17,24 @@ if not API_KEY:
     raise RuntimeError("OPENAI_API_KEY is not set. Configure it in Render → Environment.")
 
 SYSTEM_PROMPT = PROMPTS["extraction"]["system"]
+PDF_VISUAL_SYSTEM_PROMPT = PROMPTS["extraction"]["pdf_visual_system"]
+EXTRACTION_MODEL = os.getenv("EXTRACTION_MODEL", "gpt-5-mini")
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        value = float(os.getenv(name, str(default)))
+    except Exception:
+        return default
+    return value if value > 0 else default
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        value = int(os.getenv(name, str(default)))
+    except Exception:
+        return default
+    return value if value >= 0 else default
 
 JSON_SCHEMA = {
     "name": "order_extraction",
@@ -22,6 +42,8 @@ JSON_SCHEMA = {
         "type": "object",
         "additionalProperties": False,
         "properties": {
+            "order_number": {"type": "string"},
+            "client_name": {"type": "string"},
             "rows": {
                 "type": "array",
                 "items": {
@@ -41,9 +63,10 @@ JSON_SCHEMA = {
             "warnings": {
                 "type": "array",
                 "items": {"type": "string"}
-            }
+            },
+            "confidence": {"type": "number"},
         },
-        "required": ["rows", "warnings"]
+        "required": ["order_number", "client_name", "rows", "warnings", "confidence"]
     },
     "strict": True,
 }
@@ -162,6 +185,146 @@ def _prepare_text(raw_text: str) -> str:
     processed = _insert_dim_breaks(processed)
     return processed.strip()
 
+
+def _strip_json_fences(content: str) -> str:
+    text = (content or "").strip()
+    if not text.startswith("```"):
+        return text
+    text = text.strip("`")
+    first_newline = text.find("\n")
+    if first_newline != -1 and text[:first_newline].lower().startswith("json"):
+        text = text[first_newline + 1 :]
+    return text.strip()
+
+
+def _extract_responses_output_text(response_json: Dict[str, Any]) -> str:
+    output_text = response_json.get("output_text")
+    if isinstance(output_text, str) and output_text.strip():
+        return output_text.strip()
+
+    parts: List[str] = []
+    for output_item in response_json.get("output") or []:
+        if not isinstance(output_item, dict):
+            continue
+        for content_item in output_item.get("content") or []:
+            if not isinstance(content_item, dict):
+                continue
+            ctype = content_item.get("type")
+            if ctype in {"output_text", "text"}:
+                text_val = content_item.get("text")
+                if isinstance(text_val, str) and text_val.strip():
+                    parts.append(text_val.strip())
+    return "\n".join(parts).strip()
+
+
+def call_llm_for_pdf_base64_visual(pdf_bytes: bytes, filename: str) -> Dict[str, Any]:
+    if not pdf_bytes:
+        raise RuntimeError("PDF input is empty.")
+
+    model_name = os.getenv("EXTRACTION_MODEL", EXTRACTION_MODEL)
+    pdf_b64 = base64.b64encode(pdf_bytes).decode("ascii")
+    pdf_data_url = f"data:application/pdf;base64,{pdf_b64}"
+    user_prompt = (
+        "Extract all order rows from the attached PDF. "
+        "Read the PDF visually and structurally (tables, lines, layout), not OCR-transcribed text. "
+        "Return strict JSON only."
+    )
+    payload = {
+        "model": model_name,
+        "input": [
+            {
+                "role": "system",
+                "content": [{"type": "input_text", "text": PDF_VISUAL_SYSTEM_PROMPT}],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": user_prompt},
+                    {
+                        "type": "input_file",
+                        "filename": filename or "upload.pdf",
+                        "file_data": pdf_data_url,
+                    },
+                ],
+            },
+        ],
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": JSON_SCHEMA["name"],
+                "schema": JSON_SCHEMA["schema"],
+                "strict": True,
+            }
+        },
+    }
+
+    timeout = httpx.Timeout(
+        timeout=_env_float("EXTRACTION_TOTAL_TIMEOUT_SECONDS", 900.0),
+        connect=_env_float("EXTRACTION_CONNECT_TIMEOUT_SECONDS", 30.0),
+        read=_env_float("EXTRACTION_READ_TIMEOUT_SECONDS", 900.0),
+        write=_env_float("EXTRACTION_WRITE_TIMEOUT_SECONDS", 180.0),
+        pool=_env_float("EXTRACTION_POOL_TIMEOUT_SECONDS", 30.0),
+    )
+    retries = _env_int("EXTRACTION_REQUEST_RETRIES", 1)
+    attempt = 0
+    response = None
+
+    while True:
+        attempt += 1
+        try:
+            response = httpx.post(
+                "https://api.openai.com/v1/responses",
+                headers={
+                    "Authorization": f"Bearer {API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=timeout,
+            )
+            break
+        except httpx.ReadTimeout as exc:
+            if attempt > (retries + 1):
+                raise RuntimeError(
+                    "Responses API request failed: read timeout while extracting large PDF "
+                    f"(attempts={attempt}, read_timeout={timeout.read}s)."
+                ) from exc
+            time.sleep(min(2.0 * attempt, 5.0))
+            continue
+        except Exception as exc:
+            raise RuntimeError(f"Responses API request failed: {exc}") from exc
+
+    if response.status_code >= 400:
+        detail = response.text.strip()
+        raise RuntimeError(f"Responses API error ({response.status_code}): {detail}")
+
+    response_json = response.json()
+    output_text = _extract_responses_output_text(response_json)
+    if not output_text:
+        raise RuntimeError("Responses API returned no output text.")
+
+    output_text = _strip_json_fences(output_text)
+    parsed_payload = json.loads(output_text)
+    client_name = parsed_payload.get("client_name")
+    if client_name is None:
+        parsed_payload["client_name"] = ""
+    confidence = parsed_payload.get("confidence")
+    if confidence is None:
+        parsed_payload["confidence"] = 0.0
+
+    return {
+        "data": parsed_payload,
+        "raw": parsed_payload,
+        "raw_response": response_json,
+        "prepared_text": "",
+        "model_used": response_json.get("model") or model_name,
+        "applied_corrections": [],
+        "corrections": [],
+        "declared_units": None,
+        "declared_area": None,
+        "pdf_data_url": pdf_data_url,
+        "output_text": output_text,
+    }
+
 def pdf_to_png_pages(pdf_bytes: bytes, dpi: int = 200) -> List[bytes]:
     """Render each PDF page to PNG bytes (no alpha channel)."""
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
@@ -194,7 +357,7 @@ def ocr_png_with_openai(image_bytes: bytes, model: Optional[str] = None) -> str:
                 ],
             },
         ],
-    
+        temperature=0.0,
     )
     return (response.choices[0].message.content or "").strip()
 
@@ -257,9 +420,7 @@ def call_llm_for_extraction(pasted_text: str) -> Dict[str, Any]:
     corrections = find_similar_corrections(prepared_text, top_k=3)
     messages = build_messages(prepared_text, corrections)
 
-    preferred_models = [
-        "gpt-5-mini",
-    ]
+    preferred_models = [os.getenv("EXTRACTION_MODEL", EXTRACTION_MODEL)]
 
     completion = None
     model_used = None
@@ -274,7 +435,7 @@ def call_llm_for_extraction(pasted_text: str) -> Dict[str, Any]:
                     "type": "json_schema",
                     "json_schema": JSON_SCHEMA,
                 },
-
+                temperature=0.0,
             )
             model_used = model_name
             break  # success
@@ -289,15 +450,7 @@ def call_llm_for_extraction(pasted_text: str) -> Dict[str, Any]:
         raise RuntimeError(f"All model attempts failed: {last_err}")
 
     # Parse JSON content and return
-    content = completion.choices[0].message.content or "{}"
-
-    # Some models occasionally wrap JSON in fences; strip them defensively
-    if content.startswith('```'):
-        content = content.strip().strip('`')
-        # Remove a leading language hint like ```json
-        first_newline = content.find('\n')
-        if first_newline != -1 and content[:first_newline].lower().startswith('json'):
-            content = content[first_newline+1:]
+    content = _strip_json_fences(completion.choices[0].message.content or "{}")
 
     usage = getattr(completion, "usage", None)
     if usage:
@@ -430,7 +583,7 @@ def _update_carry_from_rows(rows: List[Dict[str, Any]], carry: Dict[str, str]) -
 
 def call_llm_for_extraction_multi(pages_text: List[str]) -> Dict[str, Any]:
     client = get_client()
-    preferred = ["gpt-5-mini"]
+    preferred = [os.getenv("EXTRACTION_MODEL", EXTRACTION_MODEL)]
     carry: Dict[str, str] = {"order_number": "", "glass_type": ""}
     all_rows: List[Dict[str, Any]] = []
     all_warnings: List[str] = []
@@ -465,7 +618,7 @@ def call_llm_for_extraction_multi(pages_text: List[str]) -> Dict[str, Any]:
                     model=model_name,
                     messages=messages,
                     response_format={"type": "json_schema", "json_schema": JSON_SCHEMA},
-                    
+                    temperature=0.0,
                 )
                 model_used = model_name
                 model_used_global = model_used
@@ -479,12 +632,7 @@ def call_llm_for_extraction_multi(pages_text: List[str]) -> Dict[str, Any]:
             all_warnings.append(f"Page {i} failed: {last_err}")
             continue
 
-        content = completion.choices[0].message.content or "{}"
-        if content.startswith("```"):
-            content = content.strip().strip("`")
-            first_newline = content.find("\n")
-            if first_newline != -1 and content[:first_newline].lower().startswith("json"):
-                content = content[first_newline + 1:]
+        content = _strip_json_fences(completion.choices[0].message.content or "{}")
 
         if usage_info:
             try:
