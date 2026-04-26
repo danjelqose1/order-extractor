@@ -15149,6 +15149,7 @@ function renderOrdersList(){
           <button data-action="labels" data-id="${order.id}">Generate Labels</button>
           <button data-action="invoice" data-id="${order.id}" ${canInvoiceStatus(normalizedStatus) ? "" : "disabled"}>Add to Invoice</button>
           <button data-action="archive" data-id="${order.id}" class="warn" ${canArchiveStatus(normalizedStatus) ? "" : "disabled"}>Archive</button>
+          <button data-action="delete" data-id="${order.id}" class="warn">Delete order</button>
         </div>
       </details>
     `;
@@ -15396,6 +15397,27 @@ document.getElementById("historyListWrap").addEventListener("click", async (even
       setHistoryStatus("Order archived.");
     }catch(error){
       setHistoryStatus("Archive failed: " + (error.message || error));
+    }
+  }else if (action === "delete"){
+    const label = btn.closest("tr")?.querySelector("td")?.textContent?.trim() || `#${id}`;
+    if (!confirm(`Delete order ${label}? This cannot be undone.`)) return;
+    try{
+      await deleteOrder(id);
+      historyState.needsRefresh = true;
+      analysisState.allOrdersDirty = true;
+      analysisState.orderRowCache.delete(id);
+      if (historyState.selectedOrder && String(historyState.selectedOrder.id) === String(id)){
+        historyState.selectedOrder = null;
+        appState.historyDetail.order = null;
+        appState.historyDetail.rows = [];
+        appState.historyDetail.warnings = [];
+        closeHistoryDrawer();
+        updateHistoryDetailUI();
+      }
+      await loadHistory({ resetOffset: false });
+      setHistoryStatus("Order deleted.");
+    }catch(error){
+      setHistoryStatus("Delete failed: " + (error.message || error));
     }
   }
 });
