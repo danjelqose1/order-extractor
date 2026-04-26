@@ -792,6 +792,10 @@ def get_all_rows_for_export(
     *,
     query: Optional[str] = None,
     status: Optional[str] = "approved",
+    client: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    approved_only: bool = False,
     year: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     now_year = datetime.now(timezone.utc).year
@@ -805,6 +809,33 @@ def get_all_rows_for_export(
     else:
         raise ValueError("Invalid year. Use YYYY or 'all'.")
 
+    from_dt: Optional[datetime] = None
+    to_dt: Optional[datetime] = None
+    if date_from:
+        value = str(date_from).strip()
+        try:
+            from_dt = datetime.fromisoformat(value)
+        except ValueError:
+            try:
+                from_dt = datetime.fromisoformat(f"{value}T00:00:00")
+            except ValueError as exc:
+                raise ValueError("Invalid date_from. Use ISO date like YYYY-MM-DD.") from exc
+        if from_dt.tzinfo is None:
+            from_dt = from_dt.replace(tzinfo=timezone.utc)
+    if date_to:
+        value = str(date_to).strip()
+        try:
+            to_dt = datetime.fromisoformat(value)
+        except ValueError:
+            try:
+                to_dt = datetime.fromisoformat(f"{value}T00:00:00")
+            except ValueError as exc:
+                raise ValueError("Invalid date_to. Use ISO date like YYYY-MM-DD.") from exc
+        if to_dt.tzinfo is None:
+            to_dt = to_dt.replace(tzinfo=timezone.utc)
+        if len(str(date_to).strip()) == 10:
+            to_dt = to_dt + timedelta(days=1)
+
     with SessionLocal() as session:
         stmt = select(Order, OrderRow).join(OrderRow, Order.id == OrderRow.order_id)
         if status:
@@ -814,16 +845,25 @@ def get_all_rows_for_export(
                     f"Invalid status '{status}'. Allowed: {', '.join(ORDER_STATUS_SEQUENCE)}"
                 )
             stmt = stmt.where(func.lower(Order.status) == normalized_status)
+        elif approved_only:
+            stmt = stmt.where(func.lower(Order.status) == "approved")
         if query:
             like_term = f"%{query.lower()}%"
             stmt = stmt.where(
                 func.lower(Order.order_numbers_raw).like(like_term)
                 | func.lower(func.coalesce(Order.client_hint, "")).like(like_term)
             )
+        if client:
+            client_like = f"%{str(client).strip().lower()}%"
+            stmt = stmt.where(func.lower(func.coalesce(Order.client_hint, "")).like(client_like))
         if filter_year is not None:
             start = datetime(filter_year, 1, 1, tzinfo=timezone.utc)
             end = datetime(filter_year + 1, 1, 1, tzinfo=timezone.utc)
             stmt = stmt.where(Order.created_at >= start).where(Order.created_at < end)
+        if from_dt is not None:
+            stmt = stmt.where(Order.created_at >= from_dt)
+        if to_dt is not None:
+            stmt = stmt.where(Order.created_at < to_dt)
         stmt = stmt.order_by(Order.created_at.desc())
         result: List[Dict[str, Any]] = []
         for order, row in session.execute(stmt).all():

@@ -45,6 +45,7 @@ from db import (
 from validators import validate_rows
 from dimension_repair import apply_dimension_repair
 from area_dimension_validator import apply_area_dimension_validation
+from extraction_normalizer import normalize_extracted_rows
 from utils_text import clean_dimension, parse_declared_totals
 from prompts import PROMPTS
 from analysis_signals import generate_analysis_signals
@@ -346,6 +347,18 @@ def _compute_hash_bytes(content: bytes) -> Optional[str]:
     return hashlib.sha1(content).hexdigest()
 
 
+def _dedupe_warnings(warnings: List[str]) -> List[str]:
+    deduped: List[str] = []
+    seen = set()
+    for warning in warnings or []:
+        text = str(warning).strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        deduped.append(text)
+    return deduped
+
+
 def _pdf_data_url(pdf_bytes: bytes) -> str:
     encoded = base64.b64encode(pdf_bytes).decode("ascii")
     return f"data:application/pdf;base64,{encoded}"
@@ -563,8 +576,9 @@ def extract(inb: PasteIn, x_app_key: Optional[str] = Header(default=None)) -> Di
 
         rows_dict = _rows_to_dicts(result_data.rows)
         repaired_rows = apply_dimension_repair(inb.text, rows_dict)
-        validation = validate_rows(repaired_rows, context={"prepared_text": bundle.get("prepared_text")})
-        normalized_rows = validation.get("rows", repaired_rows)
+        extracted_rows, normalization_warnings = normalize_extracted_rows(repaired_rows)
+        validation = validate_rows(extracted_rows, context={"prepared_text": bundle.get("prepared_text")})
+        normalized_rows = validation.get("rows", extracted_rows)
         final_rows = apply_area_dimension_validation(normalized_rows)
         row_warnings = validation.get("row_warnings", {})
 
@@ -572,6 +586,7 @@ def extract(inb: PasteIn, x_app_key: Optional[str] = Header(default=None)) -> Di
         for source_list in (
             raw_payload.get("warnings") or [],
             (bundle.get("data") or {}).get("warnings") or [],
+            normalization_warnings,
             validation.get("warnings", []) or [],
         ):
             combined_warnings.extend(source_list)
@@ -595,6 +610,7 @@ def extract(inb: PasteIn, x_app_key: Optional[str] = Header(default=None)) -> Di
             combined_warnings.append(
                 f"declared_area_mismatch: declared {declared_area:.3f}, parsed {totals['area']:.3f}"
             )
+        combined_warnings = _dedupe_warnings(combined_warnings)
 
         insert_result = insert_extraction_with_rows(
             source="paste",
@@ -731,8 +747,9 @@ async def extract_pdf(file: UploadFile = File(...), x_app_key: Optional[str] = H
         prepared_text = prepared_text or bundle.get("prepared_text") or ""
         repair_context = prepared_text or (bundle.get("output_text") or "")
         repaired_rows = apply_dimension_repair(repair_context, rows_dict)
-        validation = validate_rows(repaired_rows, context={"prepared_text": prepared_text})
-        normalized_rows = validation.get("rows", repaired_rows)
+        extracted_rows, normalization_warnings = normalize_extracted_rows(repaired_rows)
+        validation = validate_rows(extracted_rows, context={"prepared_text": prepared_text})
+        normalized_rows = validation.get("rows", extracted_rows)
         final_rows = apply_area_dimension_validation(normalized_rows)
         row_warnings = validation.get("row_warnings", {})
 
@@ -740,6 +757,7 @@ async def extract_pdf(file: UploadFile = File(...), x_app_key: Optional[str] = H
         for source_list in (
             raw_payload.get("warnings") or [],
             (bundle.get("data") or {}).get("warnings") or [],
+            normalization_warnings,
             validation.get("warnings", []) or [],
         ):
             combined_warnings.extend(source_list)
@@ -769,6 +787,7 @@ async def extract_pdf(file: UploadFile = File(...), x_app_key: Optional[str] = H
             combined_warnings.append(
                 f"declared_area_mismatch: declared {declared_area:.3f}, parsed {totals['area']:.3f}"
             )
+        combined_warnings = _dedupe_warnings(combined_warnings)
 
         insert_result = insert_extraction_with_rows(
             source=source,
@@ -862,6 +881,75 @@ def list_orders(
         "count": len(items),
         "has_more": len(items) == limit,
     }
+
+
+@app.get("/orders/export.csv")
+def export_all_orders_csv(
+    query: Optional[str] = Query(default=None, description="Search by order number or client hint"),
+    status: Optional[str] = Query(
+        default="approved",
+        description="Filter by status (default approved). Supports lifecycle statuses.",
+    ),
+    client: Optional[str] = Query(default=None, description="Filter by client (contains, case-insensitive)"),
+    date_from: Optional[str] = Query(default=None, description="Start date (inclusive), ISO date YYYY-MM-DD"),
+    date_to: Optional[str] = Query(default=None, description="End date (inclusive), ISO date YYYY-MM-DD"),
+    approved_only: bool = Query(default=False, description="Shortcut for status=approved"),
+    year: Optional[str] = Query(default=None, description="Year filter: YYYY (defaults to current year) or all"),
+):
+    try:
+        rows = get_all_rows_for_export(
+            query=query,
+            status=status,
+            client=client,
+            date_from=date_from,
+            date_to=date_to,
+            approved_only=approved_only,
+            year=year,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "order_id",
+            "created_at",
+            "source",
+            "client_hint",
+            "order_numbers",
+            "units_total",
+            "area_total",
+            "order_number",
+            "type",
+            "dimension",
+            "position",
+            "quantity",
+            "area",
+        ]
+    )
+    for item in rows:
+        order_numbers = ";".join(item.get("order_numbers") or [])
+        row = item.get("row") or {}
+        writer.writerow(
+            [
+                item.get("order_id"),
+                item.get("created_at"),
+                item.get("source"),
+                item.get("client_hint") or "",
+                order_numbers,
+                item.get("units_total"),
+                item.get("area_total"),
+                row.get("order_number", ""),
+                row.get("type", ""),
+                row.get("dimension", ""),
+                row.get("position", ""),
+                row.get("quantity", 0),
+                row.get("area", 0.0),
+            ]
+        )
+    filename = "orders-export.csv"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return Response(content=output.getvalue(), media_type="text/csv", headers=headers)
 
 
 @app.get("/api/history/orders")
@@ -1097,63 +1185,6 @@ def download_order_csv(order_id: int):
     filename = f"order-{order_id}.csv"
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
     return Response(content=csv_content, media_type="text/csv", headers=headers)
-
-
-@app.get("/orders/export.csv")
-def export_all_orders_csv(
-    query: Optional[str] = Query(default=None, description="Search by order number or client hint"),
-    status: Optional[str] = Query(
-        default="approved",
-        description="Filter by status (default approved). Supports lifecycle statuses.",
-    ),
-    year: Optional[str] = Query(default=None, description="Year filter: YYYY (defaults to current year) or all"),
-):
-    try:
-        rows = get_all_rows_for_export(query=query, status=status, year=year)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    output = StringIO()
-    writer = csv.writer(output)
-    writer.writerow(
-        [
-            "order_id",
-            "created_at",
-            "source",
-            "client_hint",
-            "order_numbers",
-            "units_total",
-            "area_total",
-            "order_number",
-            "type",
-            "dimension",
-            "position",
-            "quantity",
-            "area",
-        ]
-    )
-    for item in rows:
-        order_numbers = ";".join(item.get("order_numbers") or [])
-        row = item.get("row") or {}
-        writer.writerow(
-            [
-                item.get("order_id"),
-                item.get("created_at"),
-                item.get("source"),
-                item.get("client_hint") or "",
-                order_numbers,
-                item.get("units_total"),
-                item.get("area_total"),
-                row.get("order_number", ""),
-                row.get("type", ""),
-                row.get("dimension", ""),
-                row.get("position", ""),
-                row.get("quantity", 0),
-                row.get("area", 0.0),
-            ]
-        )
-    filename = "orders-export.csv"
-    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
-    return Response(content=output.getvalue(), media_type="text/csv", headers=headers)
 
 
 @app.get("/corrections")
