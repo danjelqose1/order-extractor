@@ -115,6 +115,7 @@ class Order(Base):
         onupdate=lambda: datetime.now(timezone.utc),
     )
     source: Mapped[str] = mapped_column(String(20))
+    client_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     client_hint: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     order_numbers_raw: Mapped[str] = mapped_column("order_numbers", Text, default="")
     units_total: Mapped[int] = mapped_column(Integer, default=0)
@@ -223,10 +224,12 @@ class OrderStatusEvent(Base):
 
 
 def _ensure_schema() -> None:
-    with engine.connect() as conn:
+    with engine.begin() as conn:
         conn.execute(text("PRAGMA journal_mode=WAL"))
         info = conn.execute(text("PRAGMA table_info(orders)")).fetchall()
         columns = {row[1] for row in info}
+        if "client_name" not in columns:
+            conn.execute(text("ALTER TABLE orders ADD COLUMN client_name TEXT"))
         if "status" not in columns:
             conn.execute(text("ALTER TABLE orders ADD COLUMN status TEXT DEFAULT 'draft'"))
         if "notes" not in columns:
@@ -252,6 +255,16 @@ def _ensure_schema() -> None:
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_orders_source_hash ON orders(source_hash)"))
 
 
+def _normalize_client_name(*values: Any) -> Optional[str]:
+    for value in values:
+        if value is None:
+            continue
+        text_value = str(value).strip()
+        if text_value and text_value not in {"-", "\u2014"}:
+            return text_value
+    return None
+
+
 def init_db() -> None:
     _ensure_data_dir()
     Base.metadata.create_all(engine, checkfirst=True)
@@ -273,12 +286,16 @@ def get_session() -> Iterator[Session]:
 
 def _serialize_order(order: Order, include_rows: bool = False) -> Dict[str, Any]:
     normalized_status = normalize_order_status(order.status)
+    client_name = _normalize_client_name(order.client_name)
+    client_legacy = client_name or _normalize_client_name(order.client_hint) or ""
     data: Dict[str, Any] = {
         "id": order.id,
         "created_at": order.created_at.isoformat(),
         "updated_at": (order.updated_at or order.created_at).isoformat(),
         "source": order.source,
-        "client": order.client_hint or "",
+        "client_name": client_name or "",
+        "clientName": client_name or "",
+        "client": client_legacy,
         "client_hint": order.client_hint,
         "order_numbers": order.order_numbers,
         "units_total": order.units_total,
@@ -432,11 +449,13 @@ def insert_extraction_with_rows(
     model_used: Optional[str],
     hash_value: Optional[str],
     confidence: Optional[float] = None,
+    client_name: Optional[str] = None,
 ) -> Dict[str, Any]:
     if not rows:
         raise ValueError("rows are required to insert extraction")
 
     totals = _compute_totals(rows)
+    normalized_client_name = _normalize_client_name(client_name)
     client_hint = extract_client_hint(raw_input or prepared_text or "")
     canonical_hash = (hash_value or "").strip() or None
 
@@ -455,6 +474,7 @@ def insert_extraction_with_rows(
         if not order:
             order = Order(
                 source=source,
+                client_name=normalized_client_name,
                 client_hint=client_hint,
                 hash=canonical_hash,
                 source_hash=canonical_hash,
@@ -479,6 +499,7 @@ def insert_extraction_with_rows(
                 versioned_hash = _build_versioned_hash(canonical_hash or (order.source_hash or order.hash or ""), next_version)
                 order = Order(
                     source=source,
+                    client_name=normalized_client_name,
                     client_hint=client_hint or "",
                     hash=versioned_hash or None,
                     source_hash=canonical_hash or (order.source_hash or order.hash),
@@ -500,6 +521,7 @@ def insert_extraction_with_rows(
             else:
                 previous_status = normalize_order_status(order.status)
                 order.source = source or order.source
+                order.client_name = normalized_client_name or order.client_name
                 order.client_hint = client_hint or order.client_hint
                 order.status = "draft"
                 order.source_hash = canonical_hash or order.source_hash or order.hash
@@ -532,6 +554,7 @@ def insert_extraction_with_rows(
         order.units_total = totals["units"]
         order.area_total = totals["area"]
         order.order_numbers = totals["order_numbers"]
+        order.client_name = normalized_client_name or order.client_name
         order.client_hint = client_hint or order.client_hint
         if confidence is not None:
             order.confidence = confidence
@@ -552,6 +575,7 @@ def insert_extraction_with_rows(
             "order_id": order.id,
             "status": normalize_order_status(order.status),
             "order_numbers": order.order_numbers,
+            "client_name": order.client_name,
             "client_hint": order.client_hint,
             "version": int(order.version or 1),
             "source_hash": order.source_hash or order.hash,
@@ -566,8 +590,10 @@ def update_order_rows(
     *,
     status: Optional[str] = None,
     notes: Optional[str] = None,
+    client_name: Optional[str] = None,
 ) -> Dict[str, Any]:
     totals = _compute_totals(rows)
+    normalized_client_name = _normalize_client_name(client_name)
     with get_session() as session:
         order = session.get(Order, order_id)
         if not order:
@@ -590,6 +616,10 @@ def update_order_rows(
         order.units_total = totals["units"]
         order.area_total = totals["area"]
         order.order_numbers = totals["order_numbers"]
+        if normalized_client_name and not _normalize_client_name(order.client_name):
+            order.client_name = normalized_client_name
+        if normalized_client_name and not _normalize_client_name(order.client_hint):
+            order.client_hint = normalized_client_name
         if status:
             next_status = normalize_order_status(status, default=normalize_order_status(order.status))
             previous_status = normalize_order_status(order.status)
@@ -669,11 +699,15 @@ def get_orders(
             like_term = f"%{query.lower()}%"
             stmt = stmt.where(
                 func.lower(Order.order_numbers_raw).like(like_term)
+                | func.lower(func.coalesce(Order.client_name, "")).like(like_term)
                 | func.lower(func.coalesce(Order.client_hint, "")).like(like_term)
             )
         if client:
             client_like = f"%{str(client).strip().lower()}%"
-            stmt = stmt.where(func.lower(func.coalesce(Order.client_hint, "")).like(client_like))
+            stmt = stmt.where(
+                func.lower(func.coalesce(Order.client_name, "")).like(client_like)
+                | func.lower(func.coalesce(Order.client_hint, "")).like(client_like)
+            )
         if status:
             normalized_status = normalize_order_status(status, default="")
             if not normalized_status:
@@ -851,11 +885,15 @@ def get_all_rows_for_export(
             like_term = f"%{query.lower()}%"
             stmt = stmt.where(
                 func.lower(Order.order_numbers_raw).like(like_term)
+                | func.lower(func.coalesce(Order.client_name, "")).like(like_term)
                 | func.lower(func.coalesce(Order.client_hint, "")).like(like_term)
             )
         if client:
             client_like = f"%{str(client).strip().lower()}%"
-            stmt = stmt.where(func.lower(func.coalesce(Order.client_hint, "")).like(client_like))
+            stmt = stmt.where(
+                func.lower(func.coalesce(Order.client_name, "")).like(client_like)
+                | func.lower(func.coalesce(Order.client_hint, "")).like(client_like)
+            )
         if filter_year is not None:
             start = datetime(filter_year, 1, 1, tzinfo=timezone.utc)
             end = datetime(filter_year + 1, 1, 1, tzinfo=timezone.utc)
@@ -872,6 +910,9 @@ def get_all_rows_for_export(
                     "order_id": order.id,
                     "created_at": order.created_at.isoformat(),
                     "source": order.source,
+                    "client_name": order.client_name,
+                    "clientName": order.client_name,
+                    "client": order.client_name or order.client_hint,
                     "client_hint": order.client_hint,
                     "order_numbers": order.order_numbers,
                     "units_total": order.units_total,

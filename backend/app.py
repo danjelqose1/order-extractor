@@ -289,6 +289,9 @@ class PasteIn(BaseModel):
 class ApprovePayload(BaseModel):
     rows: List[Row]
     notes: Optional[str] = None
+    client_name: Optional[str] = None
+    client: Optional[str] = None
+    clientName: Optional[str] = None
 
 
 class StatusUpdatePayload(BaseModel):
@@ -357,6 +360,16 @@ def _dedupe_warnings(warnings: List[str]) -> List[str]:
         seen.add(text)
         deduped.append(text)
     return deduped
+
+
+def _normalize_client_name_payload(*values: Any) -> str:
+    for value in values:
+        if value is None:
+            continue
+        text_value = str(value).strip()
+        if text_value and text_value not in {"-", "\u2014"}:
+            return text_value
+    return ""
 
 
 def _pdf_data_url(pdf_bytes: bytes) -> str:
@@ -596,7 +609,17 @@ def extract(inb: PasteIn, x_app_key: Optional[str] = Header(default=None)) -> Di
             combined_warnings.append(f"auto_corrections_applied:{','.join(str(i) for i in applied)}")
 
         prepared_text = bundle.get("prepared_text") or inb.text.strip()
-        client_name = extract_client_name(inb.text) or extract_client_name(prepared_text)
+        data_payload = bundle.get("data") or {}
+        client_name = _normalize_client_name_payload(
+            data_payload.get("client_name"),
+            data_payload.get("clientName"),
+            data_payload.get("client"),
+            raw_payload.get("client_name") if isinstance(raw_payload, dict) else None,
+            raw_payload.get("clientName") if isinstance(raw_payload, dict) else None,
+            raw_payload.get("client") if isinstance(raw_payload, dict) else None,
+            extract_client_name(inb.text),
+            extract_client_name(prepared_text),
+        )
         hash_value = _compute_hash(prepared_text or inb.text)
         llm_output_json = json.dumps(raw_payload, ensure_ascii=False)
         declared_units = bundle.get("declared_units")
@@ -621,6 +644,7 @@ def extract(inb: PasteIn, x_app_key: Optional[str] = Header(default=None)) -> Di
             model_used=bundle.get("model_used"),
             hash_value=hash_value,
             confidence=(bundle.get("data") or {}).get("confidence"),
+            client_name=client_name,
         )
         draft_order_id = insert_result["order_id"]
         status = insert_result.get("status", "draft")
@@ -644,6 +668,8 @@ def extract(inb: PasteIn, x_app_key: Optional[str] = Header(default=None)) -> Di
             "declared_area": declared_area,
             "parsed_units": totals["units"],
             "parsed_area": totals["area"],
+            "client_name": client_name,
+            "clientName": client_name,
             "client": client_name or "—",
         }
         return payload
@@ -778,6 +804,17 @@ async def extract_pdf(file: UploadFile = File(...), x_app_key: Optional[str] = H
         hash_value = _compute_hash_bytes(raw_bytes)
         declared_units = bundle.get("declared_units")
         declared_area = bundle.get("declared_area")
+        data_payload = bundle.get("data") or {}
+        client_name = _normalize_client_name_payload(
+            client_name,
+            data_payload.get("client_name"),
+            data_payload.get("clientName"),
+            data_payload.get("client"),
+            raw_payload.get("client_name") if isinstance(raw_payload, dict) else None,
+            raw_payload.get("clientName") if isinstance(raw_payload, dict) else None,
+            raw_payload.get("client") if isinstance(raw_payload, dict) else None,
+            extract_client_name(prepared_text),
+        )
         totals = _summarize_totals(final_rows)
         if declared_units is not None and declared_units != totals["units"]:
             combined_warnings.append(
@@ -798,17 +835,11 @@ async def extract_pdf(file: UploadFile = File(...), x_app_key: Optional[str] = H
             model_used=bundle.get("model_used") or EXTRACTION_MODEL,
             hash_value=hash_value,
             confidence=(bundle.get("data") or {}).get("confidence"),
+            client_name=client_name,
         )
         draft_order_id = insert_result["order_id"]
         status = insert_result.get("status", "draft")
         saved_order_id = draft_order_id if status == "approved" else None
-
-        if not client_name:
-            client_name = (
-                (bundle.get("data") or {}).get("client_name")
-                or extract_client_name(prepared_text)
-                or ""
-            )
 
         payload = {
             "order_number": (bundle.get("data") or {}).get("order_number") or _primary_order_number(final_rows),
@@ -830,6 +861,8 @@ async def extract_pdf(file: UploadFile = File(...), x_app_key: Optional[str] = H
             "parsed_area": totals["area"],
             "extraction_method": extraction_method,
             "confidence": (bundle.get("data") or {}).get("confidence"),
+            "client_name": client_name,
+            "clientName": client_name,
             "client": client_name or "—",
         }
         return payload
@@ -1058,6 +1091,15 @@ def approve_order(order_id: int, payload: ApprovePayload) -> Dict[str, Any]:
         )
 
     rows_dict = [row.model_dump(mode="python") for row in payload.rows]
+    client_name = _normalize_client_name_payload(
+        payload.client_name,
+        payload.clientName,
+        payload.client,
+        snapshot.get("client_name"),
+        snapshot.get("clientName"),
+        snapshot.get("client"),
+        snapshot.get("client_hint"),
+    )
 
     # Ensure prepared_text is available BEFORE validation below
     extraction = snapshot.get("extraction") or {}
@@ -1077,6 +1119,7 @@ def approve_order(order_id: int, payload: ApprovePayload) -> Dict[str, Any]:
             final_rows,
             status="approved",
             notes=payload.notes,
+            client_name=client_name,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
