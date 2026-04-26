@@ -3474,6 +3474,7 @@ const appState = {
     confidence: null,
     extractedAt: null,
     nextRid: 0,
+    client_name: "",
     client: "—",
   },
   historyDetail: {
@@ -3973,6 +3974,22 @@ function pickFirstString(values, fallback = ""){
       const str = String(value).trim();
       if (str) return str;
     }
+  }
+  return fallback;
+}
+
+function getClientName(record, fallback = "—"){
+  if (!record) return fallback;
+  const values = [
+    record.client_name,
+    record.clientName,
+    record.client,
+    record.client_hint,
+  ];
+  for (const value of values){
+    if (value == null) continue;
+    const str = String(value).trim();
+    if (str && str !== "—" && str !== "-") return str;
   }
   return fallback;
 }
@@ -14432,8 +14449,8 @@ function updateOrderInfo(scope){
     pieces.push(`Orders: ${orderNumbers.join(", ")}`);
   }
   const clientName = scope === "history"
-    ? (historyState.selectedOrder && (historyState.selectedOrder.client || historyState.selectedOrder.client_hint))
-    : appState.extract.client;
+    ? getClientName(historyState.selectedOrder, "")
+    : getClientName(appState.extract, "");
   pieces.push(`Client: ${(clientName && clientName.trim()) ? clientName : "—"}`);
   el.textContent = pieces.join(" • ");
 
@@ -14532,7 +14549,7 @@ function updateHistoryDetailUI(){
       return;
     }
     const status = normalizeHistoryStatusValue(order.status);
-    const clientName = order.client || order.client_hint || "—";
+    const clientName = getClientName(order);
     const client = `Client: ${clientName}`;
     const confidence = formatHistoryConfidence(order.confidence);
     const metaPieces = [
@@ -14937,14 +14954,14 @@ async function loadHistory(opts={}){
       if (historyState.query){
         const term = historyState.query.trim().toLowerCase();
         filtered = filtered.filter(item => {
-          const client = String(item.client || item.client_hint || "").toLowerCase();
+          const client = getClientName(item, "").toLowerCase();
           const nums = String((item.order_numbers || []).join(", ") || "").toLowerCase();
           return client.includes(term) || nums.includes(term);
         });
       }
       if (historyState.client){
         const term = historyState.client.trim().toLowerCase();
-        filtered = filtered.filter(item => String(item.client || item.client_hint || "").toLowerCase().includes(term));
+        filtered = filtered.filter(item => getClientName(item, "").toLowerCase().includes(term));
       }
       if (historyState.approvedOnly){
         filtered = filtered.filter(item => normalizeHistoryStatusValue(item.status) === "approved");
@@ -15116,7 +15133,7 @@ function renderOrdersList(){
   const rows = historyState.items.map(order=>{
     const normalizedStatus = normalizeHistoryStatusValue(order.status);
     const orderNumbers = (order.order_numbers || []).join(", ") || "—";
-    const client = order.client || order.client_hint || "—";
+    const client = getClientName(order);
     const created = formatDate(order.created_at);
     const updated = formatDate(order.updated_at || order.created_at);
     const pieces = Number(order.units_total || 0);
@@ -15296,7 +15313,7 @@ async function approveHistoryOrderById(orderId, note = ""){
     throw new Error(`Order status is ${historyStatusLabel(status)} and cannot be approved.`);
   }
   const rowsPayload = buildHistoryRowsPayload(detail.rows || []);
-  return approveDraft(orderId, rowsPayload, note || detail.notes || "");
+  return approveDraft(orderId, rowsPayload, note || detail.notes || "", detail);
 }
 
 document.getElementById("historyListWrap").addEventListener("click", async (event)=>{
@@ -16170,7 +16187,7 @@ document.getElementById("historyApprove").addEventListener("click", async ()=>{
   const rows = buildHistoryRowsPayload(appState.historyDetail.rows || []);
   setHistoryStatus("Approving draft…");
   try{
-    const resp = await approveDraft(order.id, rows, appState.historyDetail.notes);
+    const resp = await approveDraft(order.id, rows, appState.historyDetail.notes, order);
     setHistoryStatus("Order approved.");
     historyState.needsRefresh = true;
     analysisState.allOrdersDirty = true;
@@ -16363,11 +16380,17 @@ async function callPdfAPI(file){
   return data;
 }
 
-async function approveDraft(orderId, rows, notes){
+async function approveDraft(orderId, rows, notes, clientSource = {}){
+  const clientName = getClientName(clientSource, "");
+  const payload = {
+    rows,
+    notes: notes || undefined,
+    client_name: clientName || undefined,
+  };
   const res = await fetch(`${API_BASE}/orders/${orderId}/approve`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ rows, notes: notes || undefined })
+    body: JSON.stringify(payload)
   });
   if (!res.ok){
     const text = await res.text();
@@ -16414,7 +16437,9 @@ function applyExtractionResult(data){
   appState.extract.parsedArea = data?.parsed_area ?? null;
   appState.extract.confidence = Number.isFinite(Number(data?.confidence)) ? Number(data.confidence) : null;
   appState.extract.extractedAt = new Date().toISOString();
-  appState.extract.client = data?.client || "—";
+  const clientName = getClientName(data);
+  appState.extract.client_name = clientName === "—" ? "" : clientName;
+  appState.extract.client = clientName;
   historyState.needsRefresh = true;
   analysisState.allOrdersDirty = true;
   if (data?.saved_order_id){
@@ -16477,7 +16502,7 @@ document.getElementById("approveSave").addEventListener("click", async ()=>{
   }));
   setStatusMessage("Approving draft…");
   try{
-    const resp = await approveDraft(draftId, rows, appState.extract.notes);
+    const resp = await approveDraft(draftId, rows, appState.extract.notes, appState.extract);
     const updatedRows = Array.isArray(resp?.order?.rows) ? resp.order.rows.map(r => ({ ...r })) : rows;
     const warningsSource = resp?.row_warnings || {};
     const warningsMap = {};
