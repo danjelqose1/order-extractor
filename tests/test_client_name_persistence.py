@@ -104,3 +104,25 @@ def test_client_name_schema_migration_is_non_destructive(tmp_path, monkeypatch):
 
     assert "client_name" in columns
     assert row == ("Legacy Client", None)
+
+
+def test_history_recovers_missing_client_name_from_preserved_extraction(tmp_path, monkeypatch):
+    db = _load_db(tmp_path, monkeypatch)
+    insert_result = db.insert_extraction_with_rows(
+        source="pdf",
+        rows=[_row()],
+        raw_input="raw pdf",
+        prepared_text="prepared",
+        llm_output_json='{"order_number":"R-26-0379","client_name":"SANDRI","rows":[]}',
+        model_used="test-model",
+        hash_value="missing-client-name-hash",
+        confidence=0.9,
+        client_name=None,
+    )
+
+    order = db.get_order_with_extraction(insert_result["order_id"])
+    history = db.get_orders(year="all")
+
+    assert order["client_name"] == "SANDRI"
+    assert order["client"] == "SANDRI"
+    assert history[0]["client_name"] == "SANDRI"
