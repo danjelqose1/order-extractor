@@ -2211,6 +2211,44 @@
 	    #historyDetailCard .btn[hidden]{
 	      display:none !important;
 	    }
+	    .history-filters .history-filter-toolbar{
+	      grid-column:1 / -1;
+	      display:flex;
+	      align-items:center;
+	      justify-content:space-between;
+	      gap:12px;
+	      min-height:42px;
+	    }
+	    .history-filters label.history-approved-toggle{
+	      display:inline-flex !important;
+	      flex-direction:row !important;
+	      align-items:center !important;
+	      justify-content:flex-start;
+	      gap:8px;
+	      height:auto;
+	      min-height:40px;
+	      margin:0;
+	      white-space:nowrap;
+	    }
+	    .history-filters label.history-approved-toggle input{
+	      width:18px;
+	      height:18px;
+	      flex:0 0 auto;
+	    }
+	    .history-filters .history-filter-actions{
+	      display:flex !important;
+	      flex-direction:row !important;
+	      align-items:center !important;
+	      justify-content:flex-end;
+	      flex-wrap:nowrap;
+	      gap:8px;
+	      margin-left:auto;
+	    }
+	    .history-filters .history-filter-actions .btn{
+	      width:auto !important;
+	      min-width:max-content;
+	      white-space:nowrap;
+	    }
 	    .global-scan-drop-overlay{
 	      position:fixed;
 	      inset:0;
@@ -2297,6 +2335,15 @@
 	      }
 	      #historyDetailCard .history-detail-actions .btn{
 	        width:100%;
+	      }
+	      .history-filters .history-filter-toolbar{
+	        align-items:stretch;
+	        flex-direction:column;
+	      }
+	      .history-filters .history-filter-actions{
+	        justify-content:flex-start;
+	        flex-wrap:wrap;
+	        margin-left:0;
 	      }
 	    }
 	  </style>
@@ -2667,17 +2714,19 @@
               <option value="50">50</option>
             </select>
           </label>
-          <label class="inline-toggle">
-            <input type="checkbox" id="historyApprovedOnly">
-            <span>Approved only</span>
-          </label>
-          <div class="filter-actions">
-            <button class="btn small" id="historyRefresh">Refresh</button>
-            <button class="btn small" id="historyInvoiceAll">Invoice all</button>
-            <button class="btn small" id="historyDownloadAll">Export CSV</button>
-            <span id="historyOfflineBadge" class="badge offline" hidden>Offline cache</span>
-          </div>
-        </div>
+	          <div class="history-filter-toolbar">
+	            <label class="inline-toggle history-approved-toggle">
+	              <input type="checkbox" id="historyApprovedOnly">
+	              <span>Approved only</span>
+	            </label>
+	            <div class="filter-actions history-filter-actions">
+	              <button class="btn small" id="historyRefresh">Refresh</button>
+	              <button class="btn small" id="historyInvoiceAll">Invoice all</button>
+	              <button class="btn small" id="historyDownloadAll">Export CSV</button>
+	              <span id="historyOfflineBadge" class="badge offline" hidden>Offline cache</span>
+	            </div>
+	          </div>
+	        </div>
         <div id="historyStatus" class="muted small" style="margin-top:10px"></div>
       </div>
 
@@ -10767,9 +10816,15 @@ function exportProcessingCsv(){
 
 function renderWarningList(containerId, warnings){
   const container = typeof containerId === "string" ? document.getElementById(containerId) : containerId;
-  if (!container) return;
-  const list = container.querySelector("ul");
-  const items = Array.isArray(warnings) ? warnings.filter(Boolean) : [];
+	  if (!container) return;
+	  const list = container.querySelector("ul");
+	  const seen = new Set();
+	  const items = (Array.isArray(warnings) ? warnings : []).filter(item => {
+	    const text = String(item || "").trim();
+	    if (!text || seen.has(text)) return false;
+	    seen.add(text);
+	    return true;
+	  });
   if (!items.length){
     container.hidden = true;
     if (list) list.innerHTML = "";
@@ -14791,13 +14846,13 @@ async function downloadOrderCsv(id){
 async function downloadAllCsv(){
   const search = new URLSearchParams();
   const normalizedYear = normalizeHistoryYear(historyState.year || "all");
-  search.set("year", normalizedYear);
-  if (historyState.query) search.set("query", historyState.query);
-  if (historyState.client) search.set("client", historyState.client);
-  if (historyState.status) search.set("status", historyState.status);
-  if (historyState.dateFrom) search.set("date_from", historyState.dateFrom);
-  if (historyState.dateTo) search.set("date_to", historyState.dateTo);
-  if (historyState.approvedOnly && !historyState.status) search.set("status", "approved");
+	  search.set("year", normalizedYear);
+	  if (historyState.query) search.set("query", historyState.query);
+	  if (historyState.client) search.set("client", historyState.client);
+	  search.set("status", historyState.approvedOnly && !historyState.status ? "approved" : (historyState.status || ""));
+	  if (historyState.dateFrom) search.set("date_from", historyState.dateFrom);
+	  if (historyState.dateTo) search.set("date_to", historyState.dateTo);
+	  if (historyState.approvedOnly && !historyState.status) search.set("approved_only", "true");
   const requestUrl = API_BASE + "/orders/export.csv" + (search.toString() ? "?" + search.toString() : "");
   const res = await fetch(requestUrl);
   if (!res.ok){
