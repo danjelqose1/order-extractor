@@ -265,6 +265,38 @@ def _normalize_client_name(*values: Any) -> Optional[str]:
     return None
 
 
+def _client_name_from_payload(payload: Any) -> Optional[str]:
+    if not isinstance(payload, dict):
+        return None
+    direct = _normalize_client_name(
+        payload.get("client_name"),
+        payload.get("clientName"),
+        payload.get("client"),
+    )
+    if direct:
+        return direct
+    meta = payload.get("_meta")
+    if isinstance(meta, dict):
+        parsed = meta.get("parsed_result")
+        nested = _client_name_from_payload(parsed)
+        if nested:
+            return nested
+    data = payload.get("data")
+    if isinstance(data, dict):
+        return _client_name_from_payload(data)
+    return None
+
+
+def _client_name_from_extraction(extraction: Optional["Extraction"]) -> Optional[str]:
+    if not extraction or not extraction.llm_output_json:
+        return None
+    try:
+        payload = json.loads(extraction.llm_output_json)
+    except Exception:
+        return None
+    return _client_name_from_payload(payload)
+
+
 def init_db() -> None:
     _ensure_data_dir()
     Base.metadata.create_all(engine, checkfirst=True)
@@ -286,7 +318,7 @@ def get_session() -> Iterator[Session]:
 
 def _serialize_order(order: Order, include_rows: bool = False) -> Dict[str, Any]:
     normalized_status = normalize_order_status(order.status)
-    client_name = _normalize_client_name(order.client_name)
+    client_name = _normalize_client_name(order.client_name, _client_name_from_extraction(order.extraction))
     client_legacy = client_name or _normalize_client_name(order.client_hint) or ""
     data: Dict[str, Any] = {
         "id": order.id,
@@ -905,14 +937,15 @@ def get_all_rows_for_export(
         stmt = stmt.order_by(Order.created_at.desc())
         result: List[Dict[str, Any]] = []
         for order, row in session.execute(stmt).all():
+            client_name = _normalize_client_name(order.client_name, _client_name_from_extraction(order.extraction))
             result.append(
                 {
                     "order_id": order.id,
                     "created_at": order.created_at.isoformat(),
                     "source": order.source,
-                    "client_name": order.client_name,
-                    "clientName": order.client_name,
-                    "client": order.client_name or order.client_hint,
+                    "client_name": client_name,
+                    "clientName": client_name,
+                    "client": client_name or order.client_hint,
                     "client_hint": order.client_hint,
                     "order_numbers": order.order_numbers,
                     "units_total": order.units_total,
