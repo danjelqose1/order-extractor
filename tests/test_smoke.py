@@ -68,6 +68,7 @@ def _load_app(monkeypatch, legacy_enabled: str = "false"):
         "schema",
         "validators",
         "dimension_repair",
+        "extraction_normalizer",
         "area_dimension_validator",
         "utils_text",
     ]:
@@ -242,6 +243,47 @@ def test_invalid_rows_are_flagged(monkeypatch):
     assert any("missing_required_field:dimension" in msg for msg in flattened)
     assert any("missing_required_field:position" in msg for msg in flattened)
     assert any("missing_required_field:type" in msg for msg in flattened)
+
+
+def test_extraction_removes_dimension_from_type_once(monkeypatch):
+    app_module, calls = _load_app(monkeypatch, legacy_enabled="false")
+
+    bad_type = "2 VETRI 33.1 SATINAT +14+33.1 LOWE 522 x 1262 C.CALDO 28mm"
+    app_module.call_llm_for_pdf_base64_visual = lambda pdf_bytes, filename: _bundle(
+        [
+            {
+                "order_number": "R-26-0379",
+                "type": bad_type,
+                "dimension": "522x1262",
+                "position": "97-1",
+                "quantity": 1,
+                "area": 0.66,
+            },
+            {
+                "order_number": "R-26-0379",
+                "type": bad_type,
+                "dimension": "522x1262",
+                "position": "98-1",
+                "quantity": 1,
+                "area": 0.66,
+            },
+        ],
+        warnings=["duplicate warning", "duplicate warning"],
+    )
+    client = TestClient(app_module.app)
+    response = client.post(
+        "/extract_pdf",
+        files={"file": ("dimension-type.pdf", b"%PDF-1.7\ndimension-type", "application/pdf")},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    expected_type = "2 VETRI 33.1 SATINAT +14+33.1 LOWE C.CALDO 28mm"
+    assert [row["type"] for row in data["rows"]] == [expected_type, expected_type]
+    assert data["warnings"].count("Dimension-like text was removed from type field") == 1
+    assert data["warnings"].count("duplicate warning") == 1
+    stored_rows = calls["insert_extraction_with_rows"][0]["rows"]
+    assert [row["type"] for row in stored_rows] == [expected_type, expected_type]
 
 
 def test_approved_orders_not_overwritten(monkeypatch):
