@@ -2347,6 +2347,516 @@
 	      }
 	    }
 	  </style>
+  <style>
+    /* Mobile responsive UX pass. Desktop styles above remain the source of truth. */
+    html,
+    body{
+      max-width:100%;
+      overflow-x:hidden;
+    }
+    img,
+    canvas,
+    svg,
+    video{
+      max-width:100%;
+    }
+    .table-responsive{
+      -webkit-overflow-scrolling:touch;
+    }
+
+    @media (max-width:768px){
+      :root{
+        --mobile-page-pad:16px;
+      }
+      body{
+        overscroll-behavior-x:none;
+        padding-bottom:env(safe-area-inset-bottom);
+      }
+      main.app{
+        width:100% !important;
+        max-width:100% !important;
+        margin-left:0 !important;
+        padding:calc(84px + env(safe-area-inset-top)) var(--mobile-page-pad) calc(82px + env(safe-area-inset-bottom)) !important;
+      }
+      .app-sidebar{
+        position:fixed !important;
+        inset:0 0 auto 0 !important;
+        width:100% !important;
+        height:auto !important;
+        min-height:68px !important;
+        padding:calc(8px + env(safe-area-inset-top)) 10px 8px !important;
+        overflow:hidden;
+        border-right:0 !important;
+        border-bottom:1px solid #e5e7eb !important;
+        box-shadow:0 10px 26px rgba(15,23,42,.08) !important;
+      }
+      .sidebar-brand,
+      .sidebar-footer,
+      .sidebar-section-label{
+        display:none !important;
+      }
+      .sidebar-nav.tab-bar{
+        display:flex !important;
+        flex-direction:row !important;
+        align-items:center;
+        gap:8px !important;
+        width:100%;
+        margin:0 !important;
+        padding:4px 8px 6px !important;
+        overflow-x:auto;
+        overflow-y:hidden;
+        scroll-snap-type:x proximity;
+        scroll-padding-inline:16px;
+        -webkit-overflow-scrolling:touch;
+        scrollbar-width:none;
+        border:0 !important;
+        border-radius:0 !important;
+        background:transparent !important;
+        box-shadow:none !important;
+        backdrop-filter:none !important;
+      }
+      .sidebar-nav.tab-bar::-webkit-scrollbar{
+        display:none;
+      }
+      .sidebar-nav.tab-bar::after{
+        content:"";
+        flex:0 0 6px;
+      }
+      .sidebar-nav.tab-bar button{
+        flex:0 0 auto !important;
+        width:auto !important;
+        min-width:max-content;
+        min-height:46px !important;
+        scroll-snap-align:center;
+        padding:9px 13px !important;
+        gap:8px !important;
+        border-radius:14px !important;
+        white-space:nowrap;
+        touch-action:manipulation;
+      }
+      .sidebar-nav.tab-bar button span:not(.nav-icon){
+        display:inline !important;
+      }
+      .nav-icon{
+        width:28px;
+        height:28px;
+        flex-basis:28px;
+      }
+      .app-header{
+        display:block !important;
+        margin-bottom:14px !important;
+      }
+      .app-header h1{
+        font-size:22px !important;
+        line-height:1.15;
+      }
+      .app-header p{
+        font-size:13px;
+        margin-top:5px;
+      }
+      .card,
+      #tabExtract .extract-input-card,
+      #tabExtract .extract-shell,
+      #tabExtract .extract-table-card{
+        width:100%;
+        max-width:100%;
+        padding:16px !important;
+        margin-bottom:14px !important;
+        border-radius:16px !important;
+      }
+      input[type="text"],
+      input[type="search"],
+      input[type="number"],
+      input[type="date"],
+      input[type="file"],
+      select,
+      textarea{
+        width:100%;
+        max-width:100%;
+        min-height:44px;
+        font-size:16px;
+      }
+      textarea{
+        min-height:150px;
+      }
+      .btn,
+      button,
+      .history-actions-menu button{
+        min-height:44px;
+      }
+      .summary{
+        align-items:flex-start;
+        gap:8px;
+      }
+      .pill,
+      .badge,
+      .history-status-badge{
+        white-space:normal;
+      }
+
+      #tabExtract .dropzone,
+      .scan-dropzone{
+        width:100%;
+        min-height:118px;
+        padding:20px 14px !important;
+      }
+      #tabExtract .extract-controls{
+        display:grid !important;
+        grid-template-columns:repeat(2,minmax(0,1fr));
+        gap:10px !important;
+        align-items:stretch !important;
+      }
+      #tabExtract .extract-controls #extract,
+      #tabExtract .extract-controls #rerun,
+      #tabExtract .extract-controls #approveSave{
+        grid-column:1 / -1;
+        width:100% !important;
+      }
+      #tabExtract .extract-controls .btn{
+        width:100% !important;
+      }
+      #tabExtract .extract-controls .inline-toggle,
+      #tabExtract .extract-controls details#logoPanel{
+        grid-column:1 / -1;
+        width:100%;
+      }
+      .inline-toggle{
+        min-height:44px;
+        align-items:center;
+      }
+      input[type="checkbox"],
+      input[type="radio"]{
+        width:22px;
+        height:22px;
+        flex:0 0 auto;
+      }
+      #tabExtract .extract-meta-grid,
+      .history-filters .filters-grid,
+      .invoice-filters,
+      .invoice-detail-grid,
+      .analysis-filter-grid,
+      .appearance-grid,
+      .price-editor{
+        grid-template-columns:1fr !important;
+      }
+      .history-filters .history-filter-toolbar,
+      .history-filters .history-filter-actions,
+      .filter-actions,
+      .invoice-actions,
+      .labels-controls,
+      .spacer-actions,
+      .analysis-quick-actions{
+        display:grid !important;
+        grid-template-columns:1fr;
+        align-items:stretch !important;
+        justify-content:stretch !important;
+        gap:10px !important;
+        width:100%;
+        margin-left:0 !important;
+      }
+      .filter-actions .btn,
+      .history-filters .history-filter-actions .btn,
+      .invoice-actions .btn,
+      .labels-controls .btn,
+      .spacer-actions .btn,
+      .analysis-quick-actions .btn{
+        width:100% !important;
+      }
+
+      #historyListWrap.table-responsive{
+        overflow:visible;
+        border:0;
+        border-radius:0;
+        background:transparent;
+        box-shadow:none;
+      }
+      .history-list-table,
+      .history-list-table thead,
+      .history-list-table tbody,
+      .history-list-table tr,
+      .history-list-table td{
+        display:block;
+        width:100%;
+        min-width:0 !important;
+      }
+      .history-list-table thead{
+        display:none;
+      }
+      .history-list-table tbody{
+        display:grid;
+        gap:12px;
+      }
+      .history-list-table tr{
+        overflow:visible;
+        border:1px solid var(--border);
+        border-radius:16px;
+        background:#fff;
+        box-shadow:var(--shadow-sm);
+      }
+      .history-list-table td{
+        display:flex;
+        align-items:flex-start;
+        justify-content:space-between;
+        gap:14px;
+        padding:10px 12px;
+        border-bottom:1px solid #edf0f5;
+        white-space:normal !important;
+        text-align:right;
+      }
+      .history-list-table td::before{
+        content:attr(data-label);
+        flex:0 0 42%;
+        color:#667085;
+        font-size:12px;
+        font-weight:800;
+        letter-spacing:.03em;
+        text-align:left;
+        text-transform:uppercase;
+      }
+      .history-list-table td:first-child{
+        display:block;
+        padding:14px 12px 8px;
+        font-size:17px;
+        font-weight:800;
+        text-align:left;
+      }
+      .history-list-table td:first-child::before{
+        display:block;
+        margin-bottom:4px;
+      }
+      .history-list-table td[data-col="actions"]{
+        display:block;
+        padding:12px;
+        text-align:left;
+        border-bottom:0;
+      }
+      .history-list-table td[data-col="actions"]::before{
+        display:none;
+      }
+      .history-row-actions,
+      .history-row-actions summary{
+        width:100%;
+      }
+      .history-row-actions summary{
+        justify-content:center;
+      }
+      .history-actions-menu{
+        position:static !important;
+        min-width:0 !important;
+        width:100%;
+        margin-top:8px;
+        box-shadow:none !important;
+        display:none;
+        grid-template-columns:repeat(2,minmax(0,1fr));
+      }
+      .history-row-actions[open] .history-actions-menu{
+        display:grid;
+      }
+      .history-actions-menu button{
+        min-height:44px;
+        text-align:center;
+      }
+      .history-pagination{
+        display:grid !important;
+        grid-template-columns:1fr;
+      }
+
+      #historyDrawerLayer.history-drawer-layer{
+        align-items:stretch !important;
+        justify-content:center !important;
+        padding:0 !important;
+      }
+      #historyDrawerLayer .history-drawer-card{
+        width:100vw !important;
+        max-width:100vw !important;
+        height:100dvh !important;
+        max-height:100dvh !important;
+        border-radius:0 !important;
+        padding:16px 14px calc(20px + env(safe-area-inset-bottom)) !important;
+      }
+      #historyDetailCard .history-detail-actions{
+        display:grid !important;
+        grid-template-columns:1fr;
+        width:100%;
+      }
+      #historyTableWrap{
+        max-height:48vh !important;
+        overflow:auto;
+      }
+
+      .processing-layout,
+      .scan-studio-layout,
+      .igu-grid,
+      .analysis-split-grid{
+        grid-template-columns:1fr !important;
+      }
+      .processing-main{
+        min-width:0;
+      }
+      .processing-meta{
+        align-items:flex-start;
+        flex-direction:column;
+      }
+      .processing-preview,
+      .spacer-output{
+        max-height:58vh;
+        overflow:auto;
+        font-size:13px;
+      }
+      .processing-header-actions{
+        display:grid !important;
+        grid-template-columns:1fr 1fr;
+      }
+      .processing-actions{
+        padding-bottom:env(safe-area-inset-bottom);
+      }
+
+      .scan-studio-layout{
+        gap:14px;
+      }
+      .scan-page-list{
+        display:flex !important;
+        flex-direction:row !important;
+        max-height:none !important;
+        overflow-x:auto !important;
+        padding:8px;
+        scroll-snap-type:x proximity;
+        -webkit-overflow-scrolling:touch;
+      }
+      .scan-page-item{
+        min-width:210px;
+        scroll-snap-align:start;
+      }
+      .scan-editor-controls{
+        grid-template-columns:1fr !important;
+        position:relative;
+        padding-bottom:env(safe-area-inset-bottom);
+      }
+      .scan-control .btn-row,
+      .scan-output-actions{
+        display:grid !important;
+        grid-template-columns:repeat(2,minmax(0,1fr));
+      }
+      .scan-control .btn-row .btn,
+      .scan-output-actions .btn{
+        width:100%;
+        min-height:44px;
+      }
+      .scan-slider{
+        grid-template-columns:1fr;
+        gap:6px;
+      }
+      .scan-slider > span:last-child{
+        text-align:left;
+      }
+      .scan-preview-wrap{
+        padding:8px !important;
+      }
+      .scan-preview-stage{
+        min-height:360px !important;
+        max-height:68vh;
+      }
+
+      .analysis-kpi-grid{
+        grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+      }
+      .analysis-charts-grid,
+      .analysis-insights-grid{
+        grid-template-columns:1fr !important;
+      }
+      .analysis-chart-card{
+        min-height:auto;
+      }
+      .analysis-chart-body svg{
+        height:auto;
+        min-height:180px;
+      }
+      .analysis-pie-chart,
+      .analysis-hero-card{
+        grid-template-columns:1fr !important;
+      }
+      .analysis-legend{
+        width:100%;
+      }
+      #analysisDimensionControls,
+      #analysisAiCard .controls{
+        display:grid !important;
+        grid-template-columns:1fr;
+      }
+
+      .table-responsive:not(#historyListWrap){
+        max-width:100%;
+        overflow-x:auto;
+      }
+      .modal-layer{
+        padding:10px !important;
+      }
+      .modal-card{
+        width:100% !important;
+        max-width:calc(100vw - 20px) !important;
+        max-height:calc(100dvh - 20px) !important;
+        overflow:auto;
+      }
+      .toast{
+        left:16px;
+        right:16px;
+        top:calc(76px + env(safe-area-inset-top));
+      }
+      .global-scan-drop-message{
+        bottom:calc(16px + env(safe-area-inset-bottom));
+        border-radius:16px;
+      }
+    }
+
+    @media (max-width:480px){
+      :root{
+        --mobile-page-pad:12px;
+      }
+      main.app{
+        padding-top:calc(80px + env(safe-area-inset-top)) !important;
+      }
+      .app-sidebar{
+        min-height:64px !important;
+        padding-left:6px !important;
+        padding-right:6px !important;
+      }
+      .sidebar-nav.tab-bar button{
+        min-height:44px !important;
+        padding:8px 10px !important;
+        font-size:13px !important;
+      }
+      .app-header h1{
+        font-size:20px !important;
+      }
+      .card,
+      #tabExtract .extract-input-card,
+      #tabExtract .extract-shell,
+      #tabExtract .extract-table-card{
+        padding:12px !important;
+      }
+      #tabExtract .extract-controls,
+      .scan-control .btn-row,
+      .scan-output-actions,
+      .processing-header-actions,
+      .history-actions-menu{
+        grid-template-columns:1fr !important;
+      }
+      .analysis-kpi-grid{
+        grid-template-columns:1fr !important;
+      }
+      .history-list-table td{
+        display:block;
+        text-align:left;
+      }
+      .history-list-table td::before{
+        display:block;
+        margin-bottom:4px;
+      }
+      .scan-preview-stage{
+        min-height:300px !important;
+      }
+    }
+  </style>
 </head>
 <body>
   <aside class="app-sidebar" aria-label="Primary navigation">
@@ -3827,15 +4337,19 @@ const typeCorrectionsCancelBtn = document.getElementById("typeCorrectionsCancel"
 const groupToggles = document.querySelectorAll("[data-group-toggle]");
 
 function activateTab(name){
-  tabs.forEach(btn => {
-    const isTarget = btn.dataset.tab === name;
-    if (isTarget){
-      btn.classList.add("active");
-    }else{
-      btn.classList.remove("active");
-    }
-  });
-  Object.entries(panels).forEach(([key, panel])=>{
+	  tabs.forEach(btn => {
+	    const isTarget = btn.dataset.tab === name;
+	    if (isTarget){
+	      btn.classList.add("active");
+	    }else{
+	      btn.classList.remove("active");
+	    }
+	  });
+	  const activeTabButton = Array.from(tabs).find(btn => btn.dataset.tab === name);
+	  if (activeTabButton && window.matchMedia("(max-width: 768px)").matches){
+	    activeTabButton.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
+	  }
+	  Object.entries(panels).forEach(([key, panel])=>{
     if (!panel) return;
     const isTarget = key === name;
     if (isTarget){
@@ -15154,15 +15668,15 @@ function renderOrdersList(){
       </details>
     `;
     return `<tr data-id="${order.id}">
-      <td class="mono">${escapeHtml(orderNumbers)}</td>
-      <td data-col="client">${escapeHtml(client)}</td>
-      <td>${escapeHtml(created)}</td>
-      <td>${historyStatusBadgeHtml(normalizedStatus)}</td>
-      <td class="mono">${pieces}</td>
-      <td class="mono">${formatArea(order.area_total || 0)}</td>
-      <td>${escapeHtml(confidence)}</td>
-      <td>${escapeHtml(updated)}</td>
-      <td data-col="actions">${actions}</td>
+      <td class="mono" data-label="Order number">${escapeHtml(orderNumbers)}</td>
+      <td data-col="client" data-label="Client">${escapeHtml(client)}</td>
+      <td data-label="Date">${escapeHtml(created)}</td>
+      <td data-label="Status">${historyStatusBadgeHtml(normalizedStatus)}</td>
+      <td class="mono" data-label="Units">${pieces}</td>
+      <td class="mono" data-label="Area">${formatArea(order.area_total || 0)}</td>
+      <td data-label="Confidence">${escapeHtml(confidence)}</td>
+      <td data-label="Last updated">${escapeHtml(updated)}</td>
+      <td data-col="actions" data-label="Actions">${actions}</td>
     </tr>`;
   }).join("");
   container.innerHTML = `<table class="history-list-table">
