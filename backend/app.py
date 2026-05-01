@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from fastapi import FastAPI, HTTPException, Header, UploadFile, File, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, ValidationError
 from schema import ExtractionResult, Row
 from llm import (
@@ -49,6 +49,7 @@ from extraction_normalizer import normalize_extracted_rows
 from utils_text import clean_dimension, parse_declared_totals
 from prompts import PROMPTS
 from analysis_signals import generate_analysis_signals
+from services.pdf_native_text_editor import native_text_replace
 ENV_PATH = Path(__file__).parent / ".env"
 load_dotenv(ENV_PATH, override=True)
 
@@ -307,6 +308,41 @@ class AnalysisAskPayload(BaseModel):
 
 class AnalysisSignalsPayload(BaseModel):
     summary: Dict[str, Any]
+
+
+class NativeTextReplacePayload(BaseModel):
+    pdfBase64: str
+    pageIndex: int
+    originalText: str
+    replacementText: str
+    bounds: Optional[Dict[str, float]] = None
+    fontSize: Optional[float] = None
+    fontFamily: Optional[str] = None
+    nativeEditMode: Optional[str] = "content_stream_first"
+    preserveNearbyLines: Optional[bool] = True
+
+
+class WorkspaceAgentPayload(BaseModel):
+    message: str
+    selected_order_id: Optional[str] = None
+    selected_order_number: Optional[str] = None
+    context: Optional[Dict[str, Any]] = None
+
+
+class WorkspaceProcessPayload(BaseModel):
+    order_number: Optional[str] = None
+    order_id: Optional[str] = None
+    force: Optional[bool] = False
+
+
+class WorkspaceConfirmPayload(BaseModel):
+    action: str
+    order_id: Optional[str] = None
+    order_number: Optional[str] = None
+    force: Optional[bool] = False
+    pending_action_id: Optional[str] = None
+    decision: Optional[str] = None
+    context: Optional[Dict[str, Any]] = None
 
 
 def _debug_log_rows(rows):
@@ -574,6 +610,104 @@ def delete_invoice(invoice_id: str) -> Dict[str, Any]:
 def healthz():
     return {"ok": True}
 
+
+@app.get("/api/workspace/queue")
+def workspace_queue() -> Dict[str, Any]:
+    from workspace_service import get_workspace_queue
+
+    return get_workspace_queue()
+
+
+@app.get("/api/workspace/recent-files")
+def workspace_recent_files() -> Dict[str, Any]:
+    from workspace_service import get_recent_production_files
+
+    return get_recent_production_files()
+
+
+@app.post("/api/workspace/process-order")
+def workspace_process_order(payload: WorkspaceProcessPayload) -> Dict[str, Any]:
+    identifier = payload.order_id or payload.order_number
+    if not identifier:
+        raise HTTPException(status_code=400, detail="order_id or order_number is required")
+    return {
+        "message": "Processing must run through the frontend Processing and Labels modules.",
+        "status": "frontend_workflow_required",
+        "actions": [{"type": "process_via_existing_modules", "identifier": str(identifier)}],
+    }
+
+
+@app.post("/api/workspace/confirm-action")
+def workspace_confirm_action(payload: WorkspaceConfirmPayload) -> Dict[str, Any]:
+    from workspace_service import confirm_workspace_pending_action
+
+    if payload.pending_action_id:
+        return confirm_workspace_pending_action(
+            payload.pending_action_id,
+            decision=payload.decision or "continue",
+            requested_by="workspace_agent",
+            context=payload.context,
+        )
+
+    from workspace_agent import _format_process_response
+    from workspace_service import process_approved_order
+
+    if payload.action not in {"process_order"}:
+        raise HTTPException(status_code=400, detail="Unsupported confirmation action")
+    identifier = payload.order_id or payload.order_number
+    if not identifier:
+        raise HTTPException(status_code=400, detail="order_id or order_number is required")
+    result = process_approved_order(identifier, requested_by="workspace", force=bool(payload.force))
+    return _format_process_response(result)
+
+
+@app.post("/api/agent/workspace")
+def workspace_agent(payload: WorkspaceAgentPayload) -> Dict[str, Any]:
+    from workspace_agent import run_workspace_agent
+    from workspace_agents.response_format import ensure_workspace_agent_response
+
+    message = (payload.message or "").strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="message is required")
+    result = run_workspace_agent(
+        message,
+        selected_order_id=payload.selected_order_id,
+        selected_order_number=payload.selected_order_number,
+        context=payload.context,
+        requested_by="workspace_agent",
+    )
+    return ensure_workspace_agent_response(result)
+
+
+@app.post("/api/agent/smart-chat")
+@app.post("/api/agent/workspace-chat")
+def workspace_smart_chat(payload: WorkspaceAgentPayload) -> Dict[str, Any]:
+    from workspace_agents.smart_chat import run_workspace_smart_chat
+
+    message = (payload.message or "").strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="message is required")
+    return run_workspace_smart_chat(
+        message,
+        context=payload.context,
+        requested_by="workspace_smart_chat",
+    )
+
+
+@app.get("/api/workspace/files/{file_id}/download")
+def download_workspace_file(file_id: int):
+    from workspace_service import get_production_file
+
+    file = get_production_file(file_id)
+    if not file:
+        raise HTTPException(status_code=404, detail="File not found")
+    path = Path(file.get("file_path") or "")
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail="File missing on disk")
+    filename = path.name
+    return FileResponse(path, media_type="application/pdf", filename=filename)
+
+
 @app.post("/extract")
 def extract(inb: PasteIn, x_app_key: Optional[str] = Header(default=None)) -> Dict[str, Any]:
     if APP_KEY and x_app_key != APP_KEY:
@@ -711,6 +845,42 @@ def _extract_pdf_via_legacy_ocr(raw_bytes: bytes) -> Dict[str, Any]:
         "raw_joined": "\n\n".join(page for page in raw_ocr_pages if page),
         "client_name": extract_client_name("\n".join(raw_ocr_pages)),
     }
+
+
+@app.post("/api/pdf-editor/native-text-replace")
+def pdf_editor_native_text_replace(
+    payload: NativeTextReplacePayload,
+    x_app_key: Optional[str] = Header(default=None),
+) -> Dict[str, Any]:
+    """Attempt a conservative PyMuPDF native text replacement and return a new PDF."""
+    if APP_KEY and x_app_key != APP_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    encoded = (payload.pdfBase64 or "").strip()
+    if "," in encoded and encoded.lower().startswith("data:"):
+        encoded = encoded.split(",", 1)[1]
+    try:
+        pdf_bytes = base64.b64decode(encoded, validate=True)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid PDF payload: {exc}") from exc
+    if not pdf_bytes:
+        raise HTTPException(status_code=400, detail="Empty PDF payload")
+
+    result = native_text_replace(
+        pdf_bytes,
+        page_index=payload.pageIndex,
+        original_text=payload.originalText,
+        replacement_text=payload.replacementText,
+        bounds=payload.bounds,
+        font_size=payload.fontSize,
+        font_family=payload.fontFamily,
+        native_edit_mode=payload.nativeEditMode or "content_stream_first",
+        preserve_nearby_lines=payload.preserveNearbyLines is not False,
+    )
+    response = result.to_api_dict()
+    if result.success and result.edited_pdf_bytes:
+        response["editedPdfBase64"] = base64.b64encode(result.edited_pdf_bytes).decode("ascii")
+    return response
 
 
 @app.post("/extract_pdf")

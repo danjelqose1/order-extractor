@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
     Float,
     ForeignKey,
@@ -221,6 +222,58 @@ class OrderStatusEvent(Base):
     changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     order: Mapped[Order] = relationship(back_populates="status_events")
+
+
+class ProcessingBatch(Base):
+    __tablename__ = "processing_batches"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id", ondelete="CASCADE"), index=True)
+    order_number: Mapped[Optional[str]] = mapped_column(String(80), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(40), default="created")
+    requested_by: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    forced: Mapped[bool] = mapped_column(Boolean, default=False)
+    summary_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+
+class ProductionFile(Base):
+    __tablename__ = "production_files"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id", ondelete="CASCADE"), index=True)
+    processing_batch_id: Mapped[int] = mapped_column(ForeignKey("processing_batches.id", ondelete="CASCADE"), index=True)
+    order_number: Mapped[Optional[str]] = mapped_column(String(80), nullable=True, index=True)
+    file_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    file_path: Mapped[str] = mapped_column(Text, nullable=False)
+    download_url: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(40), default="ready")
+
+
+class WorkspaceAction(Base):
+    __tablename__ = "workspace_actions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    actor: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    action_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    order_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    order_number: Mapped[Optional[str]] = mapped_column(String(80), nullable=True, index=True)
+    processing_batch_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(60), default="")
+    requested_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    tool_name: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    input_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    output_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    requires_confirmation: Mapped[bool] = mapped_column(Boolean, default=False)
+    confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 
 def _ensure_schema() -> None:
@@ -1078,6 +1131,54 @@ def bump_correction_hit(correction_id: int) -> None:
         correction.last_used_at = datetime.now(timezone.utc)
 
 
+def record_workspace_action(
+    *,
+    actor: Optional[str],
+    action_type: str,
+    status: str,
+    order_id: Optional[int] = None,
+    order_number: Optional[str] = None,
+    processing_batch_id: Optional[int] = None,
+    requested_message: Optional[str] = None,
+    tool_name: Optional[str] = None,
+    input_json: Optional[Any] = None,
+    output_json: Optional[Any] = None,
+    requires_confirmation: bool = False,
+    confirmed: bool = False,
+    error_message: Optional[str] = None,
+) -> Dict[str, Any]:
+    def _dump(value: Optional[Any]) -> Optional[str]:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return value
+        return json.dumps(value, ensure_ascii=False, default=str)
+
+    with get_session() as session:
+        action = WorkspaceAction(
+            actor=(actor or "").strip() or None,
+            action_type=(action_type or "workspace_action").strip(),
+            order_id=order_id,
+            order_number=(order_number or "").strip() or None,
+            processing_batch_id=processing_batch_id,
+            status=(status or "").strip(),
+            requested_message=requested_message,
+            tool_name=tool_name,
+            input_json=_dump(input_json),
+            output_json=_dump(output_json),
+            requires_confirmation=bool(requires_confirmation),
+            confirmed=bool(confirmed),
+            error_message=error_message,
+        )
+        session.add(action)
+        session.flush()
+        return {
+            "id": action.id,
+            "created_at": action.created_at.isoformat(),
+            "status": action.status,
+        }
+
+
 __all__ = [
     "init_db",
     "insert_extraction_with_rows",
@@ -1092,4 +1193,5 @@ __all__ = [
     "list_corrections",
     "delete_correction",
     "bump_correction_hit",
+    "record_workspace_action",
 ]
