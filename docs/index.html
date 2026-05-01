@@ -350,6 +350,48 @@
     .processing-actions{display:flex;flex-direction:column;gap:8px}
     .processing-actions .btn{width:100%}
     .processing-warning{color:#facc15;font-size:12px;margin-top:6px}
+    .workspace-layout{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:18px;align-items:start}
+    .workspace-main{display:flex;flex-direction:column;gap:18px;min-width:0}
+    .workspace-side-panel{position:sticky;top:24px;display:flex;flex-direction:column;gap:14px}
+    .workspace-assistant,.workspace-smart-chat{display:flex;flex-direction:column;gap:12px}
+    .workspace-section-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+    .workspace-section-header h2,.workspace-section-header h3{margin:0}
+    .workspace-selection-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap}
+    .workspace-queue-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
+    .workspace-group{border:1px solid var(--border);border-radius:12px;background:#fbfcff;padding:12px;min-height:160px}
+    .workspace-group-title{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:10px;font-weight:700;font-size:13px;color:#334155}
+    .workspace-order-card{border:1px solid var(--border);border-radius:10px;background:#fff;padding:10px;margin-bottom:10px;display:flex;flex-direction:column;gap:8px}
+    .workspace-order-card.selected{border-color:var(--primary);box-shadow:0 0 0 2px rgba(76,92,255,.15)}
+    .workspace-order-card:last-child{margin-bottom:0}
+    .workspace-order-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+    .workspace-order-number{font-weight:700}
+    .workspace-order-client{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .workspace-order-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;font-size:12px;color:#475569}
+    .workspace-order-metrics span{border:1px solid #e5e7eb;border-radius:8px;padding:5px;background:#f8fafc}
+    .workspace-actions{display:flex;flex-wrap:wrap;gap:6px}
+    .workspace-actions .btn.small{padding:5px 8px}
+    .workspace-chat-log{border:1px solid var(--border);border-radius:12px;background:#f8fafc;min-height:220px;max-height:420px;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:10px}
+    .workspace-assistant .workspace-chat-log{min-height:200px;max-height:330px}
+    .workspace-smart-chat .workspace-chat-log{min-height:180px;max-height:300px}
+    .workspace-message{padding:9px 10px;border-radius:10px;font-size:13px;white-space:pre-wrap}
+    .workspace-message.assistant{background:#fff;border:1px solid var(--border)}
+    .workspace-message.user{background:#eef1ff;color:#27337a;margin-left:22px}
+    .workspace-prompt-grid{display:flex;flex-wrap:wrap;gap:6px}
+    .workspace-command-row{display:flex;gap:8px}
+    .workspace-command-row input{flex:1;min-width:0;padding:9px 11px;border:1px solid var(--border-dark);border-radius:10px;background:#fbfcff}
+    .workspace-command-row input:focus{outline:2px solid var(--primary-soft);border-color:var(--primary)}
+    .workspace-file-list{display:flex;flex-direction:column;gap:8px}
+    .workspace-file-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;border:1px solid var(--border);border-radius:10px;background:#fff;padding:10px}
+    .workspace-file-meta{font-size:12px;color:var(--muted)}
+    .workspace-file-actions{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
+    .workspace-pending-card{border:1px solid #facc15;background:#fffbeb;color:#713f12;border-radius:10px;padding:10px;font-size:13px}
+    .workspace-pending-card ul{margin:8px 0;padding-left:18px}
+    .workspace-empty{padding:14px;border:1px dashed var(--border);border-radius:10px;color:var(--muted);font-size:13px;text-align:center;background:#fff}
+    .workspace-job-view{border:1px solid #93c5fd;background:#eff6ff;border-radius:12px;padding:12px;margin-bottom:12px;color:#0f172a}
+    .workspace-job-view header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:8px}
+    .workspace-job-view h3{margin:0 0 4px;font-size:15px}
+    .workspace-job-view .badge{display:inline-flex;align-items:center;border-radius:999px;background:#dbeafe;color:#1e3a8a;padding:3px 8px;font-size:12px;font-weight:700}
+    .workspace-job-preview{border:1px solid #bfdbfe;background:#fff;border-radius:10px;padding:10px;max-height:420px;overflow:auto;white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.5}
     .scan-studio-layout{display:grid;grid-template-columns:280px minmax(0,1fr);gap:14px}
     .scan-studio-sidebar{display:flex;flex-direction:column;gap:12px}
     .scan-dropzone{margin:0;padding:18px;border:2px dashed #c9cfea;border-radius:12px;text-align:center;background:#fbfcff;color:var(--muted);cursor:pointer;transition:border-color .2s ease,background .2s ease}
@@ -595,6 +637,8 @@
       table{min-width:520px}
       textarea{min-height:180px}
       .processing-layout{grid-template-columns:1fr;}
+      .workspace-layout{grid-template-columns:1fr}
+      .workspace-side-panel{position:static}
       .processing-controls .card{order:-1}
       .processing-order-list{max-height:none}
       .igu-grid{grid-template-columns:1fr;}
@@ -2857,6 +2901,441 @@
       }
     }
   </style>
+  <style>
+    /* PDF Editor module */
+    #tabPdfEditor.tab-panel.active{
+      display:flex;
+      flex-direction:column;
+      gap:14px;
+    }
+    .pdf-editor-shell{
+      min-height:calc(100vh - 170px);
+      display:grid;
+      grid-template-columns:220px minmax(0,1fr) 280px;
+      grid-template-rows:auto minmax(0,1fr);
+      gap:12px;
+    }
+    .pdf-editor-toolbar{
+      grid-column:1 / -1;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      padding:10px 12px;
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:var(--card);
+      box-shadow:var(--shadow-sm);
+    }
+    .pdf-toolbar-group{
+      display:flex;
+      align-items:center;
+      gap:6px;
+      flex-wrap:wrap;
+    }
+    .pdf-editor-toolbar .btn.active{
+      background:#172033;
+      border-color:#172033;
+      color:#fff;
+    }
+    .pdf-editor-sidebar,
+    .pdf-editor-properties{
+      min-height:0;
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:var(--card);
+      box-shadow:var(--shadow-sm);
+      overflow:hidden;
+    }
+    .pdf-panel-header{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:8px;
+      padding:11px 12px;
+      border-bottom:1px solid var(--border);
+      background:#f8fafc;
+    }
+    .pdf-panel-header h3{
+      margin:0;
+      font-size:14px;
+      color:#172033;
+    }
+    .pdf-page-list{
+      height:100%;
+      max-height:calc(100vh - 255px);
+      overflow:auto;
+      padding:10px;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+    .pdf-thumb{
+      border:1px solid #d4dae6;
+      border-radius:10px;
+      background:#f8fafc;
+      padding:8px;
+      cursor:pointer;
+      transition:border-color .15s ease,box-shadow .15s ease,background .15s ease;
+    }
+    .pdf-thumb:hover,
+    .pdf-thumb.drag-over{
+      border-color:var(--primary);
+      background:#f3f5ff;
+    }
+    .pdf-thumb.active{
+      border-color:#172033;
+      box-shadow:0 0 0 2px rgba(23,32,51,.12);
+    }
+    .pdf-thumb-title{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:8px;
+      font-size:12px;
+      font-weight:700;
+      color:#344054;
+      margin-bottom:6px;
+    }
+    .pdf-thumb-box{
+      height:118px;
+      border:1px solid #e2e8f0;
+      border-radius:7px;
+      background:#fff;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      color:#98a2b3;
+      font-size:12px;
+    }
+    .pdf-editor-stage{
+      min-width:0;
+      min-height:0;
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:#8e96a4;
+      box-shadow:var(--shadow-sm);
+      overflow:auto;
+      position:relative;
+    }
+    .pdf-empty-state{
+      min-height:520px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:22px;
+    }
+    .pdf-dropzone{
+      width:min(560px,100%);
+      min-height:260px;
+      border:2px dashed #c7ccd6;
+      border-radius:16px;
+      background:#f8fafc;
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      justify-content:center;
+      gap:10px;
+      text-align:center;
+      color:#667085;
+      cursor:pointer;
+      padding:24px;
+    }
+    .pdf-dropzone.hover{
+      background:#eef2ff;
+      border-color:var(--primary);
+      color:#172033;
+    }
+    .pdf-dropzone strong{
+      color:#172033;
+      font-size:18px;
+    }
+    .pdf-document-wrap{
+      display:flex;
+      justify-content:center;
+      min-width:max-content;
+      padding:26px;
+    }
+    .pdf-page-frame{
+      position:relative;
+      background:#fff;
+      box-shadow:0 14px 38px rgba(17,24,39,.28);
+    }
+    #pdfEditorCanvas{
+      display:block;
+      background:#fff;
+      position:relative;
+      z-index:0;
+    }
+    .pdf-overlay-layer,
+    .pdf-text-layer{
+      position:absolute;
+      inset:0;
+      pointer-events:none;
+    }
+    .pdf-text-layer.text-edit-active{
+      pointer-events:auto;
+      z-index:5;
+    }
+    .pdf-text-block{
+      position:absolute;
+      border:1px solid transparent;
+      cursor:text;
+      white-space:pre;
+      color:transparent;
+      pointer-events:auto;
+    }
+    .pdf-text-block:hover,
+    .pdf-text-block.selected{
+      border-color:rgba(47,107,255,.32);
+      background:rgba(47,107,255,.04);
+    }
+    .pdf-text-block.selected{
+      border-color:rgba(47,107,255,.8);
+      box-shadow:0 0 0 2px rgba(47,107,255,.16);
+    }
+    .pdf-overlay-layer{
+      pointer-events:auto;
+      z-index:3;
+      overflow:visible;
+    }
+    .pdf-page-frame.text-edit-mode .pdf-overlay-layer{
+      pointer-events:none;
+      z-index:2;
+    }
+    .pdf-overlay-item{
+      position:absolute;
+      border:1px solid rgba(47,107,255,.65);
+      background:rgba(47,107,255,.08);
+      cursor:pointer;
+      overflow:hidden;
+    }
+    .pdf-overlay-item.selected{
+      box-shadow:0 0 0 2px rgba(47,107,255,.35);
+    }
+    .pdf-overlay-item.pending{
+      border-style:dashed;
+    }
+    .pdf-overlay-text{
+      padding:3px 5px;
+      background:rgba(255,255,255,.85);
+      color:#111827;
+      white-space:pre-wrap;
+      font-size:14px;
+      line-height:1.25;
+    }
+    .pdf-overlay-textedit{
+      border-color:transparent;
+      box-shadow:none;
+      color:#111827;
+      padding:0 2px;
+      white-space:pre-wrap;
+      font-size:14px;
+      line-height:1;
+      overflow:visible;
+      background:transparent !important;
+    }
+    .text-edit-overlay{
+      position:absolute;
+      overflow:visible;
+      cursor:move;
+    }
+    .pdf-overlay-textedit.pending{
+      border-color:rgba(47,107,255,.8);
+      background:rgba(47,107,255,.06) !important;
+      box-shadow:0 0 0 2px rgba(47,107,255,.16);
+    }
+    .pdf-overlay-textedit.applied{
+      border-color:transparent;
+      box-shadow:none;
+    }
+    .pdf-overlay-textedit.applied.selected{
+      border-color:transparent;
+      box-shadow:none;
+    }
+    .pdf-overlay-textedit.applied.select-outline{
+      border-color:rgba(47,107,255,.75);
+      box-shadow:0 0 0 2px rgba(47,107,255,.16);
+    }
+    .text-edit-cover{
+      position:absolute;
+      z-index:1;
+      border:none;
+      pointer-events:none;
+    }
+    .text-edit-replacement-text{
+      position:absolute;
+      z-index:2;
+      overflow:visible;
+      white-space:nowrap;
+      pointer-events:auto;
+      cursor:move;
+      line-height:1;
+    }
+    .pdf-overlay-highlight{
+      border-color:rgba(245,158,11,.65);
+      background:rgba(250,204,21,.35);
+    }
+    .pdf-overlay-rectangle{
+      border:2px solid rgba(47,107,255,.85);
+      background:transparent;
+    }
+    .pdf-overlay-drawing svg{
+      width:100%;
+      height:100%;
+      display:block;
+      overflow:visible;
+    }
+    .pdf-overlay-image img{
+      width:100%;
+      height:100%;
+      object-fit:contain;
+      display:block;
+    }
+    .pdf-inline-editor{
+      position:absolute;
+      z-index:20;
+      min-width:220px;
+      padding:8px;
+      border:1px solid #b8c3d9;
+      border-radius:10px;
+      background:#fff;
+      box-shadow:0 12px 28px rgba(17,24,39,.22);
+    }
+    .pdf-inline-editor textarea{
+      min-height:72px;
+      padding:8px;
+      border-radius:8px;
+      font-size:13px;
+      resize:vertical;
+    }
+    .pdf-inline-actions{
+      display:flex;
+      justify-content:flex-end;
+      gap:6px;
+      margin-top:7px;
+    }
+    .pdf-props-body{
+      max-height:calc(100vh - 255px);
+      overflow:auto;
+      padding:12px;
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+    }
+    .pdf-prop-field{
+      display:flex;
+      flex-direction:column;
+      gap:5px;
+      font-size:12px;
+      color:var(--muted);
+      font-weight:650;
+    }
+    .pdf-prop-field input,
+    .pdf-prop-field textarea,
+    .pdf-prop-field select{
+      width:100%;
+      border:1px solid var(--border-dark);
+      border-radius:9px;
+      background:#fbfcff;
+      padding:8px 9px;
+      color:var(--text);
+      font-size:13px;
+      font-weight:500;
+    }
+    .pdf-prop-field textarea{
+      min-height:92px;
+    }
+    .pdf-edits-list{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+    .pdf-edit-row{
+      border:1px solid #e2e8f0;
+      border-radius:9px;
+      padding:8px;
+      background:#f8fafc;
+      font-size:12px;
+      color:#475467;
+    }
+    .pdf-editor-status{
+      min-height:20px;
+      font-size:13px;
+      color:var(--muted);
+    }
+    .pdf-editor-status.error{
+      color:#b91c1c;
+    }
+    .pdf-unsaved{
+      display:inline-flex;
+      align-items:center;
+      gap:5px;
+      color:#92400e;
+      font-size:12px;
+      font-weight:700;
+    }
+    .pdf-unsaved::before{
+      content:"";
+      width:8px;
+      height:8px;
+      border-radius:999px;
+      background:#f59e0b;
+    }
+    @media (max-width:1100px){
+      .pdf-editor-shell{
+        grid-template-columns:170px minmax(0,1fr);
+      }
+      .pdf-editor-properties{
+        grid-column:1 / -1;
+      }
+      .pdf-props-body{
+        max-height:none;
+        display:grid;
+        grid-template-columns:repeat(auto-fit,minmax(210px,1fr));
+      }
+    }
+    @media (max-width:760px){
+      .pdf-editor-shell{
+        display:flex;
+        flex-direction:column;
+        padding-bottom:76px;
+      }
+      .pdf-editor-toolbar{
+        position:fixed;
+        left:0;
+        right:0;
+        bottom:0;
+        z-index:70;
+        border-radius:14px 14px 0 0;
+        overflow-x:auto;
+        justify-content:flex-start;
+      }
+      .pdf-toolbar-group{
+        flex-wrap:nowrap;
+      }
+      .pdf-editor-sidebar{
+        max-height:168px;
+      }
+      .pdf-page-list{
+        max-height:126px;
+        flex-direction:row;
+        overflow-x:auto;
+      }
+      .pdf-thumb{
+        min-width:120px;
+      }
+      .pdf-thumb-box{
+        height:72px;
+      }
+      .pdf-document-wrap{
+        padding:16px;
+      }
+      .pdf-empty-state{
+        min-height:360px;
+      }
+    }
+  </style>
 </head>
 <body>
   <aside class="app-sidebar" aria-label="Primary navigation">
@@ -2869,12 +3348,14 @@
     </div>
     <nav class="tab-bar sidebar-nav">
       <button class="tab active" data-tab="extract"><span class="nav-icon" aria-hidden="true">D</span><span>Dashboard</span></button>
+      <button class="tab" data-tab="workspace"><span class="nav-icon" aria-hidden="true">W</span><span>Workspace</span></button>
       <button class="tab" data-tab="history"><span class="nav-icon" aria-hidden="true">H</span><span>History</span></button>
       <button class="tab" data-tab="processing"><span class="nav-icon" aria-hidden="true">P</span><span>Processing</span></button>
       <button class="tab" data-tab="labels"><span class="nav-icon" aria-hidden="true">L</span><span>Labels</span></button>
       <button class="tab" data-tab="invoices"><span class="nav-icon" aria-hidden="true">I</span><span>Invoice</span></button>
       <button class="tab" data-tab="analysis"><span class="nav-icon" aria-hidden="true">A</span><span>Analysis</span></button>
       <div class="sidebar-section-label">Tools</div>
+      <button class="tab" data-tab="pdfeditor"><span class="nav-icon" aria-hidden="true">PDF</span><span>PDF Editor</span></button>
       <button class="tab" data-tab="scanstudio"><span class="nav-icon" aria-hidden="true">S</span><span>Scan Studio</span></button>
       <button class="tab" data-tab="spacer"><span class="nav-icon" aria-hidden="true">M</span><span>Spacer Processing</span></button>
     </nav>
@@ -3182,6 +3663,194 @@
             </div>
           </div>
         </div>
+      </div>
+    </section>
+
+    <section id="tabWorkspace" class="tab-panel">
+      <div class="workspace-layout">
+        <div class="workspace-main">
+          <div class="card">
+            <div class="workspace-section-header">
+              <div>
+                <h2>Workspace</h2>
+                <p class="muted small" style="margin:4px 0 0">Factory command center for approved orders and production files.</p>
+              </div>
+              <button type="button" class="btn small" id="workspaceRefresh">Refresh</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="workspace-section-header">
+              <h3>Work Queue</h3>
+              <div class="workspace-selection-actions">
+                <span id="workspaceSelectionStatus" class="muted small"></span>
+                <button type="button" class="btn small" id="workspaceProcessSelected" disabled>Process selected together</button>
+                <button type="button" class="btn small" id="workspaceClearSelection" disabled>Clear selection</button>
+                <span id="workspaceQueueStatus" class="muted small"></span>
+              </div>
+            </div>
+            <div id="workspaceQueue" class="workspace-queue-grid" style="margin-top:12px">
+              <div class="workspace-empty">Loading queue...</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="workspace-section-header">
+              <h3>Recent Production Files</h3>
+              <span id="workspaceFilesStatus" class="muted small"></span>
+            </div>
+            <div id="workspaceRecentFiles" class="workspace-file-list" style="margin-top:12px">
+              <div class="workspace-empty">No production files loaded.</div>
+            </div>
+          </div>
+        </div>
+
+        <aside class="workspace-side-panel">
+          <section class="card workspace-assistant">
+            <div>
+              <h2 style="margin:0">Factory Assistant</h2>
+              <p class="muted small" style="margin:4px 0 0">Run approved-order workflows and prepare production files.</p>
+            </div>
+            <div class="workspace-prompt-grid" id="workspacePromptButtons">
+              <button type="button" class="btn small" data-workspace-prompt="Show approved orders">Show approved orders</button>
+              <button type="button" class="btn small" data-workspace-prompt="Process latest approved order">Process latest approved order</button>
+              <button type="button" class="btn small" data-workspace-prompt="What needs review today?">What needs review today?</button>
+              <button type="button" class="btn small" data-workspace-prompt="Show recent production files">Show recent production files</button>
+              <button type="button" class="btn small" data-workspace-prompt="Generate labels for latest processed order">Generate labels for latest processed order</button>
+              <button type="button" class="btn small" data-workspace-prompt="Process selected orders together">Process selected together</button>
+            </div>
+            <div id="workspaceChatLog" class="workspace-chat-log">
+              <div class="workspace-message assistant">Ready for factory workflows. Tell me which approved orders to process or check.</div>
+            </div>
+            <div id="workspaceAssistantFiles" class="workspace-file-actions"></div>
+            <form id="workspaceCommandForm" class="workspace-command-row">
+              <input id="workspaceCommandInput" type="text" placeholder="Factory workflow command..." autocomplete="off" />
+              <button id="workspaceSend" type="submit" class="btn primary">Send</button>
+            </form>
+            <div id="workspaceAssistantStatus" class="muted small"></div>
+          </section>
+
+          <section class="card workspace-smart-chat">
+            <div>
+              <h2 style="margin:0">Smart Chat</h2>
+              <p class="muted small" style="margin:4px 0 0">Chat normally, ask questions, or get help understanding the platform.</p>
+            </div>
+            <div class="workspace-prompt-grid" id="workspaceSmartPromptButtons">
+              <button type="button" class="btn small" data-smart-chat-prompt="Hi 👋">Hi 👋</button>
+              <button type="button" class="btn small" data-smart-chat-prompt="Explain this page">Explain this page</button>
+              <button type="button" class="btn small" data-smart-chat-prompt="How does processing work?">How does processing work?</button>
+              <button type="button" class="btn small" data-smart-chat-prompt="What should I do next?">What should I do next?</button>
+              <button type="button" class="btn small" data-smart-chat-prompt="What day is today?">What day is today?</button>
+            </div>
+            <div id="workspaceSmartChatLog" class="workspace-chat-log">
+              <div class="workspace-message assistant">Ask me normal questions here. Production actions still run through Factory Assistant.</div>
+            </div>
+            <div id="workspaceSmartChatActions" class="workspace-file-actions"></div>
+            <form id="workspaceSmartChatForm" class="workspace-command-row">
+              <input id="workspaceSmartChatInput" type="text" placeholder="Ask Smart Chat anything..." autocomplete="off" />
+              <button id="workspaceSmartChatSend" type="submit" class="btn">Send</button>
+            </form>
+            <div id="workspaceSmartChatStatus" class="muted small"></div>
+          </section>
+        </aside>
+      </div>
+    </section>
+
+    <section id="tabPdfEditor" class="tab-panel">
+      <div class="card" style="margin-bottom:0">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+          <div>
+            <h2 style="margin:0">PDF Editor</h2>
+            <p class="muted small" style="margin:4px 0 0">Edit order PDFs in-browser. Originals stay untouched; exports are new edited copies.</p>
+          </div>
+          <div>
+            <span id="pdfEditorUnsaved" class="pdf-unsaved" hidden>Unsaved edits</span>
+            <div id="pdfEditorStatus" class="pdf-editor-status"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pdf-editor-shell" id="pdfEditorShell">
+        <div class="pdf-editor-toolbar" aria-label="PDF editor toolbar">
+          <div class="pdf-toolbar-group">
+            <button type="button" class="btn small" id="pdfEditorUploadBtn">Upload</button>
+            <button type="button" class="btn small" id="pdfEditorPrevPage">Prev</button>
+            <span class="muted small mono" id="pdfEditorPageIndicator">0 / 0</span>
+            <button type="button" class="btn small" id="pdfEditorNextPage">Next</button>
+            <button type="button" class="btn small" id="pdfEditorZoomOut">-</button>
+            <button type="button" class="btn small" id="pdfEditorFitWidth">Fit Width</button>
+            <button type="button" class="btn small" id="pdfEditorZoomIn">+</button>
+          </div>
+          <div class="pdf-toolbar-group">
+            <button type="button" class="btn small" id="pdfEditorRotateLeft">Rotate Left</button>
+            <button type="button" class="btn small" id="pdfEditorRotateRight">Rotate Right</button>
+            <button type="button" class="btn small danger" id="pdfEditorDeletePage">Delete Page</button>
+          </div>
+          <div class="pdf-toolbar-group">
+            <button type="button" class="btn small" data-pdf-tool="select">Select</button>
+            <button type="button" class="btn small" data-pdf-tool="text">Text Box</button>
+            <button type="button" class="btn small" data-pdf-tool="textEdit">Safe Text Edit</button>
+            <button type="button" class="btn small" data-pdf-tool="nativeTextEdit">Native Text Edit</button>
+            <button type="button" class="btn small" data-pdf-tool="draw">Draw</button>
+            <button type="button" class="btn small" data-pdf-tool="highlight">Highlight</button>
+            <button type="button" class="btn small" data-pdf-tool="rectangle">Rectangle</button>
+            <button type="button" class="btn small" id="pdfEditorAddImage">Image/Signature</button>
+          </div>
+          <div class="pdf-toolbar-group">
+            <button type="button" class="btn small" id="pdfEditorSendExtraction">Send to Extraction</button>
+            <button type="button" class="btn primary small" id="pdfEditorExport">Export / Download</button>
+          </div>
+        </div>
+
+        <aside class="pdf-editor-sidebar">
+          <div class="pdf-panel-header">
+            <h3>Pages</h3>
+            <span class="muted small" id="pdfEditorPageCount">No PDF</span>
+          </div>
+          <div class="pdf-page-list" id="pdfEditorThumbs">
+            <div class="empty-state">Upload a PDF to see pages.</div>
+          </div>
+        </aside>
+
+        <div class="pdf-editor-stage" id="pdfEditorStage">
+          <div class="pdf-empty-state" id="pdfEditorEmpty">
+            <div class="pdf-dropzone" id="pdfEditorDropZone">
+              <strong>Drop PDF here</strong>
+              <span>or click Upload to choose an order PDF</span>
+              <span class="muted small">Large files are loaded one page at a time.</span>
+            </div>
+          </div>
+          <div class="pdf-document-wrap" id="pdfEditorDocumentWrap" hidden>
+            <div class="pdf-page-frame" id="pdfEditorPageFrame">
+              <canvas id="pdfEditorCanvas"></canvas>
+              <div class="pdf-text-layer" id="pdfEditorTextLayer"></div>
+              <div class="pdf-overlay-layer pdf-editor-overlay-layer" id="pdfEditorOverlayLayer"></div>
+              <div class="pdf-inline-editor" id="pdfEditorInlineEditor" hidden>
+                <textarea id="pdfEditorInlineText"></textarea>
+                <div class="pdf-inline-actions">
+                  <button type="button" class="btn small" id="pdfEditorInlineCancel">Cancel</button>
+                  <button type="button" class="btn primary small" id="pdfEditorInlineSave">Apply</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <aside class="pdf-editor-properties">
+          <div class="pdf-panel-header">
+            <h3>Properties</h3>
+            <span class="muted small" id="pdfEditorToolLabel">Select</span>
+          </div>
+          <div class="pdf-props-body">
+            <div id="pdfEditorSelectedProps" class="empty-state">Select an annotation or editable text block.</div>
+            <div>
+              <h3 style="font-size:14px;margin:0 0 8px">Edited PDF Text</h3>
+              <div id="pdfEditorTextEdits" class="pdf-edits-list">
+                <div class="muted small">No text replacements yet.</div>
+              </div>
+            </div>
+          </div>
+        </aside>
       </div>
     </section>
 
@@ -3833,11 +4502,13 @@
   </div>
 
   <input type="file" id="pdfInput" accept="application/pdf" hidden />
+  <input type="file" id="pdfEditorFileInput" accept="application/pdf" hidden />
+  <input type="file" id="pdfEditorImageInput" accept="image/png,image/jpeg,image/webp" hidden />
   <input type="file" id="scanFileInput" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple hidden />
 
 <script>
-const API_BASE = "https://order-extractor-kdih.onrender.com";
-//const API_BASE = "http://127.0.0.1:5055";
+//const API_BASE = "https://order-extractor-kdih.onrender.com";
+const API_BASE = "http://127.0.0.1:5055";
 const HISTORY_CACHE_KEY_BASE = "loe.history.cache.v1";
 const HISTORY_CACHE_LIMIT = 200;
 const DEFAULT_APPEARANCE_SETTINGS = Object.freeze({
@@ -4053,6 +4724,23 @@ const spacerProcessingState = {
   layoutModel: null,
 };
 
+const workspaceState = {
+  sessionId: (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : `workspace-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  queue: null,
+  recentFiles: [],
+  moduleFiles: [],
+  processingJobs: [],
+  loading: false,
+  assistantLoading: false,
+  smartChatLoading: false,
+  selectedOrderId: "",
+  selectedOrderNumber: "",
+  selectedOrderIds: new Set(),
+  selectedOrderNumbers: new Map(),
+  lastAgentAction: null,
+  latestPendingAction: null,
+};
+
 /**
  * @typedef {Object} ScanPage
  * @property {string} id
@@ -4142,7 +4830,9 @@ const scanStudioState = {
 const tabs = document.querySelectorAll(".tab-bar .tab");
 const panels = {
   extract: document.getElementById("tabExtract"),
+  workspace: document.getElementById("tabWorkspace"),
   scanstudio: document.getElementById("tabScanStudio"),
+  pdfeditor: document.getElementById("tabPdfEditor"),
   history: document.getElementById("tabHistory"),
   processing: document.getElementById("tabProcessing"),
   spacer: document.getElementById("tabSpacer"),
@@ -4160,6 +4850,29 @@ const processingToast = document.getElementById("processingToast");
 const processingToastMessage = document.getElementById("processingToastMessage");
 const processingToastDismiss = document.getElementById("processingToastDismiss");
 let processingToastTimer = null;
+
+const workspaceRefreshBtn = document.getElementById("workspaceRefresh");
+const workspaceQueueEl = document.getElementById("workspaceQueue");
+const workspaceQueueStatusEl = document.getElementById("workspaceQueueStatus");
+const workspaceSelectionStatusEl = document.getElementById("workspaceSelectionStatus");
+const workspaceProcessSelectedBtn = document.getElementById("workspaceProcessSelected");
+const workspaceClearSelectionBtn = document.getElementById("workspaceClearSelection");
+const workspaceRecentFilesEl = document.getElementById("workspaceRecentFiles");
+const workspaceFilesStatusEl = document.getElementById("workspaceFilesStatus");
+const workspaceChatLogEl = document.getElementById("workspaceChatLog");
+const workspaceAssistantFilesEl = document.getElementById("workspaceAssistantFiles");
+const workspaceCommandForm = document.getElementById("workspaceCommandForm");
+const workspaceCommandInput = document.getElementById("workspaceCommandInput");
+const workspaceSendBtn = document.getElementById("workspaceSend");
+const workspaceAssistantStatusEl = document.getElementById("workspaceAssistantStatus");
+const workspacePromptButtons = document.getElementById("workspacePromptButtons");
+const workspaceSmartChatLogEl = document.getElementById("workspaceSmartChatLog");
+const workspaceSmartChatActionsEl = document.getElementById("workspaceSmartChatActions");
+const workspaceSmartChatForm = document.getElementById("workspaceSmartChatForm");
+const workspaceSmartChatInput = document.getElementById("workspaceSmartChatInput");
+const workspaceSmartChatSendBtn = document.getElementById("workspaceSmartChatSend");
+const workspaceSmartChatStatusEl = document.getElementById("workspaceSmartChatStatus");
+const workspaceSmartPromptButtons = document.getElementById("workspaceSmartPromptButtons");
 
 const statusEl = document.getElementById("status");
 const errorEl = document.getElementById("error");
@@ -4237,6 +4950,40 @@ const scanPrintCurrentBtn = document.getElementById("scanPrintCurrent");
 	const globalScanDropTitle = document.getElementById("globalScanDropTitle");
 	const globalScanDropHelper = document.getElementById("globalScanDropHelper");
 	const globalScanDropMessage = document.getElementById("globalScanDropMessage");
+	const pdfEditorStatusEl = document.getElementById("pdfEditorStatus");
+	const pdfEditorUnsavedEl = document.getElementById("pdfEditorUnsaved");
+	const pdfEditorFileInput = document.getElementById("pdfEditorFileInput");
+	const pdfEditorImageInput = document.getElementById("pdfEditorImageInput");
+	const pdfEditorUploadBtn = document.getElementById("pdfEditorUploadBtn");
+	const pdfEditorDropZone = document.getElementById("pdfEditorDropZone");
+	const pdfEditorEmpty = document.getElementById("pdfEditorEmpty");
+	const pdfEditorDocumentWrap = document.getElementById("pdfEditorDocumentWrap");
+	const pdfEditorStage = document.getElementById("pdfEditorStage");
+	const pdfEditorPageFrame = document.getElementById("pdfEditorPageFrame");
+	const pdfEditorCanvas = document.getElementById("pdfEditorCanvas");
+	const pdfEditorTextLayer = document.getElementById("pdfEditorTextLayer");
+	const pdfEditorOverlayLayer = document.getElementById("pdfEditorOverlayLayer");
+	const pdfEditorInlineEditor = document.getElementById("pdfEditorInlineEditor");
+	const pdfEditorInlineText = document.getElementById("pdfEditorInlineText");
+	const pdfEditorInlineCancel = document.getElementById("pdfEditorInlineCancel");
+	const pdfEditorInlineSave = document.getElementById("pdfEditorInlineSave");
+	const pdfEditorThumbs = document.getElementById("pdfEditorThumbs");
+	const pdfEditorPageCount = document.getElementById("pdfEditorPageCount");
+	const pdfEditorPageIndicator = document.getElementById("pdfEditorPageIndicator");
+	const pdfEditorPrevPage = document.getElementById("pdfEditorPrevPage");
+	const pdfEditorNextPage = document.getElementById("pdfEditorNextPage");
+	const pdfEditorZoomOut = document.getElementById("pdfEditorZoomOut");
+	const pdfEditorZoomIn = document.getElementById("pdfEditorZoomIn");
+	const pdfEditorFitWidth = document.getElementById("pdfEditorFitWidth");
+	const pdfEditorRotateLeft = document.getElementById("pdfEditorRotateLeft");
+	const pdfEditorRotateRight = document.getElementById("pdfEditorRotateRight");
+	const pdfEditorDeletePage = document.getElementById("pdfEditorDeletePage");
+	const pdfEditorAddImage = document.getElementById("pdfEditorAddImage");
+	const pdfEditorExport = document.getElementById("pdfEditorExport");
+	const pdfEditorSendExtraction = document.getElementById("pdfEditorSendExtraction");
+	const pdfEditorToolLabel = document.getElementById("pdfEditorToolLabel");
+	const pdfEditorSelectedProps = document.getElementById("pdfEditorSelectedProps");
+	const pdfEditorTextEdits = document.getElementById("pdfEditorTextEdits");
 	const labelsJobsWrap = document.getElementById("labelsJobsWrap");
 const labelsSummaryEl = document.getElementById("labelsSummary");
 const labelsStatusEl = document.getElementById("labelsStatus");
@@ -4367,12 +5114,17 @@ function activateTab(name){
   }
   if (name === "history"){
     ensureHistoryLoaded();
+  }else if (name === "workspace"){
+    loadWorkspace();
 	  }else if (name === "scanstudio"){
 	    renderScanPageList();
 	    syncScanControlsFromSelectedPage();
 	    renderScanPreview();
 	    queueMicrotask(()=> consumePendingGlobalScanDrop());
+	  }else if (name === "pdfeditor"){
+	    renderPdfEditor();
 	  }else if (name === "processing"){
+    hideWorkspaceProcessingJobView();
     ensureHistoryLoaded();
     rebuildProcessingRows();
     updateProcessingUI();
@@ -6305,6 +7057,7 @@ function renderInsights(signals, context, loading = false){
       </details>
     </article>`;
   }).join("");
+  updateWorkspaceSelectionUI();
 }
 
 function buildSignalsSummary(context){
@@ -7900,10 +8653,11 @@ async function addScanFiles(fileList){
 	function shouldIgnoreGlobalScanDropTarget(target){
 	  const element = target && target.nodeType === Node.ELEMENT_NODE ? target : target?.parentElement;
 	  if (!element || typeof element.closest !== "function") return false;
-	  return !!element.closest("#scanDropZone, #pdfDropZone, input[type='file']");
+	  return !!element.closest("#scanDropZone, #pdfDropZone, #pdfEditorDropZone, #tabPdfEditor, input[type='file']");
 	}
 
 	function handleGlobalScanDragEnter(event){
+	  if (shouldIgnoreGlobalScanDropTarget(event.target)) return;
 	  const mode = getPotentialGlobalFileDropMode(event);
 	  if (!mode) return;
 	  globalScanDropState.dragCounter += 1;
@@ -7912,6 +8666,7 @@ async function addScanFiles(fileList){
 
 	function handleGlobalScanDragOver(event){
 	  if (!isFileDragEvent(event)) return;
+	  if (shouldIgnoreGlobalScanDropTarget(event.target)) return;
 	  event.preventDefault();
 	  const mode = getPotentialGlobalFileDropMode(event);
 	  if (event.dataTransfer){
@@ -7923,6 +8678,7 @@ async function addScanFiles(fileList){
 	}
 
 	function handleGlobalScanDragLeave(event){
+	  if (shouldIgnoreGlobalScanDropTarget(event.target)) return;
 	  if (!getPotentialGlobalFileDropMode(event)) return;
 	  const leftWindow = event.clientX <= 0
 	    || event.clientY <= 0
@@ -10202,6 +10958,32 @@ function updateProcessingUI(){
   }
 }
 
+function applyDankoRounding(processingSheetId){
+  void processingSheetId;
+  if (!Array.isArray(appState.processing.rows) || !appState.processing.rows.length){
+    return false;
+  }
+  appState.processing.options.autoDanko = false;
+  appState.processing.rounding.manualApplied = true;
+  if (processingAutoDankoToggle) processingAutoDankoToggle.checked = false;
+  setProcessingRoundingMessage("Rounded values applied using Danko Rule ✅");
+  applyProcessingRoundingToRows();
+  recalcProcessingPreview();
+  updateProcessingUI();
+  return true;
+}
+
+function groupProcessingDimensions(processingSheetId){
+  void processingSheetId;
+  if (!Array.isArray(appState.processing.rows) || !appState.processing.rows.length){
+    return false;
+  }
+  appState.processing.grouped = true;
+  rebuildProcessingRows();
+  updateProcessingUI();
+  return true;
+}
+
 if (wysiwygToggle){
   wysiwygToggle.addEventListener("change", ()=>{
     const show = !!wysiwygToggle.checked;
@@ -10664,6 +11446,22 @@ function collectProcessingSectionsForLabels(){
   const groups = preview && Array.isArray(preview.groups) ? preview.groups : [];
   if (!groups.length) return [];
   const sections = [];
+  const sectionBuckets = new Map();
+  const getSectionBucket = (key, defaults = {}) => {
+    const normalizedKey = String(key || "").trim() || defaults.key || "Processing";
+    if (!sectionBuckets.has(normalizedKey)){
+      const bucket = {
+        key: normalizedKey,
+        orderId: defaults.orderId || normalizedKey,
+        client: defaults.client || UNKNOWN_CLIENT_LABEL,
+        lines: [],
+        sourceGroups: [],
+      };
+      sectionBuckets.set(normalizedKey, bucket);
+      sections.push(bucket);
+    }
+    return sectionBuckets.get(normalizedKey);
+  };
   groups.forEach((group, groupIndex)=>{
     const hasSections = Array.isArray(group.sections) && group.sections.length;
     if (hasSections){
@@ -10675,12 +11473,12 @@ function collectProcessingSectionsForLabels(){
           ? rawOrder
           : `${group.display || group.raw || "Processing"} ${groupIndex + 1}${group.sections.length > 1 ? `.${sectionIndex + 1}` : ""}`;
         const clientLabel = String(section.client || "").trim() || (preview?.meta?.clientLabel) || UNKNOWN_CLIENT_LABEL;
-        sections.push({
-          key: fallbackOrder,
+        const bucket = getSectionBucket(fallbackOrder, {
           orderId: fallbackOrder,
           client: clientLabel,
-          lines,
         });
+        bucket.lines.push(...lines);
+        bucket.sourceGroups.push(group.display || group.raw || `Processing Group ${groupIndex + 1}`);
       });
     }else{
       const lines = Array.isArray(group.lines) ? group.lines : [];
@@ -10692,6 +11490,7 @@ function collectProcessingSectionsForLabels(){
         orderId: groupLabel,
         client: clientLabel,
         lines,
+        sourceGroups: [groupLabel],
       });
     }
   });
@@ -11140,11 +11939,10 @@ async function exportSpacerProcessingPdf(){
   setStatusMessage("Spacer Processing PDF exported.");
 }
 
-async function exportProcessingPdf(){
+async function buildProcessingPdfBlob(){
   const preview = appState.processing.preview;
   if (!preview || !preview.groups || !preview.groups.length){
-    setStatusMessage("Nothing to export.");
-    return;
+    throw new Error("Nothing to export.");
   }
   await ensurePdfLib();
   const { PDFDocument, StandardFonts, rgb } = PDFLib;
@@ -11288,7 +12086,17 @@ async function exportProcessingPdf(){
   });
 
   const pdfBytes = await pdfDoc.save();
-  const blob = new Blob([pdfBytes], { type: "application/pdf" });
+  return new Blob([pdfBytes], { type: "application/pdf" });
+}
+
+async function exportProcessingPdf(){
+  let blob;
+  try{
+    blob = await buildProcessingPdfBlob();
+  }catch(error){
+    setStatusMessage(error.message || "Nothing to export.");
+    return;
+  }
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -15401,6 +16209,1366 @@ async function downloadAllCsv(){
   URL.revokeObjectURL(blobUrl);
 }
 
+function workspaceFileUrl(url){
+  if (!url) return "";
+  if (/^https?:\/\//i.test(url)) return url;
+  if (/^blob:/i.test(url)) return url;
+  return API_BASE + url;
+}
+
+const WORKSPACE_ORDER_TOKEN_RE = /\b(?:R-?)?\d{2}-\d{3,5}\b/gi;
+
+function normalizeWorkspaceOrderToken(value){
+  const text = String(value || "").trim().toUpperCase().replace(/\s+/g, "");
+  if (!text) return "";
+  if (/^R-?\d{2}-\d{3,5}$/.test(text)){
+    return "R-" + text.replace(/^R-?/, "");
+  }
+  if (/^\d{2}-\d{3,5}$/.test(text)){
+    return "R-" + text;
+  }
+  return text;
+}
+
+function extractWorkspaceOrderTokens(message){
+  const matches = String(message || "").match(WORKSPACE_ORDER_TOKEN_RE) || [];
+  const seen = new Set();
+  const tokens = [];
+  matches.forEach(match => {
+    const normalized = normalizeWorkspaceOrderToken(match);
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    tokens.push(normalized);
+  });
+  return tokens;
+}
+
+function inferWorkspaceProcessingMode(message, count = 0){
+  const lower = String(message || "").toLowerCase();
+  const keepOrderBoundaries = lower.includes("keep orders separate")
+    || lower.includes("keep them separate")
+    || lower.includes("don't mix orders")
+    || lower.includes("do not mix orders")
+    || lower.includes("without mixing orders")
+    || lower.includes("no merge across orders");
+  if (keepOrderBoundaries && (lower.includes("together") || lower.includes("same time") || lower.includes("combined") || lower.includes("one sheet"))){
+    return "combined";
+  }
+  if (lower.includes("separately") || lower.includes("separate jobs") || lower.includes("separate processing") || lower.includes("one by one")){
+    return "separate";
+  }
+  if (lower.includes("together") || lower.includes("same time") || lower.includes("combined") || lower.includes("one sheet")){
+    return "combined";
+  }
+  return count > 1 ? "combined" : "single";
+}
+
+function inferWorkspaceMergeAcrossOrders(message){
+  const lower = String(message || "").toLowerCase();
+  if (lower.includes("keep orders separate")
+    || lower.includes("keep them separate")
+    || lower.includes("don't mix orders")
+    || lower.includes("do not mix orders")
+    || lower.includes("without mixing orders")
+    || lower.includes("no merge across orders")
+    || lower.includes("do not merge across orders")
+    || lower.includes("don't merge across orders")){
+    return false;
+  }
+  return lower.includes("merge across orders")
+    || lower.includes("merge orders")
+    || lower.includes("mix orders")
+    || lower.includes("mix same glass across orders")
+    || lower.includes("combine same glass across orders");
+}
+
+function inferWorkspaceProcessIntent(message){
+  const text = String(message || "").trim();
+  const lower = text.toLowerCase();
+  const tokens = extractWorkspaceOrderTokens(text);
+  const mode = inferWorkspaceProcessingMode(text, tokens.length);
+  const mergeAcrossOrders = inferWorkspaceMergeAcrossOrders(text);
+  if (lower.includes("process latest approved")){
+    return { type: "process_latest" };
+  }
+  if (lower.includes("process selected") && workspaceState.selectedOrderIds.size){
+    return { type: "process", identifiers: Array.from(workspaceState.selectedOrderIds), mode: workspaceState.selectedOrderIds.size > 1 ? "combined" : "single", mergeAcrossOrders };
+  }
+  if ((lower.includes("process this") || lower.includes("process selected")) && workspaceState.selectedOrderId){
+    return { type: "process", identifier: workspaceState.selectedOrderId, identifiers: [workspaceState.selectedOrderId], mode: "single", mergeAcrossOrders: false };
+  }
+  if (lower.includes("process") && tokens.length){
+    return { type: "process", identifier: tokens[0], identifiers: tokens, mode, mergeAcrossOrders };
+  }
+  if (lower.includes("generate labels") && tokens.length){
+    return { type: "process", identifier: tokens[0], identifiers: tokens, mode, mergeAcrossOrders };
+  }
+  return null;
+}
+
+function getWorkspaceSelectedOrderIds(){
+  return Array.from(workspaceState.selectedOrderIds || []).filter(Boolean);
+}
+
+function getWorkspaceSelectedOrderNumbers(){
+  return getWorkspaceSelectedOrderIds()
+    .map(id => workspaceState.selectedOrderNumbers.get(String(id)) || "")
+    .filter(Boolean);
+}
+
+function flattenWorkspaceVisibleOrders(){
+  const groups = workspaceState.queue?.groups || {};
+  const visible = [];
+  Object.entries(groups).forEach(([group, items]) => {
+    (Array.isArray(items) ? items : []).forEach(item => {
+      visible.push({
+        order_id: String(item.order_id || item.id || ""),
+        order_number: String(item.order_number || ""),
+        client_name: item.client_name || null,
+        status: item.status || "",
+        queue_group: group,
+        pieces: item.total_pieces ?? null,
+        area: item.total_area_m2 ?? null,
+        warnings_count: item.warnings_count ?? null,
+        has_processing_pdf: !!item.processing_pdf_url,
+        has_labels_pdf: !!item.labels_pdf_url,
+      });
+    });
+  });
+  return visible;
+}
+
+function getWorkspaceSelectedOrders(){
+  const selectedIds = new Set(getWorkspaceSelectedOrderIds().map(String));
+  return flattenWorkspaceVisibleOrders().filter(item => selectedIds.has(String(item.order_id)));
+}
+
+function buildWorkspaceAgentContext(){
+  const selectedIds = getWorkspaceSelectedOrderIds();
+  const selectedNumbers = getWorkspaceSelectedOrderNumbers();
+  const selectedOrderId = selectedIds.length === 1 ? selectedIds[0] : (workspaceState.selectedOrderId || null);
+  const selectedOrderNumber = selectedNumbers.length === 1 ? selectedNumbers[0] : (workspaceState.selectedOrderNumber || null);
+  return {
+    current_page: "Workspace",
+    workspace_session_id: workspaceState.sessionId,
+    selected_order_id: selectedOrderId || null,
+    selected_order_number: selectedOrderNumber || null,
+    selected_order_ids: selectedIds,
+    selected_order_numbers: selectedNumbers,
+    selected_orders: getWorkspaceSelectedOrders(),
+    visible_orders: flattenWorkspaceVisibleOrders(),
+    last_agent_action: workspaceState.lastAgentAction || null,
+    latest_pending_action_id: workspaceState.latestPendingAction?.pending_action_id || null,
+    latest_pending_action: workspaceState.latestPendingAction || null,
+  };
+}
+
+function updateWorkspaceSelectionUI(){
+  const selectedIds = getWorkspaceSelectedOrderIds();
+  if (workspaceSelectionStatusEl){
+    workspaceSelectionStatusEl.textContent = selectedIds.length ? `${selectedIds.length} order${selectedIds.length === 1 ? "" : "s"} selected` : "";
+  }
+  if (workspaceProcessSelectedBtn){
+    workspaceProcessSelectedBtn.disabled = workspaceState.assistantLoading || selectedIds.length < 1;
+  }
+  if (workspaceClearSelectionBtn){
+    workspaceClearSelectionBtn.disabled = workspaceState.assistantLoading || selectedIds.length < 1;
+  }
+  if (workspaceCommandInput){
+    workspaceCommandInput.placeholder = selectedIds.length > 1 ? `${selectedIds.length} orders selected` : "Factory workflow command...";
+  }
+  document.querySelectorAll(".workspace-order-card").forEach(card => {
+    const id = String(card.dataset.workspaceOrderId || "");
+    card.classList.toggle("selected", !!id && workspaceState.selectedOrderIds.has(id));
+    const btn = card.querySelector('[data-workspace-action="select"]');
+    if (btn) btn.textContent = (!!id && workspaceState.selectedOrderIds.has(id)) ? "Selected" : "Select";
+  });
+}
+
+function toggleWorkspaceOrderSelection(id, orderNumber){
+  const key = String(id || "").trim();
+  if (!key) return;
+  if (workspaceState.selectedOrderIds.has(key)){
+    workspaceState.selectedOrderIds.delete(key);
+    workspaceState.selectedOrderNumbers.delete(key);
+  }else{
+    workspaceState.selectedOrderIds.add(key);
+    workspaceState.selectedOrderNumbers.set(key, String(orderNumber || "").trim());
+    workspaceState.selectedOrderId = key;
+    workspaceState.selectedOrderNumber = String(orderNumber || "").trim();
+  }
+  updateWorkspaceSelectionUI();
+}
+
+function getLatestApprovedWorkspaceOrder(){
+  const approved = workspaceState.queue?.groups?.approved_ready;
+  return Array.isArray(approved) && approved.length ? approved[0] : null;
+}
+
+async function resolveWorkspaceOrder(identifier){
+  const text = String(identifier || "").trim();
+  if (!text) throw new Error("Order number is required.");
+  if (/^\d+$/.test(text)){
+    return fetchOrder(text);
+  }
+  const normalizedToken = normalizeWorkspaceOrderToken(text);
+  const queryVariants = [text, normalizedToken];
+  if (/^R-\d{2}-\d{3,5}$/i.test(normalizedToken)){
+    queryVariants.push(normalizedToken.slice(2));
+  }
+  const seen = new Set();
+  const items = [];
+  for (const query of queryVariants.filter(Boolean)){
+    const data = await fetchOrders({ query, year: "all", limit: 100, offset: 0 });
+    (Array.isArray(data?.items) ? data.items : []).forEach(item => {
+      const key = String(item.id || JSON.stringify(item));
+      if (seen.has(key)) return;
+      seen.add(key);
+      items.push(item);
+    });
+  }
+  const normalized = normalizedToken.toLowerCase();
+  const exact = items.filter(item => (item.order_numbers || []).some(num => normalizeWorkspaceOrderToken(num).toLowerCase() === normalized));
+  const matches = exact.length ? exact : items;
+  if (!matches.length){
+    throw new Error(`I couldn't find order ${text}.`);
+  }
+  if (matches.length > 1 && !exact.length){
+    throw new Error("I found multiple matching orders. Please choose one.");
+  }
+  return fetchOrder(matches[0].id);
+}
+
+function getOrderWarningList(order){
+  const warnings = [];
+  (order?.warnings || []).forEach(item => {
+    if (item) warnings.push(String(item));
+  });
+  const rowWarnings = order?.row_warnings || {};
+  if (rowWarnings && typeof rowWarnings === "object"){
+    Object.entries(rowWarnings).forEach(([key, values]) => {
+      (values || []).forEach(value => {
+        if (value) warnings.push(`Row ${key}: ${value}`);
+      });
+    });
+  }
+  return warnings;
+}
+
+function createWorkspaceDownloadUrl(blob){
+  return URL.createObjectURL(blob);
+}
+
+function rememberWorkspaceModuleFile(record){
+  workspaceState.moduleFiles.unshift(record);
+  workspaceState.moduleFiles = workspaceState.moduleFiles.slice(0, 20);
+  renderWorkspaceFiles(workspaceState.recentFiles || []);
+}
+
+function getProcessingSheetIdForOrder(order){
+  return `processing-${order?.id || getOrderLabel(order) || Date.now()}`;
+}
+
+function getProcessingSheetIdForOrders(orders){
+  const ids = (orders || []).map(order => order?.id || getOrderLabel(order)).filter(Boolean);
+  return `processing-${ids.join("-") || Date.now()}`;
+}
+
+async function fetchWorkspaceQueue(){
+  const res = await fetch(API_BASE + "/api/workspace/queue");
+  if (!res.ok){
+    const text = await res.text();
+    throw new Error(text || ("HTTP " + res.status));
+  }
+  return res.json();
+}
+
+async function fetchWorkspaceRecentFiles(){
+  const res = await fetch(API_BASE + "/api/workspace/recent-files");
+  if (!res.ok){
+    const text = await res.text();
+    throw new Error(text || ("HTTP " + res.status));
+  }
+  return res.json();
+}
+
+async function postWorkspaceProcessOrder(identifier){
+  const payload = {};
+  if (String(identifier || "").trim().match(/^\d+$/)){
+    payload.order_id = String(identifier);
+  }else{
+    payload.order_number = String(identifier || "").trim();
+  }
+  const res = await fetch(API_BASE + "/api/workspace/process-order", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok){
+    const text = await res.text();
+    throw new Error(text || ("HTTP " + res.status));
+  }
+  return res.json();
+}
+
+async function postWorkspaceAgent(message){
+  const context = buildWorkspaceAgentContext();
+  const res = await fetch(API_BASE + "/api/agent/workspace", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message,
+      selected_order_id: context.selected_order_id || undefined,
+      selected_order_number: context.selected_order_number || undefined,
+      context,
+    }),
+  });
+  if (!res.ok){
+    const text = await res.text();
+    throw new Error(text || ("HTTP " + res.status));
+  }
+  return res.json();
+}
+
+async function postWorkspaceSmartChat(message){
+  const context = buildWorkspaceAgentContext();
+  const res = await fetch(API_BASE + "/api/agent/smart-chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message, context }),
+  });
+  if (!res.ok){
+    const text = await res.text();
+    throw new Error(text || ("HTTP " + res.status));
+  }
+  return res.json();
+}
+
+async function postWorkspaceConfirmAction(decision){
+  const pending = workspaceState.latestPendingAction;
+  if (!pending?.pending_action_id){
+    throw new Error("There is no pending action to continue. Tell me which order to process.");
+  }
+  const res = await fetch(API_BASE + "/api/workspace/confirm-action", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: "pending_action",
+      pending_action_id: pending.pending_action_id,
+      decision,
+      context: buildWorkspaceAgentContext(),
+    }),
+  });
+  if (!res.ok){
+    const text = await res.text();
+    throw new Error(text || ("HTTP " + res.status));
+  }
+  return res.json();
+}
+
+function workspaceGroupLabel(key){
+  const labels = {
+    needs_review: "Needs Review",
+    approved_ready: "Approved / Ready to Process",
+    processing_done: "Processing Done",
+    labels_ready: "Labels Ready",
+    finished: "Finished",
+  };
+  return labels[key] || key;
+}
+
+function renderWorkspaceFiles(files){
+  if (!workspaceRecentFilesEl) return;
+  const serverItems = Array.isArray(files) ? files : [];
+  const items = [...(workspaceState.moduleFiles || []), ...serverItems];
+  if (!items.length){
+    workspaceRecentFilesEl.innerHTML = '<div class="workspace-empty">No production files generated yet.</div>';
+    return;
+  }
+  workspaceRecentFilesEl.innerHTML = items.map(item => {
+    const processingUrl = workspaceFileUrl(item.processing_pdf_url);
+    const labelsUrl = workspaceFileUrl(item.labels_pdf_url);
+    const modeLabel = item.mode === "combined" ? " · Mode: Combined" : (item.mode === "separate" ? " · Mode: Separate" : "");
+    const mergeLabel = item.mode === "combined" ? ` · Merge across orders: ${item.mergeAcrossOrders || item.merge_across_orders ? "Yes" : "No"}` : "";
+    return `<div class="workspace-file-item">
+      <div>
+        <div><strong>${escapeHtml(item.order_number || "—")}</strong> ${item.client_name ? `<span class="muted small">${escapeHtml(item.client_name)}</span>` : ""}</div>
+        <div class="workspace-file-meta">${escapeHtml(formatDate(item.generated_at))} · ${escapeHtml(item.batch_status || "ready")}${item.module_workflow ? " · Processing module" : ""}${escapeHtml(modeLabel)}${escapeHtml(mergeLabel)}</div>
+      </div>
+      <div class="workspace-file-actions">
+        ${item.workspace_job_id ? `<button type="button" class="btn small" data-workspace-open="workspace-processing" data-workspace-job-id="${escapeHtml(item.workspace_job_id)}">Open Job</button>` : ""}
+        ${processingUrl ? `<a class="btn small" href="${escapeHtml(processingUrl)}" target="_blank" rel="noopener">Processing PDF</a>` : ""}
+        ${labelsUrl ? `<a class="btn small" href="${escapeHtml(labelsUrl)}" target="_blank" rel="noopener">Labels PDF</a>` : ""}
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function renderAssistantFiles(files, options = {}){
+  if (!workspaceAssistantFilesEl) return;
+  const processingUrl = workspaceFileUrl(files?.processing_pdf_url);
+  const labelsUrl = workspaceFileUrl(files?.labels_pdf_url);
+  const workspaceJobAttr = options.workspaceJobId ? ` data-workspace-job-id="${escapeHtml(options.workspaceJobId)}"` : "";
+  workspaceAssistantFilesEl.innerHTML = [
+    options.openProcessing ? `<button type="button" class="btn small" data-workspace-open="workspace-processing"${workspaceJobAttr}>Open Workspace Processing Sheet</button>` : "",
+    processingUrl ? `<a class="btn small" href="${escapeHtml(processingUrl)}" target="_blank" rel="noopener">Download Processing PDF</a>` : "",
+    options.openLabels ? `<button type="button" class="btn small" data-workspace-open="workspace-labels"${workspaceJobAttr}>Open Label Job</button>` : "",
+    labelsUrl ? `<a class="btn small" href="${escapeHtml(labelsUrl)}" target="_blank" rel="noopener">Download Labels PDF</a>` : "",
+  ].filter(Boolean).join("");
+}
+
+function ensureWorkspaceProcessingJobView(){
+  let panel = document.getElementById("workspaceProcessingJobView");
+  if (panel) return panel;
+  const processingMain = processingMetaEl ? processingMetaEl.closest(".processing-main") : null;
+  if (!processingMain) return null;
+  panel = document.createElement("div");
+  panel.id = "workspaceProcessingJobView";
+  panel.className = "workspace-job-view";
+  panel.hidden = true;
+  processingMain.insertBefore(panel, processingMain.firstChild);
+  return panel;
+}
+
+function hideWorkspaceProcessingJobView(){
+  const panel = document.getElementById("workspaceProcessingJobView");
+  if (panel){
+    panel.hidden = true;
+    panel.innerHTML = "";
+  }
+}
+
+function renderWorkspaceProcessingJobView(job){
+  const panel = ensureWorkspaceProcessingJobView();
+  if (!panel || !job) return;
+  const processingUrl = workspaceFileUrl(job.processing_pdf_url);
+  const labelsUrl = workspaceFileUrl(job.labels_pdf_url);
+  const orders = Array.isArray(job.order_numbers) && job.order_numbers.length ? job.order_numbers.join(", ") : (job.order_number || "Workspace job");
+  const preview = job.preview_text || job.processing_state?.preview?.text || "No preview text captured.";
+  const modeLabel = job.mode === "combined" ? "Mode: Combined" : (job.mode === "separate" ? "Mode: Separate" : "Mode: Single");
+  const mergeLabel = job.mode === "combined" ? ` · Merge across orders: ${job.mergeAcrossOrders || job.merge_across_orders ? "Yes" : "No"}` : "";
+  panel.hidden = false;
+  panel.innerHTML = `<header>
+    <div>
+      <span class="badge">Workspace job — isolated from manual sheet</span>
+      <h3>${escapeHtml(orders)}</h3>
+      <div class="muted small">${escapeHtml(modeLabel)}${escapeHtml(mergeLabel)} · Your manual Processing tab was not changed.</div>
+    </div>
+    <div class="workspace-file-actions">
+      <button type="button" class="btn small" data-workspace-job-action="copy" data-workspace-job-id="${escapeHtml(job.id || job.workspace_job_id || "")}">Copy Text</button>
+      ${processingUrl ? `<a class="btn small" href="${escapeHtml(processingUrl)}" target="_blank" rel="noopener">Download PDF</a>` : ""}
+      ${labelsUrl ? `<a class="btn small" href="${escapeHtml(labelsUrl)}" target="_blank" rel="noopener">Download Labels</a>` : ""}
+      <button type="button" class="btn small" data-workspace-job-action="close">Close</button>
+    </div>
+  </header>
+  <div class="workspace-job-preview">${escapeHtml(preview)}</div>`;
+}
+
+function openWorkspaceProcessingJob(jobId){
+  const job = findWorkspaceProcessingJob(jobId) || (workspaceState.processingJobs || [])[0];
+  activateTab("processing");
+  if (!job){
+    appendWorkspaceMessage("assistant", "I could not find that Workspace processing job in this session.");
+    return;
+  }
+  renderWorkspaceProcessingJobView(job);
+}
+
+function renderWorkspacePendingAction(pending){
+  if (!workspaceAssistantFilesEl) return;
+  if (!pending){
+    workspaceAssistantFilesEl.innerHTML = "";
+    return;
+  }
+  const warningCounts = {};
+  (pending.warnings || []).forEach(item => {
+    const key = item.order_number || "Order";
+    warningCounts[key] = (warningCounts[key] || 0) + 1;
+  });
+  const orders = (pending.order_numbers || []).map(number => {
+    const count = warningCounts[number] || 0;
+    return `<li>${escapeHtml(number)}${count ? ` — ${count} warning${count === 1 ? "" : "s"}` : ""}</li>`;
+  }).join("");
+  workspaceAssistantFilesEl.innerHTML = `<div class="workspace-pending-card">
+    <strong>Warnings found ⚠️</strong>
+    <ul>${orders}</ul>
+    <div class="workspace-file-actions" style="justify-content:flex-start">
+      <button type="button" class="btn small primary" data-workspace-pending-decision="continue">Continue Anyway</button>
+      <button type="button" class="btn small" data-workspace-pending-decision="open_review">Open Review</button>
+      <button type="button" class="btn small" data-workspace-pending-decision="cancel">Cancel</button>
+    </div>
+  </div>`;
+}
+
+function appendWorkspaceMessage(role, message){
+  if (!workspaceChatLogEl) return;
+  const div = document.createElement("div");
+  div.className = `workspace-message ${role === "user" ? "user" : "assistant"}`;
+  div.textContent = message || "";
+  workspaceChatLogEl.appendChild(div);
+  workspaceChatLogEl.scrollTop = workspaceChatLogEl.scrollHeight;
+}
+
+function appendSmartChatMessage(role, message){
+  if (!workspaceSmartChatLogEl) return;
+  const div = document.createElement("div");
+  div.className = `workspace-message ${role === "user" ? "user" : "assistant"}`;
+  div.textContent = message || "";
+  workspaceSmartChatLogEl.appendChild(div);
+  workspaceSmartChatLogEl.scrollTop = workspaceSmartChatLogEl.scrollHeight;
+}
+
+function setWorkspaceBusy(busy, message = ""){
+  workspaceState.assistantLoading = !!busy;
+  if (workspaceSendBtn) workspaceSendBtn.disabled = !!busy;
+  if (workspaceAssistantStatusEl) workspaceAssistantStatusEl.textContent = message;
+  document.querySelectorAll("[data-workspace-action], [data-workspace-prompt]").forEach(btn => {
+    const isBlockedProcess = btn.dataset.workspaceAction === "process" && btn.dataset.canProcess === "false";
+    btn.disabled = !!busy || isBlockedProcess;
+  });
+  updateWorkspaceSelectionUI();
+}
+
+function setSmartChatBusy(busy, message = ""){
+  workspaceState.smartChatLoading = !!busy;
+  if (workspaceSmartChatSendBtn) workspaceSmartChatSendBtn.disabled = !!busy;
+  if (workspaceSmartChatStatusEl) workspaceSmartChatStatusEl.textContent = message;
+  document.querySelectorAll("[data-smart-chat-prompt]").forEach(btn => {
+    btn.disabled = !!busy;
+  });
+}
+
+function renderWorkspaceQueue(queue){
+  if (!workspaceQueueEl) return;
+  const sourceGroups = queue?.groups || {};
+  const groups = {};
+  Object.entries(sourceGroups).forEach(([key, value]) => {
+    groups[key] = Array.isArray(value) ? value.slice() : [];
+  });
+  const locallyProcessedIds = new Set();
+  (workspaceState.moduleFiles || []).forEach(item => {
+    if (item.order_id) locallyProcessedIds.add(String(item.order_id));
+    (item.order_ids || []).forEach(id => locallyProcessedIds.add(String(id)));
+  });
+  if (locallyProcessedIds.size){
+    groups.approved_ready = (groups.approved_ready || []).filter(item => {
+      if (!locallyProcessedIds.has(String(item.order_id || item.id || ""))) return true;
+      groups.labels_ready = groups.labels_ready || [];
+      const file = (workspaceState.moduleFiles || []).find(entry => {
+        const itemId = String(item.order_id || item.id || "");
+        return String(entry.order_id || "") === itemId || (entry.order_ids || []).map(String).includes(itemId);
+      });
+      groups.labels_ready.unshift({ ...item, ...(file || {}), status: "in_production" });
+      return false;
+    });
+  }
+  const order = ["needs_review", "approved_ready", "processing_done", "labels_ready", "finished"];
+  workspaceQueueEl.innerHTML = order.map(key => {
+    const items = Array.isArray(groups[key]) ? groups[key] : [];
+    const cards = items.length ? items.map(item => {
+      const processingUrl = workspaceFileUrl(item.processing_pdf_url);
+      const labelsUrl = workspaceFileUrl(item.labels_pdf_url);
+      const canProcess = key === "approved_ready";
+      const itemId = String(item.order_id || item.id || "");
+      const selected = workspaceState.selectedOrderIds.has(itemId);
+      return `<div class="workspace-order-card ${selected ? "selected" : ""}" data-workspace-order-id="${escapeHtml(itemId)}" data-workspace-order-number="${escapeHtml(item.order_number || "")}">
+        <div class="workspace-order-top">
+          <div style="min-width:0">
+            <div class="workspace-order-number mono">${escapeHtml(item.order_number || "—")}</div>
+            <div class="workspace-order-client">${escapeHtml(item.client_name || "—")}</div>
+          </div>
+          ${historyStatusBadgeHtml(item.status)}
+        </div>
+        <div class="workspace-order-metrics">
+          <span>${Number(item.total_pieces || 0)} pcs</span>
+          <span>${Number(item.total_area_m2 || 0).toFixed(3)} m²</span>
+          <span>${Number(item.warnings_count || 0)} warn</span>
+        </div>
+        <div class="workspace-file-meta">${escapeHtml(formatDate(item.approved_at || item.created_at))}</div>
+        <div class="workspace-actions">
+          <button type="button" class="btn small" data-workspace-action="select" data-id="${escapeHtml(itemId)}" data-order="${escapeHtml(item.order_number || "")}">${selected ? "Selected" : "Select"}</button>
+          <button type="button" class="btn small" data-workspace-action="open" data-id="${escapeHtml(itemId)}">Open</button>
+          <button type="button" class="btn small" data-workspace-action="check" data-order="${escapeHtml(item.order_number || "")}">Check</button>
+          <button type="button" class="btn small primary" data-workspace-action="process" data-can-process="${canProcess ? "true" : "false"}" data-id="${escapeHtml(itemId)}" ${canProcess ? "" : "disabled"}>Process</button>
+          <button type="button" class="btn small" data-workspace-action="labels" data-order="${escapeHtml(item.order_number || "")}">Labels</button>
+          ${processingUrl ? `<a class="btn small" href="${escapeHtml(processingUrl)}" target="_blank" rel="noopener">Processing PDF</a>` : ""}
+          ${labelsUrl ? `<a class="btn small" href="${escapeHtml(labelsUrl)}" target="_blank" rel="noopener">Labels PDF</a>` : ""}
+        </div>
+      </div>`;
+    }).join("") : '<div class="workspace-empty">No orders.</div>';
+    return `<section class="workspace-group">
+      <div class="workspace-group-title"><span>${escapeHtml(workspaceGroupLabel(key))}</span><span class="pill">${items.length}</span></div>
+      ${cards}
+    </section>`;
+  }).join("");
+}
+
+async function loadWorkspace(){
+  if (!workspaceQueueEl) return;
+  workspaceState.loading = true;
+  if (workspaceQueueStatusEl) workspaceQueueStatusEl.textContent = "Loading...";
+  if (workspaceFilesStatusEl) workspaceFilesStatusEl.textContent = "Loading...";
+  try{
+    const [queue, files] = await Promise.all([fetchWorkspaceQueue(), fetchWorkspaceRecentFiles()]);
+    workspaceState.queue = queue;
+    workspaceState.recentFiles = Array.isArray(files?.items) ? files.items : [];
+    renderWorkspaceQueue(queue);
+    renderWorkspaceFiles(workspaceState.recentFiles);
+    if (workspaceQueueStatusEl) workspaceQueueStatusEl.textContent = "";
+    if (workspaceFilesStatusEl) workspaceFilesStatusEl.textContent = "";
+  }catch(error){
+    if (workspaceQueueStatusEl) workspaceQueueStatusEl.textContent = "Workspace failed to load.";
+    if (workspaceQueueEl) workspaceQueueEl.innerHTML = `<div class="workspace-empty">${escapeHtml(error.message || error)}</div>`;
+  }finally{
+    workspaceState.loading = false;
+  }
+}
+
+async function refreshWorkspaceAfterAction(){
+  await loadWorkspace();
+  historyState.needsRefresh = true;
+  analysisState.allOrdersDirty = true;
+}
+
+function getWorkspaceOrderRows(order){
+  return Array.isArray(order?.rows) ? order.rows : [];
+}
+
+function summarizeWorkspaceOrders(orders){
+  const glassTypes = new Set();
+  let totalPieces = 0;
+  let totalArea = 0;
+  (orders || []).forEach(order => {
+    const rows = getWorkspaceOrderRows(order);
+    if (!rows.length){
+      totalPieces += Number(order?.total_pieces || order?.units || 0) || 0;
+      totalArea += Number(order?.total_area_m2 || order?.total_area || order?.area_total || 0) || 0;
+      return;
+    }
+    rows.forEach(row => {
+      const qty = Number(row.quantity ?? row.qty ?? 0);
+      totalPieces += Number.isFinite(qty) && qty > 0 ? qty : 1;
+      const area = Number(String(row.area ?? row.area_m2 ?? row.areaM2 ?? 0).replace(",", "."));
+      if (Number.isFinite(area)) totalArea += area;
+      const type = String(row.type || row.composition_display || row.composition_raw || row.glass_type || row.glassType || "").trim();
+      if (type) glassTypes.add(type);
+    });
+  });
+  return {
+    total_pieces: totalPieces,
+    total_area_m2: Number(totalArea.toFixed(3)),
+    glass_type_count: glassTypes.size,
+  };
+}
+
+async function resolveWorkspaceOrders(identifiers){
+  const requested = (Array.isArray(identifiers) ? identifiers : [identifiers])
+    .map(item => normalizeWorkspaceOrderToken(item) || String(item || "").trim())
+    .filter(Boolean);
+  if (!requested.length){
+    throw new Error("Tell me which order number to process.");
+  }
+  const found = [];
+  const missing = [];
+  const seenIds = new Set();
+  for (const identifier of requested){
+    try{
+      const order = await resolveWorkspaceOrder(identifier);
+      const key = String(order.id || getOrderLabel(order));
+      if (!seenIds.has(key)){
+        seenIds.add(key);
+        found.push(order);
+      }
+    }catch(error){
+      missing.push(identifier);
+    }
+  }
+  if (missing.length){
+    const foundLabels = found.map(getOrderLabel).filter(Boolean);
+    const foundText = foundLabels.length ? `I found ${foundLabels.join(", ")}, but ` : "";
+    throw new Error(`${foundText}I couldn't find ${missing.join(", ")}. No files were created.`);
+  }
+  return found;
+}
+
+function validateWorkspaceOrdersForProcessing(orders, options = {}){
+  if (options.force) return;
+  const blocked = [];
+  (orders || []).forEach(order => {
+    const orderNumber = getOrderLabel(order);
+    const status = normalizeHistoryStatusValue(order.status);
+    if (status !== "approved"){
+      blocked.push(`${orderNumber} is ${historyStatusLabel(status)}`);
+    }
+  });
+  if (blocked.length){
+    throw new Error(`${blocked.join(", ")}. I stopped before processing.`);
+  }
+}
+
+function getWorkspaceWarningNotes(orders){
+  return (orders || []).map(order => {
+    const warnings = getOrderWarningList(order);
+    return {
+      orderNumber: getOrderLabel(order),
+      count: warnings.length,
+      warnings,
+    };
+  }).filter(item => item.count > 0);
+}
+
+function cloneWorkspaceStateValue(value){
+  if (typeof structuredClone === "function"){
+    try{
+      return structuredClone(value);
+    }catch(error){
+      console.warn("structuredClone failed for Workspace state; falling back to JSON clone", error);
+    }
+  }
+  return JSON.parse(JSON.stringify(value));
+}
+
+function replaceObjectContents(target, source){
+  Object.keys(target).forEach(key => delete target[key]);
+  Object.assign(target, source || {});
+}
+
+function createEmptyProcessingState(baseProcessing = appState.processing){
+  return {
+    cart: [],
+    rows: [],
+    preview: { text: "", groups: [], meta: { clientLabel: "—", orders: [], date: new Date(), rows: 0 } },
+    grouped: false,
+    options: cloneWorkspaceStateValue(baseProcessing?.options || {
+      restartPerGroup: false,
+      decimalSeparator: "comma",
+      normalizeLPtoG: true,
+      mergeAcrossOrders: false,
+      autoDanko: false,
+    }),
+    headerOverrides: {},
+    rounding: {
+      manualApplied: false,
+      message: "",
+    },
+  };
+}
+
+function snapshotManualProcessingWorkspace(){
+  return {
+    processing: cloneWorkspaceStateValue(appState.processing),
+    labels: cloneWorkspaceStateValue(appState.labels),
+    processingState: cloneWorkspaceStateValue(processingState),
+    spacerProcessingState: cloneWorkspaceStateValue(spacerProcessingState),
+    labelsStatus: labelsStatusEl ? labelsStatusEl.textContent : "",
+  };
+}
+
+function restoreManualProcessingWorkspace(snapshot, options = {}){
+  const { labelNextIdFloor = null } = options;
+  appState.processing = cloneWorkspaceStateValue(snapshot.processing);
+  appState.labels = cloneWorkspaceStateValue(snapshot.labels);
+  if (Number.isFinite(labelNextIdFloor)){
+    appState.labels.nextId = Math.max(Number(appState.labels.nextId || 1), labelNextIdFloor);
+  }
+  replaceObjectContents(processingState, cloneWorkspaceStateValue(snapshot.processingState));
+  replaceObjectContents(spacerProcessingState, cloneWorkspaceStateValue(snapshot.spacerProcessingState));
+  if (labelsStatusEl) labelsStatusEl.textContent = snapshot.labelsStatus || "";
+  updateSpacerProcessingUI();
+  updateProcessingUI();
+  updateLabelsUI();
+}
+
+function beginWorkspaceIsolatedProcessingState(snapshot){
+  appState.processing = createEmptyProcessingState(snapshot.processing);
+  appState.labels = { jobs: [], nextId: Number(snapshot.labels?.nextId || 1) };
+  replaceObjectContents(processingState, { processedRows: [], previewGroups: [] });
+  rebuildProcessingRows();
+  updateProcessingUI();
+  updateLabelsUI();
+}
+
+function rememberWorkspaceProcessingJob(job){
+  if (!job) return null;
+  workspaceState.processingJobs = [job, ...(workspaceState.processingJobs || []).filter(item => item.id !== job.id)].slice(0, 25);
+  return job;
+}
+
+function findWorkspaceProcessingJob(jobId){
+  const id = String(jobId || "");
+  if (!id) return null;
+  return (workspaceState.processingJobs || []).find(job => String(job.id) === id)
+    || (workspaceState.moduleFiles || []).find(item => String(item.workspace_job_id || item.batch_id) === id)
+    || null;
+}
+
+function findLabelJobForProcessingSection(section){
+  const sectionKey = String(section?.key || section?.orderId || "").trim();
+  if (!sectionKey) return null;
+  return (appState.labels.jobs || []).find(job => {
+    const key = String(job.sourceDetail || job.primaryOrderId || "").trim();
+    return key === sectionKey || (Array.isArray(job.orders) && job.orders.includes(sectionKey));
+  }) || null;
+}
+
+async function processValidatedOrdersViaExistingModules(orders, mode = "combined", options = {}){
+  if (!orders.length){
+    throw new Error("No orders selected for processing.");
+  }
+  const orderNumbers = orders.map(getOrderLabel);
+  const steps = [];
+  const manualSnapshot = snapshotManualProcessingWorkspace();
+  let tempLabelNextId = Number(manualSnapshot.labels?.nextId || 1);
+  const mergeAcrossOrders = mode === "combined" && !!options.mergeAcrossOrders;
+  try{
+    beginWorkspaceIsolatedProcessingState(manualSnapshot);
+    appState.processing.options.mergeAcrossOrders = mergeAcrossOrders;
+    (orders || []).forEach(order => addOrderToProcessing(order));
+    steps.push(orders.length > 1 ? `Added ${orders.length} orders to one isolated Workspace Processing job` : "Added to isolated Workspace Processing job");
+    if (orders.length > 1){
+      steps.push(mergeAcrossOrders ? "Merge across orders enabled" : "Kept order boundaries separate");
+    }
+
+    const processingSheetId = orders.length > 1 ? getProcessingSheetIdForOrders(orders) : getProcessingSheetIdForOrder(orders[0]);
+    applyDankoRounding(processingSheetId);
+    steps.push("Applied Danko rounding");
+    groupProcessingDimensions(processingSheetId);
+    steps.push("Grouped dimensions");
+
+    const previewText = appState.processing.preview?.text || "";
+    const processingStateSnapshot = cloneWorkspaceStateValue(appState.processing);
+    const processingBlob = await buildProcessingPdfBlob();
+    const processingUrl = createWorkspaceDownloadUrl(processingBlob);
+    steps.push(orders.length > 1 ? "Exported combined Processing PDF" : "Exported Processing PDF");
+
+    const labelResult = addLabelJobsFromProcessing({ silent: true });
+    const sections = collectProcessingSectionsForLabels();
+    const labelJobs = sections.map(findLabelJobForProcessingSection).filter(Boolean);
+    const missingLabelSections = sections.filter(section => !findLabelJobForProcessingSection(section));
+    if (!labelJobs.length || missingLabelSections.length){
+      const skipped = labelResult.skipped?.length ? ` Skipped: ${labelResult.skipped.join(", ")}` : "";
+      throw new Error(`Labels could not be created from Processing.${skipped}`);
+    }
+    const labelRows = labelJobs.reduce((acc, job) => {
+      if (Array.isArray(job.rows)) acc.push(...job.rows);
+      return acc;
+    }, []);
+    tempLabelNextId = Number(appState.labels.nextId || tempLabelNextId);
+    const labelJobsSnapshot = cloneWorkspaceStateValue(labelJobs);
+    steps.push("Added labels from Processing");
+
+    const labelsBlob = await buildLabelsPdfBlob(labelRows);
+    const labelsUrl = createWorkspaceDownloadUrl(labelsBlob);
+    steps.push(orders.length > 1 ? "Exported combined Labels PDF" : "Exported Labels PDF");
+
+    const clients = Array.from(new Set(orders.map(order => getClientName(order, "")).filter(Boolean)));
+    const summary = summarizeWorkspaceOrders(orders);
+    const workspaceJobId = `workspace-job-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const generatedAt = new Date().toISOString();
+    const workspaceJob = rememberWorkspaceProcessingJob({
+      id: workspaceJobId,
+      source: "workspace_agent",
+      status: "ready",
+      mode: orders.length > 1 ? mode : "single",
+      mergeAcrossOrders,
+      merge_across_orders: mergeAcrossOrders,
+      processing_sheet_id: processingSheetId,
+      label_job_id: labelJobsSnapshot.map(job => job.id).join(","),
+      label_job_ids: labelJobsSnapshot.map(job => job.id),
+      order_id: orders[0].id,
+      order_ids: orders.map(order => order.id).filter(Boolean),
+      order_number: orderNumbers.join(", "),
+      order_numbers: orderNumbers,
+      client_name: clients.length === 1 ? clients[0] : (clients.length ? "(Mixed)" : ""),
+      client_names: clients,
+      created_at: generatedAt,
+      updated_at: generatedAt,
+      options_state: cloneWorkspaceStateValue(processingStateSnapshot.options || {}),
+      header_state: cloneWorkspaceStateValue(processingStateSnapshot.headerOverrides || {}),
+      raw_processing_rows: cloneWorkspaceStateValue(processingStateSnapshot.rows || []),
+      rounded_rows: cloneWorkspaceStateValue(processingStateSnapshot.rows || []),
+      grouped_rows: cloneWorkspaceStateValue(processingStateSnapshot.preview?.groups || []),
+      preview_text: previewText,
+      processing_state: processingStateSnapshot,
+      label_jobs: labelJobsSnapshot,
+      label_rows: cloneWorkspaceStateValue(labelRows),
+      processing_pdf_url: processingUrl,
+      labels_pdf_url: labelsUrl,
+      summary,
+    });
+    const record = {
+      module_workflow: true,
+      source: "workspace_agent",
+      workspace_job_id: workspaceJobId,
+      batch_id: processingSheetId,
+      order_id: orders[0].id,
+      order_ids: orders.map(order => order.id).filter(Boolean),
+      order_number: orderNumbers.join(", "),
+      order_numbers: orderNumbers,
+      client_name: clients.length === 1 ? clients[0] : (clients.length ? "(Mixed)" : ""),
+      generated_at: generatedAt,
+      batch_status: "workspace_job_ready",
+      mode: orders.length > 1 ? mode : "single",
+      mergeAcrossOrders,
+      merge_across_orders: mergeAcrossOrders,
+      processing_pdf_url: processingUrl,
+      labels_pdf_url: labelsUrl,
+      preview_text: previewText,
+      label_job_id: labelJobsSnapshot.map(job => job.id).join(","),
+      label_job_ids: labelJobsSnapshot.map(job => job.id),
+    };
+    rememberWorkspaceModuleFile(record);
+    return {
+      mode: orders.length > 1 ? mode : "single",
+      mergeAcrossOrders,
+      orders,
+      order: orders[0],
+      orderNumber: orderNumbers[0],
+      orderNumbers,
+      steps,
+      summary,
+      files: {
+        processing_pdf_url: processingUrl,
+        labels_pdf_url: labelsUrl,
+      },
+      processingSheetId,
+      workspaceJobId,
+      workspaceJob,
+      labelJob: labelJobsSnapshot[0],
+      labelJobs: labelJobsSnapshot,
+      previewText,
+      isolated: true,
+      warningNotes: getWorkspaceWarningNotes(orders),
+    };
+  }finally{
+    restoreManualProcessingWorkspace(manualSnapshot, { labelNextIdFloor: tempLabelNextId });
+  }
+}
+
+async function processOrdersViaExistingModules(identifiers, mode = "combined", options = {}){
+  const orders = await resolveWorkspaceOrders(identifiers);
+  validateWorkspaceOrdersForProcessing(orders, options);
+  const normalizedMode = mode === "separate" ? "separate" : (orders.length > 1 ? "combined" : "single");
+  const mergeAcrossOrders = normalizedMode === "combined" && !!options.mergeAcrossOrders;
+  if (normalizedMode === "separate" && orders.length > 1){
+    const results = [];
+    for (const order of orders){
+      results.push(await processValidatedOrdersViaExistingModules([order], "single", { ...options, mergeAcrossOrders: false }));
+    }
+    return { mode: "separate", mergeAcrossOrders: false, results, orderNumbers: orders.map(getOrderLabel), files: results[0]?.files || {}, steps: [] };
+  }
+  return processValidatedOrdersViaExistingModules(orders, normalizedMode, { ...options, mergeAcrossOrders });
+}
+
+async function processOrderViaExistingModules(identifier){
+  const result = await processOrdersViaExistingModules([identifier], "single");
+  const order = result.order;
+  const orderNumber = getOrderLabel(order);
+  return { ...result, orderNumber };
+}
+
+function formatWorkspaceProcessResultMessage(result){
+  const warningNotes = Array.isArray(result?.warningNotes) && result.warningNotes.length
+    ? `\n\nNote:\n${result.warningNotes.map(item => `${item.orderNumber} had ${item.count} previous warning${item.count === 1 ? "" : "s"}, but it was already approved, so I continued.`).join("\n")}`
+    : "";
+  if (result?.mode === "combined"){
+    const summary = result.summary || {};
+    const mergeText = result.mergeAcrossOrders
+      ? "Processed together with merge across orders enabled."
+      : "Processed together, keeping orders separate.";
+    return `Done ✅
+${mergeText}
+
+Your manual Processing tab was not changed.
+
+Mode: Combined
+Merge across orders: ${result.mergeAcrossOrders ? "Yes" : "No"}
+
+Orders:
+${result.orderNumbers.map((number, idx) => {
+  const client = getClientName(result.orders[idx], "");
+  return `- ${number}${client ? ` — ${client}` : ""}`;
+}).join("\n")}
+
+Summary:
+- Total pieces: ${summary.total_pieces || 0}
+- Total area: ${Number(summary.total_area_m2 || 0).toFixed(3)} m²
+- Glass types: ${summary.glass_type_count || 0}
+${warningNotes}
+
+Steps completed:
+${result.steps.map(step => `✓ ${step}`).join("\n")}`;
+  }
+  if (result?.mode === "separate"){
+    return `Done ✅
+Processed ${result.results.length} orders separately in isolated Workspace processing jobs.
+
+Your manual Processing tab was not changed.
+
+Orders:
+${result.results.map(item => `- ${item.orderNumber}`).join("\n")}
+${(result.results || []).flatMap(item => item.warningNotes || []).length ? `\nNote:\n${(result.results || []).flatMap(item => item.warningNotes || []).map(item => `${item.orderNumber} had ${item.count} previous warning${item.count === 1 ? "" : "s"}, but it was already approved, so I continued.`).join("\n")}` : ""}
+
+Each order has its own Processing PDF and Labels PDF in Recent Production Files.`;
+  }
+  return `Done ✅
+Order ${result.orderNumber} was processed in a separate Workspace processing job.
+
+Your manual Processing tab was not changed.
+${warningNotes}
+
+Steps completed:
+${result.steps.map(step => `✓ ${step}`).join("\n")}`;
+}
+
+function rememberWorkspaceLastAgentAction(result){
+  if (!result) return;
+  const latestFile = (workspaceState.moduleFiles || [])[0] || null;
+  workspaceState.lastAgentAction = {
+    type: result.mode === "combined" ? "process_orders_combined" : (result.mode === "separate" ? "process_orders_separate" : "process_order"),
+    status: "success",
+    order_numbers: result.orderNumbers || (result.orderNumber ? [result.orderNumber] : []),
+    mode: result.mode === "single" ? null : (result.mode || null),
+    mergeAcrossOrders: result.mode === "combined" ? !!result.mergeAcrossOrders : false,
+    processing_sheet_id: result.processingSheetId || latestFile?.batch_id || null,
+    label_job_id: result.labelJob?.id || result.label_job_id || latestFile?.label_job_id || null,
+    workspace_job_id: result.workspaceJobId || latestFile?.workspace_job_id || null,
+    files: result.files || (latestFile ? {
+      processing_pdf_url: latestFile.processing_pdf_url,
+      labels_pdf_url: latestFile.labels_pdf_url,
+    } : null),
+  };
+}
+
+function showWorkspaceLastFiles(){
+  const latest = workspaceState.lastAgentAction?.files ? workspaceState.lastAgentAction : null;
+  const fallback = (workspaceState.moduleFiles || [])[0] || null;
+  const files = latest?.files || (fallback ? {
+    processing_pdf_url: fallback.processing_pdf_url,
+    labels_pdf_url: fallback.labels_pdf_url,
+  } : null);
+  const orderNumbers = latest?.order_numbers?.length ? latest.order_numbers.join(", ") : (fallback?.order_number || "latest order");
+  if (!files){
+    throw new Error("No production files have been generated in this Workspace session.");
+  }
+  appendWorkspaceMessage("assistant", `Labels are ready for ${orderNumbers}.`);
+  renderAssistantFiles(files, {
+    openProcessing: true,
+    openLabels: true,
+    workspaceJobId: latest?.workspace_job_id || fallback?.workspace_job_id || null,
+  });
+}
+
+function isWorkspaceContinueMessage(message){
+  const lower = String(message || "").trim().toLowerCase();
+  return ["continue", "continue anyway", "yes continue", "proceed", "go ahead", "do it", "yes", "ok continue"].includes(lower);
+}
+
+async function handleWorkspaceAgentResponse(response){
+  if (response?.pending_action){
+    workspaceState.latestPendingAction = response.pending_action;
+    workspaceState.lastAgentAction = {
+      type: response.pending_action.type || "process_orders",
+      status: "blocked",
+      order_numbers: response.pending_action.order_numbers || [],
+      mode: response.pending_action.mode || null,
+      processing_sheet_id: null,
+      label_job_id: null,
+      files: null,
+    };
+    appendWorkspaceMessage("assistant", `${response.message || "I found warnings in one or more orders and stopped before creating production files."}\n${(response.warnings || []).slice(0, 8).map(item => `- ${item.order_number}: ${item.message || item}`).join("\n")}`);
+    renderWorkspacePendingAction(response.pending_action);
+    return true;
+  }
+  const frontendAction = (response.actions || []).find(action => action.type === "process_via_existing_modules");
+  if (frontendAction){
+    const identifiers = frontendAction.identifiers || frontendAction.order_numbers || [frontendAction.identifier];
+    const result = await processOrdersViaExistingModules(identifiers, frontendAction.mode || "single", {
+      force: !!frontendAction.force,
+      confirmedPendingActionId: frontendAction.confirmed_pending_action_id || null,
+      mergeAcrossOrders: !!frontendAction.mergeAcrossOrders,
+    });
+    workspaceState.latestPendingAction = null;
+    rememberWorkspaceLastAgentAction(result);
+    appendWorkspaceMessage("assistant", formatWorkspaceProcessResultMessage(result));
+    renderAssistantFiles(result.files, {
+      openProcessing: true,
+      openLabels: true,
+      workspaceJobId: result.workspaceJobId || result.results?.[0]?.workspaceJobId || workspaceState.lastAgentAction?.workspace_job_id || null,
+    });
+    await refreshWorkspaceAfterAction();
+    return true;
+  }
+  const contextAction = (response.actions || []).find(action => action.type === "show_last_agent_files" || action.type === "open_last_processing_sheet" || action.type === "open_last_label_job" || action.type === "open_review");
+  if (contextAction?.type === "show_last_agent_files"){
+    showWorkspaceLastFiles();
+    return true;
+  }
+  if (contextAction?.type === "open_last_processing_sheet"){
+    openWorkspaceProcessingJob(workspaceState.lastAgentAction?.workspace_job_id || null);
+    appendWorkspaceMessage("assistant", response.message || "Opened the Processing sheet.");
+    return true;
+  }
+  if (contextAction?.type === "open_last_label_job"){
+    openWorkspaceProcessingJob(workspaceState.lastAgentAction?.workspace_job_id || null);
+    appendWorkspaceMessage("assistant", response.message || "Opened the label job.");
+    return true;
+  }
+  if (contextAction?.type === "open_review"){
+    const firstId = (contextAction.order_ids || [])[0];
+    if (firstId) await openOrderFromList(firstId);
+    appendWorkspaceMessage("assistant", response.message || "Opened review.");
+    return true;
+  }
+  return false;
+}
+
+async function runWorkspaceCommand(message){
+  const text = String(message || "").trim();
+  if (!text || workspaceState.assistantLoading) return;
+  appendWorkspaceMessage("user", text);
+  renderAssistantFiles({});
+  setWorkspaceBusy(true, "Working...");
+  try{
+    const lowerText = text.toLowerCase();
+    if (isWorkspaceContinueMessage(text)){
+      const response = workspaceState.latestPendingAction
+        ? await postWorkspaceConfirmAction("continue")
+        : await postWorkspaceAgent(text);
+      if (await handleWorkspaceAgentResponse(response)) return;
+      appendWorkspaceMessage("assistant", response.message || "Done.");
+      return;
+    }
+    if (((lowerText.includes("latest processed") || lowerText.includes("latest labels")) && (lowerText.includes("label") || lowerText.includes("download")))
+      || (lowerText.includes("download") && lowerText.includes("labels") && lowerText.includes("again"))){
+      showWorkspaceLastFiles();
+      return;
+    }
+    if (lowerText.includes("open") && lowerText.includes("processing") && (lowerText.includes("that") || lowerText.includes("last") || lowerText.includes("sheet"))){
+      openWorkspaceProcessingJob(workspaceState.lastAgentAction?.workspace_job_id || null);
+      appendWorkspaceMessage("assistant", "Opened the Workspace Processing sheet.");
+      return;
+    }
+    const processIntent = inferWorkspaceProcessIntent(text);
+    if (processIntent){
+      if (!workspaceState.queue){
+        await loadWorkspace();
+      }
+      const response = await postWorkspaceAgent(text);
+      if (await handleWorkspaceAgentResponse(response)) return;
+      appendWorkspaceMessage("assistant", response.message || "Done.");
+      return;
+    }
+    const response = await postWorkspaceAgent(text);
+    if (await handleWorkspaceAgentResponse(response)) return;
+    appendWorkspaceMessage("assistant", response.message || "Done.");
+    renderAssistantFiles(response.files || {});
+    if (response.status && response.status !== "help"){
+      await refreshWorkspaceAfterAction();
+    }
+  }catch(error){
+    appendWorkspaceMessage("assistant", "Workspace action failed: " + (error.message || error));
+  }finally{
+    setWorkspaceBusy(false, "");
+  }
+}
+
+function renderSmartChatActions(actions){
+  if (!workspaceSmartChatActionsEl) return;
+  const safeActions = Array.isArray(actions) ? actions : [];
+  const sendAction = safeActions.find(action => action && action.kind === "send_to_factory");
+  if (!sendAction){
+    workspaceSmartChatActionsEl.innerHTML = "";
+    return;
+  }
+  const message = sendAction.payload?.message || "";
+  workspaceSmartChatActionsEl.innerHTML = `<button type="button" class="btn small" data-smart-chat-action="send-to-factory" data-message="${escapeHtml(message)}">${escapeHtml(sendAction.label || "Send to Factory Assistant")}</button>`;
+}
+
+async function runSmartChat(message){
+  const text = String(message || "").trim();
+  if (!text || workspaceState.smartChatLoading) return;
+  appendSmartChatMessage("user", text);
+  renderSmartChatActions([]);
+  setSmartChatBusy(true, "Thinking...");
+  try{
+    const response = await postWorkspaceSmartChat(text);
+    const backendMessage = typeof response?.message === "string" ? response.message : "";
+    appendSmartChatMessage("assistant", backendMessage || "Smart Chat returned no message.");
+    renderSmartChatActions(response.actions || []);
+  }catch(error){
+    appendSmartChatMessage("assistant", "Smart Chat failed: " + (error.message || error));
+  }finally{
+    setSmartChatBusy(false, "");
+  }
+}
+
+async function processWorkspaceOrder(identifier){
+  if (!identifier || workspaceState.assistantLoading) return;
+  appendWorkspaceMessage("user", `Process order ${identifier}`);
+  renderAssistantFiles({});
+  setWorkspaceBusy(true, "Processing order...");
+  try{
+    const response = await postWorkspaceAgent(`Process order ${identifier}`);
+    if (!(await handleWorkspaceAgentResponse(response))){
+      appendWorkspaceMessage("assistant", response.message || "Done.");
+    }
+  }catch(error){
+    appendWorkspaceMessage("assistant", "Processing failed: " + (error.message || error));
+  }finally{
+    setWorkspaceBusy(false, "");
+  }
+}
+
+if (workspaceRefreshBtn){
+  workspaceRefreshBtn.addEventListener("click", ()=> loadWorkspace());
+}
+if (workspaceProcessSelectedBtn){
+  workspaceProcessSelectedBtn.addEventListener("click", ()=> {
+    const count = workspaceState.selectedOrderIds.size;
+    if (!count) return;
+    runWorkspaceCommand(count > 1 ? "Process selected orders together" : "Process selected order");
+  });
+}
+if (workspaceClearSelectionBtn){
+  workspaceClearSelectionBtn.addEventListener("click", ()=> {
+    workspaceState.selectedOrderIds.clear();
+    workspaceState.selectedOrderNumbers.clear();
+    workspaceState.selectedOrderId = "";
+    workspaceState.selectedOrderNumber = "";
+    updateWorkspaceSelectionUI();
+  });
+}
+if (workspaceCommandForm){
+  workspaceCommandForm.addEventListener("submit", event => {
+    event.preventDefault();
+    const message = workspaceCommandInput ? workspaceCommandInput.value : "";
+    if (workspaceCommandInput) workspaceCommandInput.value = "";
+    runWorkspaceCommand(message);
+  });
+}
+if (workspacePromptButtons){
+  workspacePromptButtons.addEventListener("click", event => {
+    const btn = event.target.closest("[data-workspace-prompt]");
+    if (!btn) return;
+    runWorkspaceCommand(btn.dataset.workspacePrompt || btn.textContent || "");
+  });
+}
+if (workspaceSmartChatForm){
+  workspaceSmartChatForm.addEventListener("submit", event => {
+    event.preventDefault();
+    const message = workspaceSmartChatInput ? workspaceSmartChatInput.value : "";
+    if (workspaceSmartChatInput) workspaceSmartChatInput.value = "";
+    runSmartChat(message);
+  });
+}
+if (workspaceSmartPromptButtons){
+  workspaceSmartPromptButtons.addEventListener("click", event => {
+    const btn = event.target.closest("[data-smart-chat-prompt]");
+    if (!btn) return;
+    runSmartChat(btn.dataset.smartChatPrompt || btn.textContent || "");
+  });
+}
+if (workspaceSmartChatActionsEl){
+  workspaceSmartChatActionsEl.addEventListener("click", event => {
+    const btn = event.target.closest("[data-smart-chat-action='send-to-factory']");
+    if (!btn) return;
+    const message = btn.dataset.message || "";
+    if (workspaceCommandInput){
+      workspaceCommandInput.value = message;
+      workspaceCommandInput.focus();
+    }
+    if (workspaceAssistantStatusEl){
+      workspaceAssistantStatusEl.textContent = "Copied from Smart Chat. Press Send to run it.";
+    }
+  });
+}
+if (workspaceAssistantFilesEl){
+  workspaceAssistantFilesEl.addEventListener("click", event => {
+    const pendingBtn = event.target.closest("[data-workspace-pending-decision]");
+    if (pendingBtn){
+      const decision = pendingBtn.dataset.workspacePendingDecision;
+      if (decision === "cancel"){
+        postWorkspaceConfirmAction("cancel").then(response => {
+          workspaceState.latestPendingAction = null;
+          renderAssistantFiles({});
+          appendWorkspaceMessage("assistant", response.message || "Cancelled. No production files were created.");
+        }).catch(error => appendWorkspaceMessage("assistant", "Workspace action failed: " + (error.message || error)));
+      }else if (decision === "open_review"){
+        postWorkspaceConfirmAction("open_review").then(response => handleWorkspaceAgentResponse(response)).catch(error => appendWorkspaceMessage("assistant", "Workspace action failed: " + (error.message || error)));
+      }else{
+        runWorkspaceCommand("continue");
+      }
+      return;
+    }
+    const btn = event.target.closest("[data-workspace-open]");
+    if (!btn) return;
+    const target = btn.dataset.workspaceOpen;
+    if (target === "workspace-processing" || target === "workspace-labels"){
+      openWorkspaceProcessingJob(btn.dataset.workspaceJobId || workspaceState.lastAgentAction?.workspace_job_id || null);
+    }else if (target === "processing"){
+      activateTab("processing");
+    }else if (target === "labels"){
+      activateTab("labels");
+    }
+  });
+}
+document.addEventListener("click", event => {
+  const btn = event.target.closest("[data-workspace-job-action]");
+  if (!btn) return;
+  const action = btn.dataset.workspaceJobAction;
+  if (action === "close"){
+    hideWorkspaceProcessingJobView();
+    return;
+  }
+  if (action === "copy"){
+    const job = findWorkspaceProcessingJob(btn.dataset.workspaceJobId);
+    const text = job?.preview_text || job?.processing_state?.preview?.text || "";
+    if (!text){
+      setStatusMessage("No Workspace job text to copy.");
+      return;
+    }
+    navigator.clipboard.writeText(text)
+      .then(() => setStatusMessage("Workspace Processing text copied."))
+      .catch(() => setStatusMessage("Copy failed."));
+  }
+});
+if (workspaceRecentFilesEl){
+  workspaceRecentFilesEl.addEventListener("click", event => {
+    const btn = event.target.closest("[data-workspace-open]");
+    if (!btn) return;
+    const target = btn.dataset.workspaceOpen;
+    if (target === "workspace-processing" || target === "workspace-labels"){
+      openWorkspaceProcessingJob(btn.dataset.workspaceJobId || null);
+    }
+  });
+}
+if (workspaceQueueEl){
+  workspaceQueueEl.addEventListener("click", async event => {
+    const card = event.target.closest(".workspace-order-card");
+    if (card){
+      workspaceState.selectedOrderId = card.dataset.workspaceOrderId || "";
+      workspaceState.selectedOrderNumber = card.dataset.workspaceOrderNumber || "";
+    }
+    const btn = event.target.closest("[data-workspace-action]");
+    if (!btn) return;
+    const action = btn.dataset.workspaceAction;
+    const id = btn.dataset.id || workspaceState.selectedOrderId;
+    const orderNumber = btn.dataset.order || workspaceState.selectedOrderNumber || id;
+    if (action === "select"){
+      toggleWorkspaceOrderSelection(id, orderNumber);
+    }else if (action === "open"){
+      await openOrderFromList(id);
+    }else if (action === "check"){
+      await runWorkspaceCommand(`Check order ${orderNumber}`);
+    }else if (action === "process"){
+      await processWorkspaceOrder(id || orderNumber);
+    }else if (action === "labels"){
+      await runWorkspaceCommand(`Generate labels for order ${orderNumber}`);
+    }
+  });
+}
+
 async function fetchAllApprovedOrdersForInvoicing(){
   const all = [];
   let offset = 0;
@@ -16100,13 +18268,12 @@ if (processingRoundingBtn){
         if (processingAutoDankoToggle) processingAutoDankoToggle.checked = false;
       }
       setProcessingRoundingMessage("Rounded values removed.");
-    }else{
-      appState.processing.rounding.manualApplied = true;
-      setProcessingRoundingMessage("Rounded values applied using Danko Rule ✅");
+      applyProcessingRoundingToRows();
+      recalcProcessingPreview();
+      updateProcessingUI();
+      return;
     }
-    applyProcessingRoundingToRows();
-    recalcProcessingPreview();
-    updateProcessingUI();
+    applyDankoRounding();
   });
 }
 
@@ -16127,10 +18294,15 @@ if (processingAutoDankoToggle){
 
 if (processingGroupBtn){
   processingGroupBtn.addEventListener("click", ()=>{
-    appState.processing.grouped = !appState.processing.grouped;
-    rebuildProcessingRows();
-    updateProcessingUI();
-    setStatusMessage(appState.processing.grouped ? "Dimensions grouped." : "Grouping disabled.");
+    if (appState.processing.grouped){
+      appState.processing.grouped = false;
+      rebuildProcessingRows();
+      updateProcessingUI();
+      setStatusMessage("Grouping disabled.");
+      return;
+    }
+    groupProcessingDimensions();
+    setStatusMessage("Dimensions grouped.");
   });
 }
 
@@ -17116,8 +19288,7 @@ async function handlePrint(rows){
   if (!rows || !rows.length){
     throw new Error("No rows to print.");
   }
-  const pdfBytes = await generateLabelsPdf(rows);
-  const blob = new Blob([pdfBytes], { type: "application/pdf" });
+  const blob = await buildLabelsPdfBlob(rows);
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -17126,6 +19297,14 @@ async function handlePrint(rows){
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+async function buildLabelsPdfBlob(rows){
+  if (!rows || !rows.length){
+    throw new Error("No rows to print.");
+  }
+  const pdfBytes = await generateLabelsPdf(rows);
+  return new Blob([pdfBytes], { type: "application/pdf" });
 }
 
 document.getElementById("printLabels").addEventListener("click", async ()=>{
@@ -17281,6 +19460,25 @@ function bytesToDataURL(bytes){
   return "data:image/png;base64," + btoa(binary);
 }
 
+function bytesToBase64(bytes){
+  if (!bytes) return "";
+  const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < arr.length; i += chunk){
+    const slice = arr.subarray(i, i + chunk);
+    binary += String.fromCharCode.apply(null, slice);
+  }
+  return btoa(binary);
+}
+
+function base64ToBytes(base64){
+  const bin = atob(String(base64 || ""));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
 function fileToDataURL(file){
   return new Promise((resolve, reject)=>{
     const reader = new FileReader();
@@ -17299,6 +19497,1723 @@ async function ensurePdfLib(){
     script.onerror = ()=> reject(new Error("Failed to load pdf-lib"));
     document.head.appendChild(script);
   });
+}
+
+let pdfJsLibPromise = null;
+async function ensurePdfJs(){
+  if (window.pdfjsLib) return window.pdfjsLib;
+  if (!pdfJsLibPromise){
+    pdfJsLibPromise = import("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.mjs").then(mod => {
+      mod.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.mjs";
+      window.pdfjsLib = mod;
+      return mod;
+    });
+  }
+  return pdfJsLibPromise;
+}
+
+const pdfEditorState = {
+  fileName: "",
+  originalPdfBytes: null,
+  workingPdfBytes: null,
+  pdfDocument: null,
+  pages: [],
+  overlays: [],
+  activeVisibleIndex: 0,
+  zoom: 1,
+  fitWidth: true,
+  tool: "select",
+  selectedOverlayId: null,
+  dirty: false,
+  renderToken: 0,
+  drag: null,
+  inlineTextBlock: null,
+  textBlocks: [],
+  hasTextLayer: false,
+  hoveredTextBlockId: null,
+  activeTextBlockId: null,
+  selectedTextBlockId: null,
+  isEditingText: false,
+  nativeTextEdit: null,
+  activeViewport: null,
+  exportUrl: null,
+};
+
+function setPdfEditorStatus(message, isError = false){
+  if (!pdfEditorStatusEl) return;
+  pdfEditorStatusEl.textContent = message || "";
+  pdfEditorStatusEl.classList.toggle("error", !!isError);
+}
+
+function setPdfEditorDirty(dirty){
+  pdfEditorState.dirty = !!dirty;
+  if (pdfEditorUnsavedEl) pdfEditorUnsavedEl.hidden = !pdfEditorState.dirty;
+}
+
+function getVisiblePdfPages(){
+  return pdfEditorState.pages.filter(page => !page.deleted);
+}
+
+function getActivePdfPageState(){
+  const pages = getVisiblePdfPages();
+  if (!pages.length) return null;
+  const index = Math.min(Math.max(0, pdfEditorState.activeVisibleIndex), pages.length - 1);
+  pdfEditorState.activeVisibleIndex = index;
+  return pages[index] || null;
+}
+
+function createPdfOverlay(type, pageIndex, rect, data = {}){
+  return {
+    id: `pdf-ov-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    type,
+    pageIndex,
+    x: rect.x,
+    y: rect.y,
+    width: rect.width,
+    height: rect.height,
+    rotation: 0,
+    opacity: data.opacity ?? (type === "highlight" ? 0.35 : 1),
+    fontSize: data.fontSize || 14,
+    fontFamily: data.fontFamily || "Helvetica",
+    color: data.color || "#111827",
+    backgroundColor: data.backgroundColor || (type === "textEdit" ? "#ffffff" : "transparent"),
+    alignment: data.alignment || "left",
+    content: data.content || "",
+    originalText: data.originalText || "",
+    replacementText: data.replacementText || "",
+    detectedFromTextLayer: !!data.detectedFromTextLayer,
+    baselineY: Number.isFinite(data.baselineY) ? data.baselineY : null,
+    transform: Array.isArray(data.transform) ? data.transform.slice() : [],
+    pageScale: Number.isFinite(data.pageScale) ? data.pageScale : null,
+    pageRotation: Number.isFinite(data.pageRotation) ? data.pageRotation : 0,
+    sourceWidth: Number.isFinite(data.sourceWidth) ? data.sourceWidth : rect.width,
+    sourceHeight: Number.isFinite(data.sourceHeight) ? data.sourceHeight : rect.height,
+    originalBounds: data.originalBounds ? { ...data.originalBounds } : { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+    replacementPosition: data.replacementPosition ? { ...data.replacementPosition } : { x: rect.x, y: rect.y },
+    replacementBounds: data.replacementBounds ? { ...data.replacementBounds } : { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+    pending: !!data.pending,
+    applied: !!data.applied,
+    textBlockId: data.textBlockId || "",
+    imageDataUrl: data.imageDataUrl || "",
+    path: Array.isArray(data.path) ? data.path : [],
+  };
+}
+
+function isPdfTextEditTool(tool = pdfEditorState.tool){
+  return tool === "textEdit" || tool === "nativeTextEdit";
+}
+
+function getPdfToolLabel(tool){
+  if (tool === "textEdit") return "Safe Text Edit";
+  if (tool === "nativeTextEdit") return "Native Text Edit";
+  if (tool === "text") return "Text Box";
+  return tool || "select";
+}
+
+function clampPdfRect(rect){
+  const x = Math.min(Math.max(rect.x, 0), 0.995);
+  const y = Math.min(Math.max(rect.y, 0), 0.995);
+  const width = Math.min(Math.max(rect.width, 0.01), 1 - x);
+  const height = Math.min(Math.max(rect.height, 0.01), 1 - y);
+  return { x, y, width, height };
+}
+
+function getPdfPointerPoint(event){
+  if (!pdfEditorPageFrame) return null;
+  const rect = pdfEditorPageFrame.getBoundingClientRect();
+  if (!rect.width || !rect.height) return null;
+  return {
+    x: Math.min(Math.max((event.clientX - rect.left) / rect.width, 0), 1),
+    y: Math.min(Math.max((event.clientY - rect.top) / rect.height, 0), 1),
+  };
+}
+
+function screenToPdfCoords(point, pageWidth, pageHeight){
+  return {
+    x: point.x * pageWidth,
+    y: pageHeight - (point.y * pageHeight),
+  };
+}
+
+function pdfToScreenCoords(point, pageWidth, pageHeight){
+  return {
+    x: pageWidth ? point.x / pageWidth : 0,
+    y: pageHeight ? (pageHeight - point.y) / pageHeight : 0,
+  };
+}
+
+function textItemToViewportRect(item, viewport, pdfjsLib){
+  const transform = pdfjsLib.Util.transform(viewport.transform, item.transform);
+  const fontSize = Math.max(6, Math.hypot(transform[2], transform[3]));
+  const width = Math.max(4, (Number(item.width) || String(item.str || "").length * fontSize * 0.5) * viewport.scale);
+  const height = Math.max(6, fontSize * 1.18);
+  const left = transform[4];
+  const top = transform[5] - fontSize;
+  const baseline = transform[5];
+  return { left, top, width, height, fontSize, baseline, transform };
+}
+
+function normalizePdfHexColor(value, fallback = "#000000"){
+  const text = String(value || "").trim();
+  if (/^#[0-9a-f]{6}$/i.test(text)) return text;
+  if (/^#[0-9a-f]{3}$/i.test(text)){
+    return "#" + text.slice(1).split("").map(ch => ch + ch).join("");
+  }
+  const rgbMatch = text.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+  if (rgbMatch){
+    return rgbToHex(Number(rgbMatch[1]), Number(rgbMatch[2]), Number(rgbMatch[3]));
+  }
+  return fallback;
+}
+
+function rgbToHex(r, g, b){
+  const toHex = value => Math.min(255, Math.max(0, Math.round(value || 0))).toString(16).padStart(2, "0");
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+function samplePdfCanvasBackgroundColor(rect){
+  if (!pdfEditorCanvas) return "#ffffff";
+  const canvas = pdfEditorCanvas;
+  const x = Math.max(0, Math.floor(rect.x * canvas.width));
+  const y = Math.max(0, Math.floor(rect.y * canvas.height));
+  const w = Math.max(1, Math.min(canvas.width - x, Math.ceil(rect.width * canvas.width)));
+  const h = Math.max(1, Math.min(canvas.height - y, Math.ceil(rect.height * canvas.height)));
+  if (w <= 0 || h <= 0) return "#ffffff";
+  try{
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    const data = ctx.getImageData(x, y, w, h).data;
+    const buckets = new Map();
+    let fallback = [255, 255, 255, 0];
+    for (let i = 0; i < data.length; i += 16){
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      if (lum > fallback[3]) fallback = [r, g, b, lum];
+      if (lum < 135) continue;
+      const qr = Math.round(r / 16) * 16;
+      const qg = Math.round(g / 16) * 16;
+      const qb = Math.round(b / 16) * 16;
+      const key = `${qr},${qg},${qb}`;
+      buckets.set(key, (buckets.get(key) || 0) + 1);
+    }
+    let bestKey = null;
+    let bestCount = 0;
+    buckets.forEach((count, key) => {
+      if (count > bestCount){
+        bestKey = key;
+        bestCount = count;
+      }
+    });
+    if (bestKey){
+      const [r, g, b] = bestKey.split(",").map(Number);
+      return rgbToHex(r, g, b);
+    }
+    return rgbToHex(fallback[0], fallback[1], fallback[2]);
+  }catch(error){
+    console.warn("PDF background color sampling failed", error);
+    return "#ffffff";
+  }
+}
+
+function viewportRectToNormalized(rect, viewport){
+  return clampPdfRect({
+    x: rect.left / viewport.width,
+    y: rect.top / viewport.height,
+    width: rect.width / viewport.width,
+    height: rect.height / viewport.height,
+  });
+}
+
+function rectFromPdfPoints(start, end){
+  return clampPdfRect({
+    x: Math.min(start.x, end.x),
+    y: Math.min(start.y, end.y),
+    width: Math.abs(end.x - start.x),
+    height: Math.abs(end.y - start.y),
+  });
+}
+
+function estimateTextEditWidth(text, fontSize, scale = 1){
+  const value = String(text || "");
+  const units = Array.from(value).reduce((sum, ch) => {
+    if (ch === " ") return sum + 0.32;
+    if ("ilI.,'`|".includes(ch)) return sum + 0.28;
+    if ("mwMW@#%&".includes(ch)) return sum + 0.82;
+    if (/[0-9]/.test(ch)) return sum + 0.56;
+    return sum + 0.52;
+  }, 0);
+  return Math.max(fontSize * scale * 0.5, units * fontSize * scale);
+}
+
+function getTextEditOriginalBounds(textEdit){
+  return textEdit.originalBounds || {
+    x: textEdit.x || 0,
+    y: textEdit.y || 0,
+    width: textEdit.width || 0.01,
+    height: textEdit.height || 0.01,
+  };
+}
+
+function getTextEditReplacementPosition(textEdit){
+  return textEdit.replacementPosition || {
+    x: textEdit.x || 0,
+    y: textEdit.y || 0,
+  };
+}
+
+function setTextEditReplacementPosition(textEdit, position){
+  const fontSize = Math.max(6, Number(textEdit.fontSize) || 12);
+  const pageWidthPx = pdfEditorPageFrame?.clientWidth || 1;
+  const pageHeightPx = pdfEditorPageFrame?.clientHeight || 1;
+  const scale = pdfEditorState.zoom || 1;
+  const textWidthPx = estimateTextEditWidth(textEdit.replacementText || textEdit.content || "", fontSize, scale);
+  const textHeightPx = fontSize * scale * 1.12;
+  const widthNorm = textWidthPx / pageWidthPx;
+  const heightNorm = textHeightPx / pageHeightPx;
+  const x = Math.min(Math.max(Number(position.x) || 0, 0), Math.max(0, 1 - Math.min(widthNorm, 0.98)));
+  const y = Math.min(Math.max(Number(position.y) || 0, 0), Math.max(0, 1 - Math.min(heightNorm, 0.98)));
+  textEdit.replacementPosition = { x, y };
+  textEdit.replacementBounds = {
+    x,
+    y,
+    width: Math.max(textEdit.width || 0.01, widthNorm),
+    height: Math.max(textEdit.height || 0.01, heightNorm),
+  };
+}
+
+function moveTextEditReplacementBy(textEdit, dx, dy){
+  const current = getTextEditReplacementPosition(textEdit);
+  setTextEditReplacementPosition(textEdit, {
+    x: current.x + dx,
+    y: current.y + dy,
+  });
+}
+
+function resetTextEditReplacementPosition(textEdit){
+  const original = getTextEditOriginalBounds(textEdit);
+  setTextEditReplacementPosition(textEdit, { x: original.x, y: original.y });
+}
+
+function calculateTextEditVisualBounds(textEdit, scale = 1){
+  const fontSize = Math.max(6, Number(textEdit.fontSize) || 12);
+  const scaledFontSize = fontSize * scale;
+  const text = String(textEdit.replacementText ?? textEdit.content ?? "");
+  const pageWidthPx = pdfEditorPageFrame?.clientWidth || 1;
+  const pageHeightPx = pdfEditorPageFrame?.clientHeight || 1;
+  const originalBounds = getTextEditOriginalBounds(textEdit);
+  const replacementPosition = getTextEditReplacementPosition(textEdit);
+  const original = {
+    x: (originalBounds.x || 0) * pageWidthPx,
+    y: (originalBounds.y || 0) * pageHeightPx,
+    width: Math.max(1, (originalBounds.width || 0.01) * pageWidthPx),
+    height: Math.max(1, (originalBounds.height || 0.01) * pageHeightPx),
+  };
+  const padX = Math.max(2, Math.min(4, scaledFontSize * 0.14));
+  const padY = Math.max(1, Math.min(3, scaledFontSize * 0.12));
+  const textWidth = estimateTextEditWidth(text, fontSize, scale);
+  const textHeight = Math.max(original.height, scaledFontSize * 1.12);
+  const originalBaselinePx = Number.isFinite(textEdit.baselineY)
+    ? textEdit.baselineY * pageHeightPx
+    : original.y + original.height * 0.82;
+  const replacement = {
+    x: (replacementPosition.x ?? originalBounds.x ?? 0) * pageWidthPx,
+    y: (replacementPosition.y ?? originalBounds.y ?? 0) * pageHeightPx,
+  };
+  const coverLeft = Math.max(0, original.x - padX);
+  const coverTop = Math.max(0, Math.min(original.y - padY, originalBaselinePx - (scaledFontSize * 0.86) - padY));
+  const coverWidth = Math.max(original.width + padX * 2, textWidth + padX * 2);
+  const coverHeight = Math.max(original.height + padY * 2, textHeight + padY * 2);
+  const textLeft = replacement.x + padX;
+  const textTop = replacement.y;
+  const wrapperLeft = Math.min(coverLeft, textLeft - padX);
+  const wrapperTop = Math.min(coverTop, textTop - padY);
+  const wrapperRight = Math.max(coverLeft + coverWidth, textLeft + textWidth + padX);
+  const wrapperBottom = Math.max(coverTop + coverHeight, textTop + textHeight + padY);
+  return {
+    wrapper: { x: wrapperLeft, y: wrapperTop, width: wrapperRight - wrapperLeft, height: wrapperBottom - wrapperTop },
+    cover: { x: coverLeft, y: coverTop, width: coverWidth, height: coverHeight },
+    text: { x: textLeft, y: textTop, width: textWidth, height: textHeight, baselineY: textTop + scaledFontSize * 0.86 },
+    padding: { x: padX, y: padY },
+    fontSize: scaledFontSize,
+  };
+}
+
+function calculateTextEditPdfBounds(textEdit, pageWidth, pageHeight){
+  const fontSize = Math.max(6, Number(textEdit.fontSize) || 12);
+  const text = String(textEdit.replacementText ?? textEdit.content ?? "");
+  const originalBounds = getTextEditOriginalBounds(textEdit);
+  const replacementPosition = getTextEditReplacementPosition(textEdit);
+  const original = {
+    x: (originalBounds.x || 0) * pageWidth,
+    yTop: (originalBounds.y || 0) * pageHeight,
+    width: Math.max(1, (originalBounds.width || 0.01) * pageWidth),
+    height: Math.max(1, (originalBounds.height || 0.01) * pageHeight),
+  };
+  const padX = Math.max(2, Math.min(4, fontSize * 0.14));
+  const padY = Math.max(1, Math.min(3, fontSize * 0.12));
+  const textWidth = estimateTextEditWidth(text, fontSize, 1);
+  const textHeight = Math.max(original.height, fontSize * 1.12);
+  const baselineFromTop = Number.isFinite(textEdit.baselineY)
+    ? textEdit.baselineY * pageHeight
+    : original.yTop + original.height * 0.82;
+  const originalTextTop = baselineFromTop - (fontSize * 0.86);
+  const coverTop = Math.max(0, Math.min(original.yTop - padY, originalTextTop - padY));
+  const coverLeft = Math.max(0, original.x - padX);
+  const coverWidth = Math.max(original.width + padX * 2, textWidth + padX * 2);
+  const coverHeight = Math.max(original.height + padY * 2, textHeight + padY * 2);
+  const replacementTop = (replacementPosition.y ?? originalBounds.y ?? 0) * pageHeight;
+  const replacementLeft = (replacementPosition.x ?? originalBounds.x ?? 0) * pageWidth;
+  return {
+    cover: {
+      x: coverLeft,
+      y: pageHeight - coverTop - coverHeight,
+      width: coverWidth,
+      height: coverHeight,
+    },
+    text: {
+      x: replacementLeft + padX,
+      y: pageHeight - replacementTop - fontSize,
+      width: textWidth,
+      height: textHeight,
+    },
+    fontSize,
+  };
+}
+
+function setPdfEditorTool(tool){
+  pdfEditorState.tool = tool || "select";
+  if (pdfEditorToolLabel) pdfEditorToolLabel.textContent = getPdfToolLabel(pdfEditorState.tool);
+  document.querySelectorAll("[data-pdf-tool]").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.pdfTool === pdfEditorState.tool);
+  });
+  if (pdfEditorTextLayer){
+    pdfEditorTextLayer.classList.toggle("text-edit-active", isPdfTextEditTool());
+  }
+  if (pdfEditorPageFrame){
+    pdfEditorPageFrame.classList.toggle("text-edit-mode", isPdfTextEditTool());
+  }
+  pdfEditorState.isEditingText = isPdfTextEditTool();
+  if (pdfEditorState.tool !== "nativeTextEdit") pdfEditorState.nativeTextEdit = null;
+  if (!isPdfTextEditTool()){
+    pdfEditorState.hoveredTextBlockId = null;
+    pdfEditorState.activeTextBlockId = null;
+    pdfEditorState.selectedTextBlockId = null;
+    if (pdfEditorTextLayer){
+      pdfEditorTextLayer.querySelectorAll(".pdf-text-block").forEach(el => el.classList.remove("selected"));
+    }
+  }
+  if (isPdfTextEditTool() && pdfEditorState.pdfDocument && !pdfEditorState.hasTextLayer){
+    setPdfEditorStatus("This PDF has no editable text layer. You can still add text boxes manually.");
+  }
+  closePdfInlineEditor();
+  renderPdfProperties();
+}
+
+function selectPdfOverlay(id){
+  pdfEditorState.selectedOverlayId = id || null;
+  if (id) pdfEditorState.nativeTextEdit = null;
+  const overlay = pdfEditorState.overlays.find(item => item.id === pdfEditorState.selectedOverlayId);
+  pdfEditorState.selectedTextBlockId = overlay && overlay.textBlockId && overlay.pending ? overlay.textBlockId : null;
+  if (pdfEditorTextLayer){
+    pdfEditorTextLayer.querySelectorAll(".pdf-text-block").forEach(el => {
+      el.classList.toggle("selected", !!pdfEditorState.selectedTextBlockId && el.dataset.textBlockId === pdfEditorState.selectedTextBlockId);
+    });
+  }
+  renderPdfOverlays();
+  renderPdfProperties();
+}
+
+async function loadPdfIntoEditor(file){
+  if (!file || !isPdfFile(file)){
+    setPdfEditorStatus("Please choose a valid PDF file.", true);
+    return;
+  }
+  try{
+    setPdfEditorStatus("Loading PDF...");
+    const pdfjsLib = await ensurePdfJs();
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(bytes), useWorkerFetch: false });
+    const doc = await loadingTask.promise;
+    pdfEditorState.fileName = file.name || "document.pdf";
+    pdfEditorState.originalPdfBytes = new Uint8Array(bytes);
+    pdfEditorState.workingPdfBytes = new Uint8Array(bytes);
+    pdfEditorState.pdfDocument = doc;
+    pdfEditorState.pages = Array.from({ length: doc.numPages }, (_, idx) => ({
+      id: `page-${idx + 1}-${Date.now()}`,
+      sourceIndex: idx,
+      rotation: 0,
+      deleted: false,
+    }));
+    pdfEditorState.overlays = [];
+    pdfEditorState.activeVisibleIndex = 0;
+    pdfEditorState.zoom = 1;
+    pdfEditorState.fitWidth = true;
+    pdfEditorState.selectedOverlayId = null;
+    pdfEditorState.hoveredTextBlockId = null;
+    pdfEditorState.activeTextBlockId = null;
+    pdfEditorState.selectedTextBlockId = null;
+    pdfEditorState.isEditingText = false;
+    pdfEditorState.nativeTextEdit = null;
+    pdfEditorState.textBlocks = [];
+    pdfEditorState.hasTextLayer = false;
+    pdfEditorState.activeViewport = null;
+    setPdfEditorDirty(false);
+    setPdfEditorStatus(doc.numPages > 150 ? "Large PDF loaded. Pages render one at a time for performance." : "PDF loaded.");
+    await renderPdfEditor();
+  }catch(error){
+    console.error("PDF Editor load failed", error);
+    setPdfEditorStatus("Could not open this PDF. It may be damaged, encrypted, or unsupported.", true);
+  }
+}
+
+async function renderPdfEditor(){
+  const hasPdf = !!pdfEditorState.pdfDocument;
+  if (pdfEditorEmpty) pdfEditorEmpty.hidden = hasPdf;
+  if (pdfEditorDocumentWrap) pdfEditorDocumentWrap.hidden = !hasPdf;
+  renderPdfThumbnails();
+  renderPdfProperties();
+  updatePdfToolbarState();
+  if (hasPdf){
+    await renderPdfActivePage();
+  }
+}
+
+function updatePdfToolbarState(){
+  const visible = getVisiblePdfPages();
+  const hasPages = visible.length > 0;
+  if (pdfEditorPageIndicator) pdfEditorPageIndicator.textContent = hasPages ? `${pdfEditorState.activeVisibleIndex + 1} / ${visible.length}` : "0 / 0";
+  if (pdfEditorPageCount) pdfEditorPageCount.textContent = hasPages ? `${visible.length} page${visible.length === 1 ? "" : "s"}` : "No PDF";
+  [
+    pdfEditorPrevPage,
+    pdfEditorNextPage,
+    pdfEditorZoomOut,
+    pdfEditorZoomIn,
+    pdfEditorFitWidth,
+    pdfEditorRotateLeft,
+    pdfEditorRotateRight,
+    pdfEditorDeletePage,
+    pdfEditorAddImage,
+    pdfEditorExport,
+    pdfEditorSendExtraction,
+  ].forEach(btn => { if (btn) btn.disabled = !hasPages; });
+  if (pdfEditorPrevPage) pdfEditorPrevPage.disabled = !hasPages || pdfEditorState.activeVisibleIndex <= 0;
+  if (pdfEditorNextPage) pdfEditorNextPage.disabled = !hasPages || pdfEditorState.activeVisibleIndex >= visible.length - 1;
+}
+
+function renderPdfThumbnails(){
+  if (!pdfEditorThumbs) return;
+  const visible = getVisiblePdfPages();
+  if (!pdfEditorState.pdfDocument || !visible.length){
+    pdfEditorThumbs.innerHTML = `<div class="empty-state">${pdfEditorState.pdfDocument ? "All pages are deleted." : "Upload a PDF to see pages."}</div>`;
+    updatePdfToolbarState();
+    return;
+  }
+  pdfEditorThumbs.innerHTML = visible.map((page, idx) => `
+    <div class="pdf-thumb ${idx === pdfEditorState.activeVisibleIndex ? "active" : ""}" draggable="true" data-page-id="${escapeHtml(page.id)}" data-visible-index="${idx}">
+      <div class="pdf-thumb-title">
+        <span>Page ${idx + 1}</span>
+        <span class="muted">src ${page.sourceIndex + 1}${page.rotation ? ` / ${page.rotation}°` : ""}</span>
+      </div>
+      <div class="pdf-thumb-box">PDF page ${page.sourceIndex + 1}</div>
+    </div>
+  `).join("");
+  updatePdfToolbarState();
+}
+
+async function renderPdfActivePage(){
+  const pageState = getActivePdfPageState();
+  if (!pageState || !pdfEditorCanvas || !pdfEditorPageFrame || !pdfEditorState.pdfDocument) return;
+  const token = ++pdfEditorState.renderToken;
+  try{
+    setPdfEditorStatus("Rendering page...");
+    const page = await pdfEditorState.pdfDocument.getPage(pageState.sourceIndex + 1);
+    if (token !== pdfEditorState.renderToken) return;
+    const baseViewport = page.getViewport({ scale: 1, rotation: pageState.rotation });
+    let scale = pdfEditorState.zoom;
+    if (pdfEditorState.fitWidth && pdfEditorStage){
+      const available = Math.max(320, pdfEditorStage.clientWidth - 70);
+      scale = Math.min(2.2, Math.max(0.45, available / baseViewport.width));
+      pdfEditorState.zoom = scale;
+    }
+    const viewport = page.getViewport({ scale, rotation: pageState.rotation });
+    pdfEditorState.activeViewport = viewport;
+    const outputScale = Math.min(window.devicePixelRatio || 1, 2);
+    const canvas = pdfEditorCanvas;
+    const ctx = canvas.getContext("2d", { alpha: false });
+    canvas.width = Math.floor(viewport.width * outputScale);
+    canvas.height = Math.floor(viewport.height * outputScale);
+    canvas.style.width = `${viewport.width}px`;
+    canvas.style.height = `${viewport.height}px`;
+    pdfEditorPageFrame.style.width = `${viewport.width}px`;
+    pdfEditorPageFrame.style.height = `${viewport.height}px`;
+    pdfEditorPageFrame.classList.toggle("text-edit-mode", isPdfTextEditTool());
+    ctx.setTransform(outputScale, 0, 0, outputScale, 0, 0);
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    if (token !== pdfEditorState.renderToken) return;
+    const hasTextLayer = await renderPdfTextLayer(page, viewport);
+    renderPdfOverlays();
+    if (hasTextLayer) setPdfEditorStatus("");
+  }catch(error){
+    console.error("PDF Editor render failed", error);
+    setPdfEditorStatus("Page render failed. Try a different PDF or reduce zoom.", true);
+  }
+}
+
+async function renderPdfTextLayer(page, viewport){
+  if (!pdfEditorTextLayer) return;
+  pdfEditorTextLayer.innerHTML = "";
+  pdfEditorState.textBlocks = [];
+  pdfEditorState.hasTextLayer = false;
+  pdfEditorTextLayer.classList.toggle("text-edit-active", isPdfTextEditTool());
+  try{
+    const pdfjsLib = await ensurePdfJs();
+    const text = await page.getTextContent();
+    const items = (text.items || []).filter(item => String(item.str || "").trim());
+    if (!items.length){
+      setPdfEditorStatus("This PDF has no editable text layer. You can still add text boxes manually.");
+      renderPdfProperties();
+      return false;
+    }
+    const pageState = getActivePdfPageState();
+    pdfEditorState.hasTextLayer = true;
+    const textStyles = text.styles || {};
+    const frag = document.createDocumentFragment();
+    items.slice(0, 1200).forEach((item, index) => {
+      const rect = textItemToViewportRect(item, viewport, pdfjsLib);
+      const normalized = viewportRectToNormalized(rect, viewport);
+      const style = textStyles[item.fontName] || {};
+      const fontFamily = style.fontFamily || item.fontName || "Helvetica";
+      const color = normalizePdfHexColor(style.color || style.fill || style.fillStyle, "#000000");
+      const block = {
+        id: `pdf-text-${pageState ? pageState.sourceIndex : 0}-${index}`,
+        pageIndex: pageState ? pageState.sourceIndex : 0,
+        text: item.str,
+        x: normalized.x,
+        y: normalized.y,
+        width: normalized.width,
+        height: normalized.height,
+        fontSize: Math.max(6, rect.fontSize / viewport.scale),
+        fontFamily,
+        color,
+        backgroundColor: samplePdfCanvasBackgroundColor(normalized),
+        baselineY: rect.baseline / viewport.height,
+        transform: Array.isArray(item.transform) ? item.transform.slice() : [],
+        viewportTransform: Array.isArray(rect.transform) ? rect.transform.slice() : [],
+        pageScale: viewport.scale,
+        pageRotation: pageState ? pageState.rotation : 0,
+        sourceWidth: normalized.width,
+        sourceHeight: normalized.height,
+        hasTextLayer: true,
+      };
+      pdfEditorState.textBlocks.push(block);
+      const span = document.createElement("span");
+      span.className = "pdf-text-block";
+      span.classList.toggle("selected", block.id === pdfEditorState.selectedTextBlockId);
+      span.dataset.textBlockId = block.id;
+      span.dataset.originalText = item.str;
+      span.style.left = `${rect.left}px`;
+      span.style.top = `${rect.top}px`;
+      span.style.width = `${rect.width}px`;
+      span.style.height = `${rect.height}px`;
+      span.title = "Click to edit this text";
+      span.addEventListener("mouseenter", () => {
+        if (isPdfTextEditTool()) pdfEditorState.hoveredTextBlockId = block.id;
+      });
+      span.addEventListener("mouseleave", () => {
+        if (pdfEditorState.hoveredTextBlockId === block.id) pdfEditorState.hoveredTextBlockId = null;
+      });
+      span.addEventListener("click", event => {
+        if (!isPdfTextEditTool()) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (pdfEditorState.tool === "nativeTextEdit"){
+          selectNativePdfTextBlock(block.id);
+        }else{
+          selectPdfTextBlock(block.id);
+        }
+      });
+      frag.appendChild(span);
+    });
+    pdfEditorTextLayer.appendChild(frag);
+    renderPdfProperties();
+    return true;
+  }catch(error){
+    console.warn("PDF text layer unavailable", error);
+    setPdfEditorStatus("This PDF has no editable text layer. You can still add text boxes manually.");
+    renderPdfProperties();
+    return false;
+  }
+}
+
+function openPdfInlineTextEditor(span){
+  if (!pdfEditorInlineEditor || !pdfEditorInlineText || !pdfEditorPageFrame) return;
+  const pageState = getActivePdfPageState();
+  if (!pageState) return;
+  const frameRect = pdfEditorPageFrame.getBoundingClientRect();
+  const spanRect = span.getBoundingClientRect();
+  pdfEditorState.inlineTextBlock = {
+    pageIndex: pageState.sourceIndex,
+    originalText: span.dataset.originalText || "",
+    x: (spanRect.left - frameRect.left) / frameRect.width,
+    y: (spanRect.top - frameRect.top) / frameRect.height,
+    width: spanRect.width / frameRect.width,
+    height: spanRect.height / frameRect.height,
+  };
+  pdfEditorInlineText.value = pdfEditorState.inlineTextBlock.originalText;
+  pdfEditorInlineEditor.style.left = `${Math.max(8, spanRect.left - frameRect.left)}px`;
+  pdfEditorInlineEditor.style.top = `${Math.max(8, spanRect.top - frameRect.top + spanRect.height + 6)}px`;
+  pdfEditorInlineEditor.hidden = false;
+  pdfEditorInlineText.focus();
+  pdfEditorInlineText.select();
+}
+
+function selectPdfTextBlock(blockId){
+  const block = pdfEditorState.textBlocks.find(item => item.id === blockId);
+  if (!block) return;
+  pdfEditorState.nativeTextEdit = null;
+  pdfEditorState.selectedTextBlockId = block.id;
+  pdfEditorState.activeTextBlockId = block.id;
+  pdfEditorState.isEditingText = true;
+  let overlay = pdfEditorState.overlays.find(item => item.type === "textEdit" && item.textBlockId === block.id);
+  if (!overlay){
+    overlay = createPdfOverlay("textEdit", block.pageIndex, clampPdfRect(block), {
+      originalText: block.text,
+      replacementText: block.text,
+      content: block.text,
+      fontSize: Math.max(6, Number((block.fontSize || 12).toFixed(1))),
+      fontFamily: block.fontFamily || "Helvetica",
+      color: normalizePdfHexColor(block.color, "#000000"),
+      backgroundColor: normalizePdfHexColor(block.backgroundColor, "#ffffff"),
+      detectedFromTextLayer: true,
+      baselineY: block.baselineY,
+      transform: block.transform,
+      pageScale: block.pageScale,
+      pageRotation: block.pageRotation,
+      sourceWidth: block.sourceWidth,
+      sourceHeight: block.sourceHeight,
+      pending: true,
+      textBlockId: block.id,
+    });
+    pdfEditorState.overlays.push(overlay);
+  }
+  pdfEditorState.selectedOverlayId = overlay.id;
+  if (pdfEditorTextLayer){
+    pdfEditorTextLayer.querySelectorAll(".pdf-text-block").forEach(el => {
+      el.classList.toggle("selected", el.dataset.textBlockId === block.id);
+    });
+  }
+  renderPdfOverlays();
+  renderPdfProperties();
+}
+
+function selectNativePdfTextBlock(blockId){
+  const block = pdfEditorState.textBlocks.find(item => item.id === blockId);
+  if (!block) return;
+  pdfEditorState.selectedOverlayId = null;
+  pdfEditorState.selectedTextBlockId = block.id;
+  pdfEditorState.activeTextBlockId = block.id;
+  pdfEditorState.isEditingText = true;
+  pdfEditorState.nativeTextEdit = {
+    blockId: block.id,
+    pageIndex: block.pageIndex,
+    originalText: block.text,
+    replacementText: block.text,
+    bounds: {
+      x: block.x,
+      y: block.y,
+      width: block.width,
+      height: block.height,
+    },
+    fontSize: Math.max(6, Number((block.fontSize || 12).toFixed(1))),
+    fontFamily: block.fontFamily || "Helvetica",
+    color: normalizePdfHexColor(block.color, "#000000"),
+    nativeEditMode: "content_stream_first",
+    preserveNearbyLines: true,
+    warnings: [],
+    status: "Native edit available",
+    reason: "",
+  };
+  if (pdfEditorTextLayer){
+    pdfEditorTextLayer.querySelectorAll(".pdf-text-block").forEach(el => {
+      el.classList.toggle("selected", el.dataset.textBlockId === block.id);
+    });
+  }
+  setPdfEditorStatus("Native edit available");
+  renderPdfOverlays();
+  renderPdfProperties();
+}
+
+function updateNativePdfTextEditProp(prop, value){
+  const edit = pdfEditorState.nativeTextEdit;
+  if (!edit) return;
+  if (prop === "replacementText"){
+    edit.replacementText = value;
+  }else if (prop === "fontSize"){
+    edit.fontSize = Math.min(96, Math.max(6, Number(value) || 12));
+  }else if (prop === "color"){
+    edit.color = normalizePdfHexColor(value, "#000000");
+  }else if (prop === "preserveNearbyLines"){
+    edit.preserveNearbyLines = !!value;
+  }
+  edit.status = "Native edit available";
+  edit.reason = "";
+}
+
+async function reloadPdfEditorWorkingPdf(bytes){
+  const pdfjsLib = await ensurePdfJs();
+  const nextBytes = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(nextBytes), useWorkerFetch: false });
+  const doc = await loadingTask.promise;
+  pdfEditorState.workingPdfBytes = new Uint8Array(nextBytes);
+  pdfEditorState.pdfDocument = doc;
+  if (pdfEditorState.pages.length !== doc.numPages){
+    pdfEditorState.pages = Array.from({ length: doc.numPages }, (_, idx) => ({
+      id: `page-${idx + 1}-${Date.now()}`,
+      sourceIndex: idx,
+      rotation: 0,
+      deleted: false,
+    }));
+    pdfEditorState.activeVisibleIndex = 0;
+  }
+  pdfEditorState.textBlocks = [];
+  pdfEditorState.hasTextLayer = false;
+  pdfEditorState.activeViewport = null;
+}
+
+async function applyNativePdfTextEdit(){
+  const edit = pdfEditorState.nativeTextEdit;
+  const bytes = pdfEditorState.workingPdfBytes || pdfEditorState.originalPdfBytes;
+  if (!edit || !bytes) return;
+  try{
+    edit.status = "Trying native replacement...";
+    edit.reason = "";
+    setPdfEditorStatus("Trying native replacement...");
+    renderPdfProperties();
+    const res = await fetch(API_BASE + "/api/pdf-editor/native-text-replace", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        pdfBase64: bytesToBase64(bytes),
+        pageIndex: edit.pageIndex,
+        originalText: edit.originalText,
+        replacementText: edit.replacementText,
+        bounds: edit.bounds,
+        fontSize: edit.fontSize,
+        fontFamily: edit.fontFamily,
+        nativeEditMode: edit.nativeEditMode || "content_stream_first",
+        preserveNearbyLines: edit.preserveNearbyLines !== false,
+      }),
+    });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok){
+      throw new Error(payload.detail || payload.reason || `HTTP ${res.status}`);
+    }
+    if (!payload.success || !payload.editedPdfBase64){
+      edit.status = "Native edit failed. Use Safe Edit instead.";
+      edit.reason = payload.reason || "UNKNOWN_NATIVE_EDIT_ERROR";
+      edit.warnings = Array.isArray(payload.warnings) ? payload.warnings : [];
+      setPdfEditorStatus(`Native edit failed. Use Safe Edit instead. ${edit.reason}`, true);
+      renderPdfProperties();
+      return;
+    }
+    const nativeWarnings = Array.isArray(payload.warnings) ? payload.warnings : [];
+    await reloadPdfEditorWorkingPdf(base64ToBytes(payload.editedPdfBase64));
+    pdfEditorState.nativeTextEdit = null;
+    pdfEditorState.selectedOverlayId = null;
+    pdfEditorState.hoveredTextBlockId = null;
+    pdfEditorState.activeTextBlockId = null;
+    pdfEditorState.selectedTextBlockId = null;
+    pdfEditorState.isEditingText = false;
+    setPdfEditorDirty(true);
+    await renderPdfEditor();
+    if (nativeWarnings.length){
+      setPdfEditorStatus("Native edit used cleanup fallback and may affect background details.", true);
+    }else{
+      setPdfEditorStatus("Native edit applied.");
+    }
+  }catch(error){
+    console.error("Native PDF text edit failed", error);
+    if (pdfEditorState.nativeTextEdit){
+      pdfEditorState.nativeTextEdit.status = "Native edit failed. Use Safe Edit instead.";
+      pdfEditorState.nativeTextEdit.reason = error.message || "UNKNOWN_NATIVE_EDIT_ERROR";
+      pdfEditorState.nativeTextEdit.warnings = [];
+    }
+    setPdfEditorStatus("Native edit failed. Use Safe Edit instead. " + (error.message || error), true);
+    renderPdfProperties();
+  }
+}
+
+function fallbackNativeToSafeTextEdit(){
+  const edit = pdfEditorState.nativeTextEdit;
+  if (!edit) return;
+  const replacement = edit.replacementText;
+  setPdfEditorTool("textEdit");
+  selectPdfTextBlock(edit.blockId);
+  const overlay = pdfEditorState.overlays.find(item => item.id === pdfEditorState.selectedOverlayId && item.type === "textEdit");
+  if (overlay){
+    overlay.replacementText = replacement;
+    overlay.content = replacement;
+    overlay.fontSize = edit.fontSize || overlay.fontSize;
+    overlay.color = edit.color || overlay.color;
+  }
+  setPdfEditorStatus("Safe Text Edit fallback is ready.");
+  renderPdfOverlays();
+  renderPdfProperties();
+}
+
+function applyPendingPdfTextEdit(){
+  const overlay = pdfEditorState.overlays.find(item => item.id === pdfEditorState.selectedOverlayId && item.type === "textEdit");
+  if (!overlay) return;
+  overlay.pending = false;
+  overlay.applied = true;
+  overlay.content = overlay.replacementText || "";
+  setPdfEditorDirty(true);
+  setPdfEditorStatus("Text replacement saved for export.");
+  pdfEditorState.selectedOverlayId = pdfEditorState.tool === "select" ? overlay.id : null;
+  pdfEditorState.hoveredTextBlockId = null;
+  pdfEditorState.selectedTextBlockId = null;
+  pdfEditorState.activeTextBlockId = null;
+  pdfEditorState.isEditingText = false;
+  if (pdfEditorTextLayer){
+    pdfEditorTextLayer.querySelectorAll(".pdf-text-block").forEach(el => el.classList.remove("selected"));
+  }
+  renderPdfOverlays();
+  renderPdfProperties();
+}
+
+function cancelPendingPdfTextEdit(){
+  const overlay = pdfEditorState.overlays.find(item => item.id === pdfEditorState.selectedOverlayId && item.type === "textEdit");
+  if (!overlay) return;
+  if (overlay.pending){
+    pdfEditorState.overlays = pdfEditorState.overlays.filter(item => item.id !== overlay.id);
+  }
+  pdfEditorState.selectedOverlayId = null;
+  pdfEditorState.selectedTextBlockId = null;
+  pdfEditorState.activeTextBlockId = null;
+  pdfEditorState.isEditingText = false;
+  if (pdfEditorTextLayer){
+    pdfEditorTextLayer.querySelectorAll(".pdf-text-block").forEach(el => el.classList.remove("selected"));
+  }
+  renderPdfOverlays();
+  renderPdfProperties();
+}
+
+function closePdfInlineEditor(){
+  pdfEditorState.inlineTextBlock = null;
+  if (pdfEditorInlineEditor) pdfEditorInlineEditor.hidden = true;
+}
+
+function savePdfInlineTextEdit(){
+  const block = pdfEditorState.inlineTextBlock;
+  if (!block || !pdfEditorInlineText) return;
+  const replacement = pdfEditorInlineText.value;
+  if (replacement !== block.originalText){
+    const overlay = createPdfOverlay("textEdit", block.pageIndex, clampPdfRect(block), {
+      originalText: block.originalText,
+      replacementText: replacement,
+      content: replacement,
+      fontSize: Math.max(9, Math.round(block.height * (pdfEditorPageFrame?.clientHeight || 720) * 0.82)),
+      backgroundColor: "#ffffff",
+      detectedFromTextLayer: true,
+    });
+    pdfEditorState.overlays.push(overlay);
+    pdfEditorState.selectedOverlayId = overlay.id;
+    setPdfEditorDirty(true);
+  }
+  closePdfInlineEditor();
+  renderPdfOverlays();
+  renderPdfProperties();
+}
+
+function renderPdfOverlays(){
+  if (!pdfEditorOverlayLayer || !pdfEditorPageFrame) return;
+  const pageState = getActivePdfPageState();
+  pdfEditorOverlayLayer.innerHTML = "";
+  if (!pageState) return;
+  const pageOverlays = pdfEditorState.overlays.filter(overlay => overlay.pageIndex === pageState.sourceIndex);
+  const width = pdfEditorPageFrame.clientWidth || 1;
+  const height = pdfEditorPageFrame.clientHeight || 1;
+  pageOverlays.forEach(overlay => {
+    const el = document.createElement("div");
+    el.className = `pdf-overlay-item pdf-overlay-${String(overlay.type || "").toLowerCase()}`;
+    if (overlay.type === "textEdit") el.classList.add("text-edit-overlay");
+    const isSelected = overlay.id === pdfEditorState.selectedOverlayId;
+    const isAppliedTextEdit = overlay.type === "textEdit" && !overlay.pending;
+    const showTextEditSelectOutline = isAppliedTextEdit && isSelected && pdfEditorState.tool === "select";
+    el.classList.toggle("selected", isSelected && (!isAppliedTextEdit || showTextEditSelectOutline));
+    el.classList.toggle("pending", !!overlay.pending);
+    el.classList.toggle("applied", isAppliedTextEdit);
+    el.classList.toggle("select-outline", showTextEditSelectOutline);
+    el.dataset.overlayId = overlay.id;
+    const visualBounds = overlay.type === "textEdit" ? calculateTextEditVisualBounds(overlay, pdfEditorState.zoom || 1) : null;
+    el.style.left = `${visualBounds ? visualBounds.wrapper.x : overlay.x * width}px`;
+    el.style.top = `${visualBounds ? visualBounds.wrapper.y : overlay.y * height}px`;
+    el.style.width = `${visualBounds ? visualBounds.wrapper.width : overlay.width * width}px`;
+    el.style.height = `${visualBounds ? visualBounds.wrapper.height : overlay.height * height}px`;
+    el.style.opacity = String(overlay.opacity ?? 1);
+    if (overlay.type === "textEdit"){
+      el.style.backgroundColor = "transparent";
+      el.style.borderColor = overlay.pending || showTextEditSelectOutline ? "rgba(47,107,255,.8)" : "transparent";
+    }
+    if (overlay.type === "textEdit"){
+      const cover = document.createElement("div");
+      cover.className = "text-edit-cover";
+      cover.style.left = `${visualBounds.cover.x - visualBounds.wrapper.x}px`;
+      cover.style.top = `${visualBounds.cover.y - visualBounds.wrapper.y}px`;
+      cover.style.width = `${visualBounds.cover.width}px`;
+      cover.style.height = `${visualBounds.cover.height}px`;
+      cover.style.backgroundColor = overlay.backgroundColor || "#ffffff";
+      const textEl = document.createElement("div");
+      textEl.className = "text-edit-replacement-text";
+      textEl.textContent = overlay.replacementText || "";
+      textEl.style.left = `${visualBounds.text.x - visualBounds.wrapper.x}px`;
+      textEl.style.top = `${visualBounds.text.y - visualBounds.wrapper.y}px`;
+      textEl.style.color = overlay.color || "#000000";
+      textEl.style.fontFamily = "Arial, Helvetica, sans-serif";
+      textEl.style.fontSize = `${Math.max(6, visualBounds.fontSize)}px`;
+      textEl.style.lineHeight = "1";
+      textEl.style.textAlign = overlay.alignment || "left";
+      textEl.addEventListener("pointerdown", event => startTextEditReplacementDrag(event, overlay));
+      el.appendChild(cover);
+      el.appendChild(textEl);
+    }else if (overlay.type === "text"){
+      el.textContent = overlay.content;
+      el.style.color = overlay.color || "#000000";
+      el.style.fontFamily = "Arial, Helvetica, sans-serif";
+      el.style.fontSize = `${Math.max(6, (overlay.fontSize || 14) * (pdfEditorState.zoom || 1))}px`;
+      el.style.lineHeight = "1";
+      el.style.textAlign = overlay.alignment || "left";
+    }else if (overlay.type === "drawing"){
+      const points = (overlay.path || []).map(point => `${(point.x - overlay.x) / overlay.width * 100},${(point.y - overlay.y) / overlay.height * 100}`).join(" ");
+      el.innerHTML = `<svg viewBox="0 0 100 100" preserveAspectRatio="none"><polyline points="${escapeHtml(points)}" fill="none" stroke="${escapeHtml(overlay.color || "#111827")}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    }else if ((overlay.type === "image" || overlay.type === "signature") && overlay.imageDataUrl){
+      el.innerHTML = `<img src="${escapeHtml(overlay.imageDataUrl)}" alt="PDF overlay image">`;
+    }
+    el.addEventListener("click", event => {
+      event.stopPropagation();
+      selectPdfOverlay(overlay.id);
+    });
+    pdfEditorOverlayLayer.appendChild(el);
+  });
+}
+
+function startTextEditReplacementDrag(event, overlay){
+  if (!overlay || overlay.type !== "textEdit") return;
+  if (pdfEditorState.tool !== "select" && pdfEditorState.tool !== "textEdit") return;
+  event.preventDefault();
+  event.stopPropagation();
+  pdfEditorState.selectedOverlayId = overlay.id;
+  pdfEditorState.drag = {
+    type: "moveTextEdit",
+    overlayId: overlay.id,
+    startClientX: event.clientX,
+    startClientY: event.clientY,
+    startPosition: { ...getTextEditReplacementPosition(overlay) },
+  };
+  renderPdfOverlays();
+  renderPdfProperties();
+}
+
+function handleTextEditReplacementDrag(event){
+  const drag = pdfEditorState.drag;
+  if (!drag || drag.type !== "moveTextEdit" || !pdfEditorPageFrame) return false;
+  const overlay = pdfEditorState.overlays.find(item => item.id === drag.overlayId && item.type === "textEdit");
+  if (!overlay) return false;
+  const frameWidth = pdfEditorPageFrame.clientWidth || 1;
+  const frameHeight = pdfEditorPageFrame.clientHeight || 1;
+  const dx = (event.clientX - drag.startClientX) / frameWidth;
+  const dy = (event.clientY - drag.startClientY) / frameHeight;
+  setTextEditReplacementPosition(overlay, {
+    x: drag.startPosition.x + dx,
+    y: drag.startPosition.y + dy,
+  });
+  renderPdfOverlays();
+  renderPdfProperties();
+  event.preventDefault();
+  return true;
+}
+
+function endTextEditReplacementDrag(){
+  const drag = pdfEditorState.drag;
+  if (!drag || drag.type !== "moveTextEdit") return false;
+  pdfEditorState.drag = null;
+  setPdfEditorDirty(true);
+  renderPdfOverlays();
+  renderPdfProperties();
+  return true;
+}
+
+function nudgeSelectedTextEdit(dxPx, dyPx){
+  const overlay = pdfEditorState.overlays.find(item => item.id === pdfEditorState.selectedOverlayId && item.type === "textEdit");
+  if (!overlay || !pdfEditorPageFrame) return false;
+  moveTextEditReplacementBy(
+    overlay,
+    dxPx / (pdfEditorPageFrame.clientWidth || 1),
+    dyPx / (pdfEditorPageFrame.clientHeight || 1),
+  );
+  setPdfEditorDirty(true);
+  renderPdfOverlays();
+  renderPdfProperties();
+  return true;
+}
+
+function renderPdfProperties(){
+  if (!pdfEditorSelectedProps || !pdfEditorTextEdits) return;
+  const selected = pdfEditorState.overlays.find(overlay => overlay.id === pdfEditorState.selectedOverlayId);
+  if (pdfEditorState.nativeTextEdit){
+    const edit = pdfEditorState.nativeTextEdit;
+    pdfEditorSelectedProps.className = "";
+    pdfEditorSelectedProps.innerHTML = `
+      <label class="pdf-prop-field">
+        <span>Type</span>
+        <input type="text" value="nativeTextEdit" readonly>
+      </label>
+      <label class="pdf-prop-field">
+        <span>Status</span>
+        <input type="text" value="${escapeHtml(edit.status || "Native edit available")}" readonly>
+      </label>
+      ${edit.reason ? `
+        <div class="empty-state">${escapeHtml(edit.reason)}</div>
+      ` : ""}
+      <label class="pdf-prop-field">
+        <span>Selected original text</span>
+        <textarea readonly>${escapeHtml(edit.originalText || "")}</textarea>
+      </label>
+      <label class="pdf-prop-field">
+        <span>Replacement text</span>
+        <textarea data-pdf-native-prop="replacementText">${escapeHtml(edit.replacementText || "")}</textarea>
+      </label>
+      <label class="pdf-prop-field">
+        <span>Font size</span>
+        <input type="number" min="6" max="96" data-pdf-native-prop="fontSize" value="${Number(edit.fontSize || 12)}">
+      </label>
+      <label class="pdf-prop-field">
+        <span>Text color</span>
+        <input type="color" data-pdf-native-prop="color" value="${escapeHtml(normalizePdfHexColor(edit.color, "#000000"))}">
+      </label>
+      <label class="pdf-prop-field pdf-check-field">
+        <span>Preserve background / lines</span>
+        <input type="checkbox" data-pdf-native-prop="preserveNearbyLines" ${edit.preserveNearbyLines !== false ? "checked" : ""}>
+      </label>
+      ${Array.isArray(edit.warnings) && edit.warnings.length ? `
+        <div class="empty-state">Native edit used cleanup fallback and may affect background details.</div>
+      ` : ""}
+      <div class="controls" style="margin:0">
+        <button type="button" class="btn primary small" id="pdfEditorApplyNativeTextEdit">Apply Native Edit</button>
+        <button type="button" class="btn small" id="pdfEditorFallbackSafeTextEdit">Use Safe Edit Instead</button>
+      </div>
+    `;
+  }else if (!selected){
+    pdfEditorSelectedProps.className = "empty-state";
+    if (isPdfTextEditTool() && pdfEditorState.pdfDocument && !pdfEditorState.hasTextLayer){
+      pdfEditorSelectedProps.innerHTML = "This PDF has no editable text layer. You can still add text boxes manually.";
+    }else if (pdfEditorState.tool === "textEdit"){
+      pdfEditorSelectedProps.innerHTML = "Safe Text Edit covers original text and draws replacement text. Click a highlighted text block to edit it.";
+    }else if (pdfEditorState.tool === "nativeTextEdit"){
+      pdfEditorSelectedProps.innerHTML = "Native Text Edit attempts to replace real PDF text. Click a highlighted text block to start.";
+    }else{
+      pdfEditorSelectedProps.innerHTML = "Select an annotation or editable text block.";
+    }
+  }else{
+    pdfEditorSelectedProps.className = "";
+    const isText = selected.type === "text" || selected.type === "textEdit";
+    pdfEditorSelectedProps.innerHTML = `
+      <label class="pdf-prop-field">
+        <span>Type</span>
+        <input type="text" value="${escapeHtml(selected.type)}" readonly>
+      </label>
+      ${selected.type === "textEdit" ? `
+        <label class="pdf-prop-field">
+          <span>Selected original text</span>
+          <textarea readonly>${escapeHtml(selected.originalText || "")}</textarea>
+        </label>
+      ` : ""}
+      ${isText ? `
+        <label class="pdf-prop-field">
+          <span>${selected.type === "textEdit" ? "Replacement text" : "Text"}</span>
+          <textarea data-pdf-prop="content">${escapeHtml(selected.type === "textEdit" ? selected.replacementText : selected.content)}</textarea>
+        </label>
+        <label class="pdf-prop-field">
+          <span>Font size</span>
+          <input type="number" min="6" max="96" data-pdf-prop="fontSize" value="${Number(selected.fontSize || 14)}">
+        </label>
+        <label class="pdf-prop-field">
+          <span>Color</span>
+          <input type="color" data-pdf-prop="color" value="${escapeHtml(normalizePdfHexColor(selected.color, "#000000"))}">
+        </label>
+        ${selected.type === "textEdit" ? `
+          <label class="pdf-prop-field">
+            <span>Cover color</span>
+            <input type="color" data-pdf-prop="backgroundColor" value="${escapeHtml(normalizePdfHexColor(selected.backgroundColor, "#ffffff"))}">
+          </label>
+          <label class="pdf-prop-field">
+            <span>X position</span>
+            <input type="number" min="0" max="100" step="0.1" data-pdf-prop="replacementX" value="${Number(((getTextEditReplacementPosition(selected).x || 0) * 100).toFixed(1))}">
+          </label>
+          <label class="pdf-prop-field">
+            <span>Y position</span>
+            <input type="number" min="0" max="100" step="0.1" data-pdf-prop="replacementY" value="${Number(((getTextEditReplacementPosition(selected).y || 0) * 100).toFixed(1))}">
+          </label>
+        ` : ""}
+      ` : ""}
+      <label class="pdf-prop-field">
+        <span>Opacity</span>
+        <input type="range" min="0.1" max="1" step="0.05" data-pdf-prop="opacity" value="${Number(selected.opacity ?? 1)}">
+      </label>
+      ${selected.type === "textEdit" ? `
+        <div class="controls" style="margin:0">
+          <button type="button" class="btn primary small" id="pdfEditorApplyTextEdit">${selected.pending ? "Apply" : "Update"}</button>
+          <button type="button" class="btn small" id="pdfEditorResetTextPosition">Reset position</button>
+          <button type="button" class="btn small" id="pdfEditorCancelTextEdit">Cancel</button>
+        </div>
+      ` : ""}
+      <button type="button" class="btn danger small" id="pdfEditorDeleteOverlay">Delete selected</button>
+    `;
+  }
+  const textEdits = pdfEditorState.overlays.filter(overlay => overlay.type === "textEdit" && !overlay.pending);
+  pdfEditorTextEdits.innerHTML = textEdits.length ? textEdits.map(overlay => `
+    <button type="button" class="pdf-edit-row" data-select-pdf-overlay="${escapeHtml(overlay.id)}">
+      <strong>Page ${overlay.pageIndex + 1}</strong><br>
+      <span>${escapeHtml(overlay.originalText || "")}</span><br>
+      <span>→ ${escapeHtml(overlay.replacementText || "")}</span>
+    </button>
+  `).join("") : `<div class="muted small">No text replacements yet.</div>`;
+}
+
+function updateSelectedPdfOverlayProp(prop, value){
+  const overlay = pdfEditorState.overlays.find(item => item.id === pdfEditorState.selectedOverlayId);
+  if (!overlay) return;
+  if (prop === "content"){
+    if (overlay.type === "textEdit"){
+      overlay.replacementText = value;
+      overlay.content = value;
+      setTextEditReplacementPosition(overlay, getTextEditReplacementPosition(overlay));
+    }else{
+      overlay.content = value;
+    }
+  }else if (prop === "fontSize"){
+    overlay.fontSize = Math.min(96, Math.max(6, Number(value) || 14));
+    if (overlay.type === "textEdit") setTextEditReplacementPosition(overlay, getTextEditReplacementPosition(overlay));
+  }else if (prop === "opacity"){
+    overlay.opacity = Math.min(1, Math.max(0.1, Number(value) || 1));
+  }else if (prop === "color" || prop === "backgroundColor"){
+    overlay[prop] = value;
+  }else if (prop === "replacementX" || prop === "replacementY"){
+    const current = getTextEditReplacementPosition(overlay);
+    setTextEditReplacementPosition(overlay, {
+      x: prop === "replacementX" ? (Number(value) || 0) / 100 : current.x,
+      y: prop === "replacementY" ? (Number(value) || 0) / 100 : current.y,
+    });
+  }
+  if (!overlay.pending) setPdfEditorDirty(true);
+  renderPdfOverlays();
+}
+
+function addPdfOverlayAtPoint(point){
+  const pageState = getActivePdfPageState();
+  if (!pageState) return;
+  let overlay = null;
+  if (pdfEditorState.tool === "text"){
+    overlay = createPdfOverlay("text", pageState.sourceIndex, clampPdfRect({ x: point.x, y: point.y, width: 0.22, height: 0.045 }), {
+      content: "New text",
+    });
+  }
+  if (!overlay) return;
+  pdfEditorState.overlays.push(overlay);
+  pdfEditorState.selectedOverlayId = overlay.id;
+  setPdfEditorDirty(true);
+  renderPdfOverlays();
+  renderPdfProperties();
+}
+
+function finishPdfShapeOverlay(endPoint){
+  const drag = pdfEditorState.drag;
+  const pageState = getActivePdfPageState();
+  if (!drag || !pageState) return;
+  if (drag.type === "rectangle" || drag.type === "highlight"){
+    const rect = rectFromPdfPoints(drag.start, endPoint);
+    if (rect.width > 0.015 && rect.height > 0.015){
+      const overlay = createPdfOverlay(drag.type, pageState.sourceIndex, rect, {});
+      pdfEditorState.overlays.push(overlay);
+      pdfEditorState.selectedOverlayId = overlay.id;
+      setPdfEditorDirty(true);
+    }
+  }else if (drag.type === "drawing" && drag.path.length > 1){
+    const xs = drag.path.map(point => point.x);
+    const ys = drag.path.map(point => point.y);
+    const rect = clampPdfRect({
+      x: Math.min(...xs),
+      y: Math.min(...ys),
+      width: Math.max(...xs) - Math.min(...xs),
+      height: Math.max(...ys) - Math.min(...ys),
+    });
+    if (rect.width > 0.005 && rect.height > 0.005){
+      const overlay = createPdfOverlay("drawing", pageState.sourceIndex, rect, {
+        path: drag.path,
+        color: "#111827",
+      });
+      pdfEditorState.overlays.push(overlay);
+      pdfEditorState.selectedOverlayId = overlay.id;
+      setPdfEditorDirty(true);
+    }
+  }
+  pdfEditorState.drag = null;
+  renderPdfOverlays();
+  renderPdfProperties();
+}
+
+async function addPdfImageOverlay(file){
+  const pageState = getActivePdfPageState();
+  if (!file || !pageState) return;
+  const dataUrl = await fileToDataURL(file);
+  const overlay = createPdfOverlay("signature", pageState.sourceIndex, { x: 0.12, y: 0.12, width: 0.28, height: 0.12 }, {
+    imageDataUrl: dataUrl,
+  });
+  pdfEditorState.overlays.push(overlay);
+  pdfEditorState.selectedOverlayId = overlay.id;
+  setPdfEditorDirty(true);
+  renderPdfOverlays();
+  renderPdfProperties();
+}
+
+function movePdfPage(fromVisibleIndex, toVisibleIndex){
+  const visible = getVisiblePdfPages();
+  const fromPage = visible[fromVisibleIndex];
+  const toPage = visible[toVisibleIndex];
+  if (!fromPage || !toPage || fromPage.id === toPage.id) return;
+  const fromRaw = pdfEditorState.pages.findIndex(page => page.id === fromPage.id);
+  const toRaw = pdfEditorState.pages.findIndex(page => page.id === toPage.id);
+  const [page] = pdfEditorState.pages.splice(fromRaw, 1);
+  pdfEditorState.pages.splice(toRaw, 0, page);
+  pdfEditorState.activeVisibleIndex = toVisibleIndex;
+  setPdfEditorDirty(true);
+  renderPdfEditor();
+}
+
+function rotateActivePdfPage(delta){
+  const page = getActivePdfPageState();
+  if (!page) return;
+  page.rotation = ((page.rotation + delta) % 360 + 360) % 360;
+  setPdfEditorDirty(true);
+  renderPdfEditor();
+}
+
+function deleteActivePdfPage(){
+  const visible = getVisiblePdfPages();
+  const page = getActivePdfPageState();
+  if (!page) return;
+  page.deleted = true;
+  pdfEditorState.selectedOverlayId = null;
+  pdfEditorState.activeVisibleIndex = Math.min(pdfEditorState.activeVisibleIndex, Math.max(0, visible.length - 2));
+  setPdfEditorDirty(true);
+  renderPdfEditor();
+}
+
+function hexToPdfRgb(hex){
+  const value = String(hex || "#000000").replace("#", "");
+  const n = parseInt(value.length === 3 ? value.split("").map(ch => ch + ch).join("") : value, 16);
+  if (!Number.isFinite(n)) return PDFLib.rgb(0, 0, 0);
+  return PDFLib.rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255);
+}
+
+function pdfRectToPage(rect, pageWidth, pageHeight){
+  const width = rect.width * pageWidth;
+  const height = rect.height * pageHeight;
+  const topLeft = screenToPdfCoords({ x: rect.x, y: rect.y }, pageWidth, pageHeight);
+  return {
+    x: topLeft.x,
+    y: topLeft.y - height,
+    width,
+    height,
+  };
+}
+
+function getPdfTextDrawY(overlay, rect, pageHeight){
+  const fontSize = Math.max(6, Number(overlay.fontSize) || 12);
+  if (Number.isFinite(overlay.baselineY)){
+    return pageHeight - (overlay.baselineY * pageHeight) - (fontSize * 0.18);
+  }
+  return rect.y + Math.max(2, rect.height - fontSize);
+}
+
+async function embedPdfEditorImage(doc, dataUrl){
+  const bytes = dataURLToBytes(dataUrl);
+  if (!bytes) return null;
+  const mime = String(dataUrl || "").slice(0, 32).toLowerCase();
+  if (mime.includes("jpeg") || mime.includes("jpg")){
+    return doc.embedJpg(bytes);
+  }
+  return doc.embedPng(bytes);
+}
+
+async function exportEditedPdfBlob(){
+  if (!pdfEditorState.originalPdfBytes) throw new Error("No PDF loaded.");
+  await ensurePdfLib();
+  const { PDFDocument, StandardFonts, degrees, rgb } = PDFLib;
+  const sourceBytes = pdfEditorState.workingPdfBytes || pdfEditorState.originalPdfBytes;
+  const sourceDoc = await PDFDocument.load(new Uint8Array(sourceBytes));
+  const outputDoc = await PDFDocument.create();
+  const regular = await outputDoc.embedFont(StandardFonts.Helvetica);
+  const visiblePages = getVisiblePdfPages();
+  if (!visiblePages.length) throw new Error("All pages are deleted.");
+
+  for (const pageState of visiblePages){
+    const [copiedPage] = await outputDoc.copyPages(sourceDoc, [pageState.sourceIndex]);
+    const currentAngle = copiedPage.getRotation().angle || 0;
+    copiedPage.setRotation(degrees(((currentAngle + pageState.rotation) % 360 + 360) % 360));
+    outputDoc.addPage(copiedPage);
+    const width = copiedPage.getWidth();
+    const height = copiedPage.getHeight();
+    const overlays = pdfEditorState.overlays.filter(overlay => overlay.pageIndex === pageState.sourceIndex && !overlay.pending);
+    for (const overlay of overlays){
+      const rect = pdfRectToPage(overlay, width, height);
+      const opacity = Math.min(1, Math.max(0.05, Number(overlay.opacity ?? 1)));
+      if (overlay.type === "textEdit"){
+        const bounds = calculateTextEditPdfBounds(overlay, width, height);
+        copiedPage.drawRectangle({
+          x: bounds.cover.x,
+          y: bounds.cover.y,
+          width: bounds.cover.width,
+          height: bounds.cover.height,
+          color: hexToPdfRgb(overlay.backgroundColor || "#ffffff"),
+          opacity: 1,
+        });
+        copiedPage.drawText(String(overlay.replacementText || ""), {
+          x: bounds.text.x,
+          y: bounds.text.y,
+          size: bounds.fontSize,
+          font: regular,
+          color: hexToPdfRgb(overlay.color || "#000000"),
+          opacity,
+          maxWidth: Math.max(8, bounds.text.width + 2),
+        });
+      }else if (overlay.type === "text"){
+        copiedPage.drawText(String(overlay.content || ""), {
+          x: rect.x + 2,
+          y: rect.y + Math.max(2, rect.height - (overlay.fontSize || 12)),
+          size: Math.max(6, Number(overlay.fontSize) || 12),
+          font: regular,
+          color: hexToPdfRgb(overlay.color || "#111827"),
+          opacity,
+          maxWidth: Math.max(8, rect.width - 4),
+        });
+      }else if (overlay.type === "highlight"){
+        copiedPage.drawRectangle({
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height,
+          color: rgb(1, 0.88, 0.2),
+          opacity,
+        });
+      }else if (overlay.type === "rectangle"){
+        copiedPage.drawRectangle({
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height,
+          borderColor: hexToPdfRgb(overlay.color || "#2f6bff"),
+          borderWidth: 2,
+          opacity,
+        });
+      }else if (overlay.type === "drawing"){
+        const path = Array.isArray(overlay.path) ? overlay.path : [];
+        for (let i = 1; i < path.length; i++){
+          const a = pdfRectToPage({ x: path[i - 1].x, y: path[i - 1].y, width: 0, height: 0 }, width, height);
+          const b = pdfRectToPage({ x: path[i].x, y: path[i].y, width: 0, height: 0 }, width, height);
+          copiedPage.drawLine({
+            start: { x: a.x, y: a.y },
+            end: { x: b.x, y: b.y },
+            thickness: 1.5,
+            color: hexToPdfRgb(overlay.color || "#111827"),
+            opacity,
+          });
+        }
+      }else if ((overlay.type === "image" || overlay.type === "signature") && overlay.imageDataUrl){
+        const img = await embedPdfEditorImage(outputDoc, overlay.imageDataUrl);
+        if (img){
+          copiedPage.drawImage(img, {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+            opacity,
+          });
+        }
+      }
+    }
+  }
+  const bytes = await outputDoc.save();
+  return new Blob([bytes], { type: "application/pdf" });
+}
+
+async function downloadEditedPdf(){
+  try{
+    setPdfEditorStatus("Exporting edited copy...");
+    const blob = await exportEditedPdfBlob();
+    if (pdfEditorState.exportUrl) URL.revokeObjectURL(pdfEditorState.exportUrl);
+    pdfEditorState.exportUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const base = (pdfEditorState.fileName || "edited.pdf").replace(/\.pdf$/i, "");
+    a.href = pdfEditorState.exportUrl;
+    a.download = `${base}-edited.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setPdfEditorStatus("Edited copy exported. Original PDF bytes were not changed.");
+    setPdfEditorDirty(false);
+  }catch(error){
+    console.error("PDF Editor export failed", error);
+    setPdfEditorStatus("Export failed: " + (error.message || error), true);
+  }
+}
+
+async function sendEditedPdfToExtraction(){
+  try{
+    setPdfEditorStatus("Preparing edited copy for extraction...");
+    const blob = await exportEditedPdfBlob();
+    const file = new File([blob], `${(pdfEditorState.fileName || "edited.pdf").replace(/\.pdf$/i, "")}-edited.pdf`, { type: "application/pdf" });
+    activateTab("extract");
+    await handlePdfExtraction(file);
+  }catch(error){
+    console.error("PDF Editor send to extraction failed", error);
+    setPdfEditorStatus("Could not send edited PDF to extraction: " + (error.message || error), true);
+  }
+}
+
+function bindPdfEditorEvents(){
+  if (bindPdfEditorEvents.bound) return;
+  bindPdfEditorEvents.bound = true;
+  if (pdfEditorUploadBtn) pdfEditorUploadBtn.addEventListener("click", ()=> pdfEditorFileInput && pdfEditorFileInput.click());
+  if (pdfEditorFileInput){
+    pdfEditorFileInput.addEventListener("change", async event => {
+      const file = event.target.files && event.target.files[0];
+      event.target.value = "";
+      if (file) await loadPdfIntoEditor(file);
+    });
+  }
+  if (pdfEditorDropZone){
+    ["dragenter","dragover"].forEach(evt => {
+      pdfEditorDropZone.addEventListener(evt, event => {
+        event.preventDefault();
+        event.stopPropagation();
+        pdfEditorDropZone.classList.add("hover");
+      });
+    });
+    ["dragleave","dragend"].forEach(evt => {
+      pdfEditorDropZone.addEventListener(evt, event => {
+        event.preventDefault();
+        event.stopPropagation();
+        pdfEditorDropZone.classList.remove("hover");
+      });
+    });
+    pdfEditorDropZone.addEventListener("drop", async event => {
+      event.preventDefault();
+      event.stopPropagation();
+      pdfEditorDropZone.classList.remove("hover");
+      const file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
+      if (file) await loadPdfIntoEditor(file);
+    });
+    pdfEditorDropZone.addEventListener("click", ()=> pdfEditorFileInput && pdfEditorFileInput.click());
+  }
+  document.querySelectorAll("[data-pdf-tool]").forEach(btn => {
+    btn.addEventListener("click", ()=> setPdfEditorTool(btn.dataset.pdfTool));
+  });
+  if (pdfEditorPrevPage) pdfEditorPrevPage.addEventListener("click", ()=> {
+    pdfEditorState.activeVisibleIndex = Math.max(0, pdfEditorState.activeVisibleIndex - 1);
+    renderPdfEditor();
+  });
+  if (pdfEditorNextPage) pdfEditorNextPage.addEventListener("click", ()=> {
+    pdfEditorState.activeVisibleIndex = Math.min(getVisiblePdfPages().length - 1, pdfEditorState.activeVisibleIndex + 1);
+    renderPdfEditor();
+  });
+  if (pdfEditorZoomOut) pdfEditorZoomOut.addEventListener("click", ()=> {
+    pdfEditorState.fitWidth = false;
+    pdfEditorState.zoom = Math.max(0.35, pdfEditorState.zoom - 0.15);
+    renderPdfActivePage();
+  });
+  if (pdfEditorZoomIn) pdfEditorZoomIn.addEventListener("click", ()=> {
+    pdfEditorState.fitWidth = false;
+    pdfEditorState.zoom = Math.min(3, pdfEditorState.zoom + 0.15);
+    renderPdfActivePage();
+  });
+  if (pdfEditorFitWidth) pdfEditorFitWidth.addEventListener("click", ()=> {
+    pdfEditorState.fitWidth = true;
+    renderPdfActivePage();
+  });
+  if (pdfEditorRotateLeft) pdfEditorRotateLeft.addEventListener("click", ()=> rotateActivePdfPage(-90));
+  if (pdfEditorRotateRight) pdfEditorRotateRight.addEventListener("click", ()=> rotateActivePdfPage(90));
+  if (pdfEditorDeletePage) pdfEditorDeletePage.addEventListener("click", deleteActivePdfPage);
+  if (pdfEditorAddImage) pdfEditorAddImage.addEventListener("click", ()=> pdfEditorImageInput && pdfEditorImageInput.click());
+  if (pdfEditorImageInput){
+    pdfEditorImageInput.addEventListener("change", async event => {
+      const file = event.target.files && event.target.files[0];
+      event.target.value = "";
+      if (file) await addPdfImageOverlay(file);
+    });
+  }
+  if (pdfEditorExport) pdfEditorExport.addEventListener("click", downloadEditedPdf);
+  if (pdfEditorSendExtraction) pdfEditorSendExtraction.addEventListener("click", sendEditedPdfToExtraction);
+  if (pdfEditorInlineCancel) pdfEditorInlineCancel.addEventListener("click", closePdfInlineEditor);
+  if (pdfEditorInlineSave) pdfEditorInlineSave.addEventListener("click", savePdfInlineTextEdit);
+  if (pdfEditorThumbs){
+    pdfEditorThumbs.addEventListener("click", event => {
+      const thumb = event.target.closest(".pdf-thumb");
+      if (!thumb) return;
+      pdfEditorState.activeVisibleIndex = Number(thumb.dataset.visibleIndex) || 0;
+      renderPdfEditor();
+    });
+    pdfEditorThumbs.addEventListener("dragstart", event => {
+      const thumb = event.target.closest(".pdf-thumb");
+      if (thumb) event.dataTransfer.setData("text/plain", thumb.dataset.visibleIndex);
+    });
+    pdfEditorThumbs.addEventListener("dragover", event => {
+      const thumb = event.target.closest(".pdf-thumb");
+      if (!thumb) return;
+      event.preventDefault();
+      thumb.classList.add("drag-over");
+    });
+    pdfEditorThumbs.addEventListener("dragleave", event => {
+      const thumb = event.target.closest(".pdf-thumb");
+      if (thumb) thumb.classList.remove("drag-over");
+    });
+    pdfEditorThumbs.addEventListener("drop", event => {
+      const thumb = event.target.closest(".pdf-thumb");
+      if (!thumb) return;
+      event.preventDefault();
+      thumb.classList.remove("drag-over");
+      movePdfPage(Number(event.dataTransfer.getData("text/plain")), Number(thumb.dataset.visibleIndex));
+    });
+  }
+  if (pdfEditorOverlayLayer){
+    pdfEditorOverlayLayer.addEventListener("pointerdown", event => {
+      if (event.target.closest(".pdf-overlay-item")) return;
+      const point = getPdfPointerPoint(event);
+      if (!point) return;
+      if (pdfEditorState.tool === "text"){
+        addPdfOverlayAtPoint(point);
+        return;
+      }
+      if (pdfEditorState.tool === "rectangle" || pdfEditorState.tool === "highlight"){
+        pdfEditorState.drag = { type: pdfEditorState.tool, start: point };
+        pdfEditorOverlayLayer.setPointerCapture(event.pointerId);
+      }else if (pdfEditorState.tool === "draw"){
+        pdfEditorState.drag = { type: "drawing", start: point, path: [point] };
+        pdfEditorOverlayLayer.setPointerCapture(event.pointerId);
+      }else{
+        selectPdfOverlay(null);
+      }
+    });
+    pdfEditorOverlayLayer.addEventListener("pointermove", event => {
+      if (handleTextEditReplacementDrag(event)) return;
+      if (!pdfEditorState.drag) return;
+      const point = getPdfPointerPoint(event);
+      if (!point) return;
+      if (pdfEditorState.drag.type === "drawing"){
+        pdfEditorState.drag.path.push(point);
+      }
+    });
+    pdfEditorOverlayLayer.addEventListener("pointerup", event => {
+      if (endTextEditReplacementDrag()) return;
+      if (!pdfEditorState.drag) return;
+      const point = getPdfPointerPoint(event) || pdfEditorState.drag.start;
+      finishPdfShapeOverlay(point);
+      try{ pdfEditorOverlayLayer.releasePointerCapture(event.pointerId); }catch{/* ignore */}
+    });
+  }
+  if (pdfEditorSelectedProps){
+    pdfEditorSelectedProps.addEventListener("input", event => {
+      const nativeInput = event.target.closest("[data-pdf-native-prop]");
+      if (nativeInput){
+        updateNativePdfTextEditProp(nativeInput.dataset.pdfNativeProp, nativeInput.type === "checkbox" ? nativeInput.checked : nativeInput.value);
+        return;
+      }
+      const input = event.target.closest("[data-pdf-prop]");
+      if (input) updateSelectedPdfOverlayProp(input.dataset.pdfProp, input.value);
+    });
+    pdfEditorSelectedProps.addEventListener("click", event => {
+      const nativeApplyBtn = event.target.closest("#pdfEditorApplyNativeTextEdit");
+      if (nativeApplyBtn){
+        applyNativePdfTextEdit();
+        return;
+      }
+      const nativeFallbackBtn = event.target.closest("#pdfEditorFallbackSafeTextEdit");
+      if (nativeFallbackBtn){
+        fallbackNativeToSafeTextEdit();
+        return;
+      }
+      const applyBtn = event.target.closest("#pdfEditorApplyTextEdit");
+      if (applyBtn){
+        applyPendingPdfTextEdit();
+        return;
+      }
+      const cancelBtn = event.target.closest("#pdfEditorCancelTextEdit");
+      if (cancelBtn){
+        cancelPendingPdfTextEdit();
+        return;
+      }
+      const resetBtn = event.target.closest("#pdfEditorResetTextPosition");
+      if (resetBtn){
+        const overlay = pdfEditorState.overlays.find(item => item.id === pdfEditorState.selectedOverlayId && item.type === "textEdit");
+        if (overlay){
+          resetTextEditReplacementPosition(overlay);
+          setPdfEditorDirty(true);
+          renderPdfOverlays();
+          renderPdfProperties();
+        }
+        return;
+      }
+      const deleteBtn = event.target.closest("#pdfEditorDeleteOverlay");
+      if (!deleteBtn) return;
+      pdfEditorState.overlays = pdfEditorState.overlays.filter(overlay => overlay.id !== pdfEditorState.selectedOverlayId);
+      pdfEditorState.selectedOverlayId = null;
+      pdfEditorState.selectedTextBlockId = null;
+      pdfEditorState.activeTextBlockId = null;
+      pdfEditorState.isEditingText = false;
+      if (pdfEditorTextLayer){
+        pdfEditorTextLayer.querySelectorAll(".pdf-text-block").forEach(el => el.classList.remove("selected"));
+      }
+      setPdfEditorDirty(true);
+      renderPdfOverlays();
+      renderPdfProperties();
+    });
+  }
+  if (pdfEditorTextEdits){
+    pdfEditorTextEdits.addEventListener("click", event => {
+      const btn = event.target.closest("[data-select-pdf-overlay]");
+      if (!btn) return;
+      const overlay = pdfEditorState.overlays.find(item => item.id === btn.dataset.selectPdfOverlay);
+      if (!overlay) return;
+      const visible = getVisiblePdfPages();
+      const idx = visible.findIndex(page => page.sourceIndex === overlay.pageIndex);
+      if (idx >= 0) pdfEditorState.activeVisibleIndex = idx;
+      pdfEditorState.selectedOverlayId = overlay.id;
+      renderPdfEditor();
+    });
+  }
+  window.addEventListener("resize", () => {
+    if (panels.pdfeditor && panels.pdfeditor.classList.contains("active") && pdfEditorState.fitWidth){
+      renderPdfActivePage();
+    }
+  });
+  window.addEventListener("pointermove", event => {
+    handleTextEditReplacementDrag(event);
+  });
+  window.addEventListener("pointerup", () => {
+    endTextEditReplacementDrag();
+  });
+  window.addEventListener("keydown", event => {
+    if (!panels.pdfeditor || !panels.pdfeditor.classList.contains("active")) return;
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+    const step = event.shiftKey ? 10 : 1;
+    const dx = event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0;
+    const dy = event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0;
+    if (nudgeSelectedTextEdit(dx, dy)){
+      event.preventDefault();
+    }
+  });
+  setPdfEditorTool("select");
 }
 
 const mmToPt = 2.83464567;
@@ -17958,6 +21873,7 @@ function initIguCalculator(){
 	initScanStudio().catch(error => {
 	  console.error("Scan Studio init failed", error);
 	});
+	bindPdfEditorEvents();
 	initGlobalScanDropRouting();
 	window.addEventListener("beforeunload", cleanupGlobalScanDropRouting, { once: true });
 	initIguCalculator();
