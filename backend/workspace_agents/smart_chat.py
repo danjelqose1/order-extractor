@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+print("✅ smart_chat loaded")
+
 import json
 import logging
 import os
@@ -9,7 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import httpx
 
 from db import record_workspace_action
-from workspace_agents.sdk_agent import (
+from .sdk_agent import (
     _safe_context_summary,
     _sdk_imports,
     _summarize_queue_card,

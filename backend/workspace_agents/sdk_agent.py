@@ -21,7 +21,7 @@ from workspace_service import (
     prepare_workspace_processing_action,
     validate_order_for_processing,
 )
-from workspace_agents.response_format import ensure_workspace_agent_response
+from .response_format import ensure_workspace_agent_response
 
 
 WORKFLOW_NAME = "Workspace Factory Assistant"
