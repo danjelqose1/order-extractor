@@ -283,6 +283,16 @@ app.add_middleware(
 def root():
     return {"ok": True, "service": "order-extractor"}
 
+
+@app.on_event("startup")
+def load_workspace_agent_modules() -> None:
+    try:
+        import workspace_agent as _workspace_agent_module  # noqa: F401
+        from workspace_agents import smart_chat as _smart_chat_module  # noqa: F401
+    except Exception as exc:
+        print("IMPORT ERROR:", exc)
+        raise
+
 class PasteIn(BaseModel):
     text: str
 

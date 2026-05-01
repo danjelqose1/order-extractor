@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+print("✅ workspace_agent loaded")
+
 import json
 import os
 import re
