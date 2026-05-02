@@ -17,7 +17,7 @@ if BACKEND_DIR not in sys.path:
 
 from fastapi import FastAPI, HTTPException, Header, UploadFile, File, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, ValidationError
 from schema import ExtractionResult, Row
 from llm import (
@@ -55,8 +55,11 @@ from db import (
     create_telegram_file_record,
     update_telegram_file_record,
     touch_telegram_file_record,
+    mark_telegram_file_labels_printed,
+    mark_telegram_file_linked_order_opened,
     list_telegram_files,
     count_untouched_telegram_files,
+    get_telegram_file_counts,
     find_telegram_file_record,
     list_unfinished_telegram_file_ids,
     get_telegram_file,
@@ -93,6 +96,9 @@ _telegram_queue: Deque[int] = deque()
 _telegram_queued_ids: Set[int] = set()
 _telegram_queue_lock = threading.Lock()
 _telegram_queue_task: Optional[asyncio.Task] = None
+_telegram_event_clients: Set[asyncio.Queue] = set()
+_telegram_event_clients_lock = threading.Lock()
+_telegram_event_loop: Optional[asyncio.AbstractEventLoop] = None
 
 ANALYSIS_MODEL = os.getenv("ANALYSIS_MODEL", "gpt-4o-mini")
 try:
@@ -1262,6 +1268,75 @@ def _is_retryable_telegram_extraction_error(exc: Exception) -> bool:
     return True
 
 
+def _public_telegram_file(record: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not isinstance(record, dict):
+        return None
+    blocked = {"file_path", "stored_filename", "telegram_file_id"}
+    return {key: value for key, value in record.items() if key not in blocked}
+
+
+def _telegram_counts_payload() -> Dict[str, int]:
+    try:
+        return get_telegram_file_counts()
+    except Exception as exc:
+        print(f"[telegram-events] count failed: {exc}")
+        return {
+            "untouched_count": count_untouched_telegram_files(),
+            "queued_count": 0,
+            "processing_count": 0,
+            "failed_count": 0,
+        }
+
+
+def _deliver_telegram_event(message: Dict[str, Any]) -> None:
+    stale: List[asyncio.Queue] = []
+    with _telegram_event_clients_lock:
+        clients = list(_telegram_event_clients)
+    for queue in clients:
+        try:
+            queue.put_nowait(message)
+        except Exception:
+            stale.append(queue)
+    if stale:
+        with _telegram_event_clients_lock:
+            for queue in stale:
+                _telegram_event_clients.discard(queue)
+
+
+def broadcastTelegramFileEvent(event_type: str, payload: Dict[str, Any]) -> None:
+    message = {"type": event_type, **(payload or {})}
+    with _telegram_event_clients_lock:
+        has_clients = bool(_telegram_event_clients)
+    if not has_clients:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    target_loop = _telegram_event_loop or loop
+    if target_loop and target_loop.is_running():
+        if loop is target_loop:
+            _deliver_telegram_event(message)
+        else:
+            target_loop.call_soon_threadsafe(_deliver_telegram_event, message)
+
+
+def _broadcast_telegram_counts() -> Dict[str, int]:
+    counts = _telegram_counts_payload()
+    broadcastTelegramFileEvent("telegram_counts_updated", {"counts": counts})
+    return counts
+
+
+def _broadcast_telegram_file_change(event_type: str, record: Optional[Dict[str, Any]]) -> None:
+    public_record = _public_telegram_file(record)
+    counts = _telegram_counts_payload()
+    payload: Dict[str, Any] = {"counts": counts}
+    if public_record is not None:
+        payload["file"] = public_record
+    broadcastTelegramFileEvent(event_type, payload)
+    broadcastTelegramFileEvent("telegram_counts_updated", {"counts": counts})
+
+
 def _ensure_telegram_queue_runner() -> None:
     global _telegram_queue_task
     try:
@@ -1342,13 +1417,15 @@ def _process_telegram_queue_job_sync(file_id: int) -> Dict[str, Any]:
     last_error = ""
     while attempts_done < max_attempts:
         attempts_done += 1
-        update_telegram_file_record(
+        processing_record = update_telegram_file_record(
             file_id,
             extraction_status="processing",
             processing_started_at=datetime.now(timezone.utc),
             retry_count=attempts_done,
             clear_last_error=True,
         )
+        if processing_record:
+            _broadcast_telegram_file_change("telegram_file_updated", processing_record)
         try:
             latest = get_telegram_file(file_id) or record
             path = _safe_telegram_file_path(latest)
@@ -1369,6 +1446,7 @@ def _process_telegram_queue_job_sync(file_id: int) -> Dict[str, Any]:
                 clear_last_error=True,
             )
             response_record = {**latest, **(updated or {})}
+            _broadcast_telegram_file_change("telegram_file_updated", response_record)
             return {
                 "status": "extracted",
                 "file_id": file_id,
@@ -1390,7 +1468,9 @@ def _process_telegram_queue_job_sync(file_id: int) -> Dict[str, Any]:
                 retry_count=attempts_done,
                 last_error=last_error,
             )
-            return {"status": "failed", "file_id": file_id, "record": {**record, **(failed or {})}, "error": last_error}
+            response_record = {**record, **(failed or {})}
+            _broadcast_telegram_file_change("telegram_file_updated", response_record)
+            return {"status": "failed", "file_id": file_id, "record": response_record, "error": last_error}
     failed = update_telegram_file_record(
         file_id,
         extraction_status="failed",
@@ -1398,7 +1478,9 @@ def _process_telegram_queue_job_sync(file_id: int) -> Dict[str, Any]:
         retry_count=attempts_done,
         last_error=last_error or "Extraction failed",
     )
-    return {"status": "failed", "file_id": file_id, "record": {**record, **(failed or {})}, "error": last_error}
+    response_record = {**record, **(failed or {})}
+    _broadcast_telegram_file_change("telegram_file_updated", response_record)
+    return {"status": "failed", "file_id": file_id, "record": response_record, "error": last_error}
 
 
 async def _process_telegram_queue_job(file_id: int) -> Dict[str, Any]:
@@ -1527,6 +1609,7 @@ async def _handle_telegram_update(update: Dict[str, Any]) -> Dict[str, Any]:
                 extraction_status="queued",
                 queued_at=received_at,
             )
+            _broadcast_telegram_file_change("telegram_file_created", telegram_file_record)
             _enqueue_telegram_extraction(telegram_file_record["id"])
             if chat_id is not None:
                 await _telegram_reply(token, chat_id, message_id, "Order received ✅ Queued for extraction.")
@@ -1600,13 +1683,72 @@ async def telegram_webhook(
     return await _handle_telegram_update(update)
 
 
+def _format_sse(message: Dict[str, Any], event_name: Optional[str] = None) -> str:
+    name = event_name or str(message.get("type") or "message")
+    data = json.dumps(message, ensure_ascii=False, separators=(",", ":"))
+    return f"event: {name}\ndata: {data}\n\n"
+
+
+@app.get("/events/telegram-files")
+async def telegram_file_events(
+    request: Request,
+    app_key: Optional[str] = Query(default=None),
+    x_app_key: Optional[str] = Header(default=None),
+):
+    if APP_KEY and x_app_key != APP_KEY and app_key != APP_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    global _telegram_event_loop
+    _telegram_event_loop = asyncio.get_running_loop()
+    queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+    with _telegram_event_clients_lock:
+        _telegram_event_clients.add(queue)
+
+    async def event_stream():
+        try:
+            yield _format_sse({"type": "telegram_counts_updated", "counts": _telegram_counts_payload()})
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    message = await asyncio.wait_for(queue.get(), timeout=25)
+                    yield _format_sse(message)
+                except asyncio.TimeoutError:
+                    yield ": ping\n\n"
+        finally:
+            with _telegram_event_clients_lock:
+                _telegram_event_clients.discard(queue)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @app.get("/telegram-files")
 def telegram_files(
     status: Optional[str] = Query(default=None),
     query: Optional[str] = Query(default=None),
+    touched: str = Query(default="false", description="Filter touched files: false|true|all"),
 ) -> Dict[str, Any]:
-    items = list_telegram_files(status=status, query=query, limit=250)
-    return {"items": items, "untouched_count": count_untouched_telegram_files()}
+    touched_filter: Optional[bool]
+    normalized_touched = str(touched or "false").strip().lower()
+    if normalized_touched in {"all", "any", ""}:
+        touched_filter = None
+    elif normalized_touched in {"1", "true", "yes", "on", "touched"}:
+        touched_filter = True
+    elif normalized_touched in {"0", "false", "no", "off", "active", "new", "untouched"}:
+        touched_filter = False
+    else:
+        raise HTTPException(status_code=400, detail="Invalid touched filter")
+    items = list_telegram_files(status=status, query=query, touched=touched_filter, limit=250)
+    counts = _telegram_counts_payload()
+    return {"items": items, **counts, "counts": counts}
 
 
 @app.post("/telegram-files/{file_id}/touch")
@@ -1615,7 +1757,41 @@ def touch_telegram_file(file_id: int, request: Request):
     record = touch_telegram_file_record(file_id, touched_by=touched_by)
     if not record:
         raise HTTPException(status_code=404, detail="File not found")
-    return {"ok": True, "file": record, "untouched_count": count_untouched_telegram_files()}
+    _broadcast_telegram_file_change("telegram_file_updated", record)
+    counts = _telegram_counts_payload()
+    return {"ok": True, "file": record, **counts, "counts": counts}
+
+
+@app.post("/telegram-files/{file_id}/mark-labels-printed")
+def mark_telegram_labels_printed(file_id: int, request: Request):
+    existing = get_telegram_file(file_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="File not found")
+    if not existing.get("linked_order_id"):
+        raise HTTPException(status_code=409, detail="No linked order yet")
+    touched_by = request.headers.get("X-User") or None
+    record = mark_telegram_file_labels_printed(file_id, touched_by=touched_by)
+    if not record:
+        raise HTTPException(status_code=404, detail="File not found")
+    _broadcast_telegram_file_change("telegram_file_updated", record)
+    counts = _telegram_counts_payload()
+    return {"ok": True, "file": record, **counts, "counts": counts}
+
+
+@app.post("/telegram-files/{file_id}/mark-linked-order-opened")
+def mark_telegram_linked_order_opened(file_id: int, request: Request):
+    existing = get_telegram_file(file_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="File not found")
+    if not existing.get("linked_order_id"):
+        raise HTTPException(status_code=409, detail="No linked order yet")
+    touched_by = request.headers.get("X-User") or None
+    record = mark_telegram_file_linked_order_opened(file_id, touched_by=touched_by)
+    if not record:
+        raise HTTPException(status_code=404, detail="File not found")
+    _broadcast_telegram_file_change("telegram_file_updated", record)
+    counts = _telegram_counts_payload()
+    return {"ok": True, "file": record, **counts, "counts": counts}
 
 
 @app.get("/telegram-files/{file_id}/view")
