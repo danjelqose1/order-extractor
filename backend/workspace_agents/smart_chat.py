@@ -206,9 +206,9 @@ def _normalize_smart_chat_response(response: Dict[str, Any], original_message: s
     return response
 
 
-def _build_tools(function_tool: Any, RunContextWrapper: Any) -> List[Any]:
+def _build_tools(function_tool: Any, _RunContextWrapper: Any = None) -> List[Any]:
     @function_tool(strict_mode=False)
-    def get_current_datetime(ctx: RunContextWrapper) -> Dict[str, str]:
+    def get_current_datetime() -> Dict[str, str]:
         """Return current local/server date, day, time, and timezone."""
         result = current_datetime_summary()
         record_workspace_action(
@@ -221,21 +221,21 @@ def _build_tools(function_tool: Any, RunContextWrapper: Any) -> List[Any]:
         return result
 
     @function_tool(strict_mode=False)
-    def get_platform_overview(ctx: RunContextWrapper) -> Dict[str, str]:
+    def get_platform_overview() -> Dict[str, str]:
         """Return a safe high-level explanation of the platform."""
         result = platform_overview_payload()
         record_workspace_action(actor=SOURCE, action_type="smart_chat_tool_called", status="success", tool_name="get_platform_overview")
         return result
 
     @function_tool(strict_mode=False)
-    def get_workspace_help(ctx: RunContextWrapper) -> Dict[str, str]:
+    def get_workspace_help() -> Dict[str, str]:
         """Return a safe explanation of the Workspace page and workflow."""
         result = workspace_help_payload()
         record_workspace_action(actor=SOURCE, action_type="smart_chat_tool_called", status="success", tool_name="get_workspace_help")
         return result
 
     @function_tool(strict_mode=False)
-    def get_workspace_queue_summary(ctx: RunContextWrapper) -> Dict[str, Any]:
+    def get_workspace_queue_summary() -> Dict[str, Any]:
         """Return read-only Workspace queue counts and a small approved-order sample."""
         result = workspace_queue_summary()
         record_workspace_action(
