@@ -269,11 +269,21 @@ class TelegramFile(Base):
     file_path: Mapped[str] = mapped_column(Text, nullable=False)
     mime_type: Mapped[str] = mapped_column(String(120), default="application/pdf")
     file_size: Mapped[int] = mapped_column(Integer, default=0)
+    telegram_file_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
     telegram_chat_id: Mapped[Optional[str]] = mapped_column(String(120), nullable=True, index=True)
     telegram_message_id: Mapped[Optional[str]] = mapped_column(String(120), nullable=True, index=True)
     telegram_sender_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    telegram_caption: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     linked_order_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
     extraction_status: Mapped[str] = mapped_column(String(40), default="received", index=True)
+    touched: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    touched_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    touched_by: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    queued_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    processing_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    processed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 
 class WorkspaceAction(Base):
@@ -328,6 +338,31 @@ def _ensure_schema() -> None:
         conn.execute(text("UPDATE orders SET version = 1 WHERE version IS NULL OR version < 1"))
         conn.execute(text("UPDATE orders SET status = 'draft' WHERE status IS NULL OR TRIM(status) = ''"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_orders_source_hash ON orders(source_hash)"))
+        telegram_info = conn.execute(text("PRAGMA table_info(telegram_files)")).fetchall()
+        telegram_columns = {row[1] for row in telegram_info}
+        if telegram_columns:
+            if "telegram_file_id" not in telegram_columns:
+                conn.execute(text("ALTER TABLE telegram_files ADD COLUMN telegram_file_id TEXT"))
+            if "telegram_caption" not in telegram_columns:
+                conn.execute(text("ALTER TABLE telegram_files ADD COLUMN telegram_caption TEXT"))
+            if "touched" not in telegram_columns:
+                conn.execute(text("ALTER TABLE telegram_files ADD COLUMN touched BOOLEAN DEFAULT 0"))
+            if "touched_at" not in telegram_columns:
+                conn.execute(text("ALTER TABLE telegram_files ADD COLUMN touched_at TEXT"))
+            if "touched_by" not in telegram_columns:
+                conn.execute(text("ALTER TABLE telegram_files ADD COLUMN touched_by TEXT"))
+            if "queued_at" not in telegram_columns:
+                conn.execute(text("ALTER TABLE telegram_files ADD COLUMN queued_at TEXT"))
+            if "processing_started_at" not in telegram_columns:
+                conn.execute(text("ALTER TABLE telegram_files ADD COLUMN processing_started_at TEXT"))
+            if "processed_at" not in telegram_columns:
+                conn.execute(text("ALTER TABLE telegram_files ADD COLUMN processed_at TEXT"))
+            if "retry_count" not in telegram_columns:
+                conn.execute(text("ALTER TABLE telegram_files ADD COLUMN retry_count INTEGER DEFAULT 0"))
+            if "last_error" not in telegram_columns:
+                conn.execute(text("ALTER TABLE telegram_files ADD COLUMN last_error TEXT"))
+            conn.execute(text("UPDATE telegram_files SET touched = 0 WHERE touched IS NULL"))
+            conn.execute(text("UPDATE telegram_files SET retry_count = 0 WHERE retry_count IS NULL"))
 
 
 def _normalize_client_name(*values: Any) -> Optional[str]:
@@ -466,12 +501,22 @@ def _serialize_telegram_file(file: TelegramFile, order: Optional[Order] = None) 
         "file_path": file.file_path,
         "mime_type": file.mime_type,
         "file_size": file.file_size,
+        "telegram_file_id": file.telegram_file_id,
         "telegram_chat_id": file.telegram_chat_id,
         "telegram_message_id": file.telegram_message_id,
         "telegram_sender_name": file.telegram_sender_name,
+        "telegram_caption": file.telegram_caption,
         "linked_order_id": file.linked_order_id,
         "linked_order": linked_order,
         "extraction_status": file.extraction_status,
+        "touched": bool(file.touched),
+        "touched_at": file.touched_at.isoformat() if file.touched_at else None,
+        "touched_by": file.touched_by,
+        "queued_at": file.queued_at.isoformat() if file.queued_at else None,
+        "processing_started_at": file.processing_started_at.isoformat() if file.processing_started_at else None,
+        "processed_at": file.processed_at.isoformat() if file.processed_at else None,
+        "retry_count": int(file.retry_count or 0),
+        "last_error": file.last_error,
         "view_url": f"/telegram-files/{file.id}/view",
         "download_url": f"/telegram-files/{file.id}/download",
     }
@@ -742,11 +787,14 @@ def create_telegram_file_record(
     file_path: str,
     mime_type: str,
     file_size: int,
+    telegram_file_id: Optional[str] = None,
     telegram_chat_id: Optional[Any] = None,
     telegram_message_id: Optional[Any] = None,
     telegram_sender_name: Optional[str] = None,
+    telegram_caption: Optional[str] = None,
     received_at: Optional[datetime] = None,
     extraction_status: str = "received",
+    queued_at: Optional[datetime] = None,
 ) -> Dict[str, Any]:
     with get_session() as session:
         record = TelegramFile(
@@ -756,11 +804,16 @@ def create_telegram_file_record(
             file_path=str(file_path or ""),
             mime_type=str(mime_type or "application/pdf"),
             file_size=int(file_size or 0),
+            telegram_file_id=str(telegram_file_id) if telegram_file_id else None,
             telegram_chat_id=str(telegram_chat_id) if telegram_chat_id is not None else None,
             telegram_message_id=str(telegram_message_id) if telegram_message_id is not None else None,
             telegram_sender_name=telegram_sender_name or None,
+            telegram_caption=telegram_caption or None,
             received_at=received_at or datetime.now(timezone.utc),
             extraction_status=extraction_status or "received",
+            touched=False,
+            queued_at=queued_at,
+            retry_count=0,
         )
         session.add(record)
         session.flush()
@@ -772,6 +825,12 @@ def update_telegram_file_record(
     *,
     linked_order_id: Optional[int] = None,
     extraction_status: Optional[str] = None,
+    queued_at: Optional[datetime] = None,
+    processing_started_at: Optional[datetime] = None,
+    processed_at: Optional[datetime] = None,
+    retry_count: Optional[int] = None,
+    last_error: Optional[str] = None,
+    clear_last_error: bool = False,
 ) -> Optional[Dict[str, Any]]:
     with get_session() as session:
         record = session.get(TelegramFile, int(file_id))
@@ -781,6 +840,32 @@ def update_telegram_file_record(
             record.linked_order_id = int(linked_order_id)
         if extraction_status:
             record.extraction_status = extraction_status
+        if queued_at is not None:
+            record.queued_at = queued_at
+        if processing_started_at is not None:
+            record.processing_started_at = processing_started_at
+        if processed_at is not None:
+            record.processed_at = processed_at
+        if retry_count is not None:
+            record.retry_count = int(retry_count)
+        if clear_last_error:
+            record.last_error = None
+        elif last_error is not None:
+            record.last_error = str(last_error)[:1000]
+        session.flush()
+        linked_order = session.get(Order, record.linked_order_id) if record.linked_order_id else None
+        return _serialize_telegram_file(record, linked_order)
+
+
+def touch_telegram_file_record(file_id: int, *, touched_by: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    with get_session() as session:
+        record = session.get(TelegramFile, int(file_id))
+        if not record:
+            return None
+        record.touched = True
+        record.touched_at = datetime.now(timezone.utc)
+        if touched_by:
+            record.touched_by = str(touched_by)[:120]
         session.flush()
         linked_order = session.get(Order, record.linked_order_id) if record.linked_order_id else None
         return _serialize_telegram_file(record, linked_order)
@@ -1005,6 +1090,60 @@ def list_telegram_files(
             or search in str(item.get("telegram_chat_id") or "").lower()
         ]
     return serialized
+
+
+def count_untouched_telegram_files() -> int:
+    with get_session() as session:
+        return int(session.scalar(select(func.count()).select_from(TelegramFile).where(TelegramFile.touched.is_(False))) or 0)
+
+
+def find_telegram_file_record(
+    *,
+    telegram_chat_id: Optional[Any] = None,
+    telegram_message_id: Optional[Any] = None,
+    telegram_file_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    chat_value = str(telegram_chat_id) if telegram_chat_id is not None else None
+    message_value = str(telegram_message_id) if telegram_message_id is not None else None
+    file_value = str(telegram_file_id) if telegram_file_id else None
+    with get_session() as session:
+        query = select(TelegramFile)
+        if chat_value is not None and message_value is not None:
+            query = query.where(
+                TelegramFile.telegram_chat_id == chat_value,
+                TelegramFile.telegram_message_id == message_value,
+            )
+            if file_value:
+                query = query.where(or_(TelegramFile.telegram_file_id == file_value, TelegramFile.telegram_file_id.is_(None)))
+        elif file_value:
+            query = query.where(TelegramFile.telegram_file_id == file_value)
+        else:
+            return None
+        record = session.execute(query.order_by(TelegramFile.id.desc()).limit(1)).scalar_one_or_none()
+        if not record:
+            return None
+        linked_order = session.get(Order, record.linked_order_id) if record.linked_order_id else None
+        return _serialize_telegram_file(record, linked_order)
+
+
+def list_unfinished_telegram_file_ids(*, stale_processing_before: datetime) -> List[int]:
+    with get_session() as session:
+        records = session.execute(
+            select(TelegramFile.id).where(
+                or_(
+                    TelegramFile.extraction_status == "queued",
+                    TelegramFile.extraction_status == "received",
+                    (
+                        (TelegramFile.extraction_status == "processing")
+                        & (
+                            (TelegramFile.processing_started_at.is_(None))
+                            | (TelegramFile.processing_started_at < stale_processing_before)
+                        )
+                    ),
+                )
+            ).order_by(TelegramFile.queued_at.asc(), TelegramFile.received_at.asc(), TelegramFile.id.asc())
+        ).all()
+        return [int(row[0]) for row in records]
 
 
 def get_telegram_file(file_id: int) -> Optional[Dict[str, Any]]:
@@ -1341,7 +1480,11 @@ __all__ = [
     "insert_extraction_with_rows",
     "create_telegram_file_record",
     "update_telegram_file_record",
+    "touch_telegram_file_record",
     "list_telegram_files",
+    "count_untouched_telegram_files",
+    "find_telegram_file_record",
+    "list_unfinished_telegram_file_ids",
     "get_telegram_file",
     "update_order_rows",
     "get_orders",

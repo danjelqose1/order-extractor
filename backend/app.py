@@ -1,11 +1,15 @@
 from __future__ import annotations
+import asyncio
 import base64, csv, hashlib, json, os, re, sys
+from collections import deque
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from io import StringIO
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Deque, Dict, List, Optional, Set, Tuple
 import uuid
+import threading
+import time
 
 BACKEND_DIR = os.path.dirname(__file__)
 if BACKEND_DIR not in sys.path:
@@ -50,7 +54,11 @@ from db import (
     APPROVABLE_STATUSES,
     create_telegram_file_record,
     update_telegram_file_record,
+    touch_telegram_file_record,
     list_telegram_files,
+    count_untouched_telegram_files,
+    find_telegram_file_record,
+    list_unfinished_telegram_file_ids,
     get_telegram_file,
 )
 from validators import validate_rows
@@ -75,6 +83,16 @@ EXTRACTION_MODEL = os.getenv("EXTRACTION_MODEL", "gpt-5-mini")
 LEGACY_OCR_ENABLED = os.getenv("LEGACY_OCR_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
 TELEGRAM_MAX_FILE_BYTES = 5 * 1024 * 1024
 TELEGRAM_SECRET_HEADER = "X-Telegram-Bot-Api-Secret-Token"
+TELEGRAM_EXTRACTION_MAX_RETRIES = 2
+try:
+    TELEGRAM_EXTRACTION_CONCURRENCY = max(1, int(os.getenv("TELEGRAM_EXTRACTION_CONCURRENCY", "1")))
+except ValueError:
+    TELEGRAM_EXTRACTION_CONCURRENCY = 1
+
+_telegram_queue: Deque[int] = deque()
+_telegram_queued_ids: Set[int] = set()
+_telegram_queue_lock = threading.Lock()
+_telegram_queue_task: Optional[asyncio.Task] = None
 
 ANALYSIS_MODEL = os.getenv("ANALYSIS_MODEL", "gpt-4o-mini")
 try:
@@ -298,13 +316,14 @@ def root():
 
 
 @app.on_event("startup")
-def load_workspace_agent_modules() -> None:
+async def load_workspace_agent_modules() -> None:
     try:
         import workspace_agent as _workspace_agent_module  # noqa: F401
         from workspace_agents import smart_chat as _smart_chat_module  # noqa: F401
     except Exception as exc:
         print("IMPORT ERROR:", exc)
         raise
+    _recover_telegram_extraction_queue()
 
 class PasteIn(BaseModel):
     text: str
@@ -1224,6 +1243,183 @@ async def _telegram_download_file(token: str, file_id: str) -> Tuple[bytes, Dict
         return content, result
 
 
+def _telegram_token_optional() -> str:
+    return (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
+
+
+def _short_error_message(exc: Exception) -> str:
+    if isinstance(exc, HTTPException):
+        detail = exc.detail
+        if isinstance(detail, str):
+            return detail[:500]
+        return json.dumps(detail, ensure_ascii=False)[:500]
+    return str(exc)[:500] or exc.__class__.__name__
+
+
+def _is_retryable_telegram_extraction_error(exc: Exception) -> bool:
+    if isinstance(exc, HTTPException):
+        return int(exc.status_code or 500) >= 500
+    return True
+
+
+def _ensure_telegram_queue_runner() -> None:
+    global _telegram_queue_task
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    with _telegram_queue_lock:
+        if _telegram_queue_task and not _telegram_queue_task.done():
+            return
+        _telegram_queue_task = loop.create_task(_drain_telegram_extraction_queue())
+
+
+def _enqueue_telegram_extraction(file_id: Any) -> bool:
+    try:
+        normalized_id = int(file_id)
+    except (TypeError, ValueError):
+        return False
+    with _telegram_queue_lock:
+        if normalized_id in _telegram_queued_ids:
+            return False
+        _telegram_queued_ids.add(normalized_id)
+        _telegram_queue.append(normalized_id)
+    _ensure_telegram_queue_runner()
+    return True
+
+
+async def _drain_telegram_extraction_queue() -> None:
+    global _telegram_queue_task
+    while True:
+        batch: List[int] = []
+        with _telegram_queue_lock:
+            while _telegram_queue and len(batch) < TELEGRAM_EXTRACTION_CONCURRENCY:
+                batch.append(_telegram_queue.popleft())
+        if not batch:
+            with _telegram_queue_lock:
+                _telegram_queue_task = None
+            return
+        await asyncio.gather(*(_process_telegram_queue_job(file_id) for file_id in batch))
+
+
+def _recover_telegram_extraction_queue() -> None:
+    stale_before = datetime.now(timezone.utc) - timedelta(minutes=10)
+    try:
+        file_ids = list_unfinished_telegram_file_ids(stale_processing_before=stale_before)
+    except Exception as exc:
+        print(f"[telegram-queue] recovery failed: {exc}")
+        return
+    for file_id in file_ids:
+        _enqueue_telegram_extraction(file_id)
+
+
+def _telegram_source_metadata(record: Dict[str, Any]) -> Dict[str, Any]:
+    received_at = record.get("received_at")
+    if hasattr(received_at, "isoformat"):
+        received_at = received_at.isoformat()
+    return {
+        "source": "telegram",
+        "telegram_chat_id": record.get("telegram_chat_id"),
+        "telegram_message_id": record.get("telegram_message_id"),
+        "telegram_sender_name": record.get("telegram_sender_name"),
+        "telegram_file_id": record.get("telegram_file_id"),
+        "telegram_file_record_id": record.get("id"),
+        "original_filename": record.get("original_filename"),
+        "received_at": received_at,
+        "caption": record.get("telegram_caption") or "",
+    }
+
+
+def _process_telegram_queue_job_sync(file_id: int) -> Dict[str, Any]:
+    record = get_telegram_file(file_id)
+    if not record:
+        return {"status": "missing", "file_id": file_id}
+    if record.get("extraction_status") == "extracted":
+        return {"status": "already_extracted", "file_id": file_id, "record": record}
+
+    attempts_done = int(record.get("retry_count") or 0)
+    max_attempts = 1 + TELEGRAM_EXTRACTION_MAX_RETRIES
+    last_error = ""
+    while attempts_done < max_attempts:
+        attempts_done += 1
+        update_telegram_file_record(
+            file_id,
+            extraction_status="processing",
+            processing_started_at=datetime.now(timezone.utc),
+            retry_count=attempts_done,
+            clear_last_error=True,
+        )
+        try:
+            latest = get_telegram_file(file_id) or record
+            path = _safe_telegram_file_path(latest)
+            raw_bytes = path.read_bytes()
+            result = _extract_order_file_bytes(
+                raw_bytes=raw_bytes,
+                filename=str(latest.get("original_filename") or "telegram-order.pdf"),
+                content_type=str(latest.get("mime_type") or "application/pdf"),
+                source="telegram",
+                source_metadata=_telegram_source_metadata(latest),
+            )
+            updated = update_telegram_file_record(
+                file_id,
+                linked_order_id=result.get("draft_order_id"),
+                extraction_status="extracted",
+                processed_at=datetime.now(timezone.utc),
+                retry_count=attempts_done,
+                clear_last_error=True,
+            )
+            response_record = {**latest, **(updated or {})}
+            return {
+                "status": "extracted",
+                "file_id": file_id,
+                "record": response_record,
+                "order_id": result.get("draft_order_id"),
+            }
+        except Exception as exc:
+            last_error = _short_error_message(exc)
+            print(f"[telegram-queue] extraction attempt failed file_id={file_id} attempt={attempts_done}: {last_error}")
+            retryable = _is_retryable_telegram_extraction_error(exc)
+            if retryable and attempts_done < max_attempts:
+                update_telegram_file_record(file_id, retry_count=attempts_done, last_error=last_error)
+                time.sleep(1)
+                continue
+            failed = update_telegram_file_record(
+                file_id,
+                extraction_status="failed",
+                processed_at=datetime.now(timezone.utc),
+                retry_count=attempts_done,
+                last_error=last_error,
+            )
+            return {"status": "failed", "file_id": file_id, "record": {**record, **(failed or {})}, "error": last_error}
+    failed = update_telegram_file_record(
+        file_id,
+        extraction_status="failed",
+        processed_at=datetime.now(timezone.utc),
+        retry_count=attempts_done,
+        last_error=last_error or "Extraction failed",
+    )
+    return {"status": "failed", "file_id": file_id, "record": {**record, **(failed or {})}, "error": last_error}
+
+
+async def _process_telegram_queue_job(file_id: int) -> Dict[str, Any]:
+    try:
+        outcome = await asyncio.to_thread(_process_telegram_queue_job_sync, int(file_id))
+    finally:
+        with _telegram_queue_lock:
+            _telegram_queued_ids.discard(int(file_id))
+
+    record = outcome.get("record") or {}
+    token = _telegram_token_optional()
+    chat_id = record.get("telegram_chat_id")
+    message_id = record.get("telegram_message_id")
+    if token and chat_id is not None:
+        if outcome.get("status") == "extracted":
+            await _telegram_reply(token, chat_id, message_id, "Extraction finished ✅ Please review in platform.")
+        elif outcome.get("status") == "failed":
+            await _telegram_reply(token, chat_id, message_id, "Extraction failed ⚠️ Original PDF is saved in Telegram Files.")
+    return outcome
+
+
 def _telegram_document_spec(message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     document = message.get("document")
     if not isinstance(document, dict):
@@ -1294,13 +1490,25 @@ async def _handle_telegram_update(update: Dict[str, Any]) -> Dict[str, Any]:
             await _telegram_reply(token, chat_id, message_id, "Extraction failed. Please try again.")
         return {"ok": True, "status": "missing_file_id"}
 
-    if chat_id is not None:
-        await _telegram_reply(token, chat_id, message_id, "Order received ✅")
+    is_pdf = _is_pdf_file(str(spec.get("filename") or ""), str(spec.get("content_type") or ""))
+    if is_pdf:
+        existing = find_telegram_file_record(
+            telegram_chat_id=chat_id,
+            telegram_message_id=message_id,
+            telegram_file_id=str(spec.get("file_id") or ""),
+        )
+        if existing:
+            existing_status = str(existing.get("extraction_status") or "").lower()
+            if existing_status in {"received", "queued", "processing"}:
+                _enqueue_telegram_extraction(existing.get("id"))
+            if chat_id is not None and existing_status in {"received", "queued", "processing"}:
+                await _telegram_reply(token, chat_id, message_id, "Order received ✅ Queued for extraction.")
+            elif chat_id is not None and existing_status == "failed":
+                await _telegram_reply(token, chat_id, message_id, "Extraction failed ⚠️ Original PDF is saved in Telegram Files.")
+            return {"ok": True, "status": "duplicate", "telegram_file_id": existing.get("id")}
 
-    telegram_file_record: Optional[Dict[str, Any]] = None
     try:
         raw_bytes, file_info = await _telegram_download_file(token, str(spec["file_id"]))
-        is_pdf = _is_pdf_file(str(spec.get("filename") or ""), str(spec.get("content_type") or ""))
         received_at = datetime.now(timezone.utc)
         if is_pdf:
             stored = _store_telegram_pdf(raw_bytes, str(spec.get("original_filename") or spec.get("filename") or "telegram-order.pdf"))
@@ -1310,12 +1518,27 @@ async def _handle_telegram_update(update: Dict[str, Any]) -> Dict[str, Any]:
                 file_path=stored["file_path"],
                 mime_type="application/pdf",
                 file_size=stored["file_size"],
+                telegram_file_id=str(spec.get("file_id") or ""),
                 telegram_chat_id=chat_id,
                 telegram_message_id=message_id,
                 telegram_sender_name=_telegram_sender_name(message),
+                telegram_caption=message.get("caption") or "",
                 received_at=received_at,
-                extraction_status="received",
+                extraction_status="queued",
+                queued_at=received_at,
             )
+            _enqueue_telegram_extraction(telegram_file_record["id"])
+            if chat_id is not None:
+                await _telegram_reply(token, chat_id, message_id, "Order received ✅ Queued for extraction.")
+            return {
+                "ok": True,
+                "status": "queued",
+                "telegram_file_id": telegram_file_record.get("id"),
+                "file_path": file_info.get("file_path"),
+            }
+
+        if chat_id is not None:
+            await _telegram_reply(token, chat_id, message_id, "Order received ✅")
         metadata = {
             "source": "telegram",
             "telegram_chat_id": chat_id,
@@ -1324,7 +1547,7 @@ async def _handle_telegram_update(update: Dict[str, Any]) -> Dict[str, Any]:
             "original_filename": spec.get("original_filename") or spec.get("filename"),
             "received_at": received_at.isoformat(),
             "caption": message.get("caption") or "",
-            "telegram_file_record_id": telegram_file_record.get("id") if telegram_file_record else None,
+            "telegram_file_record_id": None,
         }
         result = _extract_order_file_bytes(
             raw_bytes=raw_bytes,
@@ -1333,19 +1556,13 @@ async def _handle_telegram_update(update: Dict[str, Any]) -> Dict[str, Any]:
             source="telegram",
             source_metadata=metadata,
         )
-        if telegram_file_record:
-            update_telegram_file_record(
-                int(telegram_file_record["id"]),
-                linked_order_id=result.get("draft_order_id"),
-                extraction_status="extracted",
-            )
         if chat_id is not None:
             await _telegram_reply(token, chat_id, message_id, "Extraction finished ✅ Please review in platform.")
         return {
             "ok": True,
             "status": "extracted",
             "order_id": result.get("draft_order_id"),
-            "telegram_file_id": telegram_file_record.get("id") if telegram_file_record else None,
+            "telegram_file_id": None,
             "file_path": file_info.get("file_path"),
         }
     except ValueError as exc:
@@ -1360,11 +1577,9 @@ async def _handle_telegram_update(update: Dict[str, Any]) -> Dict[str, Any]:
         print(f"[telegram] extraction failed chat={chat_id} message={message_id}: {exc}")
         print("[telegram] traceback:\n" + "".join(traceback.format_exc()))
 
-    if telegram_file_record:
-        update_telegram_file_record(int(telegram_file_record["id"]), extraction_status="failed")
     if chat_id is not None:
         await _telegram_reply(token, chat_id, message_id, "Extraction failed. Please try again.")
-    return {"ok": True, "status": "failed", "telegram_file_id": telegram_file_record.get("id") if telegram_file_record else None}
+    return {"ok": True, "status": "failed", "telegram_file_id": None}
 
 
 @app.post("/webhook/telegram")
@@ -1391,7 +1606,16 @@ def telegram_files(
     query: Optional[str] = Query(default=None),
 ) -> Dict[str, Any]:
     items = list_telegram_files(status=status, query=query, limit=250)
-    return {"items": items}
+    return {"items": items, "untouched_count": count_untouched_telegram_files()}
+
+
+@app.post("/telegram-files/{file_id}/touch")
+def touch_telegram_file(file_id: int, request: Request):
+    touched_by = request.headers.get("X-User") or None
+    record = touch_telegram_file_record(file_id, touched_by=touched_by)
+    if not record:
+        raise HTTPException(status_code=404, detail="File not found")
+    return {"ok": True, "file": record, "untouched_count": count_untouched_telegram_files()}
 
 
 @app.get("/telegram-files/{file_id}/view")
