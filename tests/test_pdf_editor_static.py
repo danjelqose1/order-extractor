@@ -101,6 +101,19 @@ def test_telegram_files_safe_delete_action_present():
     assert "if (file.deleted) return false;" in html
 
 
+def test_order_detail_modal_has_larger_editable_table_layout():
+    html = _html()
+
+    assert "#historyDrawerLayer .history-drawer-card" in html
+    assert "width:min(95vw,1480px) !important;" in html
+    assert "height:min(90vh,1040px) !important;" in html
+    assert "max-height:min(64vh,680px);" in html
+    assert '<th data-col="order">Order</th>' in html
+    assert '<td data-col="order"><input ${inputBase} data-field="order_number"' in html
+    assert '#historyTableWrap .editable-table th[data-col="order"]' in html
+    assert "min-width:138px;" in html
+
+
 def test_workspace_merge_across_orders_is_explicit_option():
     html = _html()
 
