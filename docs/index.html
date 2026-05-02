@@ -275,6 +275,8 @@
     .modal-card h3{margin-top:0;margin-bottom:6px}
     .modal-card p{margin-top:0;color:var(--muted);font-size:13px}
     .modal-card label{display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:600;color:var(--muted);margin-bottom:10px}
+    .modal-card label.inline-check{flex-direction:row;align-items:center;color:var(--text);font-weight:600}
+    .modal-card label.inline-check input{width:auto}
     .modal-card input{padding:8px 10px;border:1px solid var(--border-dark);border-radius:10px;font-size:14px}
     .modal-card input:focus{outline:2px solid var(--primary-soft);border-color:var(--primary)}
     .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:6px}
@@ -16770,8 +16772,9 @@ function renderTelegramFiles(){
         <a class="btn small" href="${escapeHtml(downloadUrl)}" download>Download</a>
         <button type="button" class="btn small" data-telegram-action="print" data-id="${escapeHtml(file.id)}">Print</button>
         ${file.touched ? `<button type="button" class="btn small" disabled>Touched</button>` : `<button type="button" class="btn small" data-telegram-action="touch" data-id="${escapeHtml(file.id)}">Mark touched</button>`}
-        ${file.linked_order_id ? `<button type="button" class="btn small" data-telegram-action="labels" data-id="${escapeHtml(file.id)}">Print Labels</button>` : `<button type="button" class="btn small" disabled title="No linked order yet" aria-label="No linked order yet">Print Labels</button>`}
         ${linked ? `<button type="button" class="btn small" data-telegram-action="order" data-id="${escapeHtml(file.id)}" data-order-id="${escapeHtml(linked.id)}">Open linked order</button>` : ""}
+        ${file.linked_order_id ? `<button type="button" class="btn small" data-telegram-action="labels" data-id="${escapeHtml(file.id)}">Print Labels</button>` : `<button type="button" class="btn small" disabled title="No linked order yet" aria-label="No linked order yet">Print Labels</button>`}
+        <button type="button" class="btn small warn" data-telegram-action="delete" data-id="${escapeHtml(file.id)}">Delete</button>
       </div>
     </article>`;
   }).join("");
@@ -16820,6 +16823,7 @@ function getTelegramFileById(id){
 
 function telegramFileMatchesFilters(file){
   if (!file) return false;
+  if (file.deleted) return false;
   const touchedFilter = String(telegramFilesState.touched || "false").trim().toLowerCase();
   if (touchedFilter === "true" && !file.touched) return false;
   if (touchedFilter === "false" && file.touched) return false;
@@ -16902,6 +16906,75 @@ async function markTelegramFileHandlingStep(fileId, step){
   applyTelegramCounts(data);
   renderTelegramFiles();
   return data?.file || null;
+}
+
+function confirmTelegramFileDelete(file){
+  const linked = file?.linked_order || null;
+  const linkedStatus = normalizeHistoryStatusValue(linked?.status || "");
+  const canDeleteDraft = Boolean(file?.linked_order_id && linkedStatus === "draft");
+  const hasProtectedOrder = Boolean(file?.linked_order_id && linkedStatus && linkedStatus !== "draft");
+  return new Promise(resolve => {
+    const layer = document.createElement("div");
+    layer.className = "modal-layer";
+    layer.innerHTML = `
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="telegramDeleteTitle">
+        <h3 id="telegramDeleteTitle">Delete this Telegram file?</h3>
+        <p>This hides it from Telegram Files. Original records are preserved.</p>
+        ${canDeleteDraft ? `
+          <label class="inline-check">
+            <input type="checkbox" id="telegramDeleteLinkedOrder" checked />
+            <span>Also delete linked draft order</span>
+          </label>
+        ` : ""}
+        ${hasProtectedOrder ? `<p class="muted small">Linked order is not draft and will not be deleted.</p>` : ""}
+        <div class="modal-actions">
+          <button type="button" class="btn small" data-delete-cancel>Cancel</button>
+          <button type="button" class="btn small warn" data-delete-confirm>Delete</button>
+        </div>
+      </div>
+    `;
+    const cleanup = value => {
+      layer.remove();
+      resolve(value);
+    };
+    layer.addEventListener("click", event => {
+      if (event.target === layer || event.target.closest("[data-delete-cancel]")){
+        cleanup(null);
+      }else if (event.target.closest("[data-delete-confirm]")){
+        cleanup({
+          alsoDeleteLinkedOrder: canDeleteDraft && Boolean(layer.querySelector("#telegramDeleteLinkedOrder")?.checked),
+        });
+      }
+    });
+    document.body.appendChild(layer);
+  });
+}
+
+async function deleteTelegramFile(file){
+  if (!file?.id) return;
+  const decision = await confirmTelegramFileDelete(file);
+  if (!decision) return;
+  try{
+    const params = new URLSearchParams();
+    if (decision.alsoDeleteLinkedOrder) params.set("also_delete_linked_order", "true");
+    const res = await fetch(API_BASE + `/telegram-files/${encodeURIComponent(file.id)}${params.toString() ? `?${params.toString()}` : ""}`, { method: "DELETE" });
+    if (!res.ok){
+      const text = await res.text();
+      throw new Error(text || ("HTTP " + res.status));
+    }
+    const data = await res.json();
+    mergeTelegramFileUpdate(data?.file);
+    applyTelegramCounts(data);
+    if (data?.linked_order_deleted){
+      historyState.needsRefresh = true;
+      analysisState.allOrdersDirty = true;
+    }
+    renderTelegramFiles();
+    setTelegramFilesStatus(data?.warning || "Telegram file deleted.");
+  }catch(error){
+    console.warn("Telegram file delete failed", error);
+    setTelegramFilesStatus("Delete failed: " + (error.message || error));
+  }
 }
 
 async function markTelegramFileTouched(fileId){
@@ -18172,6 +18245,8 @@ if (telegramFilesListEl){
       markTelegramFileTouched(file.id);
     }else if (action === "labels"){
       printTelegramLinkedLabels(file);
+    }else if (action === "delete"){
+      deleteTelegramFile(file);
     }
   });
 }
