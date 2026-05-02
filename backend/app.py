@@ -1,10 +1,11 @@
 from __future__ import annotations
 import base64, csv, hashlib, json, os, re, sys
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timezone
 from io import StringIO
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+import uuid
 
 BACKEND_DIR = os.path.dirname(__file__)
 if BACKEND_DIR not in sys.path:
@@ -47,6 +48,10 @@ from db import (
     is_processing_eligible_status,
     ORDER_STATUS_SEQUENCE,
     APPROVABLE_STATUSES,
+    create_telegram_file_record,
+    update_telegram_file_record,
+    list_telegram_files,
+    get_telegram_file,
 )
 from validators import validate_rows
 from dimension_repair import apply_dimension_repair
@@ -476,6 +481,45 @@ def _is_pdf_file(filename: str, content_type: str) -> bool:
 def _is_image_file(filename: str, content_type: str) -> bool:
     lowered = (filename or "").lower()
     return (content_type or "").lower().startswith("image/") or lowered.endswith((".png", ".jpg", ".jpeg", ".webp"))
+
+
+def _telegram_files_dir() -> Path:
+    path = DATA_DIR / "telegram-files"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _safe_download_filename(value: Any) -> str:
+    basename = Path(str(value or "telegram-order.pdf")).name
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", basename).strip(".-")
+    return safe or "telegram-order.pdf"
+
+
+def _store_telegram_pdf(raw_bytes: bytes, original_filename: str) -> Dict[str, Any]:
+    safe_original = _safe_download_filename(original_filename)
+    stored_filename = f"{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex}.pdf"
+    target_dir = _telegram_files_dir()
+    target_path = (target_dir / stored_filename).resolve()
+    root_path = target_dir.resolve()
+    if root_path not in target_path.parents:
+        raise RuntimeError("Invalid Telegram file path")
+    target_path.write_bytes(raw_bytes)
+    return {
+        "original_filename": safe_original,
+        "stored_filename": stored_filename,
+        "file_path": str(target_path),
+        "file_size": len(raw_bytes),
+    }
+
+
+def _safe_telegram_file_path(record: Dict[str, Any]) -> Path:
+    root = _telegram_files_dir().resolve()
+    path = Path(str(record.get("file_path") or "")).expanduser().resolve()
+    if path == root or root not in path.parents:
+        raise HTTPException(status_code=404, detail="File not found")
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail="File missing on disk")
+    return path
 
 
 def _parse_order_datetime(value: Any) -> datetime:
@@ -1253,16 +1297,34 @@ async def _handle_telegram_update(update: Dict[str, Any]) -> Dict[str, Any]:
     if chat_id is not None:
         await _telegram_reply(token, chat_id, message_id, "Order received ✅")
 
+    telegram_file_record: Optional[Dict[str, Any]] = None
     try:
         raw_bytes, file_info = await _telegram_download_file(token, str(spec["file_id"]))
+        is_pdf = _is_pdf_file(str(spec.get("filename") or ""), str(spec.get("content_type") or ""))
+        received_at = datetime.now(timezone.utc)
+        if is_pdf:
+            stored = _store_telegram_pdf(raw_bytes, str(spec.get("original_filename") or spec.get("filename") or "telegram-order.pdf"))
+            telegram_file_record = create_telegram_file_record(
+                original_filename=stored["original_filename"],
+                stored_filename=stored["stored_filename"],
+                file_path=stored["file_path"],
+                mime_type="application/pdf",
+                file_size=stored["file_size"],
+                telegram_chat_id=chat_id,
+                telegram_message_id=message_id,
+                telegram_sender_name=_telegram_sender_name(message),
+                received_at=received_at,
+                extraction_status="received",
+            )
         metadata = {
             "source": "telegram",
             "telegram_chat_id": chat_id,
             "telegram_message_id": message_id,
             "telegram_sender_name": _telegram_sender_name(message),
             "original_filename": spec.get("original_filename") or spec.get("filename"),
-            "received_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            "received_at": received_at.isoformat(),
             "caption": message.get("caption") or "",
+            "telegram_file_record_id": telegram_file_record.get("id") if telegram_file_record else None,
         }
         result = _extract_order_file_bytes(
             raw_bytes=raw_bytes,
@@ -1271,12 +1333,19 @@ async def _handle_telegram_update(update: Dict[str, Any]) -> Dict[str, Any]:
             source="telegram",
             source_metadata=metadata,
         )
+        if telegram_file_record:
+            update_telegram_file_record(
+                int(telegram_file_record["id"]),
+                linked_order_id=result.get("draft_order_id"),
+                extraction_status="extracted",
+            )
         if chat_id is not None:
             await _telegram_reply(token, chat_id, message_id, "Extraction finished ✅ Please review in platform.")
         return {
             "ok": True,
             "status": "extracted",
             "order_id": result.get("draft_order_id"),
+            "telegram_file_id": telegram_file_record.get("id") if telegram_file_record else None,
             "file_path": file_info.get("file_path"),
         }
     except ValueError as exc:
@@ -1291,9 +1360,11 @@ async def _handle_telegram_update(update: Dict[str, Any]) -> Dict[str, Any]:
         print(f"[telegram] extraction failed chat={chat_id} message={message_id}: {exc}")
         print("[telegram] traceback:\n" + "".join(traceback.format_exc()))
 
+    if telegram_file_record:
+        update_telegram_file_record(int(telegram_file_record["id"]), extraction_status="failed")
     if chat_id is not None:
         await _telegram_reply(token, chat_id, message_id, "Extraction failed. Please try again.")
-    return {"ok": True, "status": "failed"}
+    return {"ok": True, "status": "failed", "telegram_file_id": telegram_file_record.get("id") if telegram_file_record else None}
 
 
 @app.post("/webhook/telegram")
@@ -1312,6 +1383,40 @@ async def telegram_webhook(
     if not isinstance(update, dict):
         return {"ok": True, "status": "ignored"}
     return await _handle_telegram_update(update)
+
+
+@app.get("/telegram-files")
+def telegram_files(
+    status: Optional[str] = Query(default=None),
+    query: Optional[str] = Query(default=None),
+) -> Dict[str, Any]:
+    items = list_telegram_files(status=status, query=query, limit=250)
+    return {"items": items}
+
+
+@app.get("/telegram-files/{file_id}/view")
+def view_telegram_file(file_id: int):
+    record = get_telegram_file(file_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="File not found")
+    if record.get("mime_type") != "application/pdf":
+        raise HTTPException(status_code=415, detail="Only PDF files can be viewed")
+    path = _safe_telegram_file_path(record)
+    headers = {"Content-Disposition": f'inline; filename="{_safe_download_filename(record.get("original_filename"))}"'}
+    return FileResponse(path, media_type="application/pdf", headers=headers)
+
+
+@app.get("/telegram-files/{file_id}/download")
+def download_telegram_file(file_id: int):
+    record = get_telegram_file(file_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="File not found")
+    path = _safe_telegram_file_path(record)
+    return FileResponse(
+        path,
+        media_type=record.get("mime_type") or "application/pdf",
+        filename=_safe_download_filename(record.get("original_filename")),
+    )
 
 
 @app.get("/orders")

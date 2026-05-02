@@ -257,6 +257,25 @@ class ProductionFile(Base):
     status: Mapped[str] = mapped_column(String(40), default="ready")
 
 
+class TelegramFile(Base):
+    __tablename__ = "telegram_files"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    source: Mapped[str] = mapped_column(String(40), default="telegram", index=True)
+    original_filename: Mapped[str] = mapped_column(Text, nullable=False)
+    stored_filename: Mapped[str] = mapped_column(Text, nullable=False)
+    file_path: Mapped[str] = mapped_column(Text, nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(120), default="application/pdf")
+    file_size: Mapped[int] = mapped_column(Integer, default=0)
+    telegram_chat_id: Mapped[Optional[str]] = mapped_column(String(120), nullable=True, index=True)
+    telegram_message_id: Mapped[Optional[str]] = mapped_column(String(120), nullable=True, index=True)
+    telegram_sender_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    linked_order_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    extraction_status: Mapped[str] = mapped_column(String(40), default="received", index=True)
+
+
 class WorkspaceAction(Base):
     __tablename__ = "workspace_actions"
 
@@ -432,6 +451,29 @@ def _serialize_extraction(extraction: Optional[Extraction]) -> Optional[Dict[str
         "llm_output_json": extraction.llm_output_json,
         "prepared_text": extraction.prepared_text,
         "model_used": extraction.model_used,
+    }
+
+
+def _serialize_telegram_file(file: TelegramFile, order: Optional[Order] = None) -> Dict[str, Any]:
+    linked_order = _serialize_order(order, include_rows=False) if order else None
+    return {
+        "id": file.id,
+        "created_at": file.created_at.isoformat(),
+        "received_at": file.received_at.isoformat(),
+        "source": file.source,
+        "original_filename": file.original_filename,
+        "stored_filename": file.stored_filename,
+        "file_path": file.file_path,
+        "mime_type": file.mime_type,
+        "file_size": file.file_size,
+        "telegram_chat_id": file.telegram_chat_id,
+        "telegram_message_id": file.telegram_message_id,
+        "telegram_sender_name": file.telegram_sender_name,
+        "linked_order_id": file.linked_order_id,
+        "linked_order": linked_order,
+        "extraction_status": file.extraction_status,
+        "view_url": f"/telegram-files/{file.id}/view",
+        "download_url": f"/telegram-files/{file.id}/download",
     }
 
 
@@ -693,6 +735,57 @@ def insert_extraction_with_rows(
         }
 
 
+def create_telegram_file_record(
+    *,
+    original_filename: str,
+    stored_filename: str,
+    file_path: str,
+    mime_type: str,
+    file_size: int,
+    telegram_chat_id: Optional[Any] = None,
+    telegram_message_id: Optional[Any] = None,
+    telegram_sender_name: Optional[str] = None,
+    received_at: Optional[datetime] = None,
+    extraction_status: str = "received",
+) -> Dict[str, Any]:
+    with get_session() as session:
+        record = TelegramFile(
+            source="telegram",
+            original_filename=str(original_filename or "telegram-order.pdf"),
+            stored_filename=str(stored_filename or ""),
+            file_path=str(file_path or ""),
+            mime_type=str(mime_type or "application/pdf"),
+            file_size=int(file_size or 0),
+            telegram_chat_id=str(telegram_chat_id) if telegram_chat_id is not None else None,
+            telegram_message_id=str(telegram_message_id) if telegram_message_id is not None else None,
+            telegram_sender_name=telegram_sender_name or None,
+            received_at=received_at or datetime.now(timezone.utc),
+            extraction_status=extraction_status or "received",
+        )
+        session.add(record)
+        session.flush()
+        return _serialize_telegram_file(record)
+
+
+def update_telegram_file_record(
+    file_id: int,
+    *,
+    linked_order_id: Optional[int] = None,
+    extraction_status: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    with get_session() as session:
+        record = session.get(TelegramFile, int(file_id))
+        if not record:
+            return None
+        if linked_order_id is not None:
+            record.linked_order_id = int(linked_order_id)
+        if extraction_status:
+            record.extraction_status = extraction_status
+        session.flush()
+        linked_order = session.get(Order, record.linked_order_id) if record.linked_order_id else None
+        return _serialize_telegram_file(record, linked_order)
+
+
 def update_order_rows(
     order_id: int,
     rows: List[Dict[str, Any]],
@@ -881,6 +974,46 @@ def get_order_with_extraction(order_id: int) -> Optional[Dict[str, Any]]:
         data["extraction"] = _serialize_extraction(order.extraction)
         data["status_history"] = _serialize_status_events(order.status_events or [])
         return data
+
+
+def list_telegram_files(
+    *,
+    status: Optional[str] = None,
+    query: Optional[str] = None,
+    limit: int = 100,
+) -> List[Dict[str, Any]]:
+    normalized_status = (status or "").strip().lower()
+    search = (query or "").strip().lower()
+    safe_limit = max(1, min(int(limit or 100), 250))
+    with get_session() as session:
+        records = session.execute(
+            select(TelegramFile).order_by(TelegramFile.received_at.desc(), TelegramFile.id.desc()).limit(safe_limit)
+        ).scalars().all()
+        order_ids = [record.linked_order_id for record in records if record.linked_order_id]
+        orders_by_id: Dict[int, Order] = {}
+        if order_ids:
+            linked_orders = session.execute(select(Order).where(Order.id.in_(order_ids))).scalars().all()
+            orders_by_id = {order.id: order for order in linked_orders}
+        serialized = [_serialize_telegram_file(record, orders_by_id.get(record.linked_order_id or 0)) for record in records]
+    if normalized_status:
+        serialized = [item for item in serialized if str(item.get("extraction_status") or "").lower() == normalized_status]
+    if search:
+        serialized = [
+            item for item in serialized
+            if search in str(item.get("original_filename") or "").lower()
+            or search in str(item.get("telegram_sender_name") or "").lower()
+            or search in str(item.get("telegram_chat_id") or "").lower()
+        ]
+    return serialized
+
+
+def get_telegram_file(file_id: int) -> Optional[Dict[str, Any]]:
+    with get_session() as session:
+        record = session.get(TelegramFile, int(file_id))
+        if not record:
+            return None
+        linked_order = session.get(Order, record.linked_order_id) if record.linked_order_id else None
+        return _serialize_telegram_file(record, linked_order)
 
 
 def delete_order(order_id: int) -> bool:
@@ -1206,6 +1339,10 @@ def record_workspace_action(
 __all__ = [
     "init_db",
     "insert_extraction_with_rows",
+    "create_telegram_file_record",
+    "update_telegram_file_record",
+    "list_telegram_files",
+    "get_telegram_file",
     "update_order_rows",
     "get_orders",
     "get_orders_by_identifiers",
