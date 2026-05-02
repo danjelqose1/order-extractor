@@ -1111,9 +1111,6 @@ def test_smart_chat_tool_catalog_is_read_only(tmp_path, monkeypatch):
 
         return decorator
 
-    class Ctx:
-        context = {"workspace_context": {}, "requested_by": "test-agent"}
-
     tools = {tool.__name__: tool for tool in smart_chat._build_tools(fake_function_tool, object)}
     names = set(tools)
 
@@ -1121,7 +1118,7 @@ def test_smart_chat_tool_catalog_is_read_only(tmp_path, monkeypatch):
     assert "process_orders_via_existing_modules" not in names
     assert "write_database_record" not in names
 
-    result = tools["get_current_datetime"](Ctx())
+    result = tools["get_current_datetime"]()
 
     assert set(result) == {"date", "day_name", "time", "timezone"}
     assert result["date"] == importlib.import_module("workspace_agents.sdk_agent").current_datetime_summary()["date"]
