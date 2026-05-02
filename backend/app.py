@@ -55,6 +55,7 @@ from db import (
     create_telegram_file_record,
     update_telegram_file_record,
     touch_telegram_file_record,
+    soft_delete_telegram_file_record,
     mark_telegram_file_labels_printed,
     mark_telegram_file_linked_order_opened,
     list_telegram_files,
@@ -1792,6 +1793,49 @@ def mark_telegram_linked_order_opened(file_id: int, request: Request):
     _broadcast_telegram_file_change("telegram_file_updated", record)
     counts = _telegram_counts_payload()
     return {"ok": True, "file": record, **counts, "counts": counts}
+
+
+@app.delete("/telegram-files/{file_id}")
+def delete_telegram_file(
+    file_id: int,
+    request: Request,
+    also_delete_linked_order: bool = Query(default=False),
+) -> Dict[str, Any]:
+    existing = get_telegram_file(file_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="File not found")
+    warning = None
+    linked_order_deleted = False
+    linked_order = existing.get("linked_order") or None
+    if existing.get("linked_order_id") and also_delete_linked_order:
+        linked_status = normalize_order_status(linked_order.get("status") if linked_order else None, default="")
+        if linked_order and linked_status == "draft":
+            archived = update_order_status(
+                int(existing["linked_order_id"]),
+                status="archived",
+                note="Archived from Telegram file delete action.",
+                reason="telegram_file_delete",
+            )
+            linked_order_deleted = bool(archived)
+        else:
+            warning = "Linked order is not draft and was not deleted."
+    elif existing.get("linked_order_id"):
+        linked_status = normalize_order_status(linked_order.get("status") if linked_order else None, default="")
+        if linked_status and linked_status != "draft":
+            warning = "Linked order is not draft and was not deleted."
+    record = soft_delete_telegram_file_record(file_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="File not found")
+    _broadcast_telegram_file_change("telegram_file_deleted", record)
+    counts = _telegram_counts_payload()
+    return {
+        "ok": True,
+        "file": record,
+        "linked_order_deleted": linked_order_deleted,
+        "warning": warning,
+        **counts,
+        "counts": counts,
+    }
 
 
 @app.get("/telegram-files/{file_id}/view")

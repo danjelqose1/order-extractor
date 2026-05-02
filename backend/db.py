@@ -283,6 +283,8 @@ class TelegramFile(Base):
     labels_printed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     linked_order_opened: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     linked_order_opened_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     queued_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     processing_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     processed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -363,6 +365,10 @@ def _ensure_schema() -> None:
                 conn.execute(text("ALTER TABLE telegram_files ADD COLUMN linked_order_opened BOOLEAN DEFAULT 0"))
             if "linked_order_opened_at" not in telegram_columns:
                 conn.execute(text("ALTER TABLE telegram_files ADD COLUMN linked_order_opened_at TEXT"))
+            if "deleted" not in telegram_columns:
+                conn.execute(text("ALTER TABLE telegram_files ADD COLUMN deleted BOOLEAN DEFAULT 0"))
+            if "deleted_at" not in telegram_columns:
+                conn.execute(text("ALTER TABLE telegram_files ADD COLUMN deleted_at TEXT"))
             if "queued_at" not in telegram_columns:
                 conn.execute(text("ALTER TABLE telegram_files ADD COLUMN queued_at TEXT"))
             if "processing_started_at" not in telegram_columns:
@@ -376,6 +382,7 @@ def _ensure_schema() -> None:
             conn.execute(text("UPDATE telegram_files SET touched = 0 WHERE touched IS NULL"))
             conn.execute(text("UPDATE telegram_files SET labels_printed = 0 WHERE labels_printed IS NULL"))
             conn.execute(text("UPDATE telegram_files SET linked_order_opened = 0 WHERE linked_order_opened IS NULL"))
+            conn.execute(text("UPDATE telegram_files SET deleted = 0 WHERE deleted IS NULL"))
             conn.execute(text("UPDATE telegram_files SET retry_count = 0 WHERE retry_count IS NULL"))
 
 
@@ -530,6 +537,8 @@ def _serialize_telegram_file(file: TelegramFile, order: Optional[Order] = None) 
         "labels_printed_at": file.labels_printed_at.isoformat() if file.labels_printed_at else None,
         "linked_order_opened": bool(file.linked_order_opened),
         "linked_order_opened_at": file.linked_order_opened_at.isoformat() if file.linked_order_opened_at else None,
+        "deleted": bool(file.deleted),
+        "deleted_at": file.deleted_at.isoformat() if file.deleted_at else None,
         "queued_at": file.queued_at.isoformat() if file.queued_at else None,
         "processing_started_at": file.processing_started_at.isoformat() if file.processing_started_at else None,
         "processed_at": file.processed_at.isoformat() if file.processed_at else None,
@@ -832,6 +841,7 @@ def create_telegram_file_record(
             touched=False,
             labels_printed=False,
             linked_order_opened=False,
+            deleted=False,
             queued_at=queued_at,
             retry_count=0,
         )
@@ -886,6 +896,19 @@ def touch_telegram_file_record(file_id: int, *, touched_by: Optional[str] = None
         record.touched_at = datetime.now(timezone.utc)
         if touched_by:
             record.touched_by = str(touched_by)[:120]
+        session.flush()
+        linked_order = session.get(Order, record.linked_order_id) if record.linked_order_id else None
+        return _serialize_telegram_file(record, linked_order)
+
+
+def soft_delete_telegram_file_record(file_id: int) -> Optional[Dict[str, Any]]:
+    with get_session() as session:
+        record = session.get(TelegramFile, int(file_id))
+        if not record:
+            return None
+        if not record.deleted:
+            record.deleted = True
+            record.deleted_at = datetime.now(timezone.utc)
         session.flush()
         linked_order = session.get(Order, record.linked_order_id) if record.linked_order_id else None
         return _serialize_telegram_file(record, linked_order)
@@ -1135,6 +1158,7 @@ def list_telegram_files(
     safe_limit = max(1, min(int(limit or 100), 250))
     with get_session() as session:
         statement = select(TelegramFile)
+        statement = statement.where(TelegramFile.deleted.is_(False))
         if touched is not None:
             statement = statement.where(TelegramFile.touched.is_(bool(touched)))
         if normalized_status:
@@ -1163,15 +1187,16 @@ def list_telegram_files(
 
 def count_untouched_telegram_files() -> int:
     with get_session() as session:
-        return int(session.scalar(select(func.count()).select_from(TelegramFile).where(TelegramFile.touched.is_(False))) or 0)
+        return int(session.scalar(select(func.count()).select_from(TelegramFile).where(TelegramFile.deleted.is_(False), TelegramFile.touched.is_(False))) or 0)
 
 
 def get_telegram_file_counts() -> Dict[str, int]:
     with get_session() as session:
-        untouched = int(session.scalar(select(func.count()).select_from(TelegramFile).where(TelegramFile.touched.is_(False))) or 0)
-        queued = int(session.scalar(select(func.count()).select_from(TelegramFile).where(TelegramFile.extraction_status == "queued")) or 0)
-        processing = int(session.scalar(select(func.count()).select_from(TelegramFile).where(TelegramFile.extraction_status == "processing")) or 0)
-        failed = int(session.scalar(select(func.count()).select_from(TelegramFile).where(TelegramFile.extraction_status == "failed")) or 0)
+        active_filter = TelegramFile.deleted.is_(False)
+        untouched = int(session.scalar(select(func.count()).select_from(TelegramFile).where(active_filter, TelegramFile.touched.is_(False))) or 0)
+        queued = int(session.scalar(select(func.count()).select_from(TelegramFile).where(active_filter, TelegramFile.extraction_status == "queued")) or 0)
+        processing = int(session.scalar(select(func.count()).select_from(TelegramFile).where(active_filter, TelegramFile.extraction_status == "processing")) or 0)
+        failed = int(session.scalar(select(func.count()).select_from(TelegramFile).where(active_filter, TelegramFile.extraction_status == "failed")) or 0)
         return {
             "untouched_count": untouched,
             "queued_count": queued,
@@ -1213,6 +1238,7 @@ def list_unfinished_telegram_file_ids(*, stale_processing_before: datetime) -> L
     with get_session() as session:
         records = session.execute(
             select(TelegramFile.id).where(
+                TelegramFile.deleted.is_(False),
                 or_(
                     TelegramFile.extraction_status == "queued",
                     TelegramFile.extraction_status == "received",
@@ -1564,6 +1590,7 @@ __all__ = [
     "create_telegram_file_record",
     "update_telegram_file_record",
     "touch_telegram_file_record",
+    "soft_delete_telegram_file_record",
     "mark_telegram_file_labels_printed",
     "mark_telegram_file_linked_order_opened",
     "list_telegram_files",
