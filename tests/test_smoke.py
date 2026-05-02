@@ -21,6 +21,8 @@ def _install_fake_db(monkeypatch) -> Dict[str, List[Dict[str, Any]]]:
         "create_telegram_file_record": [],
         "update_telegram_file_record": [],
         "touch_telegram_file_record": [],
+        "mark_telegram_file_labels_printed": [],
+        "mark_telegram_file_linked_order_opened": [],
     }
 
     fake_db = types.ModuleType("db")
@@ -48,13 +50,29 @@ def _install_fake_db(monkeypatch) -> Dict[str, List[Dict[str, Any]]]:
         calls["touch_telegram_file_record"].append({"args": args, "kwargs": kwargs})
         return {"id": args[0] if args else 1, "touched": True, "touched_at": "2026-05-02T12:00:00+00:00"}
 
+    def _mark_telegram_file_labels_printed(*args, **kwargs):
+        calls["mark_telegram_file_labels_printed"].append({"args": args, "kwargs": kwargs})
+        return {"id": args[0] if args else 1, "linked_order_id": 9, "labels_printed": True, "touched": False}
+
+    def _mark_telegram_file_linked_order_opened(*args, **kwargs):
+        calls["mark_telegram_file_linked_order_opened"].append({"args": args, "kwargs": kwargs})
+        return {"id": args[0] if args else 1, "linked_order_id": 9, "linked_order_opened": True, "touched": False}
+
     fake_db.insert_extraction_with_rows = _insert_extraction_with_rows
     fake_db.update_order_rows = _update_order_rows
     fake_db.create_telegram_file_record = _create_telegram_file_record
     fake_db.update_telegram_file_record = _update_telegram_file_record
     fake_db.touch_telegram_file_record = _touch_telegram_file_record
+    fake_db.mark_telegram_file_labels_printed = _mark_telegram_file_labels_printed
+    fake_db.mark_telegram_file_linked_order_opened = _mark_telegram_file_linked_order_opened
     fake_db.list_telegram_files = lambda *args, **kwargs: []
     fake_db.count_untouched_telegram_files = lambda *args, **kwargs: 0
+    fake_db.get_telegram_file_counts = lambda *args, **kwargs: {
+        "untouched_count": 0,
+        "queued_count": 0,
+        "processing_count": 0,
+        "failed_count": 0,
+    }
     fake_db.find_telegram_file_record = lambda *args, **kwargs: None
     fake_db.list_unfinished_telegram_file_ids = lambda *args, **kwargs: []
     fake_db.get_telegram_file = lambda *args, **kwargs: None
@@ -708,6 +726,7 @@ def test_telegram_file_view_download_and_path_traversal(monkeypatch, tmp_path):
 
 def test_telegram_files_list_and_touch_status(monkeypatch):
     app_module, calls = _load_app(monkeypatch, legacy_enabled="false")
+    list_calls = []
     item = {
         "id": 7,
         "original_filename": "order.pdf",
@@ -719,21 +738,118 @@ def test_telegram_files_list_and_touch_status(monkeypatch):
         "view_url": "/telegram-files/7/view",
         "download_url": "/telegram-files/7/download",
     }
-    app_module.list_telegram_files = lambda *args, **kwargs: [item]
+
+    def _list_telegram_files(*args, **kwargs):
+        list_calls.append({"args": args, "kwargs": kwargs})
+        return [item]
+
+    app_module.list_telegram_files = _list_telegram_files
     app_module.count_untouched_telegram_files = lambda: 1
+    app_module.get_telegram_file_counts = lambda: {
+        "untouched_count": 1,
+        "queued_count": 0,
+        "processing_count": 0,
+        "failed_count": 0,
+    }
     client = TestClient(app_module.app)
 
     listed = client.get("/telegram-files")
     assert listed.status_code == 200
     assert listed.json()["items"][0]["touched"] is False
     assert listed.json()["untouched_count"] == 1
+    assert list_calls[-1]["kwargs"]["touched"] is False
+
+    listed_all = client.get("/telegram-files?touched=all")
+    assert listed_all.status_code == 200
+    assert list_calls[-1]["kwargs"]["touched"] is None
+
+    listed_touched = client.get("/telegram-files?touched=true")
+    assert listed_touched.status_code == 200
+    assert list_calls[-1]["kwargs"]["touched"] is True
 
     app_module.count_untouched_telegram_files = lambda: 0
+    app_module.get_telegram_file_counts = lambda: {
+        "untouched_count": 0,
+        "queued_count": 0,
+        "processing_count": 0,
+        "failed_count": 0,
+    }
     touched = client.post("/telegram-files/7/touch")
     assert touched.status_code == 200
     assert touched.json()["file"]["touched"] is True
     assert touched.json()["untouched_count"] == 0
     assert calls["touch_telegram_file_record"][0]["args"] == (7,)
+
+
+def test_telegram_handling_step_endpoints_return_updated_file(monkeypatch):
+    app_module, calls = _load_app(monkeypatch, legacy_enabled="false")
+    app_module.get_telegram_file = lambda file_id: {
+        "id": file_id,
+        "linked_order_id": 9,
+        "extraction_status": "extracted",
+        "touched": False,
+    }
+    client = TestClient(app_module.app)
+
+    labels = client.post("/telegram-files/7/mark-labels-printed")
+    assert labels.status_code == 200
+    assert labels.json()["file"]["labels_printed"] is True
+    assert calls["mark_telegram_file_labels_printed"][0]["args"] == (7,)
+
+    opened = client.post("/telegram-files/7/mark-linked-order-opened")
+    assert opened.status_code == 200
+    assert opened.json()["file"]["linked_order_opened"] is True
+    assert calls["mark_telegram_file_linked_order_opened"][0]["args"] == (7,)
+
+
+def test_telegram_handling_step_endpoint_rejects_unlinked_file(monkeypatch):
+    app_module, calls = _load_app(monkeypatch, legacy_enabled="false")
+    app_module.get_telegram_file = lambda file_id: {
+        "id": file_id,
+        "linked_order_id": None,
+        "extraction_status": "received",
+        "touched": False,
+    }
+    client = TestClient(app_module.app)
+
+    response = client.post("/telegram-files/7/mark-labels-printed")
+    assert response.status_code == 409
+    assert calls["mark_telegram_file_labels_printed"] == []
+
+
+def test_telegram_sse_broadcast_payload_is_public(monkeypatch):
+    app_module, _calls = _load_app(monkeypatch, legacy_enabled="false")
+    public = app_module._public_telegram_file(
+        {
+            "id": 1,
+            "original_filename": "order.pdf",
+            "file_path": "/data/telegram-files/private.pdf",
+            "stored_filename": "private.pdf",
+            "telegram_file_id": "secret-ish-file-id",
+            "view_url": "/telegram-files/1/view",
+        }
+    )
+    assert public["id"] == 1
+    assert public["view_url"] == "/telegram-files/1/view"
+    assert "file_path" not in public
+    assert "stored_filename" not in public
+    assert "telegram_file_id" not in public
+
+    async def _run():
+        queue = asyncio.Queue()
+        with app_module._telegram_event_clients_lock:
+            app_module._telegram_event_clients.add(queue)
+        app_module._telegram_event_loop = asyncio.get_running_loop()
+        try:
+            app_module.broadcastTelegramFileEvent("telegram_counts_updated", {"counts": {"untouched_count": 2}})
+            message = await asyncio.wait_for(queue.get(), timeout=1)
+        finally:
+            with app_module._telegram_event_clients_lock:
+                app_module._telegram_event_clients.discard(queue)
+        return message
+
+    delivered = asyncio.run(_run())
+    assert delivered == {"type": "telegram_counts_updated", "counts": {"untouched_count": 2}}
 
 
 def test_telegram_duplicate_webhook_reuses_existing_queue_record(monkeypatch):

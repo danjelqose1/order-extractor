@@ -45,6 +45,48 @@ def test_workspace_combined_labels_aggregate_sections_per_order():
     assert "existingKeys.has(sectionKey)" in html
 
 
+def test_telegram_files_reuse_dashboard_label_print_flow():
+    html = _html()
+
+    assert 'data-telegram-action="labels"' in html
+    assert "No linked order yet" in html
+    assert 'aria-label="No linked order yet"' in html
+    assert ".telegram-file-actions{display:grid;grid-template-columns:1fr}" in html
+    assert "async function printTelegramLinkedLabels(file)" in html
+    assert "const order = await fetchOrder(file.linked_order_id);" in html
+    assert "await handlePrint(rows);" in html
+    assert "generateLabelsPdf" in html
+
+
+def test_telegram_files_default_to_active_with_touched_filters():
+    html = _html()
+
+    assert 'id="telegramFilesTouchedFilter"' in html
+    assert '<option value="false" selected>Active</option>' in html
+    assert '<option value="all">All</option>' in html
+    assert '<option value="true">Touched</option>' in html
+    assert 'touched: "false"' in html
+    assert 'params.set("touched", telegramFilesState.touched || "false");' in html
+    assert 'if (touchedFilter === "true" && !file.touched) return false;' in html
+    assert 'if (touchedFilter === "false" && file.touched) return false;' in html
+    assert 'telegramFilesState.items = (telegramFilesState.items || []).filter(item => String(item.id) !== String(fileId));' in html
+    assert "telegramFilesTouchedFilter.addEventListener" in html
+
+
+def test_telegram_files_auto_touch_workflow_hooks_present():
+    html = _html()
+
+    assert "function telegramHandlingProgressBadges(file)" in html
+    assert "Labels printed" in html
+    assert "Linked order opened" in html
+    assert "async function markTelegramFileHandlingStep(fileId, step)" in html
+    assert '"mark-labels-printed"' in html
+    assert '"mark-linked-order-opened"' in html
+    assert 'await markTelegramFileHandlingStep(file.id, "labels");' in html
+    assert 'await markTelegramFileHandlingStep(file.id, "order");' in html
+    assert 'data-telegram-action="order" data-id="${escapeHtml(file.id)}"' in html
+
+
 def test_workspace_merge_across_orders_is_explicit_option():
     html = _html()
 
