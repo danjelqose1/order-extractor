@@ -2265,10 +2265,10 @@
 	      padding:var(--space-5) !important;
 	    }
 	    #historyDrawerLayer .history-drawer-card{
-	      width:min(1040px,94vw) !important;
-	      max-width:min(1040px,94vw) !important;
-	      height:auto !important;
-	      max-height:min(86vh,920px) !important;
+	      width:min(95vw,1480px) !important;
+	      max-width:min(95vw,1480px) !important;
+	      height:min(90vh,1040px) !important;
+	      max-height:90vh !important;
 	      margin:auto !important;
 	      border-radius:var(--radius-lg) !important;
 	      overflow-y:auto;
@@ -2300,12 +2300,60 @@
 	      flex:0 0 auto;
 	    }
 	    #historyTableWrap{
-	      min-height:180px;
-	      max-height:360px;
+	      flex:1 1 auto;
+	      min-height:360px;
+	      max-height:min(64vh,680px);
 	      overflow:auto;
 	    }
+	    #historyTableWrap .group-header{
+	      margin:8px 0 5px !important;
+	    }
 	    #historyTableWrap table{
-	      min-width:980px;
+	      min-width:1120px;
+	    }
+	    #historyTableWrap .editable-table th:first-child,
+	    #historyTableWrap .editable-table td:first-child{
+	      width:52px;
+	      min-width:52px;
+	    }
+	    #historyTableWrap .editable-table th:nth-child(2),
+	    #historyTableWrap .editable-table td:nth-child(2){
+	      width:92px;
+	      min-width:92px;
+	    }
+	    #historyTableWrap .editable-table th[data-col="order"],
+	    #historyTableWrap .editable-table td[data-col="order"]{
+	      width:160px;
+	      min-width:160px;
+	    }
+	    #historyTableWrap .editable-table td[data-col="order"] input{
+	      min-width:138px;
+	      font-family:ui-monospace,Menlo,Consolas,monospace;
+	      font-variant-numeric:tabular-nums;
+	    }
+	    #historyTableWrap .editable-table th[data-col="type"],
+	    #historyTableWrap .editable-table td[data-col="type"]{
+	      min-width:320px;
+	      width:auto;
+	    }
+	    #historyTableWrap .editable-table th[data-col="dimension"],
+	    #historyTableWrap .editable-table td[data-col="dimension"]{
+	      min-width:150px;
+	    }
+	    #historyTableWrap .editable-table th[data-col="position"],
+	    #historyTableWrap .editable-table td[data-col="position"]{
+	      min-width:112px;
+	    }
+	    #historyTableWrap .editable-table th[data-col="qty"],
+	    #historyTableWrap .editable-table td[data-col="qty"]{
+	      min-width:84px;
+	    }
+	    #historyTableWrap .editable-table th[data-col="area"],
+	    #historyTableWrap .editable-table td[data-col="area"]{
+	      min-width:104px;
+	    }
+	    #historyTableWrap .editable-table input{
+	      min-width:0;
 	    }
 	    #historyDetailCard .btn[hidden]{
 	      display:none !important;
@@ -12523,19 +12571,19 @@ function renderEditableTable(scope, containerId, rows, rowWarnings){
       </div>
     </div>`;
     html += `<table class="editable-table" data-order="${escapeHtml(order)}">
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Warnings</th>
-          <th>Order</th>
-          <th data-col="type">Type</th>
-          <th data-col="dimension">Dimension</th>
-          <th data-col="position">Position</th>
-          <th data-col="qty">Quantity</th>
-          <th data-col="area">Area (m²)</th>
-          <th data-col="actions">Actions</th>
-        </tr>
-      </thead>
+	      <thead>
+	        <tr>
+	          <th>#</th>
+	          <th>Warnings</th>
+	          <th data-col="order">Order</th>
+	          <th data-col="type">Type</th>
+	          <th data-col="dimension">Dimension</th>
+	          <th data-col="position">Position</th>
+	          <th data-col="qty">Quantity</th>
+	          <th data-col="area">Area (m²)</th>
+	          <th data-col="actions">Actions</th>
+	        </tr>
+	      </thead>
       <tbody>`;
     items.forEach(row => {
       if (!row._rid){
@@ -12573,7 +12621,7 @@ function renderEditableTable(scope, containerId, rows, rowWarnings){
       html += `<tr data-index="${rowIndex}" data-order="${escapeHtml(order)}">
         <td>${globalIndex + 1}</td>
         <td>${warningBadge}</td>
-        <td><input ${inputBase} data-field="order_number" data-key="${orderKey}" value="${escapeHtml(row.order_number || "")}" /></td>
+        <td data-col="order"><input ${inputBase} data-field="order_number" data-key="${orderKey}" value="${escapeHtml(row.order_number || "")}" /></td>
         <td data-col="type"><input ${inputBase} data-field="type" data-key="${typeKey}" value="${escapeHtml(row.type || "")}" /></td>
         <td data-col="dimension"><input ${inputBase} data-field="dimension" data-key="${dimKey}" inputmode="text" value="${escapeHtml(row.dimension || "")}" /></td>
         <td data-col="position"><input ${inputBase} data-field="position" data-key="${posKey}" inputmode="text" value="${escapeHtml(row.position || "")}" /></td>
