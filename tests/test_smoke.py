@@ -18,9 +18,11 @@ def _install_fake_db(monkeypatch) -> Dict[str, List[Dict[str, Any]]]:
     calls: Dict[str, List[Dict[str, Any]]] = {
         "insert_extraction_with_rows": [],
         "update_order_rows": [],
+        "update_order_status": [],
         "create_telegram_file_record": [],
         "update_telegram_file_record": [],
         "touch_telegram_file_record": [],
+        "soft_delete_telegram_file_record": [],
         "mark_telegram_file_labels_printed": [],
         "mark_telegram_file_linked_order_opened": [],
     }
@@ -38,6 +40,10 @@ def _install_fake_db(monkeypatch) -> Dict[str, List[Dict[str, Any]]]:
         calls["update_order_rows"].append({"args": args, "kwargs": kwargs})
         return {}
 
+    def _update_order_status(*args, **kwargs):
+        calls["update_order_status"].append({"args": args, "kwargs": kwargs})
+        return {"id": args[0] if args else 1, "status": kwargs.get("status")}
+
     def _create_telegram_file_record(**kwargs):
         calls["create_telegram_file_record"].append(kwargs)
         return {"id": len(calls["create_telegram_file_record"]), "touched": False, "touched_at": None, **kwargs}
@@ -49,6 +55,10 @@ def _install_fake_db(monkeypatch) -> Dict[str, List[Dict[str, Any]]]:
     def _touch_telegram_file_record(*args, **kwargs):
         calls["touch_telegram_file_record"].append({"args": args, "kwargs": kwargs})
         return {"id": args[0] if args else 1, "touched": True, "touched_at": "2026-05-02T12:00:00+00:00"}
+
+    def _soft_delete_telegram_file_record(*args, **kwargs):
+        calls["soft_delete_telegram_file_record"].append({"args": args, "kwargs": kwargs})
+        return {"id": args[0] if args else 1, "deleted": True, "deleted_at": "2026-05-02T12:00:00+00:00"}
 
     def _mark_telegram_file_labels_printed(*args, **kwargs):
         calls["mark_telegram_file_labels_printed"].append({"args": args, "kwargs": kwargs})
@@ -63,6 +73,7 @@ def _install_fake_db(monkeypatch) -> Dict[str, List[Dict[str, Any]]]:
     fake_db.create_telegram_file_record = _create_telegram_file_record
     fake_db.update_telegram_file_record = _update_telegram_file_record
     fake_db.touch_telegram_file_record = _touch_telegram_file_record
+    fake_db.soft_delete_telegram_file_record = _soft_delete_telegram_file_record
     fake_db.mark_telegram_file_labels_printed = _mark_telegram_file_labels_printed
     fake_db.mark_telegram_file_linked_order_opened = _mark_telegram_file_linked_order_opened
     fake_db.list_telegram_files = lambda *args, **kwargs: []
@@ -76,7 +87,7 @@ def _install_fake_db(monkeypatch) -> Dict[str, List[Dict[str, Any]]]:
     fake_db.find_telegram_file_record = lambda *args, **kwargs: None
     fake_db.list_unfinished_telegram_file_ids = lambda *args, **kwargs: []
     fake_db.get_telegram_file = lambda *args, **kwargs: None
-    fake_db.update_order_status = lambda *args, **kwargs: {}
+    fake_db.update_order_status = _update_order_status
     fake_db.get_orders = lambda *args, **kwargs: []
     fake_db.get_orders_by_identifiers = lambda *args, **kwargs: []
     fake_db.get_order_with_extraction = lambda *args, **kwargs: None
@@ -815,6 +826,47 @@ def test_telegram_handling_step_endpoint_rejects_unlinked_file(monkeypatch):
     response = client.post("/telegram-files/7/mark-labels-printed")
     assert response.status_code == 409
     assert calls["mark_telegram_file_labels_printed"] == []
+
+
+def test_telegram_file_delete_endpoint_soft_deletes_and_archives_linked_draft(monkeypatch):
+    app_module, calls = _load_app(monkeypatch, legacy_enabled="false")
+    app_module.get_telegram_file = lambda file_id: {
+        "id": file_id,
+        "linked_order_id": 9,
+        "linked_order": {"id": 9, "status": "draft"},
+        "extraction_status": "extracted",
+        "touched": False,
+    }
+    client = TestClient(app_module.app)
+
+    response = client.delete("/telegram-files/7?also_delete_linked_order=true")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["file"]["deleted"] is True
+    assert data["linked_order_deleted"] is True
+    assert calls["soft_delete_telegram_file_record"][0]["args"] == (7,)
+    assert calls["update_order_status"][0]["args"] == (9,)
+    assert calls["update_order_status"][0]["kwargs"]["status"] == "archived"
+
+
+def test_telegram_file_delete_endpoint_preserves_approved_linked_order(monkeypatch):
+    app_module, calls = _load_app(monkeypatch, legacy_enabled="false")
+    app_module.get_telegram_file = lambda file_id: {
+        "id": file_id,
+        "linked_order_id": 9,
+        "linked_order": {"id": 9, "status": "approved"},
+        "extraction_status": "extracted",
+        "touched": False,
+    }
+    client = TestClient(app_module.app)
+
+    response = client.delete("/telegram-files/7?also_delete_linked_order=true")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["file"]["deleted"] is True
+    assert data["linked_order_deleted"] is False
+    assert data["warning"] == "Linked order is not draft and was not deleted."
+    assert calls["update_order_status"] == []
 
 
 def test_telegram_sse_broadcast_payload_is_public(monkeypatch):

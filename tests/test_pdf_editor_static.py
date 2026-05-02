@@ -87,6 +87,20 @@ def test_telegram_files_auto_touch_workflow_hooks_present():
     assert 'data-telegram-action="order" data-id="${escapeHtml(file.id)}"' in html
 
 
+def test_telegram_files_safe_delete_action_present():
+    html = _html()
+
+    assert 'data-telegram-action="delete"' in html
+    assert "Delete this Telegram file?" in html
+    assert "Original records are preserved." in html
+    assert "Also delete linked draft order" in html
+    assert "Linked order is not draft and will not be deleted." in html
+    assert "async function deleteTelegramFile(file)" in html
+    assert 'method: "DELETE"' in html
+    assert 'params.set("also_delete_linked_order", "true");' in html
+    assert "if (file.deleted) return false;" in html
+
+
 def test_workspace_merge_across_orders_is_explicit_option():
     html = _html()
 

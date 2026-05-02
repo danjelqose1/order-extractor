@@ -227,6 +227,226 @@ def test_telegram_file_queue_metadata_and_recovery_query(tmp_path, monkeypatch):
     assert failed["last_error"] == "boom"
 
 
+def test_telegram_files_filter_touched_without_deleting_records(tmp_path, monkeypatch):
+    db, _service = _load_modules(tmp_path, monkeypatch)
+    now = datetime.now(timezone.utc)
+    active = db.create_telegram_file_record(
+        original_filename="active.pdf",
+        stored_filename="active.pdf",
+        file_path=str(tmp_path / "active.pdf"),
+        mime_type="application/pdf",
+        file_size=120,
+        received_at=now,
+        extraction_status="extracted",
+    )
+    touched = db.create_telegram_file_record(
+        original_filename="handled.pdf",
+        stored_filename="handled.pdf",
+        file_path=str(tmp_path / "handled.pdf"),
+        mime_type="application/pdf",
+        file_size=120,
+        received_at=now - timedelta(minutes=1),
+        extraction_status="extracted",
+    )
+
+    db.touch_telegram_file_record(touched["id"])
+
+    default_ids = {item["id"] for item in db.list_telegram_files()}
+    active_ids = {item["id"] for item in db.list_telegram_files(touched=False)}
+    touched_ids = {item["id"] for item in db.list_telegram_files(touched=True)}
+    all_ids = {item["id"] for item in db.list_telegram_files(touched=None)}
+
+    assert default_ids == {active["id"]}
+    assert active_ids == {active["id"]}
+    assert touched_ids == {touched["id"]}
+    assert all_ids == {active["id"], touched["id"]}
+    assert db.get_telegram_file(touched["id"])["original_filename"] == "handled.pdf"
+
+
+def test_telegram_file_soft_delete_hides_without_removing_pdf_or_queue_breakage(tmp_path, monkeypatch):
+    db, _service = _load_modules(tmp_path, monkeypatch)
+    now = datetime.now(timezone.utc)
+    pdf_path = tmp_path / "delete-me.pdf"
+    pdf_path.write_bytes(b"%PDF-1.7\nkept")
+    record = db.create_telegram_file_record(
+        original_filename="delete-me.pdf",
+        stored_filename="delete-me.pdf",
+        file_path=str(pdf_path),
+        mime_type="application/pdf",
+        file_size=120,
+        received_at=now,
+        extraction_status="queued",
+        queued_at=now,
+    )
+
+    deleted = db.soft_delete_telegram_file_record(record["id"])
+
+    assert deleted["deleted"] is True
+    assert deleted["deleted_at"]
+    assert pdf_path.exists()
+    assert record["id"] not in {item["id"] for item in db.list_telegram_files(touched=None)}
+    assert record["id"] not in db.list_unfinished_telegram_file_ids(stale_processing_before=now + timedelta(minutes=1))
+    assert db.get_telegram_file(record["id"])["deleted"] is True
+
+
+def test_telegram_delete_linked_draft_archives_only_when_selected(tmp_path, monkeypatch):
+    db, _service = _load_modules(tmp_path, monkeypatch)
+    app_module = importlib.import_module("app")
+    order_id = _insert_order(db, status="draft")
+    record = db.create_telegram_file_record(
+        original_filename="draft-linked.pdf",
+        stored_filename="draft-linked.pdf",
+        file_path=str(tmp_path / "draft-linked.pdf"),
+        mime_type="application/pdf",
+        file_size=120,
+        extraction_status="extracted",
+    )
+    db.update_telegram_file_record(record["id"], linked_order_id=order_id)
+    client = TestClient(app_module.app)
+
+    response = client.delete(f"/telegram-files/{record['id']}?also_delete_linked_order=true")
+
+    assert response.status_code == 200
+    assert response.json()["file"]["deleted"] is True
+    assert response.json()["linked_order_deleted"] is True
+    assert db.get_order_with_extraction(order_id)["status"] == "archived"
+    assert db.get_telegram_file(record["id"])["deleted"] is True
+
+
+def test_telegram_delete_linked_draft_preserves_order_when_not_selected(tmp_path, monkeypatch):
+    db, _service = _load_modules(tmp_path, monkeypatch)
+    app_module = importlib.import_module("app")
+    order_id = _insert_order(db, status="draft")
+    record = db.create_telegram_file_record(
+        original_filename="draft-linked-keep-order.pdf",
+        stored_filename="draft-linked-keep-order.pdf",
+        file_path=str(tmp_path / "draft-linked-keep-order.pdf"),
+        mime_type="application/pdf",
+        file_size=120,
+        extraction_status="extracted",
+    )
+    db.update_telegram_file_record(record["id"], linked_order_id=order_id)
+    client = TestClient(app_module.app)
+
+    response = client.delete(f"/telegram-files/{record['id']}")
+
+    assert response.status_code == 200
+    assert response.json()["file"]["deleted"] is True
+    assert response.json()["linked_order_deleted"] is False
+    assert db.get_order_with_extraction(order_id)["status"] == "draft"
+
+
+def test_telegram_delete_preserves_approved_linked_order(tmp_path, monkeypatch):
+    db, _service = _load_modules(tmp_path, monkeypatch)
+    app_module = importlib.import_module("app")
+    order_id = _insert_order(db, status="approved")
+    record = db.create_telegram_file_record(
+        original_filename="approved-linked.pdf",
+        stored_filename="approved-linked.pdf",
+        file_path=str(tmp_path / "approved-linked.pdf"),
+        mime_type="application/pdf",
+        file_size=120,
+        extraction_status="extracted",
+    )
+    db.update_telegram_file_record(record["id"], linked_order_id=order_id)
+    client = TestClient(app_module.app)
+
+    response = client.delete(f"/telegram-files/{record['id']}?also_delete_linked_order=true")
+
+    assert response.status_code == 200
+    assert response.json()["warning"] == "Linked order is not draft and was not deleted."
+    assert response.json()["linked_order_deleted"] is False
+    assert db.get_order_with_extraction(order_id)["status"] == "approved"
+    assert db.get_telegram_file(record["id"])["deleted"] is True
+
+
+def test_telegram_file_auto_touches_after_labels_then_order_opened(tmp_path, monkeypatch):
+    db, _service = _load_modules(tmp_path, monkeypatch)
+    order_id = _insert_order(db, status="draft")
+    record = db.create_telegram_file_record(
+        original_filename="labels-first.pdf",
+        stored_filename="labels-first.pdf",
+        file_path=str(tmp_path / "labels-first.pdf"),
+        mime_type="application/pdf",
+        file_size=120,
+        extraction_status="extracted",
+    )
+    db.update_telegram_file_record(record["id"], linked_order_id=order_id)
+
+    after_labels = db.mark_telegram_file_labels_printed(record["id"])
+    assert after_labels["labels_printed"] is True
+    assert after_labels["linked_order_opened"] is False
+    assert after_labels["touched"] is False
+
+    before_status = db.get_order_with_extraction(order_id)["status"]
+    after_open = db.mark_telegram_file_linked_order_opened(record["id"])
+
+    assert after_open["labels_printed"] is True
+    assert after_open["linked_order_opened"] is True
+    assert after_open["touched"] is True
+    assert after_open["touched_at"]
+    assert db.get_order_with_extraction(order_id)["status"] == before_status
+    assert db.get_telegram_file(record["id"])["download_url"] == f"/telegram-files/{record['id']}/download"
+
+
+def test_telegram_file_auto_touches_after_order_opened_then_labels(tmp_path, monkeypatch):
+    db, _service = _load_modules(tmp_path, monkeypatch)
+    order_id = _insert_order(db, status="draft")
+    record = db.create_telegram_file_record(
+        original_filename="order-first.pdf",
+        stored_filename="order-first.pdf",
+        file_path=str(tmp_path / "order-first.pdf"),
+        mime_type="application/pdf",
+        file_size=120,
+        extraction_status="extracted",
+    )
+    db.update_telegram_file_record(record["id"], linked_order_id=order_id)
+
+    after_open = db.mark_telegram_file_linked_order_opened(record["id"])
+    assert after_open["linked_order_opened"] is True
+    assert after_open["labels_printed"] is False
+    assert after_open["touched"] is False
+
+    after_labels = db.mark_telegram_file_labels_printed(record["id"])
+    assert after_labels["labels_printed"] is True
+    assert after_labels["linked_order_opened"] is True
+    assert after_labels["touched"] is True
+
+
+def test_telegram_file_does_not_auto_touch_failed_or_unlinked_records(tmp_path, monkeypatch):
+    db, _service = _load_modules(tmp_path, monkeypatch)
+    order_id = _insert_order(db, status="draft")
+    failed = db.create_telegram_file_record(
+        original_filename="failed.pdf",
+        stored_filename="failed.pdf",
+        file_path=str(tmp_path / "failed.pdf"),
+        mime_type="application/pdf",
+        file_size=120,
+        extraction_status="failed",
+    )
+    unlinked = db.create_telegram_file_record(
+        original_filename="unlinked.pdf",
+        stored_filename="unlinked.pdf",
+        file_path=str(tmp_path / "unlinked.pdf"),
+        mime_type="application/pdf",
+        file_size=120,
+        extraction_status="extracted",
+    )
+    db.update_telegram_file_record(failed["id"], linked_order_id=order_id)
+
+    db.mark_telegram_file_labels_printed(failed["id"])
+    failed_after = db.mark_telegram_file_linked_order_opened(failed["id"])
+    assert failed_after["labels_printed"] is True
+    assert failed_after["linked_order_opened"] is True
+    assert failed_after["touched"] is False
+
+    db.mark_telegram_file_labels_printed(unlinked["id"])
+    unlinked_after = db.mark_telegram_file_linked_order_opened(unlinked["id"])
+    assert unlinked_after["labels_printed"] is True
+    assert unlinked_after["linked_order_opened"] is True
+    assert unlinked_after["touched"] is False
+
+
 def test_process_approved_order_blocks_draft(tmp_path, monkeypatch):
     db, service = _load_modules(tmp_path, monkeypatch)
     _insert_order(db, status="draft")
