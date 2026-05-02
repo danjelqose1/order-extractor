@@ -392,6 +392,7 @@
     .telegram-files-toolbar input,.telegram-files-toolbar select{padding:8px 10px;border:1px solid var(--border-dark);border-radius:10px;background:#fbfcff;color:var(--text)}
     .telegram-files-list{display:flex;flex-direction:column;gap:10px}
     .telegram-file-card{border:1px solid var(--border);border-radius:12px;background:#fff;padding:12px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center}
+    .telegram-file-card.untouched{border-color:#bfdbfe;background:#f8fbff}
     .telegram-file-title{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .telegram-file-meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;color:var(--muted);font-size:12px}
     .telegram-file-actions{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
@@ -399,6 +400,11 @@
     .telegram-status.extracted{background:#dcfce7;color:#166534}
     .telegram-status.failed{background:#fee2e2;color:#991b1b}
     .telegram-status.received{background:#fef3c7;color:#92400e}
+    .telegram-status.queued{background:#dbeafe;color:#1d4ed8}
+    .telegram-status.processing{background:#ede9fe;color:#6d28d9}
+    .telegram-touch-status{display:inline-flex;align-items:center;padding:3px 8px;border-radius:999px;font-size:12px;font-weight:800;text-transform:uppercase}
+    .telegram-touch-status.new{background:#dbeafe;color:#1d4ed8}
+    .telegram-touch-status.touched{background:#e5e7eb;color:#475569}
     .telegram-pdf-modal .modal-card{width:min(1100px,calc(100vw - 28px));height:min(860px,calc(100vh - 28px));display:flex;flex-direction:column}
     .telegram-pdf-header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px}
     .telegram-pdf-actions{display:flex;gap:8px;flex-wrap:wrap}
@@ -1866,6 +1872,24 @@
       background:#2557d6;
       color:#fff;
     }
+    .sidebar-badge{
+      margin-left:auto;
+      min-width:20px;
+      height:20px;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      padding:0 6px;
+      border-radius:999px;
+      background:#dc2626;
+      color:#fff;
+      font-size:11px;
+      font-weight:850;
+      line-height:1;
+    }
+    .sidebar-badge[hidden]{
+      display:none;
+    }
     .sidebar-section-label{
       margin:16px 10px 6px;
       color:#98a2b3;
@@ -2084,7 +2108,7 @@
       .sidebar-brand > div:not(.sidebar-logo),
       .sidebar-section-label,
       .sidebar-footer span,
-      .sidebar-nav.tab-bar button span:not(.nav-icon){
+      .sidebar-nav.tab-bar button span:not(.nav-icon):not(.sidebar-badge){
         display:none;
       }
       .sidebar-nav.tab-bar button{
@@ -2139,7 +2163,7 @@
         min-height:42px;
         padding:8px 11px;
       }
-      .sidebar-nav.tab-bar button span:not(.nav-icon){
+      .sidebar-nav.tab-bar button span:not(.nav-icon):not(.sidebar-badge){
         display:inline;
       }
       .sidebar-section-label{
@@ -2498,7 +2522,7 @@
         white-space:nowrap;
         touch-action:manipulation;
       }
-      .sidebar-nav.tab-bar button span:not(.nav-icon){
+      .sidebar-nav.tab-bar button span:not(.nav-icon):not(.sidebar-badge){
         display:inline !important;
       }
       .nav-icon{
@@ -3369,7 +3393,7 @@
     <nav class="tab-bar sidebar-nav">
       <button class="tab active" data-tab="extract"><span class="nav-icon" aria-hidden="true">D</span><span>Dashboard</span></button>
       <button class="tab" data-tab="workspace"><span class="nav-icon" aria-hidden="true">W</span><span>Workspace</span></button>
-      <button class="tab" data-tab="telegram"><span class="nav-icon" aria-hidden="true">IN</span><span>Telegram Files</span></button>
+      <button class="tab" data-tab="telegram"><span class="nav-icon" aria-hidden="true">IN</span><span>Telegram Files</span><span id="telegramFilesBadge" class="sidebar-badge" hidden>0</span></button>
       <button class="tab" data-tab="history"><span class="nav-icon" aria-hidden="true">H</span><span>History</span></button>
       <button class="tab" data-tab="processing"><span class="nav-icon" aria-hidden="true">P</span><span>Processing</span></button>
       <button class="tab" data-tab="labels"><span class="nav-icon" aria-hidden="true">L</span><span>Labels</span></button>
@@ -3796,6 +3820,8 @@
             <select id="telegramFilesStatusFilter">
               <option value="">All</option>
               <option value="received">Received</option>
+              <option value="queued">Queued</option>
+              <option value="processing">Processing</option>
               <option value="extracted">Extracted</option>
               <option value="failed">Failed</option>
             </select>
@@ -4823,6 +4849,7 @@ const telegramFilesState = {
   loadedOnce: false,
   query: "",
   status: "",
+  untouchedCount: 0,
   selectedFile: null,
 };
 
@@ -4964,6 +4991,7 @@ const telegramFilesStatusEl = document.getElementById("telegramFilesStatus");
 const telegramFilesSearchInput = document.getElementById("telegramFilesSearch");
 const telegramFilesStatusFilter = document.getElementById("telegramFilesStatusFilter");
 const telegramFilesRefreshBtn = document.getElementById("telegramFilesRefresh");
+const telegramFilesBadge = document.getElementById("telegramFilesBadge");
 const telegramPdfModal = document.getElementById("telegramPdfModal");
 const telegramPdfTitle = document.getElementById("telegramPdfTitle");
 const telegramPdfMeta = document.getElementById("telegramPdfMeta");
@@ -16622,9 +16650,28 @@ function setTelegramFilesStatus(message){
   if (telegramFilesStatusEl) telegramFilesStatusEl.textContent = message || "";
 }
 
+function updateTelegramFilesBadge(){
+  if (!telegramFilesBadge) return;
+  const count = Number(telegramFilesState.untouchedCount || 0);
+  if (!Number.isFinite(count) || count <= 0){
+    telegramFilesBadge.hidden = true;
+    telegramFilesBadge.textContent = "0";
+    return;
+  }
+  telegramFilesBadge.hidden = false;
+  telegramFilesBadge.textContent = count > 9 ? "9+" : String(count);
+  telegramFilesBadge.setAttribute("aria-label", `${count} new Telegram file${count === 1 ? "" : "s"}`);
+}
+
 function telegramStatusBadge(status){
   const normalized = String(status || "received").trim().toLowerCase() || "received";
   return `<span class="telegram-status ${escapeHtml(normalized)}">${escapeHtml(normalized)}</span>`;
+}
+
+function telegramHandlingBadge(file){
+  const touched = Boolean(file?.touched);
+  const label = touched ? "Touched" : "New / Untouched";
+  return `<span class="telegram-touch-status ${touched ? "touched" : "new"}">${escapeHtml(label)}</span>`;
 }
 
 function renderTelegramFiles(){
@@ -16649,13 +16696,14 @@ function renderTelegramFiles(){
     const sender = file.telegram_sender_name || (file.telegram_chat_id ? `Chat ${file.telegram_chat_id}` : "Telegram");
     const viewUrl = telegramFileUrl(file.view_url);
     const downloadUrl = telegramFileUrl(file.download_url);
-    return `<article class="telegram-file-card" data-telegram-file-id="${escapeHtml(file.id)}">
+    return `<article class="telegram-file-card ${file.touched ? "" : "untouched"}" data-telegram-file-id="${escapeHtml(file.id)}">
       <div>
         <div class="telegram-file-title">${escapeHtml(file.original_filename || "Telegram order.pdf")}</div>
         <div class="telegram-file-meta">
           <span>${escapeHtml(formatDate(file.received_at))}</span>
           <span>${escapeHtml(sender)}</span>
           <span>${escapeHtml(formatFileSize(file.file_size))}</span>
+          ${telegramHandlingBadge(file)}
           ${telegramStatusBadge(file.extraction_status)}
           <span>${escapeHtml(linkedLabel)}</span>
         </div>
@@ -16664,11 +16712,13 @@ function renderTelegramFiles(){
         <button type="button" class="btn small" data-telegram-action="view" data-id="${escapeHtml(file.id)}">View PDF</button>
         <a class="btn small" href="${escapeHtml(downloadUrl)}" download>Download</a>
         <button type="button" class="btn small" data-telegram-action="print" data-id="${escapeHtml(file.id)}">Print</button>
+        ${file.touched ? `<button type="button" class="btn small" disabled>Touched</button>` : `<button type="button" class="btn small" data-telegram-action="touch" data-id="${escapeHtml(file.id)}">Mark touched</button>`}
         ${linked ? `<button type="button" class="btn small" data-telegram-action="order" data-order-id="${escapeHtml(linked.id)}">Open linked order</button>` : ""}
       </div>
     </article>`;
   }).join("");
-  setTelegramFilesStatus(`${items.length} file${items.length === 1 ? "" : "s"}`);
+  const untouched = Number(telegramFilesState.untouchedCount || 0);
+  setTelegramFilesStatus(`${items.length} file${items.length === 1 ? "" : "s"}${untouched > 0 ? ` • ${untouched} new` : ""}`);
 }
 
 async function loadTelegramFiles(){
@@ -16679,7 +16729,9 @@ async function loadTelegramFiles(){
   try{
     const data = await fetchTelegramFiles();
     telegramFilesState.items = Array.isArray(data?.items) ? data.items : [];
+    telegramFilesState.untouchedCount = Number(data?.untouched_count || 0);
     telegramFilesState.loadedOnce = true;
+    updateTelegramFilesBadge();
     setTelegramFilesStatus("");
   }catch(error){
     telegramFilesState.items = [];
@@ -16691,8 +16743,66 @@ async function loadTelegramFiles(){
   }
 }
 
+async function refreshTelegramFilesBadge(){
+  try{
+    const data = await fetchTelegramFiles();
+    telegramFilesState.untouchedCount = Number(data?.untouched_count || 0);
+    updateTelegramFilesBadge();
+  }catch(error){
+    console.warn("Telegram files badge refresh failed", error);
+  }
+}
+
 function getTelegramFileById(id){
   return (telegramFilesState.items || []).find(item => String(item.id) === String(id)) || null;
+}
+
+function updateTelegramFileTouchedLocally(fileId, touchedAt){
+  const file = getTelegramFileById(fileId);
+  const wasUntouched = file && !file.touched;
+  if (file){
+    file.touched = true;
+    file.touched_at = touchedAt || new Date().toISOString();
+  }
+  if (telegramFilesState.selectedFile && String(telegramFilesState.selectedFile.id) === String(fileId)){
+    telegramFilesState.selectedFile = file || { ...telegramFilesState.selectedFile, touched: true, touched_at: touchedAt || new Date().toISOString() };
+  }
+  if (wasUntouched){
+    telegramFilesState.untouchedCount = Math.max(0, Number(telegramFilesState.untouchedCount || 0) - 1);
+  }
+  updateTelegramFilesBadge();
+  renderTelegramFiles();
+}
+
+function mergeTelegramFileUpdate(updatedFile){
+  if (!updatedFile || updatedFile.id == null) return;
+  telegramFilesState.items = (telegramFilesState.items || []).map(item =>
+    String(item.id) === String(updatedFile.id) ? { ...item, ...updatedFile } : item
+  );
+  if (telegramFilesState.selectedFile && String(telegramFilesState.selectedFile.id) === String(updatedFile.id)){
+    telegramFilesState.selectedFile = { ...telegramFilesState.selectedFile, ...updatedFile };
+  }
+}
+
+async function markTelegramFileTouched(fileId){
+  if (!fileId) return;
+  updateTelegramFileTouchedLocally(fileId);
+  try{
+    const res = await fetch(API_BASE + `/telegram-files/${encodeURIComponent(fileId)}/touch`, { method: "POST" });
+    if (!res.ok){
+      const text = await res.text();
+      throw new Error(text || ("HTTP " + res.status));
+    }
+    const data = await res.json();
+    mergeTelegramFileUpdate(data?.file);
+    telegramFilesState.untouchedCount = Number(data?.untouched_count || 0);
+    updateTelegramFilesBadge();
+    renderTelegramFiles();
+  }catch(error){
+    setTelegramFilesStatus("Unable to mark file touched.");
+    console.warn("Telegram touch failed", error);
+    await loadTelegramFiles();
+  }
 }
 
 function openTelegramPdf(file){
@@ -16714,12 +16824,13 @@ function closeTelegramPdf(){
 }
 
 function printTelegramPdf(file){
-  if (!file) return;
+  if (!file) return false;
   const popup = window.open(telegramFileUrl(file.view_url), "_blank", "noopener");
-  if (!popup) return;
+  if (!popup) return false;
   popup.addEventListener("load", () => {
     try{ popup.focus(); popup.print(); }catch{/* browser PDF viewer may handle printing */}
   }, { once: true });
+  return true;
 }
 
 async function postWorkspaceProcessOrder(identifier){
@@ -17835,7 +17946,11 @@ if (telegramFilesListEl){
     if (action === "view"){
       openTelegramPdf(file);
     }else if (action === "print"){
-      printTelegramPdf(file);
+      if (printTelegramPdf(file)){
+        markTelegramFileTouched(file.id);
+      }
+    }else if (action === "touch"){
+      markTelegramFileTouched(file.id);
     }
   });
 }
@@ -17849,7 +17964,10 @@ if (telegramPdfModal){
 }
 if (telegramPdfPrintBtn){
   telegramPdfPrintBtn.addEventListener("click", () => {
-    printTelegramPdf(telegramFilesState.selectedFile);
+    const file = telegramFilesState.selectedFile;
+    if (printTelegramPdf(file)){
+      markTelegramFileTouched(file.id);
+    }
   });
 }
 
@@ -22167,6 +22285,7 @@ updateProcessingUI();
 syncProcessingStateProcessedRows();
 updateSpacerProcessingUI();
 updateLabelsUI();
+refreshTelegramFilesBadge();
 </script>
 </body>
 </html>
