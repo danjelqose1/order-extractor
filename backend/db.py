@@ -126,6 +126,7 @@ class Order(Base):
     version: Mapped[int] = mapped_column(Integer, default=1)
     parent_order_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    source_metadata: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="draft")
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
@@ -297,6 +298,8 @@ def _ensure_schema() -> None:
             conn.execute(text("ALTER TABLE orders ADD COLUMN parent_order_id INTEGER"))
         if "confidence" not in columns:
             conn.execute(text("ALTER TABLE orders ADD COLUMN confidence REAL"))
+        if "source_metadata" not in columns:
+            conn.execute(text("ALTER TABLE orders ADD COLUMN source_metadata TEXT"))
         info_rows = conn.execute(text("PRAGMA table_info(orders)")).fetchall()
         columns = {row[1] for row in info_rows}
         if "order_numbers" in columns:
@@ -373,6 +376,14 @@ def _serialize_order(order: Order, include_rows: bool = False) -> Dict[str, Any]
     normalized_status = normalize_order_status(order.status)
     client_name = _normalize_client_name(order.client_name, _client_name_from_extraction(order.extraction))
     client_legacy = client_name or _normalize_client_name(order.client_hint) or ""
+    source_metadata: Dict[str, Any] = {}
+    if order.source_metadata:
+        try:
+            parsed_metadata = json.loads(order.source_metadata)
+            if isinstance(parsed_metadata, dict):
+                source_metadata = parsed_metadata
+        except Exception:
+            source_metadata = {}
     data: Dict[str, Any] = {
         "id": order.id,
         "created_at": order.created_at.isoformat(),
@@ -390,6 +401,7 @@ def _serialize_order(order: Order, include_rows: bool = False) -> Dict[str, Any]
         "version": int(order.version or 1),
         "parent_order_id": order.parent_order_id,
         "confidence": order.confidence,
+        "source_metadata": source_metadata,
         "status": normalized_status,
         "status_label": order_status_label(normalized_status),
         "notes": order.notes,
@@ -535,6 +547,7 @@ def insert_extraction_with_rows(
     hash_value: Optional[str],
     confidence: Optional[float] = None,
     client_name: Optional[str] = None,
+    source_metadata: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     if not rows:
         raise ValueError("rows are required to insert extraction")
@@ -543,6 +556,11 @@ def insert_extraction_with_rows(
     normalized_client_name = _normalize_client_name(client_name)
     client_hint = extract_client_hint(raw_input or prepared_text or "")
     canonical_hash = (hash_value or "").strip() or None
+    metadata_json = (
+        json.dumps(source_metadata, ensure_ascii=False, sort_keys=True)
+        if isinstance(source_metadata, dict) and source_metadata
+        else None
+    )
 
     with get_session() as session:
         order: Optional[Order] = None
@@ -566,6 +584,7 @@ def insert_extraction_with_rows(
                 version=1,
                 status="draft",
                 confidence=confidence,
+                source_metadata=metadata_json,
             )
             session.add(order)
             session.flush()
@@ -592,6 +611,7 @@ def insert_extraction_with_rows(
                     parent_order_id=protected_order_id,
                     status="draft",
                     confidence=confidence,
+                    source_metadata=metadata_json,
                 )
                 session.add(order)
                 session.flush()
@@ -613,6 +633,8 @@ def insert_extraction_with_rows(
                 order.version = int(order.version or 1)
                 if confidence is not None:
                     order.confidence = confidence
+                if metadata_json is not None:
+                    order.source_metadata = metadata_json
                 if previous_status != "draft":
                     _record_status_event(
                         session,
@@ -643,6 +665,8 @@ def insert_extraction_with_rows(
         order.client_hint = client_hint or order.client_hint
         if confidence is not None:
             order.confidence = confidence
+        if metadata_json is not None:
+            order.source_metadata = metadata_json
         order.updated_at = datetime.now(timezone.utc)
 
         extraction = order.extraction

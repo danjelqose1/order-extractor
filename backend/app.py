@@ -19,6 +19,7 @@ from llm import (
     call_llm_for_extraction,
     call_llm_for_extraction_multi,
     call_llm_for_pdf_base64_visual,
+    call_llm_for_image_visual,
     pdf_to_png_pages,
     ocr_png_with_openai,
     _prepare_text,
@@ -67,6 +68,8 @@ FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "*")
 APP_KEY = os.getenv("APP_KEY")  # optional shared secret
 EXTRACTION_MODEL = os.getenv("EXTRACTION_MODEL", "gpt-5-mini")
 LEGACY_OCR_ENABLED = os.getenv("LEGACY_OCR_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
+TELEGRAM_MAX_FILE_BYTES = 5 * 1024 * 1024
+TELEGRAM_SECRET_HEADER = "X-Telegram-Bot-Api-Secret-Token"
 
 ANALYSIS_MODEL = os.getenv("ANALYSIS_MODEL", "gpt-4o-mini")
 try:
@@ -428,6 +431,11 @@ def _pdf_data_url(pdf_bytes: bytes) -> str:
     return f"data:application/pdf;base64,{encoded}"
 
 
+def _file_data_url(file_bytes: bytes, content_type: str) -> str:
+    encoded = base64.b64encode(file_bytes).decode("ascii")
+    return f"data:{content_type};base64,{encoded}"
+
+
 def _rows_to_dicts(rows: List[Any]) -> List[Dict[str, Any]]:
     output: List[Dict[str, Any]] = []
     for row in rows or []:
@@ -459,6 +467,15 @@ def _summarize_totals(rows: List[Dict[str, Any]]) -> Dict[str, float]:
         except Exception:
             pass
     return {"units": units, "area": round(area, 3)}
+
+
+def _is_pdf_file(filename: str, content_type: str) -> bool:
+    return (content_type or "").lower() == "application/pdf" or (filename or "").lower().endswith(".pdf")
+
+
+def _is_image_file(filename: str, content_type: str) -> bool:
+    lowered = (filename or "").lower()
+    return (content_type or "").lower().startswith("image/") or lowered.endswith((".png", ".jpg", ".jpeg", ".webp"))
 
 
 def _parse_order_datetime(value: Any) -> datetime:
@@ -898,56 +915,65 @@ def pdf_editor_native_text_replace(
     return response
 
 
-@app.post("/extract_pdf")
-async def extract_pdf(file: UploadFile = File(...), x_app_key: Optional[str] = Header(default=None)) -> Dict[str, Any]:
-    """Accept a PDF file upload and run base64 PDF visual extraction."""
-    if APP_KEY and x_app_key != APP_KEY:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
-    if not file or not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Please upload a .pdf file")
-
-    try:
-        raw_bytes = await file.read()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to read PDF: {e}")
-
+def _extract_order_file_bytes(
+    *,
+    raw_bytes: bytes,
+    filename: str,
+    content_type: str,
+    source: str,
+    source_metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     if not raw_bytes:
         raise HTTPException(
             status_code=422,
-            detail="The uploaded PDF is empty.",
+            detail="The uploaded order file is empty.",
         )
 
-    filename = file.filename or "upload.pdf"
-    raw_pdf_data_url = _pdf_data_url(raw_bytes)
-    extraction_method = "base64_pdf_visual"
-    source = "pdf"
+    normalized_filename = filename or "upload"
+    normalized_content_type = (content_type or "").lower()
+    is_pdf = _is_pdf_file(normalized_filename, normalized_content_type)
+    is_image = _is_image_file(normalized_filename, normalized_content_type)
+    if not is_pdf and not is_image:
+        raise HTTPException(status_code=400, detail="Please upload a PDF or image file")
+
+    raw_input_data_url = _file_data_url(
+        raw_bytes,
+        "application/pdf" if is_pdf else (normalized_content_type or "image/jpeg"),
+    )
+    extraction_method = "base64_pdf_visual" if is_pdf else "image_visual"
     client_name = ""
     prepared_text = ""
     fallback_warning: Optional[str] = None
 
     try:
-        bundle = call_llm_for_pdf_base64_visual(raw_bytes, filename=filename)
-    except Exception as visual_exc:
-        if not LEGACY_OCR_ENABLED:
-            raise HTTPException(
-                status_code=502,
-                detail=f"Base64 PDF extraction failed: {visual_exc}",
-            ) from visual_exc
-        try:
-            legacy_result = _extract_pdf_via_legacy_ocr(raw_bytes)
-            bundle = legacy_result["bundle"]
-            client_name = legacy_result.get("client_name") or ""
-            prepared_text = bundle.get("prepared_text") or legacy_result.get("raw_joined") or ""
-            extraction_method = "legacy_ocr"
-            fallback_warning = f"legacy_ocr_fallback_used: {visual_exc}"
-        except Exception as legacy_exc:
-            raise HTTPException(
-                status_code=502,
-                detail=f"Base64 PDF extraction failed: {visual_exc}; legacy OCR failed: {legacy_exc}",
-            ) from legacy_exc
+        if is_pdf:
+            try:
+                bundle = call_llm_for_pdf_base64_visual(raw_bytes, filename=normalized_filename)
+            except Exception as visual_exc:
+                if not LEGACY_OCR_ENABLED:
+                    raise HTTPException(
+                        status_code=502,
+                        detail=f"Base64 PDF extraction failed: {visual_exc}",
+                    ) from visual_exc
+                try:
+                    legacy_result = _extract_pdf_via_legacy_ocr(raw_bytes)
+                    bundle = legacy_result["bundle"]
+                    client_name = legacy_result.get("client_name") or ""
+                    prepared_text = bundle.get("prepared_text") or legacy_result.get("raw_joined") or ""
+                    extraction_method = "legacy_ocr"
+                    fallback_warning = f"legacy_ocr_fallback_used: {visual_exc}"
+                except Exception as legacy_exc:
+                    raise HTTPException(
+                        status_code=502,
+                        detail=f"Base64 PDF extraction failed: {visual_exc}; legacy OCR failed: {legacy_exc}",
+                    ) from legacy_exc
+        else:
+            bundle = call_llm_for_image_visual(
+                raw_bytes,
+                filename=normalized_filename,
+                mime_type=normalized_content_type or "image/jpeg",
+            )
 
-    try:
         raw_payload = bundle.get("raw") or {}
         _ = ExtractionResult(**raw_payload)
         result_data = ExtractionResult(**(bundle.get("data") or raw_payload))
@@ -979,11 +1005,16 @@ async def extract_pdf(file: UploadFile = File(...), x_app_key: Optional[str] = H
         if applied:
             combined_warnings.append(f"auto_corrections_applied:{','.join(str(i) for i in applied)}")
 
+        metadata = dict(source_metadata or {})
+        metadata.setdefault("source", source)
+        metadata.setdefault("original_filename", normalized_filename)
+
         llm_output_payload = dict(raw_payload) if isinstance(raw_payload, dict) else {"raw_payload": raw_payload}
         llm_output_payload["_meta"] = {
             "raw_response": bundle.get("raw_response"),
             "parsed_result": bundle.get("data") or raw_payload,
             "extraction_method": extraction_method,
+            "source_metadata": metadata,
         }
         llm_output_json = json.dumps(llm_output_payload, ensure_ascii=False)
         hash_value = _compute_hash_bytes(raw_bytes)
@@ -1014,19 +1045,20 @@ async def extract_pdf(file: UploadFile = File(...), x_app_key: Optional[str] = H
         insert_result = insert_extraction_with_rows(
             source=source,
             rows=final_rows,
-            raw_input=raw_pdf_data_url,
+            raw_input=raw_input_data_url,
             prepared_text=prepared_text,
             llm_output_json=llm_output_json,
             model_used=bundle.get("model_used") or EXTRACTION_MODEL,
             hash_value=hash_value,
             confidence=(bundle.get("data") or {}).get("confidence"),
             client_name=client_name,
+            source_metadata=metadata,
         )
         draft_order_id = insert_result["order_id"]
         status = insert_result.get("status", "draft")
         saved_order_id = draft_order_id if status == "approved" else None
 
-        payload = {
+        return {
             "order_number": (bundle.get("data") or {}).get("order_number") or _primary_order_number(final_rows),
             "rows": final_rows,
             "warnings": combined_warnings,
@@ -1050,17 +1082,236 @@ async def extract_pdf(file: UploadFile = File(...), x_app_key: Optional[str] = H
             "clientName": client_name,
             "client": client_name or "—",
         }
-        return payload
+    except HTTPException:
+        raise
     except ValidationError as ve:
         raise HTTPException(status_code=422, detail=f"Validation error: {ve.errors()}")
     except Exception as e:
-        print("[extract_pdf] fatal error:\n" + "".join(traceback.format_exc()))
+        print(f"[extract_file:{source}] fatal error:\n" + "".join(traceback.format_exc()))
         raise HTTPException(status_code=500, detail=f"Extraction failed: {str(e)}")
+
+
+@app.post("/extract_pdf")
+async def extract_pdf(file: UploadFile = File(...), x_app_key: Optional[str] = Header(default=None)) -> Dict[str, Any]:
+    """Accept a PDF file upload and run base64 PDF visual extraction."""
+    if APP_KEY and x_app_key != APP_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    if not file or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Please upload a .pdf file")
+
+    try:
+        raw_bytes = await file.read()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read PDF: {e}")
+
+    return _extract_order_file_bytes(
+        raw_bytes=raw_bytes,
+        filename=file.filename or "upload.pdf",
+        content_type=file.content_type or "application/pdf",
+        source="pdf",
+    )
 
 
 @app.post("/extract-pdf")
 async def extract_pdf_dash_alias(file: UploadFile = File(...), x_app_key: Optional[str] = Header(default=None)) -> Dict[str, Any]:
     return await extract_pdf(file=file, x_app_key=x_app_key)
+
+
+def _telegram_token() -> str:
+    token = (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
+    if not token:
+        raise HTTPException(status_code=500, detail="TELEGRAM_BOT_TOKEN is not set")
+    return token
+
+
+def _telegram_sender_name(message: Dict[str, Any]) -> str:
+    sender = message.get("from") if isinstance(message.get("from"), dict) else {}
+    parts = [
+        str(sender.get("first_name") or "").strip(),
+        str(sender.get("last_name") or "").strip(),
+    ]
+    full_name = " ".join(part for part in parts if part).strip()
+    if full_name:
+        return full_name
+    username = str(sender.get("username") or "").strip()
+    return f"@{username}" if username else ""
+
+
+async def _telegram_reply(token: str, chat_id: Any, message_id: Any, text: str) -> None:
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            await client.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={
+                    "chat_id": chat_id,
+                    "text": text,
+                    "reply_to_message_id": message_id,
+                    "allow_sending_without_reply": True,
+                },
+            )
+    except Exception as exc:
+        print(f"[telegram] reply failed: {exc}")
+
+
+async def _telegram_download_file(token: str, file_id: str) -> Tuple[bytes, Dict[str, Any]]:
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        file_response = await client.get(
+            f"https://api.telegram.org/bot{token}/getFile",
+            params={"file_id": file_id},
+        )
+        file_response.raise_for_status()
+        file_payload = file_response.json()
+        if not file_payload.get("ok") or not isinstance(file_payload.get("result"), dict):
+            raise RuntimeError("Telegram getFile returned an invalid response")
+        result = file_payload["result"]
+        file_path = result.get("file_path")
+        if not file_path:
+            raise RuntimeError("Telegram getFile did not return a file path")
+        reported_size = result.get("file_size")
+        if isinstance(reported_size, int) and reported_size > TELEGRAM_MAX_FILE_BYTES:
+            raise ValueError("telegram_file_too_large")
+
+        download_response = await client.get(f"https://api.telegram.org/file/bot{token}/{file_path}")
+        download_response.raise_for_status()
+        content = download_response.content
+        if len(content) > TELEGRAM_MAX_FILE_BYTES:
+            raise ValueError("telegram_file_too_large")
+        return content, result
+
+
+def _telegram_document_spec(message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    document = message.get("document")
+    if not isinstance(document, dict):
+        return None
+    filename = str(document.get("file_name") or "telegram-upload").strip() or "telegram-upload"
+    mime_type = str(document.get("mime_type") or "").strip().lower()
+    if not _is_pdf_file(filename, mime_type) and not _is_image_file(filename, mime_type):
+        return {
+            "unsupported": True,
+            "file_size": document.get("file_size"),
+        }
+    return {
+        "file_id": document.get("file_id"),
+        "filename": filename,
+        "content_type": mime_type or ("application/pdf" if filename.lower().endswith(".pdf") else "image/jpeg"),
+        "file_size": document.get("file_size"),
+        "original_filename": filename,
+    }
+
+
+def _telegram_photo_spec(message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    photos = message.get("photo")
+    if not isinstance(photos, list) or not photos:
+        return None
+    largest = max(
+        [photo for photo in photos if isinstance(photo, dict)],
+        key=lambda photo: (int(photo.get("file_size") or 0), int(photo.get("width") or 0) * int(photo.get("height") or 0)),
+        default=None,
+    )
+    if not largest:
+        return None
+    file_unique = str(largest.get("file_unique_id") or largest.get("file_id") or "photo")
+    return {
+        "file_id": largest.get("file_id"),
+        "filename": f"telegram-photo-{file_unique}.jpg",
+        "content_type": "image/jpeg",
+        "file_size": largest.get("file_size"),
+        "original_filename": None,
+    }
+
+
+async def _handle_telegram_update(update: Dict[str, Any]) -> Dict[str, Any]:
+    message = update.get("message")
+    if not isinstance(message, dict):
+        return {"ok": True, "status": "ignored"}
+
+    chat = message.get("chat") if isinstance(message.get("chat"), dict) else {}
+    chat_id = chat.get("id")
+    message_id = message.get("message_id")
+    spec = _telegram_document_spec(message) or _telegram_photo_spec(message)
+    if spec is None:
+        return {"ok": True, "status": "ignored"}
+
+    token = _telegram_token()
+    if spec.get("unsupported"):
+        if chat_id is not None:
+            await _telegram_reply(token, chat_id, message_id, "Only PDF/image orders are supported.")
+        return {"ok": True, "status": "unsupported"}
+
+    file_size = spec.get("file_size")
+    if isinstance(file_size, int) and file_size > TELEGRAM_MAX_FILE_BYTES:
+        if chat_id is not None:
+            await _telegram_reply(token, chat_id, message_id, "File is too large. Max size is 5MB.")
+        return {"ok": True, "status": "too_large"}
+
+    if not spec.get("file_id"):
+        if chat_id is not None:
+            await _telegram_reply(token, chat_id, message_id, "Extraction failed. Please try again.")
+        return {"ok": True, "status": "missing_file_id"}
+
+    if chat_id is not None:
+        await _telegram_reply(token, chat_id, message_id, "Order received ✅")
+
+    try:
+        raw_bytes, file_info = await _telegram_download_file(token, str(spec["file_id"]))
+        metadata = {
+            "source": "telegram",
+            "telegram_chat_id": chat_id,
+            "telegram_message_id": message_id,
+            "telegram_sender_name": _telegram_sender_name(message),
+            "original_filename": spec.get("original_filename") or spec.get("filename"),
+            "received_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            "caption": message.get("caption") or "",
+        }
+        result = _extract_order_file_bytes(
+            raw_bytes=raw_bytes,
+            filename=str(spec.get("filename") or "telegram-upload"),
+            content_type=str(spec.get("content_type") or "application/octet-stream"),
+            source="telegram",
+            source_metadata=metadata,
+        )
+        if chat_id is not None:
+            await _telegram_reply(token, chat_id, message_id, "Extraction finished ✅ Please review in platform.")
+        return {
+            "ok": True,
+            "status": "extracted",
+            "order_id": result.get("draft_order_id"),
+            "file_path": file_info.get("file_path"),
+        }
+    except ValueError as exc:
+        if str(exc) == "telegram_file_too_large":
+            if chat_id is not None:
+                await _telegram_reply(token, chat_id, message_id, "File is too large. Max size is 5MB.")
+            return {"ok": True, "status": "too_large"}
+        print(f"[telegram] value error chat={chat_id} message={message_id}: {exc}")
+    except HTTPException as exc:
+        print(f"[telegram] extraction failed chat={chat_id} message={message_id}: {exc.detail}")
+    except Exception as exc:
+        print(f"[telegram] extraction failed chat={chat_id} message={message_id}: {exc}")
+        print("[telegram] traceback:\n" + "".join(traceback.format_exc()))
+
+    if chat_id is not None:
+        await _telegram_reply(token, chat_id, message_id, "Extraction failed. Please try again.")
+    return {"ok": True, "status": "failed"}
+
+
+@app.post("/webhook/telegram")
+async def telegram_webhook(
+    request: Request,
+    x_telegram_bot_api_secret_token: Optional[str] = Header(default=None, alias=TELEGRAM_SECRET_HEADER),
+) -> Dict[str, Any]:
+    expected_secret = (os.getenv("TELEGRAM_WEBHOOK_SECRET") or "").strip()
+    if expected_secret and x_telegram_bot_api_secret_token != expected_secret:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    try:
+        update = await request.json()
+    except Exception:
+        return {"ok": True, "status": "invalid_json"}
+    if not isinstance(update, dict):
+        return {"ok": True, "status": "ignored"}
+    return await _handle_telegram_update(update)
 
 
 @app.get("/orders")

@@ -325,6 +325,112 @@ def call_llm_for_pdf_base64_visual(pdf_bytes: bytes, filename: str) -> Dict[str,
         "output_text": output_text,
     }
 
+
+def call_llm_for_image_visual(image_bytes: bytes, filename: str, mime_type: str = "image/jpeg") -> Dict[str, Any]:
+    if not image_bytes:
+        raise RuntimeError("Image input is empty.")
+
+    model_name = os.getenv("EXTRACTION_MODEL", EXTRACTION_MODEL)
+    safe_mime = mime_type if str(mime_type or "").startswith("image/") else "image/jpeg"
+    image_b64 = base64.b64encode(image_bytes).decode("ascii")
+    image_data_url = f"data:{safe_mime};base64,{image_b64}"
+    user_prompt = (
+        "Extract all order rows from the attached order image. "
+        "Read the image visually (tables, lines, layout), preserving dimensions, positions, quantities, and glass types. "
+        "Return strict JSON only."
+    )
+    payload = {
+        "model": model_name,
+        "input": [
+            {
+                "role": "system",
+                "content": [{"type": "input_text", "text": PDF_VISUAL_SYSTEM_PROMPT}],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": user_prompt},
+                    {
+                        "type": "input_image",
+                        "image_url": image_data_url,
+                    },
+                ],
+            },
+        ],
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": JSON_SCHEMA["name"],
+                "schema": JSON_SCHEMA["schema"],
+                "strict": True,
+            }
+        },
+    }
+
+    timeout = httpx.Timeout(
+        timeout=_env_float("EXTRACTION_TOTAL_TIMEOUT_SECONDS", 900.0),
+        connect=_env_float("EXTRACTION_CONNECT_TIMEOUT_SECONDS", 30.0),
+        read=_env_float("EXTRACTION_READ_TIMEOUT_SECONDS", 900.0),
+        write=_env_float("EXTRACTION_WRITE_TIMEOUT_SECONDS", 180.0),
+        pool=_env_float("EXTRACTION_POOL_TIMEOUT_SECONDS", 30.0),
+    )
+    retries = _env_int("EXTRACTION_REQUEST_RETRIES", 1)
+    attempt = 0
+
+    while True:
+        attempt += 1
+        try:
+            response = httpx.post(
+                "https://api.openai.com/v1/responses",
+                headers={
+                    "Authorization": f"Bearer {API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=timeout,
+            )
+            break
+        except httpx.ReadTimeout as exc:
+            if attempt > (retries + 1):
+                raise RuntimeError(
+                    "Responses API request failed: read timeout while extracting order image "
+                    f"(attempts={attempt}, read_timeout={timeout.read}s)."
+                ) from exc
+            time.sleep(min(2.0 * attempt, 5.0))
+            continue
+        except Exception as exc:
+            raise RuntimeError(f"Responses API request failed: {exc}") from exc
+
+    if response.status_code >= 400:
+        detail = response.text.strip()
+        raise RuntimeError(f"Responses API error ({response.status_code}): {detail}")
+
+    response_json = response.json()
+    output_text = _extract_responses_output_text(response_json)
+    if not output_text:
+        raise RuntimeError("Responses API returned no output text.")
+
+    output_text = _strip_json_fences(output_text)
+    parsed_payload = json.loads(output_text)
+    if parsed_payload.get("client_name") is None:
+        parsed_payload["client_name"] = ""
+    if parsed_payload.get("confidence") is None:
+        parsed_payload["confidence"] = 0.0
+
+    return {
+        "data": parsed_payload,
+        "raw": parsed_payload,
+        "raw_response": response_json,
+        "prepared_text": "",
+        "model_used": response_json.get("model") or model_name,
+        "applied_corrections": [],
+        "corrections": [],
+        "declared_units": None,
+        "declared_area": None,
+        "image_data_url": image_data_url,
+        "output_text": output_text,
+    }
+
 def pdf_to_png_pages(pdf_bytes: bytes, dpi: int = 200) -> List[bytes]:
     """Render each PDF page to PNG bytes (no alpha channel)."""
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
