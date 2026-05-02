@@ -17,6 +17,8 @@ def _install_fake_db(monkeypatch) -> Dict[str, List[Dict[str, Any]]]:
     calls: Dict[str, List[Dict[str, Any]]] = {
         "insert_extraction_with_rows": [],
         "update_order_rows": [],
+        "create_telegram_file_record": [],
+        "update_telegram_file_record": [],
     }
 
     fake_db = types.ModuleType("db")
@@ -32,8 +34,20 @@ def _install_fake_db(monkeypatch) -> Dict[str, List[Dict[str, Any]]]:
         calls["update_order_rows"].append({"args": args, "kwargs": kwargs})
         return {}
 
+    def _create_telegram_file_record(**kwargs):
+        calls["create_telegram_file_record"].append(kwargs)
+        return {"id": len(calls["create_telegram_file_record"]), **kwargs}
+
+    def _update_telegram_file_record(*args, **kwargs):
+        calls["update_telegram_file_record"].append({"args": args, "kwargs": kwargs})
+        return {"id": args[0] if args else 1, **kwargs}
+
     fake_db.insert_extraction_with_rows = _insert_extraction_with_rows
     fake_db.update_order_rows = _update_order_rows
+    fake_db.create_telegram_file_record = _create_telegram_file_record
+    fake_db.update_telegram_file_record = _update_telegram_file_record
+    fake_db.list_telegram_files = lambda *args, **kwargs: []
+    fake_db.get_telegram_file = lambda *args, **kwargs: None
     fake_db.update_order_status = lambda *args, **kwargs: {}
     fake_db.get_orders = lambda *args, **kwargs: []
     fake_db.get_orders_by_identifiers = lambda *args, **kwargs: []
@@ -125,6 +139,12 @@ def test_text_pdf_extracts_rows(monkeypatch):
             }
         ]
     )
+    app_module._store_telegram_pdf = lambda raw_bytes, original_filename: {
+        "original_filename": original_filename,
+        "stored_filename": "stored.pdf",
+        "file_path": "/tmp/stored.pdf",
+        "file_size": len(raw_bytes),
+    }
     client = TestClient(app_module.app)
     response = client.post(
         "/extract_pdf",
@@ -380,6 +400,10 @@ def test_telegram_pdf_document_extracts_as_draft_with_metadata(monkeypatch):
     assert stored["source_metadata"]["original_filename"] == "order.pdf"
     assert stored["raw_input"].startswith("data:application/pdf;base64,")
     assert calls["update_order_rows"] == []
+    assert calls["create_telegram_file_record"][0]["original_filename"] == "order.pdf"
+    assert calls["create_telegram_file_record"][0]["extraction_status"] == "received"
+    assert calls["update_telegram_file_record"][0]["kwargs"]["linked_order_id"] == 1
+    assert calls["update_telegram_file_record"][0]["kwargs"]["extraction_status"] == "extracted"
 
 
 def test_telegram_photo_uses_largest_image(monkeypatch):
@@ -499,6 +523,53 @@ def test_telegram_webhook_secret_is_validated(monkeypatch):
     assert calls["insert_extraction_with_rows"] == []
 
 
+def test_telegram_pdf_extraction_failure_still_stores_file(monkeypatch):
+    app_module, calls = _load_app(monkeypatch, legacy_enabled="false")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "telegram-test-token")
+    replies: List[str] = []
+
+    app_module.call_llm_for_pdf_base64_visual = lambda pdf_bytes, filename: (_ for _ in ()).throw(RuntimeError("boom"))
+    app_module._store_telegram_pdf = lambda raw_bytes, original_filename: {
+        "original_filename": original_filename,
+        "stored_filename": "failed.pdf",
+        "file_path": "/tmp/failed.pdf",
+        "file_size": len(raw_bytes),
+    }
+
+    async def _download(token, file_id):
+        return b"%PDF-1.7\ntelegram", {"file_path": "documents/order.pdf"}
+
+    async def _reply(token, chat_id, message_id, text):
+        replies.append(text)
+
+    app_module._telegram_download_file = _download
+    app_module._telegram_reply = _reply
+
+    client = TestClient(app_module.app)
+    response = client.post(
+        "/webhook/telegram",
+        json={
+            "message": {
+                "message_id": 48,
+                "chat": {"id": 1},
+                "document": {
+                    "file_id": "file_pdf",
+                    "file_name": "failed.pdf",
+                    "mime_type": "application/pdf",
+                    "file_size": 1024,
+                },
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "failed"
+    assert calls["create_telegram_file_record"][0]["original_filename"] == "failed.pdf"
+    assert calls["update_telegram_file_record"][0]["kwargs"]["extraction_status"] == "failed"
+    assert calls["insert_extraction_with_rows"] == []
+    assert replies[-1] == "Extraction failed. Please try again."
+
+
 def test_telegram_file_size_limit(monkeypatch):
     app_module, calls = _load_app(monkeypatch, legacy_enabled="false")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "telegram-test-token")
@@ -562,6 +633,42 @@ def test_telegram_unsupported_document_replies_cleanly(monkeypatch):
     assert response.json()["status"] == "unsupported"
     assert replies == ["Only PDF/image orders are supported."]
     assert calls["insert_extraction_with_rows"] == []
+    assert calls["create_telegram_file_record"] == []
+
+
+def test_telegram_file_view_download_and_path_traversal(monkeypatch, tmp_path):
+    app_module, _calls = _load_app(monkeypatch, legacy_enabled="false")
+    app_module.DATA_DIR = tmp_path
+    stored = app_module._store_telegram_pdf(b"%PDF-1.7\nsaved", "customer/../order.pdf")
+
+    app_module.get_telegram_file = lambda file_id: {
+        "id": file_id,
+        "original_filename": "order.pdf",
+        "stored_filename": stored["stored_filename"],
+        "file_path": stored["file_path"],
+        "mime_type": "application/pdf",
+    }
+    client = TestClient(app_module.app)
+
+    view = client.get("/telegram-files/1/view")
+    download = client.get("/telegram-files/1/download")
+    assert view.status_code == 200
+    assert view.headers["content-type"].startswith("application/pdf")
+    assert b"%PDF-1.7" in view.content
+    assert download.status_code == 200
+    assert "attachment" in download.headers["content-disposition"]
+
+    outside = tmp_path.parent / "outside.pdf"
+    outside.write_bytes(b"%PDF-1.7\noutside")
+    app_module.get_telegram_file = lambda file_id: {
+        "id": file_id,
+        "original_filename": "outside.pdf",
+        "stored_filename": "outside.pdf",
+        "file_path": str(outside),
+        "mime_type": "application/pdf",
+    }
+    blocked = client.get("/telegram-files/2/view")
+    assert blocked.status_code == 404
 
 
 def test_approve_payload_client_name_is_passed_to_save(monkeypatch):
