@@ -5,6 +5,7 @@ import inspect
 import json
 import logging
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -171,6 +172,59 @@ def test_telegram_reextract_does_not_overwrite_approved_order(tmp_path, monkeypa
     assert draft_after["source"] == "telegram"
     assert draft_after["source_metadata"]["telegram_chat_id"] == 123
     assert draft_after["rows"][0]["dimension"] == "700x800"
+
+
+def test_telegram_file_queue_metadata_and_recovery_query(tmp_path, monkeypatch):
+    db, _service = _load_modules(tmp_path, monkeypatch)
+    now = datetime.now(timezone.utc)
+    record = db.create_telegram_file_record(
+        original_filename="queued.pdf",
+        stored_filename="queued.pdf",
+        file_path=str(tmp_path / "queued.pdf"),
+        mime_type="application/pdf",
+        file_size=120,
+        telegram_file_id="telegram-file-1",
+        telegram_chat_id=123,
+        telegram_message_id=456,
+        telegram_sender_name="Sender",
+        telegram_caption="Caption",
+        received_at=now,
+        extraction_status="queued",
+        queued_at=now,
+    )
+
+    assert record["touched"] is False
+    assert record["retry_count"] == 0
+    assert record["last_error"] is None
+    assert record["telegram_file_id"] == "telegram-file-1"
+    assert record["telegram_caption"] == "Caption"
+
+    stale_before = now - timedelta(minutes=10)
+    assert record["id"] in db.list_unfinished_telegram_file_ids(stale_processing_before=stale_before)
+
+    fresh_processing = db.update_telegram_file_record(
+        record["id"],
+        extraction_status="processing",
+        processing_started_at=now,
+        retry_count=1,
+    )
+    assert fresh_processing["extraction_status"] == "processing"
+    assert record["id"] not in db.list_unfinished_telegram_file_ids(stale_processing_before=stale_before)
+
+    old_started = now - timedelta(minutes=20)
+    db.update_telegram_file_record(record["id"], processing_started_at=old_started)
+    assert record["id"] in db.list_unfinished_telegram_file_ids(stale_processing_before=stale_before)
+
+    failed = db.update_telegram_file_record(
+        record["id"],
+        extraction_status="failed",
+        processed_at=now,
+        retry_count=3,
+        last_error="boom",
+    )
+    assert failed["extraction_status"] == "failed"
+    assert failed["retry_count"] == 3
+    assert failed["last_error"] == "boom"
 
 
 def test_process_approved_order_blocks_draft(tmp_path, monkeypatch):
