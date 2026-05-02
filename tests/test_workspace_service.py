@@ -132,6 +132,47 @@ def test_process_approved_order_delegates_clean_order_to_frontend_modules(tmp_pa
     assert before["extraction"]["raw_input"] == after["extraction"]["raw_input"]
 
 
+def test_telegram_reextract_does_not_overwrite_approved_order(tmp_path, monkeypatch):
+    db, _service = _load_modules(tmp_path, monkeypatch)
+    source_hash = "same-telegram-file"
+    approved_id = db.insert_extraction_with_rows(
+        source="pdf",
+        rows=[_row()],
+        raw_input="original raw",
+        prepared_text="original prepared",
+        llm_output_json='{"rows":[]}',
+        model_used="test-model",
+        hash_value=source_hash,
+        confidence=0.9,
+        client_name="Client A",
+    )["order_id"]
+    db.update_order_rows(approved_id, [_row()], status="approved", client_name="Client A")
+
+    inserted = db.insert_extraction_with_rows(
+        source="telegram",
+        rows=[_row(dimension="700x800", area=0.56)],
+        raw_input="telegram raw",
+        prepared_text="telegram prepared",
+        llm_output_json='{"rows":[]}',
+        model_used="test-model",
+        hash_value=source_hash,
+        confidence=0.8,
+        client_name="Client A",
+        source_metadata={"source": "telegram", "telegram_chat_id": 123, "telegram_message_id": 456},
+    )
+
+    approved_after = db.get_order_with_extraction(approved_id)
+    draft_after = db.get_order_with_extraction(inserted["order_id"])
+    assert inserted["created_new_version"] is True
+    assert inserted["protected_order_id"] == approved_id
+    assert approved_after["status"] == "approved"
+    assert approved_after["rows"][0]["dimension"] == "500x600"
+    assert draft_after["status"] == "draft"
+    assert draft_after["source"] == "telegram"
+    assert draft_after["source_metadata"]["telegram_chat_id"] == 123
+    assert draft_after["rows"][0]["dimension"] == "700x800"
+
+
 def test_process_approved_order_blocks_draft(tmp_path, monkeypatch):
     db, service = _load_modules(tmp_path, monkeypatch)
     _insert_order(db, status="draft")

@@ -319,6 +319,251 @@ def test_approved_orders_not_overwritten(monkeypatch):
     assert calls["update_order_rows"] == []
 
 
+def test_telegram_pdf_document_extracts_as_draft_with_metadata(monkeypatch):
+    app_module, calls = _load_app(monkeypatch, legacy_enabled="false")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "telegram-test-token")
+    replies: List[Dict[str, Any]] = []
+
+    app_module.call_llm_for_pdf_base64_visual = lambda pdf_bytes, filename: _bundle(
+        [
+            {
+                "order_number": "R-26-2001",
+                "type": "2 VETRI 4F + 16 + 4 LOWE 24mm",
+                "dimension": "600x1200",
+                "position": "1-1",
+                "quantity": 1,
+                "area": 0.72,
+            }
+        ]
+    )
+
+    async def _download(token, file_id):
+        return b"%PDF-1.7\ntelegram", {"file_path": "documents/order.pdf"}
+
+    async def _reply(token, chat_id, message_id, text):
+        replies.append({"chat_id": chat_id, "message_id": message_id, "text": text})
+
+    app_module._telegram_download_file = _download
+    app_module._telegram_reply = _reply
+
+    client = TestClient(app_module.app)
+    response = client.post(
+        "/webhook/telegram",
+        json={
+            "update_id": 1,
+            "message": {
+                "message_id": 42,
+                "chat": {"id": -100123, "type": "group"},
+                "from": {"first_name": "Ada", "last_name": "Lovelace"},
+                "caption": "Please process",
+                "document": {
+                    "file_id": "file_pdf",
+                    "file_name": "order.pdf",
+                    "mime_type": "application/pdf",
+                    "file_size": 1024,
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "extracted"
+    assert [reply["text"] for reply in replies] == [
+        "Order received ✅",
+        "Extraction finished ✅ Please review in platform.",
+    ]
+    stored = calls["insert_extraction_with_rows"][0]
+    assert stored["source"] == "telegram"
+    assert stored["source_metadata"]["telegram_chat_id"] == -100123
+    assert stored["source_metadata"]["telegram_message_id"] == 42
+    assert stored["source_metadata"]["telegram_sender_name"] == "Ada Lovelace"
+    assert stored["source_metadata"]["original_filename"] == "order.pdf"
+    assert stored["raw_input"].startswith("data:application/pdf;base64,")
+    assert calls["update_order_rows"] == []
+
+
+def test_telegram_photo_uses_largest_image(monkeypatch):
+    app_module, calls = _load_app(monkeypatch, legacy_enabled="false")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "telegram-test-token")
+    seen: Dict[str, Any] = {}
+
+    app_module.call_llm_for_image_visual = lambda image_bytes, filename, mime_type: _bundle(
+        [
+            {
+                "order_number": "R-26-2002",
+                "type": "2 VETRI 4F + 16 + 4 LOWE 24mm",
+                "dimension": "500x1000",
+                "position": "2-1",
+                "quantity": 2,
+                "area": 1.0,
+            }
+        ]
+    )
+
+    async def _download(token, file_id):
+        seen["file_id"] = file_id
+        return b"\xff\xd8image", {"file_path": "photos/order.jpg"}
+
+    async def _reply(*args, **kwargs):
+        return None
+
+    app_module._telegram_download_file = _download
+    app_module._telegram_reply = _reply
+
+    client = TestClient(app_module.app)
+    response = client.post(
+        "/webhook/telegram",
+        json={
+            "message": {
+                "message_id": 43,
+                "chat": {"id": 321, "type": "private"},
+                "photo": [
+                    {"file_id": "small", "file_unique_id": "s", "width": 100, "height": 100, "file_size": 1000},
+                    {"file_id": "large", "file_unique_id": "l", "width": 1000, "height": 1000, "file_size": 3000},
+                ],
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "extracted"
+    assert seen["file_id"] == "large"
+    stored = calls["insert_extraction_with_rows"][0]
+    assert stored["source"] == "telegram"
+    assert stored["raw_input"].startswith("data:image/jpeg;base64,")
+
+
+def test_telegram_text_message_is_ignored(monkeypatch):
+    app_module, calls = _load_app(monkeypatch, legacy_enabled="false")
+    client = TestClient(app_module.app)
+
+    response = client.post(
+        "/webhook/telegram",
+        json={"message": {"message_id": 44, "chat": {"id": 1}, "text": "hello"}},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ignored"
+    assert calls["insert_extraction_with_rows"] == []
+
+
+def test_telegram_missing_token_fails_clearly(monkeypatch):
+    app_module, _calls = _load_app(monkeypatch, legacy_enabled="false")
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    client = TestClient(app_module.app)
+
+    response = client.post(
+        "/webhook/telegram",
+        json={
+            "message": {
+                "message_id": 45,
+                "chat": {"id": 1},
+                "document": {
+                    "file_id": "file_pdf",
+                    "file_name": "order.pdf",
+                    "mime_type": "application/pdf",
+                    "file_size": 1024,
+                },
+            }
+        },
+    )
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "TELEGRAM_BOT_TOKEN is not set"
+
+
+def test_telegram_webhook_secret_is_validated(monkeypatch):
+    app_module, calls = _load_app(monkeypatch, legacy_enabled="false")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "telegram-test-token")
+    monkeypatch.setenv("TELEGRAM_WEBHOOK_SECRET", "expected-secret")
+    client = TestClient(app_module.app)
+
+    response = client.post(
+        "/webhook/telegram",
+        headers={"X-Telegram-Bot-Api-Secret-Token": "wrong-secret"},
+        json={
+            "message": {
+                "message_id": 45,
+                "chat": {"id": 1},
+                "document": {
+                    "file_id": "file_pdf",
+                    "file_name": "order.pdf",
+                    "mime_type": "application/pdf",
+                    "file_size": 1024,
+                },
+            }
+        },
+    )
+
+    assert response.status_code == 401
+    assert calls["insert_extraction_with_rows"] == []
+
+
+def test_telegram_file_size_limit(monkeypatch):
+    app_module, calls = _load_app(monkeypatch, legacy_enabled="false")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "telegram-test-token")
+    replies: List[str] = []
+
+    async def _reply(token, chat_id, message_id, text):
+        replies.append(text)
+
+    app_module._telegram_reply = _reply
+    client = TestClient(app_module.app)
+
+    response = client.post(
+        "/webhook/telegram",
+        json={
+            "message": {
+                "message_id": 46,
+                "chat": {"id": 1},
+                "document": {
+                    "file_id": "large_pdf",
+                    "file_name": "large.pdf",
+                    "mime_type": "application/pdf",
+                    "file_size": 5 * 1024 * 1024 + 1,
+                },
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "too_large"
+    assert replies == ["File is too large. Max size is 5MB."]
+    assert calls["insert_extraction_with_rows"] == []
+
+
+def test_telegram_unsupported_document_replies_cleanly(monkeypatch):
+    app_module, calls = _load_app(monkeypatch, legacy_enabled="false")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "telegram-test-token")
+    replies: List[str] = []
+
+    async def _reply(token, chat_id, message_id, text):
+        replies.append(text)
+
+    app_module._telegram_reply = _reply
+    client = TestClient(app_module.app)
+    response = client.post(
+        "/webhook/telegram",
+        json={
+            "message": {
+                "message_id": 47,
+                "chat": {"id": 1},
+                "document": {
+                    "file_id": "txt",
+                    "file_name": "notes.txt",
+                    "mime_type": "text/plain",
+                    "file_size": 100,
+                },
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "unsupported"
+    assert replies == ["Only PDF/image orders are supported."]
+    assert calls["insert_extraction_with_rows"] == []
+
+
 def test_approve_payload_client_name_is_passed_to_save(monkeypatch):
     app_module, _ = _load_app(monkeypatch, legacy_enabled="false")
     row = {
