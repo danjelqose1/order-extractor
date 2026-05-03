@@ -5381,8 +5381,7 @@ saveToastView.addEventListener("click", ()=>{
   const id = Number(saveToast.dataset.orderId);
   if (!id) return;
   hideSavedToast();
-  activateTab("history");
-  ensureHistoryLoaded().then(()=> openOrderFromList(id));
+  openSharedOrderDetail(id, { activateHistoryTab: true });
 });
 
 function showProcessingToast(message = "Added to Processing"){
@@ -16792,13 +16791,16 @@ function renderTelegramFiles(){
     return;
   }
   telegramFilesListEl.innerHTML = items.map(file => {
-    const linked = file.linked_order || null;
+    const linkedOrderId = file.linked_order_id || "";
+    const linked = linkedOrderId ? (file.linked_order || null) : null;
     const orderNumbers = linked && Array.isArray(linked.order_numbers) && linked.order_numbers.length
       ? linked.order_numbers.join(", ")
       : "";
-    const linkedLabel = linked
-      ? `${orderNumbers || `#${linked.id}`} • ${historyStatusLabel(linked.status)}`
-      : "No linked order";
+    const linkedLabel = linkedOrderId
+      ? linked
+        ? `${orderNumbers || `#${linked.id}`} • ${historyStatusLabel(linked.status)}`
+        : `Linked order #${linkedOrderId}`
+      : "No linked order yet";
     const sender = file.telegram_sender_name || (file.telegram_chat_id ? `Chat ${file.telegram_chat_id}` : "Telegram");
     const viewUrl = telegramFileUrl(file.view_url);
     const downloadUrl = telegramFileUrl(file.download_url);
@@ -16819,8 +16821,8 @@ function renderTelegramFiles(){
         <button type="button" class="btn small" data-telegram-action="view" data-id="${escapeHtml(file.id)}">View PDF</button>
         <a class="btn small" href="${escapeHtml(downloadUrl)}" download>Download</a>
         <button type="button" class="btn small" data-telegram-action="print" data-id="${escapeHtml(file.id)}">Print</button>
-        ${file.touched ? `<button type="button" class="btn small" disabled>Touched</button>` : `<button type="button" class="btn small" data-telegram-action="touch" data-id="${escapeHtml(file.id)}">Mark touched</button>`}
-        ${linked ? `<button type="button" class="btn small" data-telegram-action="order" data-id="${escapeHtml(file.id)}" data-order-id="${escapeHtml(linked.id)}">Open linked order</button>` : ""}
+	        ${file.touched ? `<button type="button" class="btn small" disabled>Touched</button>` : `<button type="button" class="btn small" data-telegram-action="touch" data-id="${escapeHtml(file.id)}">Mark touched</button>`}
+	        ${linkedOrderId ? `<button type="button" class="btn small" data-telegram-action="order" data-id="${escapeHtml(file.id)}" data-order-id="${escapeHtml(linkedOrderId)}">Open linked order</button>` : `<button type="button" class="btn small" disabled title="No linked order yet" aria-label="No linked order yet">Open linked order</button>`}
         ${file.linked_order_id ? `<button type="button" class="btn small" data-telegram-action="labels" data-id="${escapeHtml(file.id)}">Print Labels</button>` : `<button type="button" class="btn small" disabled title="No linked order yet" aria-label="No linked order yet">Print Labels</button>`}
         <button type="button" class="btn small warn" data-telegram-action="delete" data-id="${escapeHtml(file.id)}">Delete</button>
       </div>
@@ -17981,12 +17983,12 @@ async function handleWorkspaceAgentResponse(response){
     appendWorkspaceMessage("assistant", response.message || "Opened the label job.");
     return true;
   }
-  if (contextAction?.type === "open_review"){
-    const firstId = (contextAction.order_ids || [])[0];
-    if (firstId) await openOrderFromList(firstId);
-    appendWorkspaceMessage("assistant", response.message || "Opened review.");
-    return true;
-  }
+	  if (contextAction?.type === "open_review"){
+	    const firstId = (contextAction.order_ids || [])[0];
+	    if (firstId) await openSharedOrderDetail(firstId, { activateHistoryTab: true });
+	    appendWorkspaceMessage("assistant", response.message || "Opened review.");
+	    return true;
+	  }
   return false;
 }
 
@@ -18222,10 +18224,10 @@ if (workspaceQueueEl){
     const action = btn.dataset.workspaceAction;
     const id = btn.dataset.id || workspaceState.selectedOrderId;
     const orderNumber = btn.dataset.order || workspaceState.selectedOrderNumber || id;
-    if (action === "select"){
-      toggleWorkspaceOrderSelection(id, orderNumber);
-    }else if (action === "open"){
-      await openOrderFromList(id);
+	    if (action === "select"){
+	      toggleWorkspaceOrderSelection(id, orderNumber);
+	    }else if (action === "open"){
+	      await openSharedOrderDetail(id, { activateHistoryTab: true });
     }else if (action === "check"){
       await runWorkspaceCommand(`Check order ${orderNumber}`);
     }else if (action === "process"){
@@ -18268,10 +18270,8 @@ if (telegramFilesListEl){
     if (action === "order"){
       const orderId = actionBtn.dataset.orderId;
       if (orderId){
-        activateTab("history");
-        await ensureHistoryLoaded();
-        await openOrderFromList(orderId);
-        if (file?.linked_order_id && String(file.linked_order_id) === String(orderId)){
+        const openedOrder = await openSharedOrderDetail(orderId, { activateHistoryTab: true });
+        if (openedOrder && file?.linked_order_id && String(file.linked_order_id) === String(orderId)){
           try{
             await markTelegramFileHandlingStep(file.id, "order");
           }catch(error){
@@ -18612,7 +18612,7 @@ function renderOrdersList(){
 }
 
 async function openOrderFromList(id){
-  if (!id) return;
+  if (!id) return null;
   openHistoryDrawer();
   historyMetaEl.textContent = "Loading order…";
   historyDetailEmpty.style.display = "none";
@@ -18627,9 +18627,20 @@ async function openOrderFromList(id){
     const order = await fetchOrder(id);
     historyState.selectedOrder = order;
     renderOrderDetail();
+    return order;
   }catch(error){
     setHistoryStatus("Failed to load order: " + (error.message || error));
+    return null;
   }
+}
+
+async function openSharedOrderDetail(id, { activateHistoryTab = false } = {}){
+  if (!id) return;
+  if (activateHistoryTab){
+    activateTab("history");
+    await ensureHistoryLoaded();
+  }
+  return openOrderFromList(id);
 }
 
 function renderHistoryStatusTimeline(events){
@@ -18753,11 +18764,11 @@ document.getElementById("historyListWrap").addEventListener("click", async (even
   if (rawId == null || rawId === "") return;
   const numericId = Number(rawId);
   const id = Number.isFinite(numericId) ? numericId : rawId;
-  const action = btn.dataset.action;
-  if (action === "open"){
-    await openOrderFromList(id);
-  }else if (action === "edit-draft"){
-    await openOrderFromList(id);
+	    const action = btn.dataset.action;
+	    if (action === "open"){
+	      await openSharedOrderDetail(id);
+	    }else if (action === "edit-draft"){
+	      await openSharedOrderDetail(id);
   }else if (action === "approve"){
     try{
       setHistoryStatus("Approving order…");
@@ -18766,7 +18777,7 @@ document.getElementById("historyListWrap").addEventListener("click", async (even
       analysisState.allOrdersDirty = true;
       analysisState.orderRowCache.delete(id);
       await loadHistory({ resetOffset: false });
-      await openOrderFromList(id);
+	      await openSharedOrderDetail(id);
       setHistoryStatus("Order approved.");
     }catch(error){
       setHistoryStatus("Approval failed: " + (error.message || error));
@@ -18819,9 +18830,9 @@ document.getElementById("historyListWrap").addEventListener("click", async (even
       historyState.needsRefresh = true;
       analysisState.allOrdersDirty = true;
       await loadHistory({ resetOffset: false });
-      if (historyState.selectedOrder && String(historyState.selectedOrder.id) === String(id)){
-        await openOrderFromList(id);
-      }
+	      if (historyState.selectedOrder && String(historyState.selectedOrder.id) === String(id)){
+	        await openSharedOrderDetail(id);
+	      }
       setHistoryStatus("Order archived.");
     }catch(error){
       setHistoryStatus("Archive failed: " + (error.message || error));
