@@ -85,6 +85,19 @@ def test_telegram_files_auto_touch_workflow_hooks_present():
     assert 'await markTelegramFileHandlingStep(file.id, "labels");' in html
     assert 'await markTelegramFileHandlingStep(file.id, "order");' in html
     assert 'data-telegram-action="order" data-id="${escapeHtml(file.id)}"' in html
+    assert 'disabled title="No linked order yet" aria-label="No linked order yet">Open linked order</button>' in html
+
+
+def test_telegram_open_linked_order_uses_shared_history_detail_modal():
+    html = _html()
+
+    assert "async function openSharedOrderDetail" in html
+    assert "return openOrderFromList(id);" in html
+    assert "const linkedOrderId = file.linked_order_id || \"\";" in html
+    assert 'data-order-id="${escapeHtml(linkedOrderId)}"' in html
+    assert 'await openSharedOrderDetail(orderId, { activateHistoryTab: true });' in html
+    assert 'if (openedOrder && file?.linked_order_id && String(file.linked_order_id) === String(orderId)){' in html
+    assert 'await openOrderFromList(orderId);' not in html
 
 
 def test_telegram_files_safe_delete_action_present():
