@@ -12086,6 +12086,17 @@ function telegramStatusBadge(status){
   return `<span class="telegram-status ${escapeHtml(normalized)}">${escapeHtml(normalized)}</span>`;
 }
 
+function telegramDuplicateBadge(file){
+  const status = String(file?.duplicate_status || "").trim().toLowerCase();
+  if (status === "duplicate"){
+    return `<span class="telegram-status duplicate" title="${escapeHtml(file?.duplicate_reason || "Exact duplicate file")}">DUPLICATE</span>`;
+  }
+  if (status === "possible_duplicate"){
+    return `<span class="telegram-status possible_duplicate" title="${escapeHtml(file?.duplicate_reason || "Possible duplicate order")}">POSSIBLE DUPLICATE</span>`;
+  }
+  return "";
+}
+
 function telegramHandlingBadge(file){
   const touched = Boolean(file?.touched);
   const label = touched ? "Touched" : "New / Untouched";
@@ -12114,6 +12125,9 @@ function renderTelegramFiles(){
   }
   telegramFilesListEl.innerHTML = items.map(file => {
     const linkedOrderId = file.linked_order_id || "";
+    const duplicateStatus = String(file.duplicate_status || "").trim().toLowerCase();
+    const isExactDuplicate = duplicateStatus === "duplicate";
+    const isPossibleDuplicate = duplicateStatus === "possible_duplicate";
     const linked = linkedOrderId ? (file.linked_order || null) : null;
     const orderNumbers = linked && Array.isArray(linked.order_numbers) && linked.order_numbers.length
       ? linked.order_numbers.join(", ")
@@ -12126,7 +12140,10 @@ function renderTelegramFiles(){
     const sender = file.telegram_sender_name || (file.telegram_chat_id ? `Chat ${file.telegram_chat_id}` : "Telegram");
     const viewUrl = telegramFileUrl(file.view_url);
     const downloadUrl = telegramFileUrl(file.download_url);
-    return `<article class="telegram-file-card ${file.touched ? "" : "untouched"}" data-telegram-file-id="${escapeHtml(file.id)}">
+    const duplicateWarning = isPossibleDuplicate
+      ? `<div class="telegram-file-warning">${escapeHtml(file.duplicate_reason || "This looks like a possible duplicate. Review before creating another order.")}</div>`
+      : "";
+    return `<article class="telegram-file-card ${file.touched ? "" : "untouched"} ${isExactDuplicate ? "duplicate" : ""} ${isPossibleDuplicate ? "possible-duplicate" : ""}" data-telegram-file-id="${escapeHtml(file.id)}">
       <div>
         <div class="telegram-file-title">${escapeHtml(file.original_filename || "Telegram order.pdf")}</div>
         <div class="telegram-file-meta">
@@ -12136,16 +12153,19 @@ function renderTelegramFiles(){
           ${telegramHandlingBadge(file)}
           ${telegramHandlingProgressBadges(file)}
           ${telegramStatusBadge(file.extraction_status)}
+          ${telegramDuplicateBadge(file)}
           <span>${escapeHtml(linkedLabel)}</span>
         </div>
+        ${duplicateWarning}
       </div>
       <div class="telegram-file-actions">
         <button type="button" class="btn small" data-telegram-action="view" data-id="${escapeHtml(file.id)}">View PDF</button>
         <a class="btn small" href="${escapeHtml(downloadUrl)}" download>Download</a>
+        ${isExactDuplicate && file.duplicate_of_file_id ? `<button type="button" class="btn small" data-telegram-action="view" data-id="${escapeHtml(file.duplicate_of_file_id)}">Open original</button>` : ""}
         <button type="button" class="btn small" data-telegram-action="print" data-id="${escapeHtml(file.id)}">Print</button>
 	        ${file.touched ? `<button type="button" class="btn small" disabled>Touched</button>` : `<button type="button" class="btn small" data-telegram-action="touch" data-id="${escapeHtml(file.id)}">Mark touched</button>`}
 	        ${linkedOrderId ? `<button type="button" class="btn small" data-telegram-action="order" data-id="${escapeHtml(file.id)}" data-order-id="${escapeHtml(linkedOrderId)}">Open linked order</button>` : `<button type="button" class="btn small" disabled title="No linked order yet" aria-label="No linked order yet">Open linked order</button>`}
-        ${file.linked_order_id ? `<button type="button" class="btn small" data-telegram-action="labels" data-id="${escapeHtml(file.id)}">Print Labels</button>` : `<button type="button" class="btn small" disabled title="No linked order yet" aria-label="No linked order yet">Print Labels</button>`}
+        ${file.linked_order_id && !isExactDuplicate ? `<button type="button" class="btn small" data-telegram-action="labels" data-id="${escapeHtml(file.id)}">Print Labels</button>` : `<button type="button" class="btn small" disabled title="${isExactDuplicate ? "Exact duplicate" : "No linked order yet"}" aria-label="${isExactDuplicate ? "Exact duplicate" : "No linked order yet"}">Print Labels</button>`}
         <button type="button" class="btn small warn" data-telegram-action="delete" data-id="${escapeHtml(file.id)}">Delete</button>
       </div>
     </article>`;
@@ -13604,10 +13624,17 @@ if (telegramFilesListEl){
       }
       return;
     }
-    if (!file) return;
     if (action === "view"){
-      openTelegramPdf(file);
-    }else if (action === "print"){
+      openTelegramPdf(file || {
+        id: actionBtn.dataset.id,
+        original_filename: "Telegram original",
+        view_url: `/telegram-files/${encodeURIComponent(actionBtn.dataset.id)}/view`,
+        download_url: `/telegram-files/${encodeURIComponent(actionBtn.dataset.id)}/download`,
+      });
+      return;
+    }
+    if (!file) return;
+    if (action === "print"){
       if (printTelegramPdf(file)){
         markTelegramFileTouched(file.id);
       }
