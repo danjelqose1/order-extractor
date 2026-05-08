@@ -25,6 +25,8 @@ def _install_fake_db(monkeypatch) -> Dict[str, List[Dict[str, Any]]]:
         "soft_delete_telegram_file_record": [],
         "mark_telegram_file_labels_printed": [],
         "mark_telegram_file_linked_order_opened": [],
+        "find_telegram_file_by_sha256": [],
+        "find_possible_duplicate_order": [],
     }
 
     fake_db = types.ModuleType("db")
@@ -85,6 +87,8 @@ def _install_fake_db(monkeypatch) -> Dict[str, List[Dict[str, Any]]]:
         "failed_count": 0,
     }
     fake_db.find_telegram_file_record = lambda *args, **kwargs: None
+    fake_db.find_telegram_file_by_sha256 = lambda *args, **kwargs: None
+    fake_db.find_possible_duplicate_order = lambda *args, **kwargs: None
     fake_db.list_unfinished_telegram_file_ids = lambda *args, **kwargs: []
     fake_db.get_telegram_file = lambda *args, **kwargs: None
     fake_db.update_order_status = _update_order_status
@@ -464,6 +468,7 @@ def test_telegram_photo_uses_largest_image(monkeypatch):
     app_module, calls = _load_app(monkeypatch, legacy_enabled="false")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "telegram-test-token")
     seen: Dict[str, Any] = {}
+    enqueued: List[int] = []
 
     app_module.call_llm_for_image_visual = lambda image_bytes, filename, mime_type: _bundle(
         [
@@ -487,6 +492,7 @@ def test_telegram_photo_uses_largest_image(monkeypatch):
 
     app_module._telegram_download_file = _download
     app_module._telegram_reply = _reply
+    app_module._enqueue_telegram_extraction = lambda file_id: enqueued.append(int(file_id)) or True
 
     client = TestClient(app_module.app)
     response = client.post(
@@ -504,8 +510,20 @@ def test_telegram_photo_uses_largest_image(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json()["status"] == "extracted"
+    assert response.json()["status"] == "queued"
     assert seen["file_id"] == "large"
+    assert enqueued == [1]
+    assert calls["create_telegram_file_record"][0]["mime_type"] == "image/jpeg"
+    assert len(calls["create_telegram_file_record"][0]["file_sha256"]) == 64
+
+    record = {
+        "id": 1,
+        "received_at": "2026-05-02T12:00:00+00:00",
+        **calls["create_telegram_file_record"][0],
+    }
+    app_module.get_telegram_file = lambda file_id: record
+    asyncio.run(app_module._process_telegram_queue_job(1))
+
     stored = calls["insert_extraction_with_rows"][0]
     assert stored["source"] == "telegram"
     assert stored["raw_input"].startswith("data:image/jpeg;base64,")
@@ -946,6 +964,91 @@ def test_telegram_duplicate_webhook_reuses_existing_queue_record(monkeypatch):
     assert replies == ["Order received ✅ Queued for extraction."]
     assert calls["create_telegram_file_record"] == []
     assert calls["insert_extraction_with_rows"] == []
+
+
+def test_telegram_exact_file_duplicate_is_preserved_but_not_queued(monkeypatch):
+    app_module, calls = _load_app(monkeypatch, legacy_enabled="false")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "telegram-test-token")
+    replies: List[str] = []
+    enqueued: List[int] = []
+
+    async def _download(token, file_id):
+        return b"%PDF-1.7\nsame-order", {"file_path": "documents/order.pdf"}
+
+    async def _reply(token, chat_id, message_id, text):
+        replies.append(text)
+
+    app_module._telegram_download_file = _download
+    app_module._telegram_reply = _reply
+    app_module._enqueue_telegram_extraction = lambda file_id: enqueued.append(int(file_id)) or True
+    app_module.find_telegram_file_by_sha256 = lambda digest, **kwargs: {"id": 12, "extraction_status": "extracted"}
+    client = TestClient(app_module.app)
+
+    response = client.post(
+        "/webhook/telegram",
+        json={
+            "message": {
+                "message_id": 43,
+                "chat": {"id": 1},
+                "document": {
+                    "file_id": "file_pdf_2",
+                    "file_name": "order-copy.pdf",
+                    "mime_type": "application/pdf",
+                    "file_size": 1024,
+                },
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "duplicate"
+    assert response.json()["duplicate_of_file_id"] == 12
+    assert enqueued == []
+    assert calls["insert_extraction_with_rows"] == []
+    created = calls["create_telegram_file_record"][0]
+    assert created["extraction_status"] == "duplicate"
+    assert created["duplicate_status"] == "duplicate"
+    assert created["duplicate_of_file_id"] == 12
+    assert len(created["file_sha256"]) == 64
+    assert replies == ["Duplicate detected ⚠️ This PDF was already received."]
+
+
+def test_telegram_possible_duplicate_marks_file_without_creating_order(monkeypatch):
+    app_module, calls = _load_app(monkeypatch, legacy_enabled="false")
+    app_module.call_llm_for_pdf_base64_visual = lambda pdf_bytes, filename: _bundle(
+        [
+            {
+                "order_number": "R-26-2001",
+                "type": "2 VETRI 4F + 16 + 4 LOWE 24mm",
+                "dimension": "600x1200",
+                "position": "1-1",
+                "quantity": 1,
+                "area": 0.72,
+            }
+        ]
+    )
+    app_module.find_possible_duplicate_order = lambda **kwargs: {
+        "id": 88,
+        "status": "draft",
+        "order_numbers": ["R-26-2001"],
+    }
+
+    result = app_module._extract_order_file_bytes(
+        raw_bytes=b"%PDF-1.7\nedited",
+        filename="edited.pdf",
+        content_type="application/pdf",
+        source="telegram",
+        source_metadata={"telegram_file_record_id": 7},
+    )
+
+    assert result["status"] == "possible_duplicate"
+    assert result["draft_order_id"] is None
+    assert result["duplicate_of_order_id"] == 88
+    assert calls["insert_extraction_with_rows"] == []
+    update = calls["update_telegram_file_record"][-1]
+    assert update["args"] == (7,)
+    assert update["kwargs"]["extraction_status"] == "possible_duplicate"
+    assert update["kwargs"]["duplicate_status"] == "possible_duplicate"
 
 
 def test_telegram_queue_processes_fifo_one_at_a_time(monkeypatch):

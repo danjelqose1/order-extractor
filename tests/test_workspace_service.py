@@ -183,6 +183,7 @@ def test_telegram_file_queue_metadata_and_recovery_query(tmp_path, monkeypatch):
         file_path=str(tmp_path / "queued.pdf"),
         mime_type="application/pdf",
         file_size=120,
+        file_sha256="a" * 64,
         telegram_file_id="telegram-file-1",
         telegram_chat_id=123,
         telegram_message_id=456,
@@ -196,6 +197,9 @@ def test_telegram_file_queue_metadata_and_recovery_query(tmp_path, monkeypatch):
     assert record["touched"] is False
     assert record["retry_count"] == 0
     assert record["last_error"] is None
+    assert record["file_sha256"] == "a" * 64
+    assert record["duplicate_status"] == "unique"
+    assert record["duplicate_of_file_id"] is None
     assert record["telegram_file_id"] == "telegram-file-1"
     assert record["telegram_caption"] == "Caption"
 
@@ -225,6 +229,40 @@ def test_telegram_file_queue_metadata_and_recovery_query(tmp_path, monkeypatch):
     assert failed["extraction_status"] == "failed"
     assert failed["retry_count"] == 3
     assert failed["last_error"] == "boom"
+
+
+def test_telegram_file_sha_duplicate_lookup_and_status_fields(tmp_path, monkeypatch):
+    db, _service = _load_modules(tmp_path, monkeypatch)
+    now = datetime.now(timezone.utc)
+    original = db.create_telegram_file_record(
+        original_filename="first.pdf",
+        stored_filename="first.pdf",
+        file_path=str(tmp_path / "first.pdf"),
+        mime_type="application/pdf",
+        file_size=120,
+        file_sha256="b" * 64,
+        received_at=now,
+        extraction_status="extracted",
+    )
+    duplicate = db.create_telegram_file_record(
+        original_filename="second.pdf",
+        stored_filename="second.pdf",
+        file_path=str(tmp_path / "second.pdf"),
+        mime_type="application/pdf",
+        file_size=120,
+        file_sha256="b" * 64,
+        received_at=now + timedelta(seconds=1),
+        extraction_status="duplicate",
+        duplicate_status="duplicate",
+        duplicate_of_file_id=original["id"],
+        duplicate_reason="Exact file SHA-256 match.",
+    )
+
+    found = db.find_telegram_file_by_sha256("b" * 64, exclude_file_id=duplicate["id"])
+    assert found["id"] == original["id"]
+    assert duplicate["duplicate_status"] == "duplicate"
+    assert duplicate["duplicate_of_file_id"] == original["id"]
+    assert duplicate["duplicate_reason"] == "Exact file SHA-256 match."
 
 
 def test_telegram_files_filter_touched_without_deleting_records(tmp_path, monkeypatch):
