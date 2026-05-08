@@ -62,6 +62,8 @@ from db import (
     count_untouched_telegram_files,
     get_telegram_file_counts,
     find_telegram_file_record,
+    find_telegram_file_by_sha256,
+    find_possible_duplicate_order,
     list_unfinished_telegram_file_ids,
     get_telegram_file,
 )
@@ -435,6 +437,12 @@ def _compute_hash_bytes(content: bytes) -> Optional[str]:
     return hashlib.sha1(content).hexdigest()
 
 
+def _compute_sha256_bytes(content: bytes) -> Optional[str]:
+    if not content:
+        return None
+    return hashlib.sha256(content).hexdigest()
+
+
 def _dedupe_warnings(warnings: List[str]) -> List[str]:
     deduped: List[str] = []
     seen = set()
@@ -521,9 +529,12 @@ def _safe_download_filename(value: Any) -> str:
     return safe or "telegram-order.pdf"
 
 
-def _store_telegram_pdf(raw_bytes: bytes, original_filename: str) -> Dict[str, Any]:
+def _store_telegram_file(raw_bytes: bytes, original_filename: str) -> Dict[str, Any]:
     safe_original = _safe_download_filename(original_filename)
-    stored_filename = f"{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex}.pdf"
+    suffix = Path(safe_original).suffix.lower()
+    if suffix not in {".pdf", ".png", ".jpg", ".jpeg", ".webp"}:
+        suffix = ".pdf"
+    stored_filename = f"{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex}{suffix}"
     target_dir = _telegram_files_dir()
     target_path = (target_dir / stored_filename).resolve()
     root_path = target_dir.resolve()
@@ -536,6 +547,10 @@ def _store_telegram_pdf(raw_bytes: bytes, original_filename: str) -> Dict[str, A
         "file_path": str(target_path),
         "file_size": len(raw_bytes),
     }
+
+
+def _store_telegram_pdf(raw_bytes: bytes, original_filename: str) -> Dict[str, Any]:
+    return _store_telegram_file(raw_bytes, original_filename)
 
 
 def _safe_telegram_file_path(record: Dict[str, Any]) -> Path:
@@ -1112,6 +1127,48 @@ def _extract_order_file_bytes(
             )
         combined_warnings = _dedupe_warnings(combined_warnings)
 
+        telegram_file_record_id = metadata.get("telegram_file_record_id")
+        if source == "telegram" and telegram_file_record_id:
+            possible_duplicate = find_possible_duplicate_order(
+                order_number=(bundle.get("data") or {}).get("order_number") or _primary_order_number(final_rows),
+                client_name=client_name,
+                total_units=totals["units"],
+                total_area=totals["area"],
+                recent_after=datetime.now(timezone.utc) - timedelta(days=30),
+            )
+            if possible_duplicate:
+                reason = (
+                    "Extracted order appears to match recent draft "
+                    f"#{possible_duplicate.get('id')} by order number, client, units, and area."
+                )
+                update_telegram_file_record(
+                    int(telegram_file_record_id),
+                    extraction_status="possible_duplicate",
+                    duplicate_status="possible_duplicate",
+                    duplicate_reason=reason,
+                    processed_at=datetime.now(timezone.utc),
+                    clear_last_error=True,
+                )
+                return {
+                    "order_number": (bundle.get("data") or {}).get("order_number") or _primary_order_number(final_rows),
+                    "rows": final_rows,
+                    "warnings": _dedupe_warnings(combined_warnings + ["possible_duplicate_order"]),
+                    "row_warnings": row_warnings,
+                    "draft_order_id": None,
+                    "saved_order_id": None,
+                    "status": "possible_duplicate",
+                    "duplicate_status": "possible_duplicate",
+                    "duplicate_of_order_id": possible_duplicate.get("id"),
+                    "duplicate_reason": reason,
+                    "parsed_units": totals["units"],
+                    "parsed_area": totals["area"],
+                    "extraction_method": extraction_method,
+                    "confidence": (bundle.get("data") or {}).get("confidence"),
+                    "client_name": client_name,
+                    "clientName": client_name,
+                    "client": client_name or "—",
+                }
+
         insert_result = insert_extraction_with_rows(
             source=source,
             rows=final_rows,
@@ -1272,7 +1329,7 @@ def _is_retryable_telegram_extraction_error(exc: Exception) -> bool:
 def _public_telegram_file(record: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     if not isinstance(record, dict):
         return None
-    blocked = {"file_path", "stored_filename", "telegram_file_id"}
+    blocked = {"file_path", "stored_filename", "telegram_file_id", "file_sha256"}
     return {key: value for key, value in record.items() if key not in blocked}
 
 
@@ -1412,6 +1469,8 @@ def _process_telegram_queue_job_sync(file_id: int) -> Dict[str, Any]:
         return {"status": "missing", "file_id": file_id}
     if record.get("extraction_status") == "extracted":
         return {"status": "already_extracted", "file_id": file_id, "record": record}
+    if record.get("extraction_status") in {"duplicate", "possible_duplicate"}:
+        return {"status": record.get("extraction_status"), "file_id": file_id, "record": record}
 
     attempts_done = int(record.get("retry_count") or 0)
     max_attempts = 1 + TELEGRAM_EXTRACTION_MAX_RETRIES
@@ -1438,6 +1497,16 @@ def _process_telegram_queue_job_sync(file_id: int) -> Dict[str, Any]:
                 source="telegram",
                 source_metadata=_telegram_source_metadata(latest),
             )
+            if result.get("status") == "possible_duplicate":
+                refreshed = get_telegram_file(file_id) or latest
+                response_record = {**latest, **refreshed}
+                _broadcast_telegram_file_change("telegram_file_updated", response_record)
+                return {
+                    "status": "possible_duplicate",
+                    "file_id": file_id,
+                    "record": response_record,
+                    "duplicate_of_order_id": result.get("duplicate_of_order_id"),
+                }
             updated = update_telegram_file_record(
                 file_id,
                 linked_order_id=result.get("draft_order_id"),
@@ -1498,6 +1567,8 @@ async def _process_telegram_queue_job(file_id: int) -> Dict[str, Any]:
     if token and chat_id is not None:
         if outcome.get("status") == "extracted":
             await _telegram_reply(token, chat_id, message_id, "Extraction finished ✅ Please review in platform.")
+        elif outcome.get("status") == "possible_duplicate":
+            await _telegram_reply(token, chat_id, message_id, "Possible duplicate detected ⚠️ Please review in platform.")
         elif outcome.get("status") == "failed":
             await _telegram_reply(token, chat_id, message_id, "Extraction failed ⚠️ Original PDF is saved in Telegram Files.")
     return outcome
@@ -1573,8 +1644,11 @@ async def _handle_telegram_update(update: Dict[str, Any]) -> Dict[str, Any]:
             await _telegram_reply(token, chat_id, message_id, "Extraction failed. Please try again.")
         return {"ok": True, "status": "missing_file_id"}
 
-    is_pdf = _is_pdf_file(str(spec.get("filename") or ""), str(spec.get("content_type") or ""))
-    if is_pdf:
+    filename_for_type = str(spec.get("filename") or "")
+    content_type_for_type = str(spec.get("content_type") or "")
+    is_pdf = _is_pdf_file(filename_for_type, content_type_for_type)
+    is_image = _is_image_file(filename_for_type, content_type_for_type)
+    if is_pdf or is_image:
         existing = find_telegram_file_record(
             telegram_chat_id=chat_id,
             telegram_message_id=message_id,
@@ -1593,14 +1667,47 @@ async def _handle_telegram_update(update: Dict[str, Any]) -> Dict[str, Any]:
     try:
         raw_bytes, file_info = await _telegram_download_file(token, str(spec["file_id"]))
         received_at = datetime.now(timezone.utc)
-        if is_pdf:
-            stored = _store_telegram_pdf(raw_bytes, str(spec.get("original_filename") or spec.get("filename") or "telegram-order.pdf"))
+        if is_pdf or is_image:
+            file_sha256 = _compute_sha256_bytes(raw_bytes)
+            stored = _store_telegram_file(raw_bytes, str(spec.get("original_filename") or spec.get("filename") or "telegram-order.pdf"))
+            mime_type = "application/pdf" if is_pdf else str(spec.get("content_type") or "image/jpeg")
+            duplicate_of = find_telegram_file_by_sha256(file_sha256)
+            if duplicate_of:
+                duplicate_record = create_telegram_file_record(
+                    original_filename=stored["original_filename"],
+                    stored_filename=stored["stored_filename"],
+                    file_path=stored["file_path"],
+                    mime_type=mime_type,
+                    file_size=stored["file_size"],
+                    file_sha256=file_sha256,
+                    telegram_file_id=str(spec.get("file_id") or ""),
+                    telegram_chat_id=chat_id,
+                    telegram_message_id=message_id,
+                    telegram_sender_name=_telegram_sender_name(message),
+                    telegram_caption=message.get("caption") or "",
+                    received_at=received_at,
+                    extraction_status="duplicate",
+                    duplicate_status="duplicate",
+                    duplicate_of_file_id=duplicate_of.get("id"),
+                    duplicate_reason=f"Exact file SHA-256 match with Telegram file #{duplicate_of.get('id')}.",
+                )
+                _broadcast_telegram_file_change("telegram_file_created", duplicate_record)
+                if chat_id is not None:
+                    await _telegram_reply(token, chat_id, message_id, "Duplicate detected ⚠️ This PDF was already received.")
+                return {
+                    "ok": True,
+                    "status": "duplicate",
+                    "telegram_file_id": duplicate_record.get("id"),
+                    "duplicate_of_file_id": duplicate_of.get("id"),
+                    "file_path": file_info.get("file_path"),
+                }
             telegram_file_record = create_telegram_file_record(
                 original_filename=stored["original_filename"],
                 stored_filename=stored["stored_filename"],
                 file_path=stored["file_path"],
-                mime_type="application/pdf",
+                mime_type=mime_type,
                 file_size=stored["file_size"],
+                file_sha256=file_sha256,
                 telegram_file_id=str(spec.get("file_id") or ""),
                 telegram_chat_id=chat_id,
                 telegram_message_id=message_id,
@@ -1843,11 +1950,12 @@ def view_telegram_file(file_id: int):
     record = get_telegram_file(file_id)
     if not record:
         raise HTTPException(status_code=404, detail="File not found")
-    if record.get("mime_type") != "application/pdf":
-        raise HTTPException(status_code=415, detail="Only PDF files can be viewed")
+    mime_type = str(record.get("mime_type") or "application/pdf")
+    if mime_type != "application/pdf" and not mime_type.startswith("image/"):
+        raise HTTPException(status_code=415, detail="Only PDF and image files can be viewed")
     path = _safe_telegram_file_path(record)
     headers = {"Content-Disposition": f'inline; filename="{_safe_download_filename(record.get("original_filename"))}"'}
-    return FileResponse(path, media_type="application/pdf", headers=headers)
+    return FileResponse(path, media_type=mime_type, headers=headers)
 
 
 @app.get("/telegram-files/{file_id}/download")

@@ -269,6 +269,7 @@ class TelegramFile(Base):
     file_path: Mapped[str] = mapped_column(Text, nullable=False)
     mime_type: Mapped[str] = mapped_column(String(120), default="application/pdf")
     file_size: Mapped[int] = mapped_column(Integer, default=0)
+    file_sha256: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
     telegram_file_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
     telegram_chat_id: Mapped[Optional[str]] = mapped_column(String(120), nullable=True, index=True)
     telegram_message_id: Mapped[Optional[str]] = mapped_column(String(120), nullable=True, index=True)
@@ -276,6 +277,9 @@ class TelegramFile(Base):
     telegram_caption: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     linked_order_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
     extraction_status: Mapped[str] = mapped_column(String(40), default="received", index=True)
+    duplicate_status: Mapped[str] = mapped_column(String(40), default="unique", index=True)
+    duplicate_of_file_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    duplicate_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     touched: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     touched_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     touched_by: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
@@ -379,11 +383,21 @@ def _ensure_schema() -> None:
                 conn.execute(text("ALTER TABLE telegram_files ADD COLUMN retry_count INTEGER DEFAULT 0"))
             if "last_error" not in telegram_columns:
                 conn.execute(text("ALTER TABLE telegram_files ADD COLUMN last_error TEXT"))
+            if "file_sha256" not in telegram_columns:
+                conn.execute(text("ALTER TABLE telegram_files ADD COLUMN file_sha256 TEXT"))
+            if "duplicate_status" not in telegram_columns:
+                conn.execute(text("ALTER TABLE telegram_files ADD COLUMN duplicate_status TEXT DEFAULT 'unique'"))
+            if "duplicate_of_file_id" not in telegram_columns:
+                conn.execute(text("ALTER TABLE telegram_files ADD COLUMN duplicate_of_file_id INTEGER"))
+            if "duplicate_reason" not in telegram_columns:
+                conn.execute(text("ALTER TABLE telegram_files ADD COLUMN duplicate_reason TEXT"))
             conn.execute(text("UPDATE telegram_files SET touched = 0 WHERE touched IS NULL"))
             conn.execute(text("UPDATE telegram_files SET labels_printed = 0 WHERE labels_printed IS NULL"))
             conn.execute(text("UPDATE telegram_files SET linked_order_opened = 0 WHERE linked_order_opened IS NULL"))
             conn.execute(text("UPDATE telegram_files SET deleted = 0 WHERE deleted IS NULL"))
             conn.execute(text("UPDATE telegram_files SET retry_count = 0 WHERE retry_count IS NULL"))
+            conn.execute(text("UPDATE telegram_files SET duplicate_status = 'unique' WHERE duplicate_status IS NULL OR TRIM(duplicate_status) = ''"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_telegram_files_file_sha256 ON telegram_files(file_sha256)"))
 
 
 def _normalize_client_name(*values: Any) -> Optional[str]:
@@ -522,6 +536,7 @@ def _serialize_telegram_file(file: TelegramFile, order: Optional[Order] = None) 
         "file_path": file.file_path,
         "mime_type": file.mime_type,
         "file_size": file.file_size,
+        "file_sha256": file.file_sha256,
         "telegram_file_id": file.telegram_file_id,
         "telegram_chat_id": file.telegram_chat_id,
         "telegram_message_id": file.telegram_message_id,
@@ -530,6 +545,9 @@ def _serialize_telegram_file(file: TelegramFile, order: Optional[Order] = None) 
         "linked_order_id": file.linked_order_id,
         "linked_order": linked_order,
         "extraction_status": file.extraction_status,
+        "duplicate_status": file.duplicate_status or "unique",
+        "duplicate_of_file_id": file.duplicate_of_file_id,
+        "duplicate_reason": file.duplicate_reason,
         "touched": bool(file.touched),
         "touched_at": file.touched_at.isoformat() if file.touched_at else None,
         "touched_by": file.touched_by,
@@ -814,6 +832,7 @@ def create_telegram_file_record(
     file_path: str,
     mime_type: str,
     file_size: int,
+    file_sha256: Optional[str] = None,
     telegram_file_id: Optional[str] = None,
     telegram_chat_id: Optional[Any] = None,
     telegram_message_id: Optional[Any] = None,
@@ -822,6 +841,9 @@ def create_telegram_file_record(
     received_at: Optional[datetime] = None,
     extraction_status: str = "received",
     queued_at: Optional[datetime] = None,
+    duplicate_status: str = "unique",
+    duplicate_of_file_id: Optional[int] = None,
+    duplicate_reason: Optional[str] = None,
 ) -> Dict[str, Any]:
     with get_session() as session:
         record = TelegramFile(
@@ -831,6 +853,7 @@ def create_telegram_file_record(
             file_path=str(file_path or ""),
             mime_type=str(mime_type or "application/pdf"),
             file_size=int(file_size or 0),
+            file_sha256=str(file_sha256).strip().lower() if file_sha256 else None,
             telegram_file_id=str(telegram_file_id) if telegram_file_id else None,
             telegram_chat_id=str(telegram_chat_id) if telegram_chat_id is not None else None,
             telegram_message_id=str(telegram_message_id) if telegram_message_id is not None else None,
@@ -838,6 +861,9 @@ def create_telegram_file_record(
             telegram_caption=telegram_caption or None,
             received_at=received_at or datetime.now(timezone.utc),
             extraction_status=extraction_status or "received",
+            duplicate_status=str(duplicate_status or "unique").strip().lower() or "unique",
+            duplicate_of_file_id=int(duplicate_of_file_id) if duplicate_of_file_id else None,
+            duplicate_reason=str(duplicate_reason).strip()[:1000] if duplicate_reason else None,
             touched=False,
             labels_printed=False,
             linked_order_opened=False,
@@ -861,6 +887,9 @@ def update_telegram_file_record(
     retry_count: Optional[int] = None,
     last_error: Optional[str] = None,
     clear_last_error: bool = False,
+    duplicate_status: Optional[str] = None,
+    duplicate_of_file_id: Optional[int] = None,
+    duplicate_reason: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     with get_session() as session:
         record = session.get(TelegramFile, int(file_id))
@@ -870,6 +899,12 @@ def update_telegram_file_record(
             record.linked_order_id = int(linked_order_id)
         if extraction_status:
             record.extraction_status = extraction_status
+        if duplicate_status:
+            record.duplicate_status = str(duplicate_status).strip().lower() or "unique"
+        if duplicate_of_file_id is not None:
+            record.duplicate_of_file_id = int(duplicate_of_file_id) if duplicate_of_file_id else None
+        if duplicate_reason is not None:
+            record.duplicate_reason = str(duplicate_reason).strip()[:1000] or None
         if queued_at is not None:
             record.queued_at = queued_at
         if processing_started_at is not None:
@@ -1232,6 +1267,61 @@ def find_telegram_file_record(
             return None
         linked_order = session.get(Order, record.linked_order_id) if record.linked_order_id else None
         return _serialize_telegram_file(record, linked_order)
+
+
+def find_telegram_file_by_sha256(file_sha256: Optional[str], *, exclude_file_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
+    digest = str(file_sha256 or "").strip().lower()
+    if not digest:
+        return None
+    with get_session() as session:
+        query = select(TelegramFile).where(
+            TelegramFile.deleted.is_(False),
+            TelegramFile.file_sha256 == digest,
+        )
+        if exclude_file_id is not None:
+            query = query.where(TelegramFile.id != int(exclude_file_id))
+        record = session.execute(query.order_by(TelegramFile.received_at.asc(), TelegramFile.id.asc()).limit(1)).scalar_one_or_none()
+        if not record:
+            return None
+        linked_order = session.get(Order, record.linked_order_id) if record.linked_order_id else None
+        return _serialize_telegram_file(record, linked_order)
+
+
+def find_possible_duplicate_order(
+    *,
+    order_number: Optional[str],
+    client_name: Optional[str],
+    total_units: Optional[int],
+    total_area: Optional[float],
+    recent_after: Optional[datetime] = None,
+) -> Optional[Dict[str, Any]]:
+    normalized_order = normalize_order_number(order_number or "")
+    normalized_client = _normalize_client_name(client_name)
+    if not normalized_order or not normalized_client:
+        return None
+    try:
+        units_value = int(total_units or 0)
+        area_value = round(float(total_area or 0.0), 3)
+    except Exception:
+        return None
+    if units_value <= 0 or area_value <= 0:
+        return None
+
+    with get_session() as session:
+        query = select(Order).where(
+            Order.status == "draft",
+            Order.units_total == units_value,
+            func.abs(Order.area_total - area_value) <= 0.05,
+            func.lower(func.coalesce(Order.client_name, "")) == normalized_client.lower(),
+            func.lower(Order.order_numbers_raw).like(f"%{normalized_order.lower()}%"),
+        )
+        if recent_after is not None:
+            query = query.where(Order.created_at >= recent_after)
+        order = session.execute(query.order_by(Order.created_at.desc(), Order.id.desc()).limit(1)).scalar_one_or_none()
+        if not order:
+            return None
+        _ = order.rows
+        return _serialize_order(order, include_rows=True)
 
 
 def list_unfinished_telegram_file_ids(*, stale_processing_before: datetime) -> List[int]:
@@ -1597,6 +1687,8 @@ __all__ = [
     "count_untouched_telegram_files",
     "get_telegram_file_counts",
     "find_telegram_file_record",
+    "find_telegram_file_by_sha256",
+    "find_possible_duplicate_order",
     "list_unfinished_telegram_file_ids",
     "get_telegram_file",
     "update_order_rows",
