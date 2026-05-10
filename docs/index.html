@@ -20,6 +20,7 @@
       <button class="tab active" data-tab="extract"><span class="nav-icon" aria-hidden="true">D</span><span>Dashboard</span></button>
       <button class="tab" data-tab="workspace"><span class="nav-icon" aria-hidden="true">W</span><span>Workspace</span></button>
       <button class="tab" data-tab="telegram"><span class="nav-icon" aria-hidden="true">IN</span><span>Telegram Files</span><span id="telegramFilesBadge" class="sidebar-badge" hidden>0</span></button>
+      <button class="tab" data-tab="whatsapp"><span class="nav-icon" aria-hidden="true">WA</span><span>WhatsApp</span></button>
       <button class="tab" data-tab="history"><span class="nav-icon" aria-hidden="true">H</span><span>History</span></button>
       <button class="tab" data-tab="processing"><span class="nav-icon" aria-hidden="true">P</span><span>Processing</span></button>
       <button class="tab" data-tab="labels"><span class="nav-icon" aria-hidden="true">L</span><span>Labels</span></button>
@@ -471,6 +472,38 @@
       <div class="card">
         <div id="telegramFilesList" class="telegram-files-list">
           <div class="workspace-empty">Loading Telegram files...</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="tabWhatsApp" class="tab-panel">
+      <div class="card">
+        <div class="workspace-section-header">
+          <div>
+            <h2 style="margin:0">WhatsApp</h2>
+            <p class="muted small" style="margin:4px 0 0">Documents received from WhatsApp Cloud API, preserved before extraction.</p>
+          </div>
+          <div>
+            <span id="whatsappFilesStatus" class="muted small"></span>
+          </div>
+        </div>
+        <div class="telegram-files-toolbar">
+          <label>
+            <span>Status</span>
+            <select id="whatsappFilesStatusFilter">
+              <option value="">All</option>
+              <option value="pending">Pending</option>
+              <option value="downloaded">Downloaded</option>
+              <option value="failed">Failed</option>
+              <option value="extracted">Extracted</option>
+            </select>
+          </label>
+          <button type="button" class="btn small" id="whatsappFilesRefresh">Refresh</button>
+        </div>
+      </div>
+      <div class="card">
+        <div id="whatsappFilesList" class="telegram-files-list">
+          <div class="workspace-empty">Loading WhatsApp files...</div>
         </div>
       </div>
     </section>
