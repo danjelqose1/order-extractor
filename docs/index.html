@@ -19,6 +19,7 @@
     <nav class="tab-bar sidebar-nav">
       <button class="tab active" data-tab="extract"><span class="nav-icon" aria-hidden="true">D</span><span>Dashboard</span></button>
       <button class="tab" data-tab="workspace"><span class="nav-icon" aria-hidden="true">W</span><span>Workspace</span></button>
+      <button class="tab" data-tab="awa"><span class="nav-icon" aria-hidden="true">A</span><span>AWA Beta</span><span class="sidebar-beta-badge">Beta</span></button>
       <button class="tab" data-tab="telegram"><span class="nav-icon" aria-hidden="true">IN</span><span>Telegram Files</span><span id="telegramFilesBadge" class="sidebar-badge" hidden>0</span></button>
       <button class="tab" data-tab="history"><span class="nav-icon" aria-hidden="true">H</span><span>History</span></button>
       <button class="tab" data-tab="processing"><span class="nav-icon" aria-hidden="true">P</span><span>Processing</span></button>
@@ -422,6 +423,82 @@
               <button id="workspaceSmartChatSend" type="submit" class="btn">Send</button>
             </form>
             <div id="workspaceSmartChatStatus" class="muted small"></div>
+          </section>
+        </aside>
+      </div>
+    </section>
+
+    <section id="tabAwa" class="tab-panel">
+      <div class="awa-layout">
+        <div class="awa-main">
+          <div class="card">
+            <div class="workspace-section-header">
+              <div>
+                <div class="awa-title-row">
+                  <h2>AWA Beta</h2>
+                  <span class="awa-beta-badge">Experimental</span>
+                </div>
+                <p class="muted small" style="margin:4px 0 0">Experimental autonomous workflow assistant for supervised factory automation.</p>
+              </div>
+              <button type="button" class="btn small" id="awaRefresh">Refresh</button>
+            </div>
+            <div class="awa-warning">AWA prepares suggestions and draft actions. You stay in control.</div>
+            <div id="awaStatus" class="muted small"></div>
+          </div>
+
+          <div class="awa-kpi-grid">
+            <div class="card awa-kpi-card">
+              <span>Suggested actions today</span>
+              <strong id="awaSuggestedToday">0</strong>
+            </div>
+            <div class="card awa-kpi-card">
+              <span>Ready to process</span>
+              <strong id="awaReadyToProcess">0</strong>
+            </div>
+            <div class="card awa-kpi-card">
+              <span>Needs review</span>
+              <strong id="awaNeedsReview">0</strong>
+            </div>
+            <div class="card awa-kpi-card">
+              <span>Draft actions waiting approval</span>
+              <strong id="awaWaitingApproval">0</strong>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="workspace-section-header">
+              <h3>Suggested Actions</h3>
+              <span class="muted small">Supervised only</span>
+            </div>
+            <div id="awaSuggestions" class="awa-suggestions-list">
+              <div class="workspace-empty">Loading AWA suggestions...</div>
+            </div>
+          </div>
+        </div>
+
+        <aside class="awa-side">
+          <section class="card">
+            <div class="workspace-section-header">
+              <h3>Activity Feed</h3>
+              <span class="muted small">Recent workflow signals</span>
+            </div>
+            <div id="awaTimeline" class="awa-timeline">
+              <div class="workspace-empty">Loading activity...</div>
+            </div>
+          </section>
+
+          <section class="card awa-chat-card">
+            <div>
+              <h3 style="margin:0">AWA Chat</h3>
+              <p class="muted small" style="margin:4px 0 0">Read-only explanations in beta.</p>
+            </div>
+            <div id="awaChatLog" class="workspace-chat-log awa-chat-log">
+              <div class="workspace-message assistant">Ask AWA what it recommends. I will explain, not execute dangerous actions.</div>
+            </div>
+            <form id="awaChatForm" class="workspace-command-row">
+              <input id="awaChatInput" type="text" placeholder="Ask AWA what it recommends..." autocomplete="off" />
+              <button id="awaChatSend" type="submit" class="btn">Ask</button>
+            </form>
           </section>
         </aside>
       </div>
