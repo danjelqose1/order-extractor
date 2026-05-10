@@ -12247,7 +12247,7 @@ function renderWhatsAppFiles(){
     const statusValue = String(file.status || "pending").trim().toLowerCase() || "pending";
     const sender = file.sender ? `+${String(file.sender).replace(/^\+/, "")}` : "WhatsApp";
     const viewUrl = whatsappFileUrl(file.view_url);
-    const downloaded = Boolean(file.download_url && statusValue !== "pending" && file.file_size);
+    const downloaded = Boolean(file.has_file);
     const error = file.error_message ? `<div class="telegram-file-warning">${escapeHtml(file.error_message)}</div>` : "";
     return `<article class="telegram-file-card" data-whatsapp-file-id="${escapeHtml(file.id)}">
       <div>
