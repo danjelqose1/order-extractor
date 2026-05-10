@@ -308,6 +308,7 @@ class WhatsAppFile(Base):
         onupdate=lambda: datetime.now(timezone.utc),
     )
     wa_message_id: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
+    source: Mapped[str] = mapped_column(String(40), default="whatsapp", index=True)
     sender: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
     timestamp: Mapped[Optional[str]] = mapped_column(String(80), nullable=True, index=True)
     media_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
@@ -320,6 +321,7 @@ class WhatsAppFile(Base):
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     linked_order_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
     raw_metadata: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    touched: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     deleted: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -426,6 +428,27 @@ def _ensure_schema() -> None:
             conn.execute(text("UPDATE telegram_files SET retry_count = 0 WHERE retry_count IS NULL"))
             conn.execute(text("UPDATE telegram_files SET duplicate_status = 'unique' WHERE duplicate_status IS NULL OR TRIM(duplicate_status) = ''"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_telegram_files_file_sha256 ON telegram_files(file_sha256)"))
+        whatsapp_info = conn.execute(text("PRAGMA table_info(whatsapp_files)")).fetchall()
+        whatsapp_columns = {row[1] for row in whatsapp_info}
+        if whatsapp_columns:
+            if "source" not in whatsapp_columns:
+                conn.execute(text("ALTER TABLE whatsapp_files ADD COLUMN source TEXT DEFAULT 'whatsapp'"))
+            if "touched" not in whatsapp_columns:
+                conn.execute(text("ALTER TABLE whatsapp_files ADD COLUMN touched BOOLEAN DEFAULT 0"))
+            if "file_size" not in whatsapp_columns:
+                conn.execute(text("ALTER TABLE whatsapp_files ADD COLUMN file_size INTEGER DEFAULT 0"))
+            if "linked_order_id" not in whatsapp_columns:
+                conn.execute(text("ALTER TABLE whatsapp_files ADD COLUMN linked_order_id INTEGER"))
+            if "raw_metadata" not in whatsapp_columns:
+                conn.execute(text("ALTER TABLE whatsapp_files ADD COLUMN raw_metadata TEXT"))
+            if "deleted" not in whatsapp_columns:
+                conn.execute(text("ALTER TABLE whatsapp_files ADD COLUMN deleted BOOLEAN DEFAULT 0"))
+            if "deleted_at" not in whatsapp_columns:
+                conn.execute(text("ALTER TABLE whatsapp_files ADD COLUMN deleted_at TEXT"))
+            conn.execute(text("UPDATE whatsapp_files SET source = 'whatsapp' WHERE source IS NULL OR TRIM(source) = ''"))
+            conn.execute(text("UPDATE whatsapp_files SET touched = 0 WHERE touched IS NULL"))
+            conn.execute(text("UPDATE whatsapp_files SET file_size = 0 WHERE file_size IS NULL"))
+            conn.execute(text("UPDATE whatsapp_files SET deleted = 0 WHERE deleted IS NULL"))
 
 
 def _normalize_client_name(*values: Any) -> Optional[str]:
@@ -602,6 +625,7 @@ def _serialize_whatsapp_file(file: WhatsAppFile, order: Optional[Order] = None) 
         "created_at": file.created_at.isoformat(),
         "updated_at": (file.updated_at or file.created_at).isoformat(),
         "wa_message_id": file.wa_message_id,
+        "source": file.source or "whatsapp",
         "sender": file.sender,
         "timestamp": file.timestamp,
         "media_id": file.media_id,
@@ -609,11 +633,13 @@ def _serialize_whatsapp_file(file: WhatsAppFile, order: Optional[Order] = None) 
         "mime_type": file.mime_type,
         "media_sha256": file.media_sha256,
         "file_size": int(file.file_size or 0),
+        "has_file": bool(file.local_path),
         "local_path": file.local_path,
         "status": file.status,
         "error_message": file.error_message,
         "linked_order_id": file.linked_order_id,
         "linked_order": linked_order,
+        "touched": bool(file.touched),
         "deleted": bool(file.deleted),
         "deleted_at": file.deleted_at.isoformat() if file.deleted_at else None,
         "view_url": f"/api/whatsapp/files/{file.id}/view",
@@ -1436,6 +1462,7 @@ def create_whatsapp_file_record(
             return _serialize_whatsapp_file(existing, linked_order)
         record = WhatsAppFile(
             wa_message_id=message_id,
+            source="whatsapp",
             sender=str(sender or "").strip() or "unknown",
             timestamp=str(timestamp) if timestamp is not None else None,
             media_id=str(media_id or "").strip(),
@@ -1447,6 +1474,7 @@ def create_whatsapp_file_record(
             status=str(status or "pending").strip().lower() or "pending",
             error_message=str(error_message).strip()[:1000] if error_message else None,
             raw_metadata=metadata_json,
+            touched=False,
             deleted=False,
         )
         session.add(record)

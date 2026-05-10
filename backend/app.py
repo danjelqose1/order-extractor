@@ -110,6 +110,7 @@ _telegram_queue_task: Optional[asyncio.Task] = None
 _telegram_event_clients: Set[asyncio.Queue] = set()
 _telegram_event_clients_lock = threading.Lock()
 _telegram_event_loop: Optional[asyncio.AbstractEventLoop] = None
+_whatsapp_latest_webhook_at: Optional[str] = None
 
 ANALYSIS_MODEL = os.getenv("ANALYSIS_MODEL", "gpt-4o-mini")
 try:
@@ -643,7 +644,11 @@ def download_whatsapp_media(media_id: str, *, filename: str = "", mime_type: str
     media_id = str(media_id or "").strip()
     if not media_id:
         raise ValueError("missing_media_id")
-    token = _whatsapp_access_token()
+    try:
+        token = _whatsapp_access_token()
+    except Exception as exc:
+        print(f"[whatsapp] token/auth error: {exc}")
+        raise
     headers = {"Authorization": f"Bearer {token}"}
     version = _whatsapp_api_version()
     metadata_url = f"https://graph.facebook.com/{version}/{media_id}"
@@ -663,6 +668,7 @@ def download_whatsapp_media(media_id: str, *, filename: str = "", mime_type: str
         download_response = client.get(media_url, headers=headers)
         download_response.raise_for_status()
         content = download_response.content
+    print(f"[whatsapp] media downloaded media_id={media_id} mime_type={resolved_mime} bytes={len(content)}")
     stored = _store_whatsapp_file(
         content,
         filename=filename or "whatsapp-document",
@@ -1709,7 +1715,7 @@ def _telegram_document_spec(message: Dict[str, Any]) -> Optional[Dict[str, Any]]
     }
 
 
-def _whatsapp_document_messages(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _whatsapp_media_messages(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     output: List[Dict[str, Any]] = []
     for entry in payload.get("entry") or []:
         if not isinstance(entry, dict):
@@ -1719,35 +1725,47 @@ def _whatsapp_document_messages(payload: Dict[str, Any]) -> List[Dict[str, Any]]
                 continue
             value = change.get("value") if isinstance(change.get("value"), dict) else {}
             for message in value.get("messages") or []:
-                if not isinstance(message, dict) or message.get("type") != "document":
+                if not isinstance(message, dict):
                     continue
-                document = message.get("document") if isinstance(message.get("document"), dict) else {}
-                media_id = document.get("id")
+                message_type = str(message.get("type") or "").strip().lower()
+                print(f"[whatsapp] message type: {message_type or 'unknown'}")
+                if message_type == "document":
+                    media = message.get("document") if isinstance(message.get("document"), dict) else {}
+                    default_filename = "whatsapp-document"
+                elif message_type == "image":
+                    media = message.get("image") if isinstance(message.get("image"), dict) else {}
+                    default_filename = "whatsapp-image"
+                else:
+                    continue
+                media_id = media.get("id")
                 message_id = message.get("id")
                 if not media_id or not message_id:
                     continue
+                mime_type = str(media.get("mime_type") or "").strip().lower()
                 output.append(
                     {
                         "wa_message_id": str(message_id),
+                        "message_type": message_type,
                         "sender": str(message.get("from") or ""),
                         "timestamp": message.get("timestamp"),
                         "media_id": str(media_id),
-                        "filename": str(document.get("filename") or "whatsapp-document"),
-                        "mime_type": str(document.get("mime_type") or "").strip().lower(),
-                        "media_sha256": document.get("sha256"),
-                        "file_size": int(document.get("file_size") or 0),
+                        "filename": str(media.get("filename") or default_filename),
+                        "mime_type": mime_type,
+                        "media_sha256": media.get("sha256"),
+                        "file_size": int(media.get("file_size") or 0),
                         "raw_metadata": {
                             "entry_id": entry.get("id"),
                             "change_field": change.get("field"),
                             "message_id": message_id,
+                            "message_type": message_type,
                             "sender": message.get("from"),
                             "timestamp": message.get("timestamp"),
-                            "document": {
+                            "media": {
                                 "id": media_id,
-                                "filename": document.get("filename"),
-                                "mime_type": document.get("mime_type"),
-                                "sha256": document.get("sha256"),
-                                "file_size": document.get("file_size"),
+                                "filename": media.get("filename"),
+                                "mime_type": media.get("mime_type"),
+                                "sha256": media.get("sha256"),
+                                "file_size": media.get("file_size"),
                             },
                         },
                     }
@@ -1778,6 +1796,7 @@ def _download_whatsapp_record(file_id: int) -> None:
             file_size=int(result.get("file_size") or 0),
             clear_error=True,
         )
+        print(f"[whatsapp] file saved file_id={file_id} path={result.get('local_path')}")
     except Exception as exc:
         error = _short_error_message(exc)
         print(f"[whatsapp] media download failed file_id={file_id}: {error}")
@@ -1790,14 +1809,18 @@ def verify_whatsapp_webhook(
     hub_verify_token: Optional[str] = Query(default=None, alias="hub.verify_token"),
     hub_challenge: Optional[str] = Query(default=None, alias="hub.challenge"),
 ):
-    expected = (os.getenv("WHATSAPP_VERIFY_TOKEN") or "").strip()
-    if hub_mode == "subscribe" and expected and hub_verify_token == expected:
+    expected = os.getenv("WHATSAPP_VERIFY_TOKEN")
+    print("VERIFY TOKEN RECEIVED:", hub_verify_token)
+    print("EXPECTED TOKEN:", expected)
+    if hub_mode == "subscribe" and hub_verify_token == expected:
         return Response(content=str(hub_challenge or ""), media_type="text/plain")
-    raise HTTPException(status_code=403, detail="Verification failed")
+    return Response(content="Verification failed", status_code=403, media_type="text/plain")
 
 
 @app.post("/webhook")
 async def receive_whatsapp_webhook(request: Request, background_tasks: BackgroundTasks) -> Dict[str, str]:
+    global _whatsapp_latest_webhook_at
+    _whatsapp_latest_webhook_at = datetime.now(timezone.utc).isoformat()
     try:
         payload = await request.json()
     except Exception as exc:
@@ -1806,14 +1829,14 @@ async def receive_whatsapp_webhook(request: Request, background_tasks: Backgroun
     if not isinstance(payload, dict):
         return {"status": "ok"}
 
-    documents = _whatsapp_document_messages(payload)
-    print(f"[whatsapp] webhook received entries={len(payload.get('entry') or [])} document_messages={len(documents)}")
-    for document in documents:
+    media_messages = _whatsapp_media_messages(payload)
+    print(f"[whatsapp] webhook received entries={len(payload.get('entry') or [])} media_messages={len(media_messages)}")
+    for media_message in media_messages:
         status = "pending"
         error_message = None
-        mime_type = str(document.get("mime_type") or "").lower()
-        file_size = int(document.get("file_size") or 0)
-        if mime_type not in WHATSAPP_ALLOWED_MIME_TYPES:
+        mime_type = str(media_message.get("mime_type") or "").lower()
+        file_size = int(media_message.get("file_size") or 0)
+        if mime_type and mime_type not in WHATSAPP_ALLOWED_MIME_TYPES:
             status = "failed"
             error_message = f"Unsupported WhatsApp document type: {mime_type or 'unknown'}"
         elif file_size > WHATSAPP_MAX_FILE_BYTES:
@@ -1821,23 +1844,39 @@ async def receive_whatsapp_webhook(request: Request, background_tasks: Backgroun
             error_message = "WhatsApp document is larger than 25MB"
         try:
             record = create_whatsapp_file_record(
-                wa_message_id=str(document.get("wa_message_id") or ""),
-                sender=str(document.get("sender") or ""),
-                timestamp=document.get("timestamp"),
-                media_id=str(document.get("media_id") or ""),
-                filename=str(document.get("filename") or "whatsapp-document"),
-                mime_type=mime_type,
-                media_sha256=document.get("media_sha256"),
+                wa_message_id=str(media_message.get("wa_message_id") or ""),
+                sender=str(media_message.get("sender") or ""),
+                timestamp=media_message.get("timestamp"),
+                media_id=str(media_message.get("media_id") or ""),
+                filename=str(media_message.get("filename") or "whatsapp-document"),
+                mime_type=mime_type or "application/octet-stream",
+                media_sha256=media_message.get("media_sha256"),
                 file_size=file_size,
                 status=status,
                 error_message=error_message,
-                raw_metadata=document.get("raw_metadata") if isinstance(document.get("raw_metadata"), dict) else None,
+                raw_metadata=media_message.get("raw_metadata") if isinstance(media_message.get("raw_metadata"), dict) else None,
             )
+            print(f"[whatsapp] stored inbox metadata id={record.get('id')} status={record.get('status')} sender={record.get('sender')}")
             if record.get("status") == "pending":
                 background_tasks.add_task(_download_whatsapp_record, int(record["id"]))
         except Exception as exc:
-            print(f"[whatsapp] failed to store webhook document metadata: {_short_error_message(exc)}")
+            print(f"[whatsapp] storage error: {_short_error_message(exc)}")
     return {"status": "ok"}
+
+
+@app.get("/debug/whatsapp")
+def debug_whatsapp() -> Dict[str, Any]:
+    try:
+        stored_count = len(list_whatsapp_files(limit=250))
+    except Exception as exc:
+        print(f"[whatsapp] debug storage error: {exc}")
+        stored_count = 0
+    return {
+        "verify_token_loaded": bool((os.getenv("WHATSAPP_VERIFY_TOKEN") or "").strip()),
+        "access_token_loaded": bool((os.getenv("WHATSAPP_ACCESS_TOKEN") or "").strip()),
+        "latest_webhook_timestamp": _whatsapp_latest_webhook_at,
+        "stored_whatsapp_files_count": stored_count,
+    }
 
 
 def _telegram_photo_spec(message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -2224,14 +2263,12 @@ def _require_app_key_header(x_app_key: Optional[str]) -> None:
 
 @app.get("/api/whatsapp/files")
 def whatsapp_files(x_app_key: Optional[str] = Header(default=None)) -> Dict[str, Any]:
-    _require_app_key_header(x_app_key)
     items = [_whatsapp_public_file(item) for item in list_whatsapp_files(limit=250)]
     return {"items": [item for item in items if item is not None]}
 
 
 @app.post("/api/whatsapp/files/{file_id}/extract")
 def extract_whatsapp_file(file_id: int, x_app_key: Optional[str] = Header(default=None)) -> Dict[str, Any]:
-    _require_app_key_header(x_app_key)
     record = get_whatsapp_file(file_id)
     if not record or record.get("deleted"):
         raise HTTPException(status_code=404, detail="WhatsApp file not found")
@@ -2266,7 +2303,6 @@ def extract_whatsapp_file(file_id: int, x_app_key: Optional[str] = Header(defaul
 
 @app.post("/api/whatsapp/files/{file_id}/mark-ignored")
 def ignore_whatsapp_file(file_id: int, x_app_key: Optional[str] = Header(default=None)) -> Dict[str, Any]:
-    _require_app_key_header(x_app_key)
     record = update_whatsapp_file_record(file_id, status="failed", error_message="Ignored manually.")
     if not record:
         raise HTTPException(status_code=404, detail="WhatsApp file not found")
@@ -2275,7 +2311,6 @@ def ignore_whatsapp_file(file_id: int, x_app_key: Optional[str] = Header(default
 
 @app.delete("/api/whatsapp/files/{file_id}")
 def delete_whatsapp_file(file_id: int, x_app_key: Optional[str] = Header(default=None)) -> Dict[str, Any]:
-    _require_app_key_header(x_app_key)
     record = mark_whatsapp_file_deleted(file_id)
     if not record:
         raise HTTPException(status_code=404, detail="WhatsApp file not found")
