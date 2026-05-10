@@ -114,6 +114,7 @@ ANALYSIS_STYLE_PROMPT = PROMPTS["analysis"].get("style", "")
 ANALYSIS_MAX_TURNS = 7
 
 analysis_memory: Dict[str, Dict[str, Any]] = {}
+_awa_action_state: Dict[str, Dict[str, Any]] = {}
 
 # Invoice price config defaults (mirrors frontend defaults)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -394,6 +395,15 @@ class WorkspaceConfirmPayload(BaseModel):
     pending_action_id: Optional[str] = None
     decision: Optional[str] = None
     context: Optional[Dict[str, Any]] = None
+
+
+class AwaActionPayload(BaseModel):
+    action_id: str
+
+
+class AwaExplainPayload(BaseModel):
+    action_id: Optional[str] = None
+    question: Optional[str] = None
 
 
 def _debug_log_rows(rows):
@@ -728,6 +738,286 @@ def healthz():
     return {"ok": True}
 
 
+def _awa_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _awa_order_ref(item: Dict[str, Any]) -> Tuple[List[Any], List[str]]:
+    order_id = item.get("order_id", item.get("id"))
+    order_ids = [order_id] if order_id is not None else []
+    order_number = str(item.get("order_number") or "").strip()
+    order_numbers = [order_number] if order_number else []
+    return order_ids, order_numbers
+
+
+def _awa_action(
+    *,
+    action_id: str,
+    action_type: str,
+    title: str,
+    explanation: str,
+    order_ids: Optional[List[Any]] = None,
+    order_numbers: Optional[List[str]] = None,
+    confidence: float = 0.75,
+    safety_level: str = "review",
+    result: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    stored = _awa_action_state.get(action_id) or {}
+    return {
+        "id": action_id,
+        "type": action_type,
+        "status": stored.get("status") or "suggested",
+        "title": title,
+        "explanation": explanation,
+        "order_ids": order_ids or [],
+        "order_numbers": order_numbers or [],
+        "confidence": round(float(confidence), 2),
+        "safety_level": safety_level,
+        "created_at": stored.get("created_at") or _awa_now(),
+        "result": stored.get("result", result),
+    }
+
+
+def _awa_type_key_for_order(order_id: Any) -> str:
+    try:
+        detail = get_order_with_extraction(int(order_id))
+    except Exception:
+        detail = None
+    rows = (detail or {}).get("rows") or []
+    for row in rows:
+        glass_type = str(row.get("type") or "").strip()
+        if glass_type:
+            return re.sub(r"\s+", " ", glass_type.lower())
+    return ""
+
+
+def _awa_workspace_snapshot() -> Dict[str, Any]:
+    from workspace_service import get_recent_production_files, get_workspace_queue
+
+    queue = get_workspace_queue()
+    recent = get_recent_production_files(limit=25)
+    return {
+        "groups": queue.get("groups") or {},
+        "counts": queue.get("counts") or {},
+        "recent_files": recent.get("items") or [],
+    }
+
+
+def _awa_build_suggestions(snapshot: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    snapshot = snapshot or _awa_workspace_snapshot()
+    groups = snapshot.get("groups") or {}
+    suggestions: List[Dict[str, Any]] = []
+
+    approved_ready = list(groups.get("approved_ready") or [])
+    needs_review = list(groups.get("needs_review") or [])
+    processing_done = list(groups.get("processing_done") or [])
+    labels_ready = list(groups.get("labels_ready") or [])
+    recent_files = list(snapshot.get("recent_files") or [])
+
+    for item in approved_ready[:8]:
+        order_ids, order_numbers = _awa_order_ref(item)
+        order_label = order_numbers[0] if order_numbers else f"#{order_ids[0]}" if order_ids else "approved order"
+        suggestions.append(_awa_action(
+            action_id=f"awa-process-{order_ids[0] if order_ids else order_label}",
+            action_type="process_approved_order",
+            title="Process approved order",
+            explanation=f"{order_label} is approved and has no production batch recorded yet. AWA can prepare the handoff, but processing still needs supervised approval.",
+            order_ids=order_ids,
+            order_numbers=order_numbers,
+            confidence=0.91,
+            safety_level="safe",
+        ))
+
+    type_groups: Dict[str, List[Dict[str, Any]]] = {}
+    for item in approved_ready:
+        order_id = item.get("order_id", item.get("id"))
+        key = _awa_type_key_for_order(order_id)
+        if key:
+            type_groups.setdefault(key, []).append(item)
+    for key, items in type_groups.items():
+        if len(items) < 2:
+            continue
+        order_ids: List[Any] = []
+        order_numbers: List[str] = []
+        for item in items[:6]:
+            ids, nums = _awa_order_ref(item)
+            order_ids.extend(ids)
+            order_numbers.extend(nums)
+        suggestions.append(_awa_action(
+            action_id="awa-group-" + "-".join(str(item) for item in order_ids),
+            action_type="process_selected_orders_together",
+            title="Process selected orders together",
+            explanation=f"{len(order_ids)} approved orders share a similar glass type profile. AWA suggests reviewing them as a supervised processing group.",
+            order_ids=order_ids,
+            order_numbers=order_numbers,
+            confidence=0.78,
+            safety_level="requires_confirmation",
+        ))
+        break
+
+    for item in needs_review[:8]:
+        warnings_count = int(item.get("warnings_count") or 0)
+        if warnings_count <= 0:
+            continue
+        order_ids, order_numbers = _awa_order_ref(item)
+        order_label = order_numbers[0] if order_numbers else f"#{order_ids[0]}" if order_ids else "draft order"
+        suggestions.append(_awa_action(
+            action_id=f"awa-review-{order_ids[0] if order_ids else order_label}",
+            action_type="review_suspicious_order",
+            title="Review suspicious order",
+            explanation=f"{order_label} is still draft/review and has {warnings_count} validation warning(s). Draft orders must be reviewed before any production action.",
+            order_ids=order_ids,
+            order_numbers=order_numbers,
+            confidence=0.86,
+            safety_level="review",
+        ))
+
+    for item in processing_done[:6]:
+        order_ids, order_numbers = _awa_order_ref(item)
+        order_label = order_numbers[0] if order_numbers else f"#{order_ids[0]}" if order_ids else "processed order"
+        suggestions.append(_awa_action(
+            action_id=f"awa-labels-{item.get('batch_id') or (order_ids[0] if order_ids else order_label)}",
+            action_type="create_labels_from_processing",
+            title="Create labels from processing",
+            explanation=f"{order_label} has a processing batch but no labels file is visible in the Workspace queue.",
+            order_ids=order_ids,
+            order_numbers=order_numbers,
+            confidence=0.82,
+            safety_level="requires_confirmation",
+        ))
+
+    for item in labels_ready[:6]:
+        order_ids, order_numbers = _awa_order_ref(item)
+        order_label = order_numbers[0] if order_numbers else f"#{order_ids[0]}" if order_ids else "production order"
+        suggestions.append(_awa_action(
+            action_id=f"awa-invoice-{item.get('batch_id') or (order_ids[0] if order_ids else order_label)}",
+            action_type="create_invoice_draft",
+            title="Create invoice draft",
+            explanation=f"{order_label} appears ready after production file preparation. AWA can suggest an invoice draft, but final invoices stay manual.",
+            order_ids=order_ids,
+            order_numbers=order_numbers,
+            confidence=0.72,
+            safety_level="review",
+        ))
+
+    for item in recent_files[:5]:
+        order_number = str(item.get("order_number") or "").strip()
+        if not (item.get("processing_pdf_url") or item.get("labels_pdf_url")):
+            continue
+        suggestions.append(_awa_action(
+            action_id=f"awa-download-{item.get('batch_id') or order_number or len(suggestions)}",
+            action_type="download_ready_production_files",
+            title="Download ready production files",
+            explanation=f"Production files are ready for {order_number or 'a recent batch'}. AWA can point you to the files; it will not print or send them.",
+            order_ids=[item.get("order_id")] if item.get("order_id") is not None else [],
+            order_numbers=[order_number] if order_number else [],
+            confidence=0.88,
+            safety_level="safe",
+        ))
+
+    return suggestions[:24]
+
+
+def _awa_build_timeline(snapshot: Optional[Dict[str, Any]] = None, suggestions: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
+    snapshot = snapshot or _awa_workspace_snapshot()
+    suggestions = suggestions if suggestions is not None else _awa_build_suggestions(snapshot)
+    groups = snapshot.get("groups") or {}
+    events: List[Dict[str, Any]] = []
+    now = _awa_now()
+
+    for item in list(groups.get("needs_review") or [])[:8]:
+        order_number = str(item.get("order_number") or "").strip()
+        warnings_count = int(item.get("warnings_count") or 0)
+        events.append({
+            "timestamp": item.get("created_at") or now,
+            "order_number": order_number,
+            "title": "Order extracted",
+            "explanation": "Draft order is waiting for manual review.",
+            "status": "review",
+        })
+        if warnings_count:
+            events.append({
+                "timestamp": item.get("created_at") or now,
+                "order_number": order_number,
+                "title": "Warning detected",
+                "explanation": f"{warnings_count} validation warning(s) need review before production.",
+                "status": "warning",
+            })
+
+    for item in list(groups.get("approved_ready") or [])[:8]:
+        events.append({
+            "timestamp": item.get("approved_at") or item.get("created_at") or now,
+            "order_number": item.get("order_number") or "",
+            "title": "Validation passed",
+            "explanation": "Approved order is eligible for supervised processing.",
+            "status": "safe",
+        })
+
+    for item in list(snapshot.get("recent_files") or [])[:8]:
+        order_number = str(item.get("order_number") or "").strip()
+        if item.get("processing_pdf_url"):
+            events.append({
+                "timestamp": item.get("generated_at") or now,
+                "order_number": order_number,
+                "title": "Processing draft prepared",
+                "explanation": "Production processing file exists in Workspace files.",
+                "status": "ready",
+            })
+        if item.get("labels_pdf_url"):
+            events.append({
+                "timestamp": item.get("generated_at") or now,
+                "order_number": order_number,
+                "title": "Labels draft prepared",
+                "explanation": "Label file exists for supervised printing/download.",
+                "status": "ready",
+            })
+
+    for suggestion in suggestions[:8]:
+        events.append({
+            "timestamp": suggestion.get("created_at") or now,
+            "order_number": ", ".join(suggestion.get("order_numbers") or []),
+            "title": "Waiting for approval",
+            "explanation": suggestion.get("title") or "Suggested action",
+            "status": suggestion.get("safety_level") or "review",
+        })
+
+    return sorted(events, key=lambda event: str(event.get("timestamp") or ""), reverse=True)[:30]
+
+
+def _awa_find_suggestion(action_id: str) -> Optional[Dict[str, Any]]:
+    for suggestion in _awa_build_suggestions():
+        if str(suggestion.get("id")) == str(action_id):
+            return suggestion
+    stored = _awa_action_state.get(str(action_id))
+    if stored:
+        return {"id": action_id, **stored}
+    return None
+
+
+def _awa_chat_answer(question: str) -> str:
+    snapshot = _awa_workspace_snapshot()
+    counts = snapshot.get("counts") or {}
+    suggestions = _awa_build_suggestions(snapshot)
+    lower = question.lower()
+    if "safe" in lower or "process" in lower or "production" in lower:
+        return (
+            f"{counts.get('approved_ready', 0)} approved order(s) look ready for supervised processing. "
+            "AWA only suggests processing for approved orders and does not process drafts."
+        )
+    if "review" in lower or "warning" in lower:
+        return (
+            f"{counts.get('needs_review', 0)} order(s) need review. Draft orders and warning cases stay manual before production."
+        )
+    if "next" in lower or "recommend" in lower:
+        if suggestions:
+            first = suggestions[0]
+            return f"Next supervised recommendation: {first.get('title')}. {first.get('explanation')}"
+        return "No supervised AWA recommendations are available right now."
+    return (
+        "AWA is in beta and read-only by default. It can explain ready orders, review items, production files, and why a suggestion was made."
+    )
+
+
 @app.get("/api/workspace/queue")
 def workspace_queue() -> Dict[str, Any]:
     from workspace_service import get_workspace_queue
@@ -740,6 +1030,91 @@ def workspace_recent_files() -> Dict[str, Any]:
     from workspace_service import get_recent_production_files
 
     return get_recent_production_files()
+
+
+@app.get("/api/awa/summary")
+def awa_summary() -> Dict[str, Any]:
+    snapshot = _awa_workspace_snapshot()
+    suggestions = _awa_build_suggestions(snapshot)
+    counts = snapshot.get("counts") or {}
+    waiting = len([item for item in suggestions if item.get("status") == "suggested"])
+    return {
+        "suggested_actions_today": len(suggestions),
+        "ready_to_process": int(counts.get("approved_ready") or 0),
+        "needs_review": int(counts.get("needs_review") or 0),
+        "waiting_approval": waiting,
+    }
+
+
+@app.get("/api/awa/timeline")
+def awa_timeline() -> Dict[str, Any]:
+    snapshot = _awa_workspace_snapshot()
+    suggestions = _awa_build_suggestions(snapshot)
+    return {"items": _awa_build_timeline(snapshot, suggestions)}
+
+
+@app.get("/api/awa/suggestions")
+def awa_suggestions() -> Dict[str, Any]:
+    return {"items": _awa_build_suggestions()}
+
+
+@app.post("/api/awa/explain")
+def awa_explain(payload: AwaExplainPayload) -> Dict[str, Any]:
+    action_id = str(payload.action_id or "").strip()
+    question = str(payload.question or "").strip()
+    if action_id:
+        suggestion = _awa_find_suggestion(action_id)
+        if not suggestion:
+            raise HTTPException(status_code=404, detail="AWA suggestion not found")
+        orders = ", ".join(suggestion.get("order_numbers") or []) or "the affected order(s)"
+        return {
+            "message": (
+                f"{suggestion.get('title')}: {suggestion.get('explanation')} "
+                f"Affected orders: {orders}. Safety level: {suggestion.get('safety_level')}. "
+                "AWA Beta will not mutate raw data or run production actions without supervised approval."
+            ),
+            "suggestion": suggestion,
+        }
+    if question:
+        return {"message": _awa_chat_answer(question)}
+    raise HTTPException(status_code=400, detail="action_id or question is required")
+
+
+@app.post("/api/awa/approve-action")
+def awa_approve_action(payload: AwaActionPayload) -> Dict[str, Any]:
+    action_id = str(payload.action_id or "").strip()
+    if not action_id:
+        raise HTTPException(status_code=400, detail="action_id is required")
+    suggestion = _awa_find_suggestion(action_id)
+    if not suggestion:
+        raise HTTPException(status_code=404, detail="AWA suggestion not found")
+    result = {
+        "message": "AWA action approval is not connected yet.",
+        "safety_note": "No production data was changed. Use the related module to complete this workflow manually.",
+    }
+    _awa_action_state[action_id] = {
+        "status": "approved",
+        "created_at": suggestion.get("created_at") or _awa_now(),
+        "result": result,
+    }
+    return {"status": "approved", "message": result["message"], "result": result, "suggestion": _awa_find_suggestion(action_id)}
+
+
+@app.post("/api/awa/reject-action")
+def awa_reject_action(payload: AwaActionPayload) -> Dict[str, Any]:
+    action_id = str(payload.action_id or "").strip()
+    if not action_id:
+        raise HTTPException(status_code=400, detail="action_id is required")
+    suggestion = _awa_find_suggestion(action_id)
+    if not suggestion:
+        raise HTTPException(status_code=404, detail="AWA suggestion not found")
+    result = {"message": "Suggestion rejected for this session. No production data was changed."}
+    _awa_action_state[action_id] = {
+        "status": "rejected",
+        "created_at": suggestion.get("created_at") or _awa_now(),
+        "result": result,
+    }
+    return {"status": "rejected", "message": result["message"], "result": result, "suggestion": _awa_find_suggestion(action_id)}
 
 
 @app.post("/api/workspace/process-order")

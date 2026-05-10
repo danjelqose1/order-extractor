@@ -423,4 +423,3 @@ def generate_analysis_signals(summary: Dict[str, Any]) -> List[Dict[str, Any]]:
         )
     )
     return signals
-

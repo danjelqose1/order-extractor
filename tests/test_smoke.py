@@ -146,6 +146,51 @@ def _load_llm(monkeypatch):
     return importlib.import_module("llm")
 
 
+def _install_fake_workspace_service(monkeypatch):
+    fake_workspace = types.ModuleType("workspace_service")
+    fake_workspace.get_workspace_queue = lambda: {
+        "groups": {
+            "needs_review": [{
+                "id": 2,
+                "order_id": 2,
+                "order_number": "R-26-2002",
+                "status": "draft",
+                "warnings_count": 1,
+                "created_at": "2026-05-10T09:00:00+00:00",
+            }],
+            "approved_ready": [{
+                "id": 1,
+                "order_id": 1,
+                "order_number": "R-26-1001",
+                "status": "approved",
+                "warnings_count": 0,
+                "approved_at": "2026-05-10T10:00:00+00:00",
+            }],
+            "processing_done": [],
+            "labels_ready": [],
+            "finished": [],
+        },
+        "counts": {
+            "needs_review": 1,
+            "approved_ready": 1,
+            "processing_done": 0,
+            "labels_ready": 0,
+            "finished": 0,
+        },
+    }
+    fake_workspace.get_recent_production_files = lambda limit=25: {
+        "items": [{
+            "batch_id": 7,
+            "order_id": 1,
+            "order_number": "R-26-1001",
+            "generated_at": "2026-05-10T11:00:00+00:00",
+            "processing_pdf_url": "/api/workspace/files/1/download",
+            "labels_pdf_url": "/api/workspace/files/2/download",
+        }]
+    }
+    monkeypatch.setitem(sys.modules, "workspace_service", fake_workspace)
+
+
 def _bundle(rows: List[Dict[str, Any]], warnings: Optional[List[str]] = None) -> Dict[str, Any]:
     payload = {
         "order_number": rows[0]["order_number"] if rows else "",
@@ -593,6 +638,42 @@ def test_telegram_webhook_secret_is_validated(monkeypatch):
 
     assert response.status_code == 401
     assert calls["insert_extraction_with_rows"] == []
+
+
+def test_awa_summary_timeline_and_suggestions_load(monkeypatch):
+    app_module, _calls = _load_app(monkeypatch, legacy_enabled="false")
+    _install_fake_workspace_service(monkeypatch)
+    client = TestClient(app_module.app)
+
+    summary = client.get("/api/awa/summary")
+    timeline = client.get("/api/awa/timeline")
+    suggestions = client.get("/api/awa/suggestions")
+
+    assert summary.status_code == 200
+    assert summary.json()["ready_to_process"] == 1
+    assert summary.json()["needs_review"] == 1
+    assert timeline.status_code == 200
+    assert timeline.json()["items"]
+    assert suggestions.status_code == 200
+    assert any(item["type"] == "process_approved_order" for item in suggestions.json()["items"])
+
+
+def test_awa_explain_reject_and_approve_are_supervised(monkeypatch):
+    app_module, _calls = _load_app(monkeypatch, legacy_enabled="false")
+    _install_fake_workspace_service(monkeypatch)
+    client = TestClient(app_module.app)
+    action_id = client.get("/api/awa/suggestions").json()["items"][0]["id"]
+
+    explain = client.post("/api/awa/explain", json={"action_id": action_id})
+    rejected = client.post("/api/awa/reject-action", json={"action_id": action_id})
+    approved = client.post("/api/awa/approve-action", json={"action_id": action_id})
+
+    assert explain.status_code == 200
+    assert "will not mutate raw data" in explain.json()["message"]
+    assert rejected.status_code == 200
+    assert rejected.json()["status"] == "rejected"
+    assert approved.status_code == 200
+    assert approved.json()["message"] == "AWA action approval is not connected yet."
 
 
 def test_telegram_pdf_extraction_failure_still_stores_file(monkeypatch):
