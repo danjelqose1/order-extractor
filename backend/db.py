@@ -296,6 +296,34 @@ class TelegramFile(Base):
     last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 
+class WhatsAppFile(Base):
+    __tablename__ = "whatsapp_files"
+    __table_args__ = (UniqueConstraint("wa_message_id", name="uq_whatsapp_files_message_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+    wa_message_id: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
+    sender: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    timestamp: Mapped[Optional[str]] = mapped_column(String(80), nullable=True, index=True)
+    media_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    filename: Mapped[str] = mapped_column(Text, nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(120), nullable=False)
+    media_sha256: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    file_size: Mapped[int] = mapped_column(Integer, default=0)
+    local_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(40), default="pending", index=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    linked_order_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    raw_metadata: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    deleted: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class WorkspaceAction(Base):
     __tablename__ = "workspace_actions"
 
@@ -564,6 +592,32 @@ def _serialize_telegram_file(file: TelegramFile, order: Optional[Order] = None) 
         "last_error": file.last_error,
         "view_url": f"/telegram-files/{file.id}/view",
         "download_url": f"/telegram-files/{file.id}/download",
+    }
+
+
+def _serialize_whatsapp_file(file: WhatsAppFile, order: Optional[Order] = None) -> Dict[str, Any]:
+    linked_order = _serialize_order(order, include_rows=False) if order else None
+    return {
+        "id": file.id,
+        "created_at": file.created_at.isoformat(),
+        "updated_at": (file.updated_at or file.created_at).isoformat(),
+        "wa_message_id": file.wa_message_id,
+        "sender": file.sender,
+        "timestamp": file.timestamp,
+        "media_id": file.media_id,
+        "filename": file.filename,
+        "mime_type": file.mime_type,
+        "media_sha256": file.media_sha256,
+        "file_size": int(file.file_size or 0),
+        "local_path": file.local_path,
+        "status": file.status,
+        "error_message": file.error_message,
+        "linked_order_id": file.linked_order_id,
+        "linked_order": linked_order,
+        "deleted": bool(file.deleted),
+        "deleted_at": file.deleted_at.isoformat() if file.deleted_at else None,
+        "view_url": f"/api/whatsapp/files/{file.id}/view",
+        "download_url": f"/api/whatsapp/files/{file.id}/download",
     }
 
 
@@ -1354,6 +1408,139 @@ def get_telegram_file(file_id: int) -> Optional[Dict[str, Any]]:
         return _serialize_telegram_file(record, linked_order)
 
 
+def create_whatsapp_file_record(
+    *,
+    wa_message_id: str,
+    sender: str,
+    timestamp: Optional[Any],
+    media_id: str,
+    filename: str,
+    mime_type: str,
+    media_sha256: Optional[str] = None,
+    file_size: int = 0,
+    local_path: Optional[str] = None,
+    status: str = "pending",
+    error_message: Optional[str] = None,
+    raw_metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    message_id = str(wa_message_id or "").strip()
+    if not message_id:
+        raise ValueError("wa_message_id is required")
+    metadata_json = json.dumps(raw_metadata, ensure_ascii=False, sort_keys=True) if isinstance(raw_metadata, dict) else None
+    with get_session() as session:
+        existing = session.execute(
+            select(WhatsAppFile).where(WhatsAppFile.wa_message_id == message_id).limit(1)
+        ).scalar_one_or_none()
+        if existing:
+            linked_order = session.get(Order, existing.linked_order_id) if existing.linked_order_id else None
+            return _serialize_whatsapp_file(existing, linked_order)
+        record = WhatsAppFile(
+            wa_message_id=message_id,
+            sender=str(sender or "").strip() or "unknown",
+            timestamp=str(timestamp) if timestamp is not None else None,
+            media_id=str(media_id or "").strip(),
+            filename=str(filename or "whatsapp-document.pdf").strip() or "whatsapp-document.pdf",
+            mime_type=str(mime_type or "application/octet-stream").strip().lower(),
+            media_sha256=str(media_sha256).strip() if media_sha256 else None,
+            file_size=int(file_size or 0),
+            local_path=str(local_path) if local_path else None,
+            status=str(status or "pending").strip().lower() or "pending",
+            error_message=str(error_message).strip()[:1000] if error_message else None,
+            raw_metadata=metadata_json,
+            deleted=False,
+        )
+        session.add(record)
+        try:
+            session.flush()
+        except IntegrityError:
+            session.rollback()
+            with get_session() as retry_session:
+                existing_retry = retry_session.execute(
+                    select(WhatsAppFile).where(WhatsAppFile.wa_message_id == message_id).limit(1)
+                ).scalar_one()
+                linked_order = retry_session.get(Order, existing_retry.linked_order_id) if existing_retry.linked_order_id else None
+                return _serialize_whatsapp_file(existing_retry, linked_order)
+        return _serialize_whatsapp_file(record)
+
+
+def update_whatsapp_file_record(
+    file_id: int,
+    *,
+    status: Optional[str] = None,
+    local_path: Optional[str] = None,
+    filename: Optional[str] = None,
+    mime_type: Optional[str] = None,
+    file_size: Optional[int] = None,
+    error_message: Optional[str] = None,
+    clear_error: bool = False,
+    linked_order_id: Optional[int] = None,
+) -> Optional[Dict[str, Any]]:
+    with get_session() as session:
+        record = session.get(WhatsAppFile, int(file_id))
+        if not record:
+            return None
+        if status is not None:
+            record.status = str(status or "pending").strip().lower() or "pending"
+        if local_path is not None:
+            record.local_path = str(local_path) if local_path else None
+        if filename is not None:
+            record.filename = str(filename or record.filename)
+        if mime_type is not None:
+            record.mime_type = str(mime_type or record.mime_type).lower()
+        if file_size is not None:
+            record.file_size = int(file_size or 0)
+        if linked_order_id is not None:
+            record.linked_order_id = int(linked_order_id)
+        if clear_error:
+            record.error_message = None
+        elif error_message is not None:
+            record.error_message = str(error_message).strip()[:1000] or None
+        record.updated_at = datetime.now(timezone.utc)
+        session.flush()
+        linked_order = session.get(Order, record.linked_order_id) if record.linked_order_id else None
+        return _serialize_whatsapp_file(record, linked_order)
+
+
+def list_whatsapp_files(*, limit: int = 100, include_deleted: bool = False) -> List[Dict[str, Any]]:
+    safe_limit = max(1, min(int(limit or 100), 250))
+    with get_session() as session:
+        statement = select(WhatsAppFile)
+        if not include_deleted:
+            statement = statement.where(WhatsAppFile.deleted.is_(False))
+        records = session.execute(
+            statement.order_by(WhatsAppFile.created_at.desc(), WhatsAppFile.id.desc()).limit(safe_limit)
+        ).scalars().all()
+        order_ids = [record.linked_order_id for record in records if record.linked_order_id]
+        orders_by_id: Dict[int, Order] = {}
+        if order_ids:
+            linked_orders = session.execute(select(Order).where(Order.id.in_(order_ids))).scalars().all()
+            orders_by_id = {order.id: order for order in linked_orders}
+        return [_serialize_whatsapp_file(record, orders_by_id.get(record.linked_order_id or 0)) for record in records]
+
+
+def get_whatsapp_file(file_id: int) -> Optional[Dict[str, Any]]:
+    with get_session() as session:
+        record = session.get(WhatsAppFile, int(file_id))
+        if not record:
+            return None
+        linked_order = session.get(Order, record.linked_order_id) if record.linked_order_id else None
+        return _serialize_whatsapp_file(record, linked_order)
+
+
+def mark_whatsapp_file_deleted(file_id: int) -> Optional[Dict[str, Any]]:
+    with get_session() as session:
+        record = session.get(WhatsAppFile, int(file_id))
+        if not record:
+            return None
+        if not record.deleted:
+            record.deleted = True
+            record.deleted_at = datetime.now(timezone.utc)
+            record.updated_at = datetime.now(timezone.utc)
+        session.flush()
+        linked_order = session.get(Order, record.linked_order_id) if record.linked_order_id else None
+        return _serialize_whatsapp_file(record, linked_order)
+
+
 def delete_order(order_id: int) -> bool:
     with get_session() as session:
         order = session.get(Order, order_id)
@@ -1691,6 +1878,11 @@ __all__ = [
     "find_possible_duplicate_order",
     "list_unfinished_telegram_file_ids",
     "get_telegram_file",
+    "create_whatsapp_file_record",
+    "update_whatsapp_file_record",
+    "list_whatsapp_files",
+    "get_whatsapp_file",
+    "mark_whatsapp_file_deleted",
     "update_order_rows",
     "get_orders",
     "get_orders_by_identifiers",

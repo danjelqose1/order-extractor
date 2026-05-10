@@ -251,6 +251,14 @@ const telegramFilesState = {
   selectedFile: null,
 };
 
+const whatsappFilesState = {
+  items: [],
+  loading: false,
+  loadedOnce: false,
+  status: "",
+  refreshTimer: null,
+};
+
 /**
  * @typedef {Object} ScanPage
  * @property {string} id
@@ -342,6 +350,7 @@ const panels = {
   extract: document.getElementById("tabExtract"),
   workspace: document.getElementById("tabWorkspace"),
   telegram: document.getElementById("tabTelegram"),
+  whatsapp: document.getElementById("tabWhatsApp"),
   scanstudio: document.getElementById("tabScanStudio"),
   pdfeditor: document.getElementById("tabPdfEditor"),
   history: document.getElementById("tabHistory"),
@@ -399,6 +408,10 @@ const telegramPdfFrame = document.getElementById("telegramPdfFrame");
 const telegramPdfPrintBtn = document.getElementById("telegramPdfPrint");
 const telegramPdfDownloadLink = document.getElementById("telegramPdfDownload");
 const telegramPdfCloseBtn = document.getElementById("telegramPdfClose");
+const whatsappFilesListEl = document.getElementById("whatsappFilesList");
+const whatsappFilesStatusEl = document.getElementById("whatsappFilesStatus");
+const whatsappFilesStatusFilter = document.getElementById("whatsappFilesStatusFilter");
+const whatsappFilesRefreshBtn = document.getElementById("whatsappFilesRefresh");
 
 const statusEl = document.getElementById("status");
 const errorEl = document.getElementById("error");
@@ -644,6 +657,8 @@ function activateTab(name){
     loadWorkspace();
   }else if (name === "telegram"){
     loadTelegramFiles();
+  }else if (name === "whatsapp"){
+    loadWhatsAppFiles();
 	  }else if (name === "scanstudio"){
 	    renderScanPageList();
 	    syncScanControlsFromSelectedPage();
@@ -12195,6 +12210,140 @@ async function loadTelegramFiles(){
   }
 }
 
+function whatsappFileUrl(path){
+  if (!path) return "";
+  if (/^https?:\/\//i.test(path)) return path;
+  return API_BASE + path;
+}
+
+function setWhatsAppFilesStatus(message){
+  if (whatsappFilesStatusEl) whatsappFilesStatusEl.textContent = message || "";
+}
+
+async function fetchWhatsAppFiles(){
+  const res = await fetch(API_BASE + "/api/whatsapp/files");
+  if (!res.ok){
+    const text = await res.text();
+    throw new Error(text || ("HTTP " + res.status));
+  }
+  return res.json();
+}
+
+function renderWhatsAppFiles(){
+  if (!whatsappFilesListEl) return;
+  if (whatsappFilesState.loading){
+    whatsappFilesListEl.innerHTML = '<div class="workspace-empty">Loading WhatsApp files...</div>';
+    return;
+  }
+  let items = Array.isArray(whatsappFilesState.items) ? whatsappFilesState.items : [];
+  const status = String(whatsappFilesState.status || "").trim().toLowerCase();
+  if (status) items = items.filter(file => String(file.status || "").trim().toLowerCase() === status);
+  if (!items.length){
+    whatsappFilesListEl.innerHTML = '<div class="workspace-empty">No WhatsApp files found.</div>';
+    setWhatsAppFilesStatus("");
+    return;
+  }
+  whatsappFilesListEl.innerHTML = items.map(file => {
+    const statusValue = String(file.status || "pending").trim().toLowerCase() || "pending";
+    const sender = file.sender ? `+${String(file.sender).replace(/^\+/, "")}` : "WhatsApp";
+    const viewUrl = whatsappFileUrl(file.view_url);
+    const downloaded = Boolean(file.download_url && statusValue !== "pending" && file.file_size);
+    const error = file.error_message ? `<div class="telegram-file-warning">${escapeHtml(file.error_message)}</div>` : "";
+    return `<article class="telegram-file-card" data-whatsapp-file-id="${escapeHtml(file.id)}">
+      <div>
+        <div class="telegram-file-title">${escapeHtml(file.filename || "WhatsApp document")}</div>
+        <div class="telegram-file-meta">
+          <span>${escapeHtml(formatDate(file.created_at || file.timestamp))}</span>
+          <span>${escapeHtml(sender)}</span>
+          <span>${escapeHtml(file.mime_type || "application/pdf")}</span>
+          <span>${escapeHtml(formatFileSize(file.file_size))}</span>
+          ${telegramStatusBadge(statusValue)}
+          ${file.linked_order_id ? `<span>Linked order #${escapeHtml(file.linked_order_id)}</span>` : ""}
+        </div>
+        ${error}
+      </div>
+      <div class="telegram-file-actions">
+        ${downloaded ? `<button type="button" class="btn small" data-whatsapp-action="view" data-id="${escapeHtml(file.id)}">Open / Preview</button>` : `<button type="button" class="btn small" disabled>Open / Preview</button>`}
+        ${downloaded && statusValue !== "extracted" ? `<button type="button" class="btn small" data-whatsapp-action="extract" data-id="${escapeHtml(file.id)}">Extract</button>` : `<button type="button" class="btn small" disabled>Extract</button>`}
+        <button type="button" class="btn small" data-whatsapp-action="ignore" data-id="${escapeHtml(file.id)}">Ignore</button>
+        <button type="button" class="btn small warn" data-whatsapp-action="delete" data-id="${escapeHtml(file.id)}">Delete</button>
+      </div>
+    </article>`;
+  }).join("");
+  setWhatsAppFilesStatus(`${items.length} file${items.length === 1 ? "" : "s"}`);
+}
+
+async function loadWhatsAppFiles(){
+  if (!whatsappFilesListEl) return;
+  whatsappFilesState.loading = true;
+  setWhatsAppFilesStatus("Loading...");
+  renderWhatsAppFiles();
+  try{
+    const data = await fetchWhatsAppFiles();
+    whatsappFilesState.items = Array.isArray(data?.items) ? data.items : [];
+    whatsappFilesState.loadedOnce = true;
+    setWhatsAppFilesStatus("");
+  }catch(error){
+    whatsappFilesState.items = [];
+    setWhatsAppFilesStatus("Unable to load WhatsApp files.");
+    whatsappFilesListEl.innerHTML = `<div class="workspace-empty">Unable to load WhatsApp files: ${escapeHtml(error.message || error)}</div>`;
+  }finally{
+    whatsappFilesState.loading = false;
+    renderWhatsAppFiles();
+  }
+}
+
+function getWhatsAppFileById(id){
+  return (whatsappFilesState.items || []).find(item => String(item.id) === String(id)) || null;
+}
+
+function mergeWhatsAppFileUpdate(file){
+  if (!file || file.id == null) return;
+  const items = Array.isArray(whatsappFilesState.items) ? whatsappFilesState.items.slice() : [];
+  const index = items.findIndex(item => String(item.id) === String(file.id));
+  if (file.deleted){
+    whatsappFilesState.items = items.filter(item => String(item.id) !== String(file.id));
+  }else if (index >= 0){
+    items[index] = { ...items[index], ...file };
+    whatsappFilesState.items = items;
+  }else{
+    items.unshift(file);
+    whatsappFilesState.items = items;
+  }
+  renderWhatsAppFiles();
+}
+
+async function performWhatsAppAction(file, action){
+  if (!file?.id) return;
+  const endpoints = {
+    extract: { method: "POST", path: `/api/whatsapp/files/${encodeURIComponent(file.id)}/extract`, status: "Extracting..." },
+    ignore: { method: "POST", path: `/api/whatsapp/files/${encodeURIComponent(file.id)}/mark-ignored`, status: "Ignoring..." },
+    delete: { method: "DELETE", path: `/api/whatsapp/files/${encodeURIComponent(file.id)}`, status: "Deleting..." },
+  };
+  const config = endpoints[action];
+  if (!config) return;
+  setWhatsAppFilesStatus(config.status);
+  try{
+    const res = await fetch(API_BASE + config.path, { method: config.method });
+    if (!res.ok){
+      const text = await res.text();
+      throw new Error(text || ("HTTP " + res.status));
+    }
+    const data = await res.json();
+    mergeWhatsAppFileUpdate(data?.file);
+    if (action === "extract"){
+      historyState.needsRefresh = true;
+      analysisState.allOrdersDirty = true;
+      setWhatsAppFilesStatus("Extracted. Review the draft in History.");
+    }else{
+      setWhatsAppFilesStatus(action === "delete" ? "WhatsApp file deleted." : "WhatsApp file ignored.");
+    }
+  }catch(error){
+    console.warn("WhatsApp action failed", error);
+    setWhatsAppFilesStatus("Action failed: " + (error.message || error));
+  }
+}
+
 async function refreshTelegramFilesBadge(){
   try{
     const data = await fetchTelegramFiles();
@@ -13644,6 +13793,33 @@ if (telegramFilesListEl){
       printTelegramLinkedLabels(file);
     }else if (action === "delete"){
       deleteTelegramFile(file);
+    }
+  });
+}
+if (whatsappFilesRefreshBtn){
+  whatsappFilesRefreshBtn.addEventListener("click", ()=> loadWhatsAppFiles());
+}
+if (whatsappFilesStatusFilter){
+  whatsappFilesStatusFilter.addEventListener("change", event => {
+    whatsappFilesState.status = event.target.value || "";
+    renderWhatsAppFiles();
+  });
+}
+if (whatsappFilesListEl){
+  whatsappFilesListEl.addEventListener("click", event => {
+    const actionBtn = event.target.closest("[data-whatsapp-action]");
+    if (!actionBtn) return;
+    const action = actionBtn.dataset.whatsappAction;
+    const file = getWhatsAppFileById(actionBtn.dataset.id || actionBtn.closest("[data-whatsapp-file-id]")?.dataset.whatsappFileId);
+    if (!file) return;
+    if (action === "view"){
+      window.open(whatsappFileUrl(file.view_url), "_blank", "noopener");
+    }else if (action === "extract"){
+      performWhatsAppAction(file, "extract");
+    }else if (action === "ignore"){
+      performWhatsAppAction(file, "ignore");
+    }else if (action === "delete"){
+      performWhatsAppAction(file, "delete");
     }
   });
 }
@@ -17991,3 +18167,9 @@ updateSpacerProcessingUI();
 updateLabelsUI();
 connectTelegramFileEvents();
 refreshTelegramFilesBadge();
+if (whatsappFilesListEl){
+  loadWhatsAppFiles();
+  whatsappFilesState.refreshTimer = window.setInterval(() => {
+    if (!whatsappFilesState.loading) loadWhatsAppFiles();
+  }, 10000);
+}
