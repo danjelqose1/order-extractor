@@ -15,7 +15,7 @@ BACKEND_DIR = os.path.dirname(__file__)
 if BACKEND_DIR not in sys.path:
     sys.path.insert(0, BACKEND_DIR)
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Header, UploadFile, File, Query, Request
+from fastapi import FastAPI, HTTPException, Header, UploadFile, File, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, ValidationError
@@ -66,11 +66,6 @@ from db import (
     find_possible_duplicate_order,
     list_unfinished_telegram_file_ids,
     get_telegram_file,
-    create_whatsapp_file_record,
-    update_whatsapp_file_record,
-    list_whatsapp_files,
-    get_whatsapp_file,
-    mark_whatsapp_file_deleted,
 )
 from validators import validate_rows
 from dimension_repair import apply_dimension_repair
@@ -95,9 +90,6 @@ LEGACY_OCR_ENABLED = os.getenv("LEGACY_OCR_ENABLED", "false").strip().lower() in
 TELEGRAM_MAX_FILE_BYTES = 5 * 1024 * 1024
 TELEGRAM_SECRET_HEADER = "X-Telegram-Bot-Api-Secret-Token"
 TELEGRAM_EXTRACTION_MAX_RETRIES = 2
-WHATSAPP_ALLOWED_MIME_TYPES = {"application/pdf", "image/jpeg", "image/png"}
-WHATSAPP_MAX_FILE_BYTES = 25 * 1024 * 1024
-WHATSAPP_DEFAULT_API_VERSION = "v20.0"
 try:
     TELEGRAM_EXTRACTION_CONCURRENCY = max(1, int(os.getenv("TELEGRAM_EXTRACTION_CONCURRENCY", "1")))
 except ValueError:
@@ -110,7 +102,6 @@ _telegram_queue_task: Optional[asyncio.Task] = None
 _telegram_event_clients: Set[asyncio.Queue] = set()
 _telegram_event_clients_lock = threading.Lock()
 _telegram_event_loop: Optional[asyncio.AbstractEventLoop] = None
-_whatsapp_latest_webhook_at: Optional[str] = None
 
 ANALYSIS_MODEL = os.getenv("ANALYSIS_MODEL", "gpt-4o-mini")
 try:
@@ -532,12 +523,6 @@ def _telegram_files_dir() -> Path:
     return path
 
 
-def _whatsapp_files_dir() -> Path:
-    path = DATA_DIR / "whatsapp-files"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
-
 def _safe_download_filename(value: Any) -> str:
     basename = Path(str(value or "telegram-order.pdf")).name
     safe = re.sub(r"[^A-Za-z0-9._-]+", "-", basename).strip(".-")
@@ -576,112 +561,6 @@ def _safe_telegram_file_path(record: Dict[str, Any]) -> Path:
     if not path.exists() or not path.is_file():
         raise HTTPException(status_code=404, detail="File missing on disk")
     return path
-
-
-def _safe_whatsapp_file_path(record: Dict[str, Any]) -> Path:
-    root = _whatsapp_files_dir().resolve()
-    path = Path(str(record.get("local_path") or "")).expanduser().resolve()
-    if path == root or root not in path.parents:
-        raise HTTPException(status_code=404, detail="File not found")
-    if not path.exists() or not path.is_file():
-        raise HTTPException(status_code=404, detail="File missing on disk")
-    return path
-
-
-def _whatsapp_api_version() -> str:
-    version = (os.getenv("WHATSAPP_API_VERSION") or WHATSAPP_DEFAULT_API_VERSION).strip()
-    return version or WHATSAPP_DEFAULT_API_VERSION
-
-
-def _whatsapp_access_token() -> str:
-    token = (os.getenv("WHATSAPP_ACCESS_TOKEN") or "").strip()
-    if not token:
-        raise RuntimeError("WHATSAPP_ACCESS_TOKEN is not configured")
-    return token
-
-
-def _whatsapp_file_suffix(mime_type: str, filename: str = "") -> str:
-    suffix = Path(filename or "").suffix.lower()
-    if suffix in {".pdf", ".jpg", ".jpeg", ".png"}:
-        return suffix
-    if mime_type == "application/pdf":
-        return ".pdf"
-    if mime_type == "image/png":
-        return ".png"
-    return ".jpg"
-
-
-def _store_whatsapp_file(content: bytes, *, filename: str, mime_type: str, message_id: str, timestamp: Any) -> Dict[str, Any]:
-    if len(content) > WHATSAPP_MAX_FILE_BYTES:
-        raise ValueError("whatsapp_file_too_large")
-    safe_original = _safe_download_filename(filename or "whatsapp-document")
-    timestamp_text = re.sub(r"[^0-9A-Za-z_-]+", "-", str(timestamp or int(time.time()))).strip("-") or str(int(time.time()))
-    message_text = re.sub(r"[^0-9A-Za-z_-]+", "-", str(message_id or uuid.uuid4().hex)).strip("-") or uuid.uuid4().hex
-    suffix = _whatsapp_file_suffix(mime_type, safe_original)
-    stored_filename = f"whatsapp_{timestamp_text}_{message_text}{suffix}"
-    target_dir = _whatsapp_files_dir()
-    target_path = (target_dir / stored_filename).resolve()
-    root_path = target_dir.resolve()
-    if root_path not in target_path.parents:
-        raise RuntimeError("Invalid WhatsApp file path")
-    target_path.write_bytes(content)
-    return {
-        "filename": safe_original,
-        "stored_filename": stored_filename,
-        "local_path": str(target_path),
-        "file_size": len(content),
-    }
-
-
-def _whatsapp_public_file(record: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    if not isinstance(record, dict):
-        return None
-    blocked = {"local_path", "media_id", "media_sha256"}
-    return {key: value for key, value in record.items() if key not in blocked}
-
-
-def download_whatsapp_media(media_id: str, *, filename: str = "", mime_type: str = "", message_id: str = "", timestamp: Any = None) -> Dict[str, Any]:
-    media_id = str(media_id or "").strip()
-    if not media_id:
-        raise ValueError("missing_media_id")
-    try:
-        token = _whatsapp_access_token()
-    except Exception as exc:
-        print(f"[whatsapp] token/auth error: {exc}")
-        raise
-    headers = {"Authorization": f"Bearer {token}"}
-    version = _whatsapp_api_version()
-    metadata_url = f"https://graph.facebook.com/{version}/{media_id}"
-    with httpx.Client(timeout=60.0) as client:
-        metadata_response = client.get(metadata_url, headers=headers)
-        metadata_response.raise_for_status()
-        metadata = metadata_response.json()
-        media_url = metadata.get("url")
-        if not media_url:
-            raise RuntimeError("WhatsApp media metadata did not include a URL")
-        resolved_mime = str(metadata.get("mime_type") or mime_type or "").strip().lower()
-        if resolved_mime not in WHATSAPP_ALLOWED_MIME_TYPES:
-            raise ValueError(f"unsupported_mime_type:{resolved_mime or 'unknown'}")
-        reported_size = metadata.get("file_size")
-        if isinstance(reported_size, int) and reported_size > WHATSAPP_MAX_FILE_BYTES:
-            raise ValueError("whatsapp_file_too_large")
-        download_response = client.get(media_url, headers=headers)
-        download_response.raise_for_status()
-        content = download_response.content
-    print(f"[whatsapp] media downloaded media_id={media_id} mime_type={resolved_mime} bytes={len(content)}")
-    stored = _store_whatsapp_file(
-        content,
-        filename=filename or "whatsapp-document",
-        mime_type=resolved_mime,
-        message_id=message_id or media_id,
-        timestamp=timestamp,
-    )
-    return {
-        **stored,
-        "mime_type": resolved_mime,
-        "media_sha256": metadata.get("sha256"),
-        "file_size": stored["file_size"],
-    }
 
 
 def _parse_order_datetime(value: Any) -> datetime:
@@ -1715,170 +1594,6 @@ def _telegram_document_spec(message: Dict[str, Any]) -> Optional[Dict[str, Any]]
     }
 
 
-def _whatsapp_media_messages(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
-    output: List[Dict[str, Any]] = []
-    for entry in payload.get("entry") or []:
-        if not isinstance(entry, dict):
-            continue
-        for change in entry.get("changes") or []:
-            if not isinstance(change, dict):
-                continue
-            value = change.get("value") if isinstance(change.get("value"), dict) else {}
-            for message in value.get("messages") or []:
-                if not isinstance(message, dict):
-                    continue
-                message_type = str(message.get("type") or "").strip().lower()
-                print(f"[whatsapp] message type: {message_type or 'unknown'}")
-                if message_type == "document":
-                    media = message.get("document") if isinstance(message.get("document"), dict) else {}
-                    default_filename = "whatsapp-document"
-                elif message_type == "image":
-                    media = message.get("image") if isinstance(message.get("image"), dict) else {}
-                    default_filename = "whatsapp-image"
-                else:
-                    continue
-                media_id = media.get("id")
-                message_id = message.get("id")
-                if not media_id or not message_id:
-                    continue
-                mime_type = str(media.get("mime_type") or "").strip().lower()
-                output.append(
-                    {
-                        "wa_message_id": str(message_id),
-                        "message_type": message_type,
-                        "sender": str(message.get("from") or ""),
-                        "timestamp": message.get("timestamp"),
-                        "media_id": str(media_id),
-                        "filename": str(media.get("filename") or default_filename),
-                        "mime_type": mime_type,
-                        "media_sha256": media.get("sha256"),
-                        "file_size": int(media.get("file_size") or 0),
-                        "raw_metadata": {
-                            "entry_id": entry.get("id"),
-                            "change_field": change.get("field"),
-                            "message_id": message_id,
-                            "message_type": message_type,
-                            "sender": message.get("from"),
-                            "timestamp": message.get("timestamp"),
-                            "media": {
-                                "id": media_id,
-                                "filename": media.get("filename"),
-                                "mime_type": media.get("mime_type"),
-                                "sha256": media.get("sha256"),
-                                "file_size": media.get("file_size"),
-                            },
-                        },
-                    }
-                )
-    return output
-
-
-def _download_whatsapp_record(file_id: int) -> None:
-    record = get_whatsapp_file(file_id)
-    if not record or record.get("deleted"):
-        return
-    if record.get("status") not in {"pending", "failed"}:
-        return
-    try:
-        result = download_whatsapp_media(
-            str(record.get("media_id") or ""),
-            filename=str(record.get("filename") or "whatsapp-document"),
-            mime_type=str(record.get("mime_type") or ""),
-            message_id=str(record.get("wa_message_id") or ""),
-            timestamp=record.get("timestamp"),
-        )
-        update_whatsapp_file_record(
-            file_id,
-            status="downloaded",
-            local_path=result.get("local_path"),
-            filename=result.get("filename"),
-            mime_type=result.get("mime_type"),
-            file_size=int(result.get("file_size") or 0),
-            clear_error=True,
-        )
-        print(f"[whatsapp] file saved file_id={file_id} path={result.get('local_path')}")
-    except Exception as exc:
-        error = _short_error_message(exc)
-        print(f"[whatsapp] media download failed file_id={file_id}: {error}")
-        update_whatsapp_file_record(file_id, status="failed", error_message=error)
-
-
-@app.get("/webhook")
-def verify_whatsapp_webhook(
-    hub_mode: Optional[str] = Query(default=None, alias="hub.mode"),
-    hub_verify_token: Optional[str] = Query(default=None, alias="hub.verify_token"),
-    hub_challenge: Optional[str] = Query(default=None, alias="hub.challenge"),
-):
-    expected = os.getenv("WHATSAPP_VERIFY_TOKEN")
-    print("VERIFY TOKEN RECEIVED:", hub_verify_token)
-    print("EXPECTED TOKEN:", expected)
-    if hub_mode == "subscribe" and hub_verify_token == expected:
-        return Response(content=str(hub_challenge or ""), media_type="text/plain")
-    return Response(content="Verification failed", status_code=403, media_type="text/plain")
-
-
-@app.post("/webhook")
-async def receive_whatsapp_webhook(request: Request, background_tasks: BackgroundTasks) -> Dict[str, str]:
-    global _whatsapp_latest_webhook_at
-    _whatsapp_latest_webhook_at = datetime.now(timezone.utc).isoformat()
-    try:
-        payload = await request.json()
-    except Exception as exc:
-        print(f"[whatsapp] invalid webhook json: {exc}")
-        return {"status": "ok"}
-    if not isinstance(payload, dict):
-        return {"status": "ok"}
-
-    media_messages = _whatsapp_media_messages(payload)
-    print(f"[whatsapp] webhook received entries={len(payload.get('entry') or [])} media_messages={len(media_messages)}")
-    for media_message in media_messages:
-        status = "pending"
-        error_message = None
-        mime_type = str(media_message.get("mime_type") or "").lower()
-        file_size = int(media_message.get("file_size") or 0)
-        if mime_type and mime_type not in WHATSAPP_ALLOWED_MIME_TYPES:
-            status = "failed"
-            error_message = f"Unsupported WhatsApp document type: {mime_type or 'unknown'}"
-        elif file_size > WHATSAPP_MAX_FILE_BYTES:
-            status = "failed"
-            error_message = "WhatsApp document is larger than 25MB"
-        try:
-            record = create_whatsapp_file_record(
-                wa_message_id=str(media_message.get("wa_message_id") or ""),
-                sender=str(media_message.get("sender") or ""),
-                timestamp=media_message.get("timestamp"),
-                media_id=str(media_message.get("media_id") or ""),
-                filename=str(media_message.get("filename") or "whatsapp-document"),
-                mime_type=mime_type or "application/octet-stream",
-                media_sha256=media_message.get("media_sha256"),
-                file_size=file_size,
-                status=status,
-                error_message=error_message,
-                raw_metadata=media_message.get("raw_metadata") if isinstance(media_message.get("raw_metadata"), dict) else None,
-            )
-            print(f"[whatsapp] stored inbox metadata id={record.get('id')} status={record.get('status')} sender={record.get('sender')}")
-            if record.get("status") == "pending":
-                background_tasks.add_task(_download_whatsapp_record, int(record["id"]))
-        except Exception as exc:
-            print(f"[whatsapp] storage error: {_short_error_message(exc)}")
-    return {"status": "ok"}
-
-
-@app.get("/debug/whatsapp")
-def debug_whatsapp() -> Dict[str, Any]:
-    try:
-        stored_count = len(list_whatsapp_files(limit=250))
-    except Exception as exc:
-        print(f"[whatsapp] debug storage error: {exc}")
-        stored_count = 0
-    return {
-        "verify_token_loaded": bool((os.getenv("WHATSAPP_VERIFY_TOKEN") or "").strip()),
-        "access_token_loaded": bool((os.getenv("WHATSAPP_ACCESS_TOKEN") or "").strip()),
-        "latest_webhook_timestamp": _whatsapp_latest_webhook_at,
-        "stored_whatsapp_files_count": stored_count,
-    }
-
-
 def _telegram_photo_spec(message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     photos = message.get("photo")
     if not isinstance(photos, list) or not photos:
@@ -2253,93 +1968,6 @@ def download_telegram_file(file_id: int):
         path,
         media_type=record.get("mime_type") or "application/pdf",
         filename=_safe_download_filename(record.get("original_filename")),
-    )
-
-
-def _require_app_key_header(x_app_key: Optional[str]) -> None:
-    if APP_KEY and x_app_key != APP_KEY:
-        raise HTTPException(status_code=401, detail="Invalid app key")
-
-
-@app.get("/api/whatsapp/files")
-def whatsapp_files(x_app_key: Optional[str] = Header(default=None)) -> Dict[str, Any]:
-    items = [_whatsapp_public_file(item) for item in list_whatsapp_files(limit=250)]
-    return {"items": [item for item in items if item is not None]}
-
-
-@app.post("/api/whatsapp/files/{file_id}/extract")
-def extract_whatsapp_file(file_id: int, x_app_key: Optional[str] = Header(default=None)) -> Dict[str, Any]:
-    record = get_whatsapp_file(file_id)
-    if not record or record.get("deleted"):
-        raise HTTPException(status_code=404, detail="WhatsApp file not found")
-    if record.get("status") == "extracted":
-        return {"status": "already_extracted", "file": _whatsapp_public_file(record)}
-    if not record.get("local_path"):
-        raise HTTPException(status_code=409, detail="WhatsApp file has not been downloaded yet")
-    path = _safe_whatsapp_file_path(record)
-    result = _extract_order_file_bytes(
-        raw_bytes=path.read_bytes(),
-        filename=str(record.get("filename") or "whatsapp-document.pdf"),
-        content_type=str(record.get("mime_type") or "application/pdf"),
-        source="whatsapp",
-        source_metadata={
-            "source": "whatsapp",
-            "whatsapp_file_record_id": record.get("id"),
-            "wa_message_id": record.get("wa_message_id"),
-            "sender": record.get("sender"),
-            "timestamp": record.get("timestamp"),
-            "filename": record.get("filename"),
-            "mime_type": record.get("mime_type"),
-        },
-    )
-    updated = update_whatsapp_file_record(
-        file_id,
-        status="extracted",
-        linked_order_id=result.get("draft_order_id"),
-        clear_error=True,
-    )
-    return {"status": "extracted", "file": _whatsapp_public_file(updated), "order_id": result.get("draft_order_id")}
-
-
-@app.post("/api/whatsapp/files/{file_id}/mark-ignored")
-def ignore_whatsapp_file(file_id: int, x_app_key: Optional[str] = Header(default=None)) -> Dict[str, Any]:
-    record = update_whatsapp_file_record(file_id, status="failed", error_message="Ignored manually.")
-    if not record:
-        raise HTTPException(status_code=404, detail="WhatsApp file not found")
-    return {"status": "ok", "file": _whatsapp_public_file(record)}
-
-
-@app.delete("/api/whatsapp/files/{file_id}")
-def delete_whatsapp_file(file_id: int, x_app_key: Optional[str] = Header(default=None)) -> Dict[str, Any]:
-    record = mark_whatsapp_file_deleted(file_id)
-    if not record:
-        raise HTTPException(status_code=404, detail="WhatsApp file not found")
-    return {"status": "deleted", "file": _whatsapp_public_file(record)}
-
-
-@app.get("/api/whatsapp/files/{file_id}/view")
-def view_whatsapp_file(file_id: int):
-    record = get_whatsapp_file(file_id)
-    if not record or record.get("deleted"):
-        raise HTTPException(status_code=404, detail="WhatsApp file not found")
-    mime_type = str(record.get("mime_type") or "application/pdf")
-    if mime_type not in WHATSAPP_ALLOWED_MIME_TYPES:
-        raise HTTPException(status_code=415, detail="Unsupported file type")
-    path = _safe_whatsapp_file_path(record)
-    headers = {"Content-Disposition": f'inline; filename="{_safe_download_filename(record.get("filename"))}"'}
-    return FileResponse(path, media_type=mime_type, headers=headers)
-
-
-@app.get("/api/whatsapp/files/{file_id}/download")
-def download_whatsapp_file(file_id: int):
-    record = get_whatsapp_file(file_id)
-    if not record or record.get("deleted"):
-        raise HTTPException(status_code=404, detail="WhatsApp file not found")
-    path = _safe_whatsapp_file_path(record)
-    return FileResponse(
-        path,
-        media_type=record.get("mime_type") or "application/pdf",
-        filename=_safe_download_filename(record.get("filename")),
     )
 
 
