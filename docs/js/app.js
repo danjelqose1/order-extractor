@@ -235,6 +235,14 @@ const workspaceState = {
   latestPendingAction: null,
 };
 
+const awaState = {
+  summary: null,
+  timeline: [],
+  suggestions: [],
+  loading: false,
+  chatLoading: false,
+};
+
 const telegramFilesState = {
   items: [],
   loading: false,
@@ -341,6 +349,7 @@ const tabs = document.querySelectorAll(".tab-bar .tab");
 const panels = {
   extract: document.getElementById("tabExtract"),
   workspace: document.getElementById("tabWorkspace"),
+  awa: document.getElementById("tabAwa"),
   telegram: document.getElementById("tabTelegram"),
   scanstudio: document.getElementById("tabScanStudio"),
   pdfeditor: document.getElementById("tabPdfEditor"),
@@ -384,6 +393,18 @@ const workspaceSmartChatInput = document.getElementById("workspaceSmartChatInput
 const workspaceSmartChatSendBtn = document.getElementById("workspaceSmartChatSend");
 const workspaceSmartChatStatusEl = document.getElementById("workspaceSmartChatStatus");
 const workspaceSmartPromptButtons = document.getElementById("workspaceSmartPromptButtons");
+const awaRefreshBtn = document.getElementById("awaRefresh");
+const awaStatusEl = document.getElementById("awaStatus");
+const awaSuggestedTodayEl = document.getElementById("awaSuggestedToday");
+const awaReadyToProcessEl = document.getElementById("awaReadyToProcess");
+const awaNeedsReviewEl = document.getElementById("awaNeedsReview");
+const awaWaitingApprovalEl = document.getElementById("awaWaitingApproval");
+const awaSuggestionsEl = document.getElementById("awaSuggestions");
+const awaTimelineEl = document.getElementById("awaTimeline");
+const awaChatLogEl = document.getElementById("awaChatLog");
+const awaChatForm = document.getElementById("awaChatForm");
+const awaChatInput = document.getElementById("awaChatInput");
+const awaChatSendBtn = document.getElementById("awaChatSend");
 const telegramFilesListEl = document.getElementById("telegramFilesList");
 const telegramFilesStatusEl = document.getElementById("telegramFilesStatus");
 const telegramFilesSearchInput = document.getElementById("telegramFilesSearch");
@@ -642,6 +663,8 @@ function activateTab(name){
     ensureHistoryLoaded();
   }else if (name === "workspace"){
     loadWorkspace();
+  }else if (name === "awa"){
+    loadAwa();
   }else if (name === "telegram"){
     loadTelegramFiles();
 	  }else if (name === "scanstudio"){
@@ -12876,6 +12899,207 @@ async function loadWorkspace(){
   }
 }
 
+function setAwaStatus(message){
+  if (awaStatusEl) awaStatusEl.textContent = message || "";
+}
+
+function awaStatusBadge(value){
+  const normalized = String(value || "review").trim().toLowerCase().replace(/\s+/g, "_") || "review";
+  const label = normalized.replace(/_/g, " ");
+  return `<span class="status-badge awa-${escapeHtml(normalized)}">${escapeHtml(label)}</span>`;
+}
+
+function awaActionButtonLabel(action){
+  const type = String(action?.type || "");
+  if (type.includes("process")) return "Open Workspace";
+  if (type.includes("label")) return "Open Labels";
+  if (type.includes("invoice")) return "Open Invoice";
+  if (type.includes("download")) return "Open Workspace";
+  return "Open History";
+}
+
+function awaRelatedModule(action){
+  const type = String(action?.type || "");
+  if (type.includes("label")) return "labels";
+  if (type.includes("invoice")) return "invoices";
+  if (type.includes("process") || type.includes("download")) return "workspace";
+  return "history";
+}
+
+async function fetchAwaJson(path, options){
+  const res = await fetch(API_BASE + path, options || {});
+  if (!res.ok){
+    const text = await res.text();
+    throw new Error(text || ("HTTP " + res.status));
+  }
+  return res.json();
+}
+
+function renderAwaSummary(){
+  const summary = awaState.summary || {};
+  if (awaSuggestedTodayEl) awaSuggestedTodayEl.textContent = String(summary.suggested_actions_today ?? 0);
+  if (awaReadyToProcessEl) awaReadyToProcessEl.textContent = String(summary.ready_to_process ?? 0);
+  if (awaNeedsReviewEl) awaNeedsReviewEl.textContent = String(summary.needs_review ?? 0);
+  if (awaWaitingApprovalEl) awaWaitingApprovalEl.textContent = String(summary.waiting_approval ?? 0);
+}
+
+function renderAwaTimeline(){
+  if (!awaTimelineEl) return;
+  const items = Array.isArray(awaState.timeline) ? awaState.timeline : [];
+  if (!items.length){
+    awaTimelineEl.innerHTML = '<div class="workspace-empty">No AWA activity yet.</div>';
+    return;
+  }
+  awaTimelineEl.innerHTML = items.map(item => `
+    <div class="awa-timeline-item">
+      <div class="awa-timeline-time">${escapeHtml(formatDate(item.timestamp))}</div>
+      <div>
+        <div class="awa-timeline-title">
+          <span>${escapeHtml(item.title || "Activity")}</span>
+          ${awaStatusBadge(item.status)}
+        </div>
+        <div class="awa-timeline-text">${item.order_number ? `<span class="mono">${escapeHtml(item.order_number)}</span> · ` : ""}${escapeHtml(item.explanation || "")}</div>
+      </div>
+    </div>
+  `).join("");
+}
+
+function renderAwaSuggestions(){
+  if (!awaSuggestionsEl) return;
+  const items = Array.isArray(awaState.suggestions) ? awaState.suggestions : [];
+  if (!items.length){
+    awaSuggestionsEl.innerHTML = '<div class="workspace-empty">No suggested AWA actions right now.</div>';
+    return;
+  }
+  awaSuggestionsEl.innerHTML = items.map(action => {
+    const status = String(action.status || "suggested").toLowerCase();
+    const approvedOrRejected = status === "approved" || status === "rejected";
+    const orderLabel = (action.order_numbers || []).length ? action.order_numbers.join(", ") : "No specific order";
+    const confidence = Math.round(Number(action.confidence || 0) * 100);
+    return `<article class="awa-suggestion-card" data-awa-action-id="${escapeHtml(action.id)}">
+      <div class="awa-suggestion-header">
+        <div>
+          <div class="awa-suggestion-title">${escapeHtml(action.title || "Suggested action")}</div>
+          <div class="awa-suggestion-meta">
+            <span class="mono">${escapeHtml(orderLabel)}</span>
+            <span>${Number.isFinite(confidence) ? confidence : 0}% confidence</span>
+            ${awaStatusBadge(action.safety_level)}
+            ${awaStatusBadge(status)}
+          </div>
+        </div>
+      </div>
+      <div class="muted small">${escapeHtml(action.explanation || "")}</div>
+      ${action.result?.message ? `<div class="awa-warning">${escapeHtml(action.result.message)}</div>` : ""}
+      <div class="awa-suggestion-actions">
+        <button type="button" class="btn small primary" data-awa-action="approve" ${approvedOrRejected ? "disabled" : ""}>Approve</button>
+        <button type="button" class="btn small" data-awa-action="reject" ${approvedOrRejected ? "disabled" : ""}>Reject</button>
+        <button type="button" class="btn small" data-awa-action="explain">Explain</button>
+        <button type="button" class="btn small" data-awa-action="open">${escapeHtml(awaActionButtonLabel(action))}</button>
+      </div>
+    </article>`;
+  }).join("");
+}
+
+async function loadAwa(){
+  if (!awaSuggestionsEl) return;
+  awaState.loading = true;
+  setAwaStatus("Loading AWA signals...");
+  try{
+    const [summary, timeline, suggestions] = await Promise.all([
+      fetchAwaJson("/api/awa/summary"),
+      fetchAwaJson("/api/awa/timeline"),
+      fetchAwaJson("/api/awa/suggestions"),
+    ]);
+    awaState.summary = summary || {};
+    awaState.timeline = Array.isArray(timeline?.items) ? timeline.items : [];
+    awaState.suggestions = Array.isArray(suggestions?.items) ? suggestions.items : [];
+    renderAwaSummary();
+    renderAwaTimeline();
+    renderAwaSuggestions();
+    setAwaStatus("AWA Beta is watching safely. No actions run without approval.");
+  }catch(error){
+    setAwaStatus("Unable to load AWA: " + (error.message || error));
+    awaSuggestionsEl.innerHTML = `<div class="workspace-empty">${escapeHtml(error.message || error)}</div>`;
+  }finally{
+    awaState.loading = false;
+  }
+}
+
+function findAwaSuggestion(actionId){
+  return (awaState.suggestions || []).find(item => String(item.id) === String(actionId)) || null;
+}
+
+function mergeAwaSuggestion(suggestion){
+  if (!suggestion?.id) return;
+  const items = Array.isArray(awaState.suggestions) ? awaState.suggestions.slice() : [];
+  const index = items.findIndex(item => String(item.id) === String(suggestion.id));
+  if (index >= 0) items[index] = { ...items[index], ...suggestion };
+  else items.unshift(suggestion);
+  awaState.suggestions = items;
+  renderAwaSuggestions();
+}
+
+function appendAwaMessage(role, text){
+  if (!awaChatLogEl) return;
+  const div = document.createElement("div");
+  div.className = `workspace-message ${role === "user" ? "user" : "assistant"}`;
+  div.textContent = text || "";
+  awaChatLogEl.appendChild(div);
+  awaChatLogEl.scrollTop = awaChatLogEl.scrollHeight;
+}
+
+async function explainAwaAction(actionId){
+  try{
+    const data = await fetchAwaJson("/api/awa/explain", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ action_id: actionId }),
+    });
+    appendAwaMessage("assistant", data.message || "No explanation returned.");
+    setAwaStatus("AWA explanation ready.");
+  }catch(error){
+    setAwaStatus("Explain failed: " + (error.message || error));
+  }
+}
+
+async function runAwaAction(actionId, action){
+  const path = action === "reject" ? "/api/awa/reject-action" : "/api/awa/approve-action";
+  setAwaStatus(action === "reject" ? "Rejecting suggestion..." : "Recording supervised approval...");
+  try{
+    const data = await fetchAwaJson(path, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ action_id: actionId }),
+    });
+    mergeAwaSuggestion(data.suggestion);
+    setAwaStatus(data.message || "AWA action updated.");
+    appendAwaMessage("assistant", data.message || "AWA action updated. No production data was changed.");
+  }catch(error){
+    setAwaStatus("AWA action failed: " + (error.message || error));
+  }
+}
+
+async function askAwa(question){
+  const text = String(question || "").trim();
+  if (!text || awaState.chatLoading) return;
+  awaState.chatLoading = true;
+  if (awaChatSendBtn) awaChatSendBtn.disabled = true;
+  appendAwaMessage("user", text);
+  try{
+    const data = await fetchAwaJson("/api/awa/explain", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ question: text }),
+    });
+    appendAwaMessage("assistant", data.message || "AWA has no recommendation for that yet.");
+  }catch(error){
+    appendAwaMessage("assistant", "AWA could not answer: " + (error.message || error));
+  }finally{
+    awaState.chatLoading = false;
+    if (awaChatSendBtn) awaChatSendBtn.disabled = false;
+  }
+}
+
 async function refreshWorkspaceAfterAction(){
   await loadWorkspace();
   historyState.needsRefresh = true;
@@ -13474,6 +13698,38 @@ async function processWorkspaceOrder(identifier){
 
 if (workspaceRefreshBtn){
   workspaceRefreshBtn.addEventListener("click", ()=> loadWorkspace());
+}
+if (awaRefreshBtn){
+  awaRefreshBtn.addEventListener("click", ()=> loadAwa());
+}
+if (awaSuggestionsEl){
+  awaSuggestionsEl.addEventListener("click", event => {
+    const btn = event.target.closest("[data-awa-action]");
+    if (!btn) return;
+    const card = btn.closest("[data-awa-action-id]");
+    const actionId = card?.dataset.awaActionId || "";
+    const action = btn.dataset.awaAction;
+    if (!actionId) return;
+    if (action === "approve" || action === "reject"){
+      if (action === "approve" && !confirm("Approve this AWA Beta suggestion? This records approval only; no production workflow will run yet.")){
+        return;
+      }
+      runAwaAction(actionId, action);
+    }else if (action === "explain"){
+      explainAwaAction(actionId);
+    }else if (action === "open"){
+      const suggestion = findAwaSuggestion(actionId);
+      activateTab(awaRelatedModule(suggestion));
+    }
+  });
+}
+if (awaChatForm){
+  awaChatForm.addEventListener("submit", event => {
+    event.preventDefault();
+    const message = awaChatInput ? awaChatInput.value : "";
+    if (awaChatInput) awaChatInput.value = "";
+    askAwa(message);
+  });
 }
 if (workspaceProcessSelectedBtn){
   workspaceProcessSelectedBtn.addEventListener("click", ()=> {
