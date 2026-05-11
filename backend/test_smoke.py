@@ -1212,7 +1212,13 @@ def test_telegram_exact_file_duplicate_is_preserved_but_not_queued(monkeypatch):
     app_module._telegram_download_file = _download
     app_module._telegram_reply = _reply
     app_module._enqueue_telegram_extraction = lambda file_id: enqueued.append(int(file_id)) or True
-    app_module.find_telegram_file_by_sha256 = lambda digest, **kwargs: {"id": 12, "extraction_status": "extracted"}
+    sha_lookup_calls: List[Dict[str, Any]] = []
+
+    def _find_by_sha(digest, **kwargs):
+        sha_lookup_calls.append({"digest": digest, "kwargs": kwargs})
+        return {"id": 12, "extraction_status": "extracted"}
+
+    app_module.find_telegram_file_by_sha256 = _find_by_sha
     client = TestClient(app_module.app)
 
     response = client.post(
@@ -1236,6 +1242,7 @@ def test_telegram_exact_file_duplicate_is_preserved_but_not_queued(monkeypatch):
     assert response.json()["duplicate_of_file_id"] == 12
     assert enqueued == []
     assert calls["insert_extraction_with_rows"] == []
+    assert sha_lookup_calls[0]["kwargs"] == {"exclude_file_id": None}
     created = calls["create_telegram_file_record"][0]
     assert created["extraction_status"] == "duplicate"
     assert created["duplicate_status"] == "duplicate"
@@ -1244,7 +1251,50 @@ def test_telegram_exact_file_duplicate_is_preserved_but_not_queued(monkeypatch):
     assert replies == ["Duplicate detected ⚠️ This PDF was already received."]
 
 
-def test_telegram_possible_duplicate_marks_file_without_creating_order(monkeypatch):
+def test_telegram_same_filename_different_hash_queues_extraction(monkeypatch):
+    app_module, calls = _load_app(monkeypatch, legacy_enabled="false")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "telegram-test-token")
+    enqueued: List[int] = []
+
+    async def _download(token, file_id):
+        return b"%PDF-1.7\ndifferent-content", {"file_path": "documents/order.pdf"}
+
+    async def _reply(*args, **kwargs):
+        return None
+
+    app_module._telegram_download_file = _download
+    app_module._telegram_reply = _reply
+    app_module._enqueue_telegram_extraction = lambda file_id: enqueued.append(int(file_id)) or True
+    app_module.find_telegram_file_by_sha256 = lambda digest, **kwargs: None
+    client = TestClient(app_module.app)
+
+    response = client.post(
+        "/webhook/telegram",
+        json={
+            "message": {
+                "message_id": 44,
+                "chat": {"id": 1},
+                "document": {
+                    "file_id": "file_pdf_3",
+                    "file_name": "order.pdf",
+                    "mime_type": "application/pdf",
+                    "file_size": 1024,
+                },
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "queued"
+    assert enqueued == [1]
+    created = calls["create_telegram_file_record"][0]
+    assert created["original_filename"] == "order.pdf"
+    assert created["extraction_status"] == "queued"
+    assert created.get("duplicate_status", "unique") == "unique"
+    assert len(created["file_sha256"]) == 64
+
+
+def test_telegram_possible_duplicate_marks_file_after_creating_warning_order(monkeypatch):
     app_module, calls = _load_app(monkeypatch, legacy_enabled="false")
     app_module.call_llm_for_pdf_base64_visual = lambda pdf_bytes, filename: _bundle(
         [
@@ -1272,13 +1322,15 @@ def test_telegram_possible_duplicate_marks_file_without_creating_order(monkeypat
         source_metadata={"telegram_file_record_id": 7},
     )
 
-    assert result["status"] == "possible_duplicate"
-    assert result["draft_order_id"] is None
+    assert result["status"] == "draft"
+    assert result["duplicate_status"] == "possible_duplicate"
+    assert result["draft_order_id"] == 1
     assert result["duplicate_of_order_id"] == 88
-    assert calls["insert_extraction_with_rows"] == []
+    assert calls["insert_extraction_with_rows"]
     update = calls["update_telegram_file_record"][-1]
     assert update["args"] == (7,)
-    assert update["kwargs"]["extraction_status"] == "possible_duplicate"
+    assert update["kwargs"]["linked_order_id"] == 1
+    assert update["kwargs"]["extraction_status"] == "extracted"
     assert update["kwargs"]["duplicate_status"] == "possible_duplicate"
 
 

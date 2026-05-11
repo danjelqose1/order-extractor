@@ -1410,7 +1410,8 @@ def find_possible_duplicate_order(
         return None
 
     with get_session() as session:
-        query = select(Order).where(
+        query = select(Order).join(TelegramFile, TelegramFile.linked_order_id == Order.id).where(
+            TelegramFile.deleted.is_(False),
             Order.status == "draft",
             Order.units_total == units_value,
             func.abs(Order.area_total - area_value) <= 0.05,
@@ -1418,8 +1419,8 @@ def find_possible_duplicate_order(
             func.lower(Order.order_numbers_raw).like(f"%{normalized_order.lower()}%"),
         )
         if recent_after is not None:
-            query = query.where(Order.created_at >= recent_after)
-        order = session.execute(query.order_by(Order.created_at.desc(), Order.id.desc()).limit(1)).scalar_one_or_none()
+            query = query.where(TelegramFile.received_at >= recent_after)
+        order = session.execute(query.order_by(TelegramFile.received_at.desc(), Order.created_at.desc(), Order.id.desc()).limit(1)).scalar_one_or_none()
         if not order:
             return None
         _ = order.rows

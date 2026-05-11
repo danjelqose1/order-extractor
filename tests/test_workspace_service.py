@@ -265,6 +265,41 @@ def test_telegram_file_sha_duplicate_lookup_and_status_fields(tmp_path, monkeypa
     assert duplicate["duplicate_reason"] == "Exact file SHA-256 match."
 
 
+def test_possible_duplicate_uses_recent_non_deleted_telegram_linked_drafts(tmp_path, monkeypatch):
+    db, _service = _load_modules(tmp_path, monkeypatch)
+    now = datetime.now(timezone.utc)
+    active_order_id = _insert_order(db, status="draft")
+    active_file = db.create_telegram_file_record(
+        original_filename="active.pdf",
+        stored_filename="active.pdf",
+        file_path=str(tmp_path / "active.pdf"),
+        mime_type="application/pdf",
+        file_size=120,
+        file_sha256="c" * 64,
+        received_at=now,
+        extraction_status="extracted",
+    )
+    db.update_telegram_file_record(active_file["id"], linked_order_id=active_order_id)
+
+    match = db.find_possible_duplicate_order(
+        order_number="R-26-0042",
+        client_name="Client A",
+        total_units=2,
+        total_area=0.6,
+        recent_after=now - timedelta(days=1),
+    )
+    assert match["id"] == active_order_id
+
+    db.soft_delete_telegram_file_record(active_file["id"])
+    assert db.find_possible_duplicate_order(
+        order_number="R-26-0042",
+        client_name="Client A",
+        total_units=2,
+        total_area=0.6,
+        recent_after=now - timedelta(days=1),
+    ) is None
+
+
 def test_telegram_files_filter_touched_without_deleting_records(tmp_path, monkeypatch):
     db, _service = _load_modules(tmp_path, monkeypatch)
     now = datetime.now(timezone.utc)

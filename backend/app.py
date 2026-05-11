@@ -1503,6 +1503,8 @@ def _extract_order_file_bytes(
             )
         combined_warnings = _dedupe_warnings(combined_warnings)
 
+        possible_duplicate = None
+        possible_duplicate_reason = None
         telegram_file_record_id = metadata.get("telegram_file_record_id")
         if source == "telegram" and telegram_file_record_id:
             possible_duplicate = find_possible_duplicate_order(
@@ -1513,37 +1515,11 @@ def _extract_order_file_bytes(
                 recent_after=datetime.now(timezone.utc) - timedelta(days=30),
             )
             if possible_duplicate:
-                reason = (
+                possible_duplicate_reason = (
                     "Extracted order appears to match recent draft "
                     f"#{possible_duplicate.get('id')} by order number, client, units, and area."
                 )
-                update_telegram_file_record(
-                    int(telegram_file_record_id),
-                    extraction_status="possible_duplicate",
-                    duplicate_status="possible_duplicate",
-                    duplicate_reason=reason,
-                    processed_at=datetime.now(timezone.utc),
-                    clear_last_error=True,
-                )
-                return {
-                    "order_number": (bundle.get("data") or {}).get("order_number") or _primary_order_number(final_rows),
-                    "rows": final_rows,
-                    "warnings": _dedupe_warnings(combined_warnings + ["possible_duplicate_order"]),
-                    "row_warnings": row_warnings,
-                    "draft_order_id": None,
-                    "saved_order_id": None,
-                    "status": "possible_duplicate",
-                    "duplicate_status": "possible_duplicate",
-                    "duplicate_of_order_id": possible_duplicate.get("id"),
-                    "duplicate_reason": reason,
-                    "parsed_units": totals["units"],
-                    "parsed_area": totals["area"],
-                    "extraction_method": extraction_method,
-                    "confidence": (bundle.get("data") or {}).get("confidence"),
-                    "client_name": client_name,
-                    "clientName": client_name,
-                    "client": client_name or "—",
-                }
+                combined_warnings = _dedupe_warnings(combined_warnings + ["possible_duplicate_order"])
 
         insert_result = insert_extraction_with_rows(
             source=source,
@@ -1560,8 +1536,18 @@ def _extract_order_file_bytes(
         draft_order_id = insert_result["order_id"]
         status = insert_result.get("status", "draft")
         saved_order_id = draft_order_id if status == "approved" else None
+        if source == "telegram" and telegram_file_record_id and possible_duplicate:
+            update_telegram_file_record(
+                int(telegram_file_record_id),
+                linked_order_id=draft_order_id,
+                extraction_status="extracted",
+                duplicate_status="possible_duplicate",
+                duplicate_reason=possible_duplicate_reason,
+                processed_at=datetime.now(timezone.utc),
+                clear_last_error=True,
+            )
 
-        return {
+        response = {
             "order_number": (bundle.get("data") or {}).get("order_number") or _primary_order_number(final_rows),
             "rows": final_rows,
             "warnings": combined_warnings,
@@ -1585,6 +1571,15 @@ def _extract_order_file_bytes(
             "clientName": client_name,
             "client": client_name or "—",
         }
+        if possible_duplicate:
+            response.update(
+                {
+                    "duplicate_status": "possible_duplicate",
+                    "duplicate_of_order_id": possible_duplicate.get("id"),
+                    "duplicate_reason": possible_duplicate_reason,
+                }
+            )
+        return response
     except HTTPException:
         raise
     except ValidationError as ve:
@@ -1845,7 +1840,7 @@ def _process_telegram_queue_job_sync(file_id: int) -> Dict[str, Any]:
         return {"status": "missing", "file_id": file_id}
     if record.get("extraction_status") == "extracted":
         return {"status": "already_extracted", "file_id": file_id, "record": record}
-    if record.get("extraction_status") in {"duplicate", "possible_duplicate"}:
+    if record.get("extraction_status") == "duplicate":
         return {"status": record.get("extraction_status"), "file_id": file_id, "record": record}
 
     attempts_done = int(record.get("retry_count") or 0)
@@ -1873,16 +1868,6 @@ def _process_telegram_queue_job_sync(file_id: int) -> Dict[str, Any]:
                 source="telegram",
                 source_metadata=_telegram_source_metadata(latest),
             )
-            if result.get("status") == "possible_duplicate":
-                refreshed = get_telegram_file(file_id) or latest
-                response_record = {**latest, **refreshed}
-                _broadcast_telegram_file_change("telegram_file_updated", response_record)
-                return {
-                    "status": "possible_duplicate",
-                    "file_id": file_id,
-                    "record": response_record,
-                    "duplicate_of_order_id": result.get("duplicate_of_order_id"),
-                }
             updated = update_telegram_file_record(
                 file_id,
                 linked_order_id=result.get("draft_order_id"),
@@ -1898,6 +1883,8 @@ def _process_telegram_queue_job_sync(file_id: int) -> Dict[str, Any]:
                 "file_id": file_id,
                 "record": response_record,
                 "order_id": result.get("draft_order_id"),
+                "duplicate_status": result.get("duplicate_status"),
+                "duplicate_of_order_id": result.get("duplicate_of_order_id"),
             }
         except Exception as exc:
             last_error = _short_error_message(exc)
@@ -1941,7 +1928,9 @@ async def _process_telegram_queue_job(file_id: int) -> Dict[str, Any]:
     chat_id = record.get("telegram_chat_id")
     message_id = record.get("telegram_message_id")
     if token and chat_id is not None:
-        if outcome.get("status") == "extracted":
+        if outcome.get("duplicate_status") == "possible_duplicate":
+            await _telegram_reply(token, chat_id, message_id, "Possible duplicate detected ⚠️ Please review in platform.")
+        elif outcome.get("status") == "extracted":
             await _telegram_reply(token, chat_id, message_id, "Extraction finished ✅ Please review in platform.")
         elif outcome.get("status") == "possible_duplicate":
             await _telegram_reply(token, chat_id, message_id, "Possible duplicate detected ⚠️ Please review in platform.")
@@ -2047,7 +2036,7 @@ async def _handle_telegram_update(update: Dict[str, Any]) -> Dict[str, Any]:
             file_sha256 = _compute_sha256_bytes(raw_bytes)
             stored = _store_telegram_file(raw_bytes, str(spec.get("original_filename") or spec.get("filename") or "telegram-order.pdf"))
             mime_type = "application/pdf" if is_pdf else str(spec.get("content_type") or "image/jpeg")
-            duplicate_of = find_telegram_file_by_sha256(file_sha256)
+            duplicate_of = find_telegram_file_by_sha256(file_sha256, exclude_file_id=None)
             if duplicate_of:
                 duplicate_record = create_telegram_file_record(
                     original_filename=stored["original_filename"],
