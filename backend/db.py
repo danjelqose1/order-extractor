@@ -504,6 +504,8 @@ def init_db() -> None:
     _ensure_data_dir()
     Base.metadata.create_all(engine, checkfirst=True)
     _ensure_schema()
+    backfilled = backfill_telegram_file_hashes()
+    print(f"[db] Backfilled SHA-256 for {backfilled} Telegram file(s).")
 
 
 @contextmanager
@@ -966,6 +968,34 @@ def create_telegram_file_record(
         return _serialize_telegram_file(record)
 
 
+def backfill_telegram_file_hashes() -> int:
+    backfilled = 0
+    with get_session() as session:
+        records = session.execute(
+            select(TelegramFile)
+            .where(or_(TelegramFile.file_sha256.is_(None), TelegramFile.file_sha256 == ""))
+            .order_by(TelegramFile.received_at.asc(), TelegramFile.id.asc())
+        ).scalars().all()
+        for record in records:
+            path_value = str(record.file_path or "").strip()
+            if not path_value:
+                continue
+            try:
+                if not os.path.isfile(path_value):
+                    continue
+                with open(path_value, "rb") as handle:
+                    digest = hashlib.sha256(handle.read()).hexdigest()
+            except Exception as exc:
+                print(f"[db] Telegram file hash backfill skipped id={record.id}: {exc}")
+                continue
+            if digest:
+                record.file_sha256 = digest
+                backfilled += 1
+        if backfilled:
+            session.flush()
+    return backfilled
+
+
 def update_telegram_file_record(
     file_id: int,
     *,
@@ -1412,7 +1442,6 @@ def find_possible_duplicate_order(
     with get_session() as session:
         query = select(Order).join(TelegramFile, TelegramFile.linked_order_id == Order.id).where(
             TelegramFile.deleted.is_(False),
-            Order.status == "draft",
             Order.units_total == units_value,
             func.abs(Order.area_total - area_value) <= 0.05,
             func.lower(func.coalesce(Order.client_name, "")) == normalized_client.lower(),
@@ -1914,6 +1943,7 @@ def record_workspace_action(
 
 __all__ = [
     "init_db",
+    "backfill_telegram_file_hashes",
     "insert_extraction_with_rows",
     "create_telegram_file_record",
     "update_telegram_file_record",

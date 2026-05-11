@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import inspect
+import hashlib
 import json
 import logging
 import sys
@@ -265,10 +266,41 @@ def test_telegram_file_sha_duplicate_lookup_and_status_fields(tmp_path, monkeypa
     assert duplicate["duplicate_reason"] == "Exact file SHA-256 match."
 
 
-def test_possible_duplicate_uses_recent_non_deleted_telegram_linked_drafts(tmp_path, monkeypatch):
+def test_telegram_file_hash_backfill_detects_old_touched_approved_records(tmp_path, monkeypatch):
+    db, _service = _load_modules(tmp_path, monkeypatch)
+    pdf_path = tmp_path / "old-approved.pdf"
+    pdf_bytes = b"%PDF-1.7\nold approved order"
+    pdf_path.write_bytes(pdf_bytes)
+    approved_order_id = _insert_order(db, status="approved")
+    old_file = db.create_telegram_file_record(
+        original_filename="old-approved.pdf",
+        stored_filename="old-approved.pdf",
+        file_path=str(pdf_path),
+        mime_type="application/pdf",
+        file_size=len(pdf_bytes),
+        file_sha256=None,
+        received_at=datetime.now(timezone.utc) - timedelta(days=10),
+        extraction_status="extracted",
+    )
+    db.update_telegram_file_record(old_file["id"], linked_order_id=approved_order_id)
+    db.touch_telegram_file_record(old_file["id"])
+
+    digest = hashlib.sha256(pdf_bytes).hexdigest()
+    assert db.find_telegram_file_by_sha256(digest) is None
+
+    assert db.backfill_telegram_file_hashes() == 1
+    assert db.backfill_telegram_file_hashes() == 0
+
+    found = db.find_telegram_file_by_sha256(digest)
+    assert found["id"] == old_file["id"]
+    assert found["touched"] is True
+    assert found["linked_order"]["status"] == "approved"
+
+
+def test_possible_duplicate_uses_recent_non_deleted_telegram_linked_orders(tmp_path, monkeypatch):
     db, _service = _load_modules(tmp_path, monkeypatch)
     now = datetime.now(timezone.utc)
-    active_order_id = _insert_order(db, status="draft")
+    active_order_id = _insert_order(db, status="approved")
     active_file = db.create_telegram_file_record(
         original_filename="active.pdf",
         stored_filename="active.pdf",
@@ -289,6 +321,7 @@ def test_possible_duplicate_uses_recent_non_deleted_telegram_linked_drafts(tmp_p
         recent_after=now - timedelta(days=1),
     )
     assert match["id"] == active_order_id
+    assert match["status"] == "approved"
 
     db.soft_delete_telegram_file_record(active_file["id"])
     assert db.find_possible_duplicate_order(
