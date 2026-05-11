@@ -2269,6 +2269,7 @@ def mark_telegram_linked_order_opened(file_id: int, request: Request):
 
 @app.post("/telegram-files/{file_id}/mark-pdf-printed")
 def mark_telegram_pdf_printed(file_id: int):
+    print(f"[telegram-files] mark pdf printed called for telegram file {file_id}")
     record = mark_telegram_file_pdf_printed(file_id)
     if not record:
         raise HTTPException(status_code=404, detail="File not found")

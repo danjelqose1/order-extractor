@@ -12129,7 +12129,7 @@ function telegramHandlingBadge(file){
 function telegramHandlingProgressBadges(file){
   const labelsPrinted = Boolean(file?.labels_printed);
   const orderOpened = Boolean(file?.linked_order_opened);
-  const pdfPrinted = Boolean(file?.pdf_printed);
+  const pdfPrinted = Boolean(file?.pdf_printed ?? file?.pdfPrinted);
   return `<span class="telegram-handling-progress">
     <span class="telegram-handling-pill pdf ${pdfPrinted ? "done" : ""}" title="${pdfPrinted ? "PDF printed" : "PDF not printed yet"}">${pdfPrinted ? "PDF PRINTED" : "PDF"}</span>
     <span class="telegram-handling-pill ${labelsPrinted ? "done" : ""}" title="${labelsPrinted ? "Labels printed" : "Labels not printed yet"}">Labels</span>
@@ -12308,7 +12308,7 @@ function mergeTelegramFileUpdate(updatedFile){
 function updateTelegramFilePdfPrintedLocally(fileId, printedAt){
   const timestamp = printedAt || new Date().toISOString();
   const file = getTelegramFileById(fileId) || telegramFilesState.selectedFile || { id: fileId };
-  const updatedFile = { ...file, id: fileId, pdf_printed: true, pdf_printed_at: timestamp };
+  const updatedFile = { ...file, id: fileId, pdf_printed: true, pdfPrinted: true, pdf_printed_at: timestamp };
   mergeTelegramFileUpdate(updatedFile);
   renderTelegramFiles();
 }
@@ -12335,6 +12335,7 @@ async function markTelegramFileHandlingStep(fileId, step){
 
 async function markTelegramFilePdfPrinted(fileId){
   if (!fileId) return null;
+  console.info(`mark pdf printed called for telegram file ${fileId}`);
   updateTelegramFilePdfPrintedLocally(fileId);
   const res = await fetch(API_BASE + `/telegram-files/${encodeURIComponent(fileId)}/mark-pdf-printed`, { method: "POST" });
   if (!res.ok){
@@ -12344,6 +12345,13 @@ async function markTelegramFilePdfPrinted(fileId){
   const data = await res.json();
   mergeTelegramFileUpdate(data?.file);
   applyTelegramCounts(data);
+  try{
+    const refreshed = await fetchTelegramFiles();
+    telegramFilesState.items = Array.isArray(refreshed?.items) ? refreshed.items : telegramFilesState.items;
+    applyTelegramCounts(refreshed);
+  }catch(refreshError){
+    console.warn("Telegram files refresh after PDF print marker failed", refreshError);
+  }
   renderTelegramFiles();
   return data?.file || null;
 }
@@ -12465,7 +12473,11 @@ async function printTelegramLinkedLabels(file){
 
 async function printTelegramOriginalPdf(file){
   if (!file?.id) return;
-  printTelegramPdf(file);
+  try{
+    printTelegramPdf(file);
+  }catch(printError){
+    console.warn("Telegram PDF print trigger failed", printError);
+  }
   try{
     await markTelegramFilePdfPrinted(file.id);
   }catch(error){
