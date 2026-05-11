@@ -12465,7 +12465,7 @@ async function printTelegramLinkedLabels(file){
 
 async function printTelegramOriginalPdf(file){
   if (!file?.id) return;
-  if (!printTelegramPdf(file)) return;
+  printTelegramPdf(file);
   try{
     await markTelegramFilePdfPrinted(file.id);
   }catch(error){
