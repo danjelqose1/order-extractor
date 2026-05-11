@@ -25,6 +25,7 @@ def _install_fake_db(monkeypatch) -> Dict[str, List[Dict[str, Any]]]:
         "soft_delete_telegram_file_record": [],
         "mark_telegram_file_labels_printed": [],
         "mark_telegram_file_linked_order_opened": [],
+        "mark_telegram_file_pdf_printed": [],
         "find_telegram_file_by_sha256": [],
         "find_possible_duplicate_order": [],
     }
@@ -70,6 +71,18 @@ def _install_fake_db(monkeypatch) -> Dict[str, List[Dict[str, Any]]]:
         calls["mark_telegram_file_linked_order_opened"].append({"args": args, "kwargs": kwargs})
         return {"id": args[0] if args else 1, "linked_order_id": 9, "linked_order_opened": True, "touched": False}
 
+    def _mark_telegram_file_pdf_printed(*args, **kwargs):
+        calls["mark_telegram_file_pdf_printed"].append({"args": args, "kwargs": kwargs})
+        return {
+            "id": args[0] if args else 1,
+            "linked_order_id": 9,
+            "pdf_printed": True,
+            "pdf_printed_at": "2026-05-02T12:00:00+00:00",
+            "labels_printed": False,
+            "linked_order_opened": False,
+            "touched": False,
+        }
+
     fake_db.insert_extraction_with_rows = _insert_extraction_with_rows
     fake_db.update_order_rows = _update_order_rows
     fake_db.create_telegram_file_record = _create_telegram_file_record
@@ -78,6 +91,7 @@ def _install_fake_db(monkeypatch) -> Dict[str, List[Dict[str, Any]]]:
     fake_db.soft_delete_telegram_file_record = _soft_delete_telegram_file_record
     fake_db.mark_telegram_file_labels_printed = _mark_telegram_file_labels_printed
     fake_db.mark_telegram_file_linked_order_opened = _mark_telegram_file_linked_order_opened
+    fake_db.mark_telegram_file_pdf_printed = _mark_telegram_file_pdf_printed
     fake_db.list_telegram_files = lambda *args, **kwargs: []
     fake_db.count_untouched_telegram_files = lambda *args, **kwargs: 0
     fake_db.get_telegram_file_counts = lambda *args, **kwargs: {
@@ -910,6 +924,22 @@ def test_telegram_handling_step_endpoints_return_updated_file(monkeypatch):
     assert opened.status_code == 200
     assert opened.json()["file"]["linked_order_opened"] is True
     assert calls["mark_telegram_file_linked_order_opened"][0]["args"] == (7,)
+
+
+def test_telegram_pdf_printed_endpoint_returns_updated_file(monkeypatch):
+    app_module, calls = _load_app(monkeypatch, legacy_enabled="false")
+    client = TestClient(app_module.app)
+
+    response = client.post("/telegram-files/7/mark-pdf-printed")
+
+    assert response.status_code == 200
+    file = response.json()["file"]
+    assert file["pdf_printed"] is True
+    assert file["pdf_printed_at"]
+    assert file["labels_printed"] is False
+    assert file["linked_order_opened"] is False
+    assert file["touched"] is False
+    assert calls["mark_telegram_file_pdf_printed"][0]["args"] == (7,)
 
 
 def test_telegram_handling_step_endpoint_rejects_unlinked_file(monkeypatch):

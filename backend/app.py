@@ -58,6 +58,7 @@ from db import (
     soft_delete_telegram_file_record,
     mark_telegram_file_labels_printed,
     mark_telegram_file_linked_order_opened,
+    mark_telegram_file_pdf_printed,
     list_telegram_files,
     count_untouched_telegram_files,
     get_telegram_file_counts,
@@ -2270,6 +2271,16 @@ def mark_telegram_linked_order_opened(file_id: int, request: Request):
         raise HTTPException(status_code=409, detail="No linked order yet")
     touched_by = request.headers.get("X-User") or None
     record = mark_telegram_file_linked_order_opened(file_id, touched_by=touched_by)
+    if not record:
+        raise HTTPException(status_code=404, detail="File not found")
+    _broadcast_telegram_file_change("telegram_file_updated", record)
+    counts = _telegram_counts_payload()
+    return {"ok": True, "file": record, **counts, "counts": counts}
+
+
+@app.post("/telegram-files/{file_id}/mark-pdf-printed")
+def mark_telegram_pdf_printed(file_id: int):
+    record = mark_telegram_file_pdf_printed(file_id)
     if not record:
         raise HTTPException(status_code=404, detail="File not found")
     _broadcast_telegram_file_change("telegram_file_updated", record)

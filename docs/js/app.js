@@ -12106,7 +12106,9 @@ function telegramHandlingBadge(file){
 function telegramHandlingProgressBadges(file){
   const labelsPrinted = Boolean(file?.labels_printed);
   const orderOpened = Boolean(file?.linked_order_opened);
+  const pdfPrinted = Boolean(file?.pdf_printed);
   return `<span class="telegram-handling-progress">
+    <span class="telegram-handling-pill pdf ${pdfPrinted ? "done" : ""}" title="${pdfPrinted ? "PDF printed" : "PDF not printed yet"}">${pdfPrinted ? "PDF PRINTED" : "PDF"}</span>
     <span class="telegram-handling-pill ${labelsPrinted ? "done" : ""}" title="${labelsPrinted ? "Labels printed" : "Labels not printed yet"}">Labels</span>
     <span class="telegram-handling-pill ${orderOpened ? "done" : ""}" title="${orderOpened ? "Linked order opened" : "Linked order not opened yet"}">Order</span>
   </span>`;
@@ -12280,6 +12282,19 @@ function mergeTelegramFileUpdate(updatedFile){
   }
 }
 
+function updateTelegramFilePdfPrintedLocally(fileId, printedAt){
+  const file = getTelegramFileById(fileId);
+  const timestamp = printedAt || new Date().toISOString();
+  if (file){
+    file.pdf_printed = true;
+    file.pdf_printed_at = timestamp;
+  }
+  if (telegramFilesState.selectedFile && String(telegramFilesState.selectedFile.id) === String(fileId)){
+    telegramFilesState.selectedFile = { ...telegramFilesState.selectedFile, pdf_printed: true, pdf_printed_at: timestamp };
+  }
+  renderTelegramFiles();
+}
+
 async function markTelegramFileHandlingStep(fileId, step){
   if (!fileId || !step) return null;
   const endpoint = step === "labels"
@@ -12289,6 +12304,21 @@ async function markTelegramFileHandlingStep(fileId, step){
       : "";
   if (!endpoint) return null;
   const res = await fetch(API_BASE + `/telegram-files/${encodeURIComponent(fileId)}/${endpoint}`, { method: "POST" });
+  if (!res.ok){
+    const text = await res.text();
+    throw new Error(text || ("HTTP " + res.status));
+  }
+  const data = await res.json();
+  mergeTelegramFileUpdate(data?.file);
+  applyTelegramCounts(data);
+  renderTelegramFiles();
+  return data?.file || null;
+}
+
+async function markTelegramFilePdfPrinted(fileId){
+  if (!fileId) return null;
+  updateTelegramFilePdfPrintedLocally(fileId);
+  const res = await fetch(API_BASE + `/telegram-files/${encodeURIComponent(fileId)}/mark-pdf-printed`, { method: "POST" });
   if (!res.ok){
     const text = await res.text();
     throw new Error(text || ("HTTP " + res.status));
@@ -12412,6 +12442,17 @@ async function printTelegramLinkedLabels(file){
   }catch(error){
     console.warn("Telegram labels print failed", error);
     setTelegramFilesStatus("Failed to generate labels: " + (error.message || error));
+  }
+}
+
+async function printTelegramOriginalPdf(file){
+  if (!file?.id) return;
+  if (!printTelegramPdf(file)) return;
+  try{
+    await markTelegramFilePdfPrinted(file.id);
+  }catch(error){
+    console.warn("Telegram PDF print marker failed", error);
+    setTelegramFilesStatus("PDF print opened, but PDF printed status was not saved.");
   }
 }
 
@@ -13635,9 +13676,7 @@ if (telegramFilesListEl){
     }
     if (!file) return;
     if (action === "print"){
-      if (printTelegramPdf(file)){
-        markTelegramFileTouched(file.id);
-      }
+      printTelegramOriginalPdf(file);
     }else if (action === "touch"){
       markTelegramFileTouched(file.id);
     }else if (action === "labels"){
@@ -13658,9 +13697,7 @@ if (telegramPdfModal){
 if (telegramPdfPrintBtn){
   telegramPdfPrintBtn.addEventListener("click", () => {
     const file = telegramFilesState.selectedFile;
-    if (printTelegramPdf(file)){
-      markTelegramFileTouched(file.id);
-    }
+    printTelegramOriginalPdf(file);
   });
 }
 

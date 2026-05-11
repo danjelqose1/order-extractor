@@ -287,6 +287,8 @@ class TelegramFile(Base):
     labels_printed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     linked_order_opened: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     linked_order_opened_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    pdf_printed: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    pdf_printed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     deleted: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     queued_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
@@ -399,6 +401,10 @@ def _ensure_schema() -> None:
                 conn.execute(text("ALTER TABLE telegram_files ADD COLUMN linked_order_opened BOOLEAN DEFAULT 0"))
             if "linked_order_opened_at" not in telegram_columns:
                 conn.execute(text("ALTER TABLE telegram_files ADD COLUMN linked_order_opened_at TEXT"))
+            if "pdf_printed" not in telegram_columns:
+                conn.execute(text("ALTER TABLE telegram_files ADD COLUMN pdf_printed BOOLEAN DEFAULT 0"))
+            if "pdf_printed_at" not in telegram_columns:
+                conn.execute(text("ALTER TABLE telegram_files ADD COLUMN pdf_printed_at TEXT"))
             if "deleted" not in telegram_columns:
                 conn.execute(text("ALTER TABLE telegram_files ADD COLUMN deleted BOOLEAN DEFAULT 0"))
             if "deleted_at" not in telegram_columns:
@@ -424,6 +430,7 @@ def _ensure_schema() -> None:
             conn.execute(text("UPDATE telegram_files SET touched = 0 WHERE touched IS NULL"))
             conn.execute(text("UPDATE telegram_files SET labels_printed = 0 WHERE labels_printed IS NULL"))
             conn.execute(text("UPDATE telegram_files SET linked_order_opened = 0 WHERE linked_order_opened IS NULL"))
+            conn.execute(text("UPDATE telegram_files SET pdf_printed = 0 WHERE pdf_printed IS NULL"))
             conn.execute(text("UPDATE telegram_files SET deleted = 0 WHERE deleted IS NULL"))
             conn.execute(text("UPDATE telegram_files SET retry_count = 0 WHERE retry_count IS NULL"))
             conn.execute(text("UPDATE telegram_files SET duplicate_status = 'unique' WHERE duplicate_status IS NULL OR TRIM(duplicate_status) = ''"))
@@ -606,6 +613,8 @@ def _serialize_telegram_file(file: TelegramFile, order: Optional[Order] = None) 
         "labels_printed_at": file.labels_printed_at.isoformat() if file.labels_printed_at else None,
         "linked_order_opened": bool(file.linked_order_opened),
         "linked_order_opened_at": file.linked_order_opened_at.isoformat() if file.linked_order_opened_at else None,
+        "pdf_printed": bool(file.pdf_printed),
+        "pdf_printed_at": file.pdf_printed_at.isoformat() if file.pdf_printed_at else None,
         "deleted": bool(file.deleted),
         "deleted_at": file.deleted_at.isoformat() if file.deleted_at else None,
         "queued_at": file.queued_at.isoformat() if file.queued_at else None,
@@ -947,6 +956,7 @@ def create_telegram_file_record(
             touched=False,
             labels_printed=False,
             linked_order_opened=False,
+            pdf_printed=False,
             deleted=False,
             queued_at=queued_at,
             retry_count=0,
@@ -1035,6 +1045,18 @@ def mark_telegram_file_labels_printed(file_id: int, *, touched_by: Optional[str]
 
 def mark_telegram_file_linked_order_opened(file_id: int, *, touched_by: Optional[str] = None) -> Optional[Dict[str, Any]]:
     return _mark_telegram_file_handling(file_id, linked_order_opened=True, touched_by=touched_by)
+
+
+def mark_telegram_file_pdf_printed(file_id: int) -> Optional[Dict[str, Any]]:
+    with get_session() as session:
+        record = session.get(TelegramFile, int(file_id))
+        if not record:
+            return None
+        record.pdf_printed = True
+        record.pdf_printed_at = datetime.now(timezone.utc)
+        session.flush()
+        linked_order = session.get(Order, record.linked_order_id) if record.linked_order_id else None
+        return _serialize_telegram_file(record, linked_order)
 
 
 def _mark_telegram_file_handling(
@@ -1898,6 +1920,7 @@ __all__ = [
     "soft_delete_telegram_file_record",
     "mark_telegram_file_labels_printed",
     "mark_telegram_file_linked_order_opened",
+    "mark_telegram_file_pdf_printed",
     "list_telegram_files",
     "count_untouched_telegram_files",
     "get_telegram_file_counts",

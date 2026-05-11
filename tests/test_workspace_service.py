@@ -427,6 +427,40 @@ def test_telegram_file_auto_touches_after_labels_then_order_opened(tmp_path, mon
     assert db.get_telegram_file(record["id"])["download_url"] == f"/telegram-files/{record['id']}/download"
 
 
+def test_telegram_file_pdf_printed_is_independent_from_handling_and_order_status(tmp_path, monkeypatch):
+    db, _service = _load_modules(tmp_path, monkeypatch)
+    order_id = _insert_order(db, status="draft")
+    record = db.create_telegram_file_record(
+        original_filename="original-print.pdf",
+        stored_filename="original-print.pdf",
+        file_path=str(tmp_path / "original-print.pdf"),
+        mime_type="application/pdf",
+        file_size=120,
+        extraction_status="extracted",
+    )
+    db.update_telegram_file_record(record["id"], linked_order_id=order_id)
+
+    fresh = db.get_telegram_file(record["id"])
+    assert fresh["pdf_printed"] is False
+    assert fresh["pdf_printed_at"] is None
+
+    before_order = db.get_order_with_extraction(order_id)
+    printed = db.mark_telegram_file_pdf_printed(record["id"])
+
+    assert printed["pdf_printed"] is True
+    assert printed["pdf_printed_at"]
+    assert printed["labels_printed"] is False
+    assert printed["linked_order_opened"] is False
+    assert printed["touched"] is False
+
+    after_refresh = db.get_telegram_file(record["id"])
+    assert after_refresh["pdf_printed"] is True
+    assert after_refresh["pdf_printed_at"]
+    after_order = db.get_order_with_extraction(order_id)
+    assert after_order["status"] == before_order["status"]
+    assert after_order["rows"] == before_order["rows"]
+
+
 def test_telegram_file_auto_touches_after_order_opened_then_labels(tmp_path, monkeypatch):
     db, _service = _load_modules(tmp_path, monkeypatch)
     order_id = _insert_order(db, status="draft")
