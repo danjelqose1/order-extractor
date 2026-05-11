@@ -12306,15 +12306,10 @@ function mergeTelegramFileUpdate(updatedFile){
 }
 
 function updateTelegramFilePdfPrintedLocally(fileId, printedAt){
-  const file = getTelegramFileById(fileId);
   const timestamp = printedAt || new Date().toISOString();
-  if (file){
-    file.pdf_printed = true;
-    file.pdf_printed_at = timestamp;
-  }
-  if (telegramFilesState.selectedFile && String(telegramFilesState.selectedFile.id) === String(fileId)){
-    telegramFilesState.selectedFile = { ...telegramFilesState.selectedFile, pdf_printed: true, pdf_printed_at: timestamp };
-  }
+  const file = getTelegramFileById(fileId) || telegramFilesState.selectedFile || { id: fileId };
+  const updatedFile = { ...file, id: fileId, pdf_printed: true, pdf_printed_at: timestamp };
+  mergeTelegramFileUpdate(updatedFile);
   renderTelegramFiles();
 }
 
