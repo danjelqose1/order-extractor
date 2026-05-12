@@ -7508,7 +7508,7 @@ async function buildProcessingPdfBlob(){
     columnGap: 8 * mmToPt,
     fontSize: 11,
   };
-  layout.lineHeight = layout.fontSize * 1.15;
+  layout.lineHeight = layout.fontSize * 1.3;
   layout.contentWidth = layout.pageWidth - (layout.margin * 2);
   layout.columnWidth = (layout.contentWidth - layout.columnGap) / 2;
   layout.columnTop = layout.pageHeight - layout.margin;
