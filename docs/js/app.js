@@ -7491,404 +7491,108 @@ async function exportSpacerProcessingPdf(){
 
 async function buildProcessingPdfBlob(){
   const preview = appState.processing.preview;
-  if (!preview || !preview.groups || !preview.groups.length){
+  const plainText = typeof preview?.text === "string" ? preview.text : "";
+  if (!plainText.trim()){
     throw new Error("Nothing to export.");
   }
   await ensurePdfLib();
   const { PDFDocument, StandardFonts, rgb } = PDFLib;
   const mmToPt = 2.83464567;
   const pdfDoc = await PDFDocument.create();
-  const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const regularFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
   const layout = {
     pageWidth: 210 * mmToPt,
     pageHeight: 297 * mmToPt,
-    marginX: 7 * mmToPt,
-    marginTop: 7 * mmToPt,
-    marginBottom: 7 * mmToPt,
-    columnGap: 5 * mmToPt,
-    titleSize: 11,
-    titleLeading: 13,
-    groupSize: 10,
-    groupLeading: 12,
-    orderSize: 9.5,
-    orderLeading: 11,
-    rowSize: 9,
-    rowLeading: 10.8,
-    noteSize: 7.4,
-    noteLeading: 8.8,
-    groupTopGap: 5.5,
-    groupBottomGap: 2.5,
-    orderTopGap: 2.2,
-    orderBottomGap: 1.2,
-    rowIndexWidth: 18,
-    rowDashGap: 4,
-    rowWidthField: 30,
-    rowHeightField: 34,
-    footerSize: 7,
+    margin: 12.7 * mmToPt,
+    columnGap: 8 * mmToPt,
+    fontSize: 11,
   };
-  layout.contentWidth = layout.pageWidth - (layout.marginX * 2);
+  layout.lineHeight = layout.fontSize * 1.15;
+  layout.contentWidth = layout.pageWidth - (layout.margin * 2);
   layout.columnWidth = (layout.contentWidth - layout.columnGap) / 2;
-  layout.columnTop = layout.pageHeight - layout.marginTop;
-  layout.columnBottom = layout.marginBottom + 5;
+  layout.columnTop = layout.pageHeight - layout.margin;
+  layout.columnBottom = layout.margin;
 
-  const colors = {
-    text: rgb(0.06, 0.07, 0.08),
-    muted: rgb(0.34, 0.36, 0.40),
-    rule: rgb(0.62, 0.64, 0.68),
-    lightRule: rgb(0.78, 0.79, 0.82),
-  };
-
-  const pdfSafeText = value => String(value ?? "")
+  const textColor = rgb(0, 0, 0);
+  const toPdfText = value => String(value ?? "")
     .replace(/\u26a0/g, "!")
-    .replace(/\u2248/g, "~")
-    .replace(/\u2013/g, "\u2014")
-    .replace(/[^\x09\x0a\x0d\x20-\x7e\u00a0-\u00ff\u2014\u2018-\u201d\u2022\u2026\u20ac]/g, "?");
+    .replace(/[^\x09\x0a\x0d\x20-\x7e\u00a0-\u00ff\u2013\u2014\u2018-\u201d\u2022\u2026\u20ac]/g, "?");
+  const textWidth = text => regularFont.widthOfTextAtSize(toPdfText(text), layout.fontSize);
 
-  const textWidth = (text, font, size) => font.widthOfTextAtSize(pdfSafeText(text), size);
-
-  const wrapText = (text, font, size, maxWidth) => {
-    const raw = pdfSafeText(text).trim();
-    if (!raw) return [""];
-    const lines = [];
-    raw.split(/\s+/).forEach(word => {
-      if (!lines.length){
-        lines.push(word);
-        return;
-      }
-      const current = lines[lines.length - 1];
-      const tentative = `${current} ${word}`;
-      if (textWidth(tentative, font, size) <= maxWidth){
-        lines[lines.length - 1] = tentative;
-        return;
-      }
-      if (textWidth(word, font, size) <= maxWidth){
-        lines.push(word);
-        return;
-      }
-      let chunk = "";
-      Array.from(word).forEach(char => {
-        const next = `${chunk}${char}`;
-        if (chunk && textWidth(next, font, size) > maxWidth){
-          lines.push(chunk);
-          chunk = char;
-        }else{
-          chunk = next;
-        }
-      });
-      if (chunk) lines.push(chunk);
-    });
-    return lines.length ? lines : [""];
-  };
-
-  const rowHeightForLine = line => {
-    const rounded = line?.danko;
-    return layout.rowLeading + (rounded?.changed && rounded?.tooltip ? layout.noteLeading : 0);
-  };
-
-  const buildRowParts = line => {
-    const rounded = line?.danko;
-    const widthText = formatProcessingNumber(line?.width, line?.widthDisplay, decimalSeparator);
-    const heightText = formatProcessingNumber(line?.height, line?.heightDisplay, decimalSeparator);
-    const qtyText = line && line.qty != null ? String(line.qty) : "";
-    return {
-      widthText,
-      heightText,
-      qtyText,
-      caution: line?.invalid ? "!" : "",
-      approx: rounded?.changed ? "~" : "",
-    };
-  };
-
-  const buildBlocks = () => {
-    const blocks = [];
-    const groups = Array.isArray(preview.groups) ? preview.groups : [];
-    groups.forEach((group, groupIndex) => {
-      const headerText = group && group.headerText
-        ? group.headerText
-        : ((group && group.display) ? group.display : "(Header not set)");
-      const sections = Array.isArray(group?.sections) && group.sections.length
-        ? group.sections
-        : [{ orderHeaderText: "", lines: Array.isArray(group?.lines) ? group.lines : [] }];
-      const firstSection = sections.find(section => Array.isArray(section?.lines) && section.lines.length) || sections[0] || {};
-      const firstLines = Array.isArray(firstSection?.lines) ? firstSection.lines : [];
-      const firstRowHeight = firstLines.length ? rowHeightForLine(firstLines[0]) : layout.rowLeading;
-      const firstOrderHeight = firstSection?.orderHeaderText ? layout.orderTopGap + layout.orderLeading + layout.orderBottomGap : 0;
-
-      blocks.push({
-        type: "group",
-        text: headerText,
-        topGap: groupIndex === 0 ? 0 : layout.groupTopGap,
-        keepWithNext: firstOrderHeight + firstRowHeight,
-      });
-
-      sections.forEach(section => {
-        const lines = Array.isArray(section?.lines) ? section.lines : [];
-        const orderHeaderText = (section && typeof section.orderHeaderText === "string" && section.orderHeaderText.trim().length)
-          ? section.orderHeaderText
-          : "";
-        if (orderHeaderText){
-          blocks.push({
-            type: "order",
-            text: orderHeaderText,
-            keepWithNext: lines.length ? rowHeightForLine(lines[0]) : layout.rowLeading,
-          });
-        }
-        if (!lines.length){
-          blocks.push({ type: "empty", text: "No line items." });
-        }else{
-          lines.forEach(line => blocks.push({ type: "row", line }));
-        }
-      });
-    });
-    return blocks;
-  };
-
-  const decimalSeparator = preview.meta?.decimalSeparator || appState.processing.options.decimalSeparator || "comma";
-  const titleLines = wrapText(formatProcessingMeta(preview.meta || {}), boldFont, layout.titleSize, layout.contentWidth);
-  const titleHeight = (titleLines.length * layout.titleLeading) + 4;
-  const blocks = buildBlocks();
-  const pages = [];
   let page = null;
-  let pageIndex = -1;
   let columnIndex = 0;
-  let cursorY = layout.columnTop;
+  let cursorY = layout.columnTop - layout.fontSize;
 
-  const currentColumnX = () => layout.marginX + (columnIndex * (layout.columnWidth + layout.columnGap));
-  const availableColumnHeight = () => cursorY - layout.columnBottom;
-  const setColumnTop = () => {
-    cursorY = layout.columnTop;
-    if (pageIndex === 0){
-      cursorY -= titleHeight;
-    }
-  };
+  const currentColumnX = () => layout.margin + (columnIndex * (layout.columnWidth + layout.columnGap));
   const addPage = () => {
     page = pdfDoc.addPage([layout.pageWidth, layout.pageHeight]);
-    pages.push(page);
-    pageIndex += 1;
     columnIndex = 0;
-    setColumnTop();
-    if (pageIndex === 0){
-      let titleY = layout.pageHeight - layout.marginTop - layout.titleSize;
-      titleLines.forEach(line => {
-        page.drawText(line, {
-          x: layout.marginX,
-          y: titleY,
-          size: layout.titleSize,
-          font: boldFont,
-          color: colors.text,
-        });
-        titleY -= layout.titleLeading;
-      });
-      const ruleY = layout.pageHeight - layout.marginTop - titleHeight + 2;
-      page.drawLine({
-        start: { x: layout.marginX, y: ruleY },
-        end: { x: layout.pageWidth - layout.marginX, y: ruleY },
-        thickness: 0.45,
-        color: colors.lightRule,
-      });
-    }
+    cursorY = layout.columnTop - layout.fontSize;
   };
   const advanceColumn = () => {
     if (columnIndex === 0){
       columnIndex = 1;
-      setColumnTop();
+      cursorY = layout.columnTop - layout.fontSize;
     }else{
       addPage();
     }
   };
-  const ensureSpace = requiredHeight => {
-    const columnFullHeight = (pageIndex === 0 ? layout.columnTop - titleHeight : layout.columnTop) - layout.columnBottom;
-    while (requiredHeight <= columnFullHeight && availableColumnHeight() < requiredHeight){
+  const ensureLineSpace = () => {
+    if (cursorY < layout.columnBottom){
       advanceColumn();
     }
   };
+  const wrapLine = line => {
+    const text = String(line ?? "");
+    if (text === "") return [""];
+    const indent = (text.match(/^\s*/) || [""])[0];
+    const maxWidth = layout.columnWidth;
+    if (textWidth(text) <= maxWidth) return [text];
+
+    const words = text.trimEnd().split(/(\s+)/);
+    const wrapped = [];
+    let current = "";
+    words.forEach(part => {
+      if (!part) return;
+      const next = current ? `${current}${part}` : part;
+      if (current && textWidth(next) > maxWidth){
+        wrapped.push(current.trimEnd());
+        current = indent && part.trim() ? `${indent}${part.trimStart()}` : part.trimStart();
+      }else{
+        current = next;
+      }
+      while (current && textWidth(current) > maxWidth){
+        let cut = current.length;
+        while (cut > 1 && textWidth(current.slice(0, cut)) > maxWidth){
+          cut -= 1;
+        }
+        wrapped.push(current.slice(0, cut));
+        current = `${indent}${current.slice(cut)}`;
+      }
+    });
+    if (current || !wrapped.length){
+      wrapped.push(current.trimEnd());
+    }
+    return wrapped;
+  };
+  const drawTextLine = line => {
+    ensureLineSpace();
+    if (line !== ""){
+      page.drawText(toPdfText(line), {
+        x: currentColumnX(),
+        y: cursorY,
+        size: layout.fontSize,
+        font: regularFont,
+        color: textColor,
+      });
+    }
+    cursorY -= layout.lineHeight;
+  };
 
   addPage();
-
-  const measureBlock = block => {
-    if (block.type === "group"){
-      const lines = wrapText(block.text, boldFont, layout.groupSize, layout.columnWidth);
-      return {
-        lines,
-        height: (block.topGap || 0) + (lines.length * layout.groupLeading) + layout.groupBottomGap + 1.5,
-      };
-    }
-    if (block.type === "order"){
-      const lines = wrapText(block.text, boldFont, layout.orderSize, layout.columnWidth);
-      return {
-        lines,
-        height: layout.orderTopGap + (lines.length * layout.orderLeading) + layout.orderBottomGap,
-      };
-    }
-    if (block.type === "row"){
-      return { height: rowHeightForLine(block.line) };
-    }
-    return { height: layout.rowLeading };
-  };
-
-  const drawBlock = block => {
-    const measured = measureBlock(block);
-    ensureSpace(measured.height + (block.keepWithNext || 0));
-    const x = currentColumnX();
-
-    if (block.type === "group"){
-      cursorY -= block.topGap || 0;
-      measured.lines.forEach(line => {
-        page.drawText(line, {
-          x,
-          y: cursorY - layout.groupSize,
-          size: layout.groupSize,
-          font: boldFont,
-          color: colors.text,
-        });
-        cursorY -= layout.groupLeading;
-      });
-      cursorY -= layout.groupBottomGap;
-      page.drawLine({
-        start: { x, y: cursorY },
-        end: { x: x + layout.columnWidth, y: cursorY },
-        thickness: 0.35,
-        color: colors.rule,
-      });
-      cursorY -= 1.5;
-      return;
-    }
-
-    if (block.type === "order"){
-      cursorY -= layout.orderTopGap;
-      measured.lines.forEach(line => {
-        page.drawText(line, {
-          x,
-          y: cursorY - layout.orderSize,
-          size: layout.orderSize,
-          font: boldFont,
-          color: colors.text,
-        });
-        cursorY -= layout.orderLeading;
-      });
-      cursorY -= layout.orderBottomGap;
-      return;
-    }
-
-    if (block.type === "row"){
-      const idxText = block.line && block.line.idx != null ? String(block.line.idx) : "";
-      const idxWidth = textWidth(idxText, regularFont, layout.rowSize);
-      const rowY = cursorY - layout.rowSize;
-      page.drawText(idxText, {
-        x: x + layout.rowIndexWidth - idxWidth,
-        y: rowY,
-        size: layout.rowSize,
-        font: regularFont,
-        color: colors.text,
-      });
-      page.drawText("\u2014", {
-        x: x + layout.rowIndexWidth + layout.rowDashGap,
-        y: rowY,
-        size: layout.rowSize,
-        font: regularFont,
-        color: colors.text,
-      });
-      const rowParts = buildRowParts(block.line);
-      const rowBaseX = x + layout.rowIndexWidth + layout.rowDashGap + 10;
-      const widthX = rowBaseX + layout.rowWidthField - textWidth(rowParts.widthText, regularFont, layout.rowSize);
-      const firstTimesX = rowBaseX + layout.rowWidthField + 3;
-      const heightBaseX = firstTimesX + 7;
-      const heightX = heightBaseX + layout.rowHeightField - textWidth(rowParts.heightText, regularFont, layout.rowSize);
-      const afterHeightX = heightBaseX + layout.rowHeightField + 3;
-      const secondTimesX = afterHeightX + (rowParts.approx ? 7 : 0);
-      const qtyX = secondTimesX + 7;
-      page.drawText(pdfSafeText(rowParts.widthText), {
-        x: widthX,
-        y: rowY,
-        size: layout.rowSize,
-        font: regularFont,
-        color: colors.text,
-      });
-      page.drawText("\u00d7", {
-        x: firstTimesX,
-        y: rowY,
-        size: layout.rowSize,
-        font: regularFont,
-        color: colors.text,
-      });
-      page.drawText(pdfSafeText(rowParts.heightText), {
-        x: heightX,
-        y: rowY,
-        size: layout.rowSize,
-        font: regularFont,
-        color: colors.text,
-      });
-      if (rowParts.approx){
-        page.drawText(rowParts.approx, {
-          x: afterHeightX,
-          y: rowY,
-          size: layout.rowSize,
-          font: regularFont,
-          color: colors.text,
-        });
-      }
-      page.drawText("\u00d7", {
-        x: secondTimesX,
-        y: rowY,
-        size: layout.rowSize,
-        font: regularFont,
-        color: colors.text,
-      });
-      page.drawText(pdfSafeText(rowParts.qtyText), {
-        x: qtyX,
-        y: rowY,
-        size: layout.rowSize,
-        font: regularFont,
-        color: colors.text,
-      });
-      if (rowParts.caution){
-        page.drawText(rowParts.caution, {
-          x: qtyX + textWidth(rowParts.qtyText, regularFont, layout.rowSize) + 4,
-          y: rowY,
-          size: layout.rowSize,
-          font: regularFont,
-          color: colors.text,
-        });
-      }
-      cursorY -= layout.rowLeading;
-      if (block.line?.danko?.changed && block.line?.danko?.tooltip){
-        page.drawText(pdfSafeText(`rounded from ${block.line.danko.tooltip.replace(/^Rounded from\s+/i, "")}`), {
-          x: rowBaseX + layout.rowWidthField + 13,
-          y: cursorY - layout.noteSize,
-          size: layout.noteSize,
-          font: regularFont,
-          color: colors.muted,
-        });
-        cursorY -= layout.noteLeading;
-      }
-      return;
-    }
-
-    page.drawText(pdfSafeText(block.text || ""), {
-      x,
-      y: cursorY - layout.rowSize,
-      size: layout.rowSize,
-      font: regularFont,
-      color: colors.muted,
-    });
-    cursorY -= layout.rowLeading;
-  };
-
-  blocks.forEach(drawBlock);
-
-  const totalPages = pages.length;
-  pages.forEach((pdfPage, index) => {
-    const footer = `Page ${index + 1} / ${totalPages}`;
-    const footerWidth = textWidth(footer, regularFont, layout.footerSize);
-    pdfPage.drawText(footer, {
-      x: layout.pageWidth - layout.marginX - footerWidth,
-      y: 7,
-      size: layout.footerSize,
-      font: regularFont,
-      color: colors.muted,
-    });
+  plainText.split(/\r?\n/).forEach(sourceLine => {
+    wrapLine(sourceLine).forEach(drawTextLine);
   });
 
   const pdfBytes = await pdfDoc.save();
