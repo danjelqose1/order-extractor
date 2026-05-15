@@ -71,6 +71,7 @@ from db import (
 from validators import validate_rows
 from dimension_repair import apply_dimension_repair
 from area_dimension_validator import apply_area_dimension_validation
+from agents.skills.extraction_diagnostics import diagnose_extraction_row_issue
 from extraction_normalizer import normalize_extracted_rows
 from utils_text import clean_dimension, parse_declared_totals
 from prompts import PROMPTS
@@ -517,6 +518,15 @@ def _summarize_totals(rows: List[Dict[str, Any]]) -> Dict[str, float]:
         except Exception:
             pass
     return {"units": units, "area": round(area, 3)}
+
+
+def _with_extraction_diagnostics(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    output: List[Dict[str, Any]] = []
+    for row in rows or []:
+        working = dict(row)
+        working["diagnostics"] = diagnose_extraction_row_issue(working)
+        output.append(working)
+    return output
 
 
 def _is_pdf_file(filename: str, content_type: str) -> bool:
@@ -1261,6 +1271,7 @@ def extract(inb: PasteIn, x_app_key: Optional[str] = Header(default=None)) -> Di
                 f"declared_area_mismatch: declared {declared_area:.3f}, parsed {totals['area']:.3f}"
             )
         combined_warnings = _dedupe_warnings(combined_warnings)
+        response_rows = _with_extraction_diagnostics(final_rows)
 
         insert_result = insert_extraction_with_rows(
             source="paste",
@@ -1279,7 +1290,7 @@ def extract(inb: PasteIn, x_app_key: Optional[str] = Header(default=None)) -> Di
 
         payload = {
             "order_number": (bundle.get("data") or {}).get("order_number") or _primary_order_number(final_rows),
-            "rows": final_rows,
+            "rows": response_rows,
             "warnings": combined_warnings,
             "row_warnings": row_warnings,
             "draft_order_id": draft_order_id,
@@ -1502,6 +1513,7 @@ def _extract_order_file_bytes(
                 f"declared_area_mismatch: declared {declared_area:.3f}, parsed {totals['area']:.3f}"
             )
         combined_warnings = _dedupe_warnings(combined_warnings)
+        response_rows = _with_extraction_diagnostics(final_rows)
 
         possible_duplicate = None
         possible_duplicate_reason = None
@@ -1549,7 +1561,7 @@ def _extract_order_file_bytes(
 
         response = {
             "order_number": (bundle.get("data") or {}).get("order_number") or _primary_order_number(final_rows),
-            "rows": final_rows,
+            "rows": response_rows,
             "warnings": combined_warnings,
             "row_warnings": row_warnings,
             "draft_order_id": draft_order_id,
@@ -2518,6 +2530,7 @@ def get_order_detail(order_id: int) -> Dict[str, Any]:
         order["warnings"].append(
             f"declared_area_mismatch: declared {declared_area:.3f}, parsed {totals['area']:.3f}"
         )
+    order["rows"] = _with_extraction_diagnostics(order["rows"])
     return order
 
 
@@ -2628,6 +2641,7 @@ def approve_order(order_id: int, payload: ApprovePayload) -> Dict[str, Any]:
         combined_warnings.append(
             f"declared_area_mismatch: declared {declared_area:.3f}, parsed {totals['area']:.3f}"
         )
+    updated_order["rows"] = _with_extraction_diagnostics(updated_order.get("rows") or [])
     return {
         "saved_order_id": order_id,
         "warnings": combined_warnings,

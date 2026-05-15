@@ -7726,6 +7726,67 @@ function areaFromDim(dim){
   return Math.round(((w * h) / 1_000_000) * 1000) / 1000;
 }
 
+function getRowDiagnostics(row){
+  if (!row || typeof row !== "object") return null;
+  const diagnostics = row.diagnostics || row.extraction_diagnostics || row.extractionDiagnostics;
+  return diagnostics && typeof diagnostics === "object" ? diagnostics : null;
+}
+
+function hasActionableDiagnostics(row){
+  const diagnostics = getRowDiagnostics(row);
+  return diagnostics?.severity === "warning" || diagnostics?.severity === "error";
+}
+
+function getDiagnosticIssues(row){
+  if (!hasActionableDiagnostics(row)) return [];
+  const issues = getRowDiagnostics(row)?.issues;
+  return Array.isArray(issues) ? issues : [];
+}
+
+function hasDiagnosticIssue(row, code){
+  return getDiagnosticIssues(row).some(issue => String(issue?.code || "") === code);
+}
+
+function diagnosticCalculatedArea(row){
+  const value = getRowDiagnostics(row)?.computed?.calculated_area;
+  if (value == null) return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function clearDiagnosticsForManualEdit(row){
+  if (!row || typeof row !== "object") return;
+  delete row.diagnostics;
+  delete row.extraction_diagnostics;
+  delete row.extractionDiagnostics;
+  delete row.area_mismatch;
+}
+
+function markAreaDiagnosticFixed(row, calculatedArea){
+  const diagnostics = getRowDiagnostics(row);
+  if (!diagnostics) return;
+  const remainingIssues = Array.isArray(diagnostics.issues)
+    ? diagnostics.issues.filter(issue => {
+        const code = String(issue?.code || "");
+        return code !== "AREA_MISMATCH" && code !== "POSSIBLE_DIMENSION_OCR_ERROR";
+      })
+    : [];
+  const nextSeverity = remainingIssues.length ? diagnostics.severity : "ok";
+  row.diagnostics = {
+    ...diagnostics,
+    severity: nextSeverity,
+    issues: remainingIssues,
+    computed: {
+      ...(diagnostics.computed || {}),
+      calculated_area: calculatedArea,
+      extracted_area: calculatedArea,
+      difference: 0,
+      difference_percent: 0,
+    },
+    requires_human_review: nextSeverity !== "ok",
+  };
+}
+
 function cleanPosKey(position){
   if (!position) return [0, 0, ""];
   const [main, suffix = ""] = position.split("/");
@@ -7789,11 +7850,10 @@ function fixAreaForRow(scope, index){
   const rows = bucket.rows || [];
   const row = rows[index];
   if (!row) return;
-  const computed = typeof row.computed_area === "number" ? row.computed_area : areaFromDim(row.dimension);
+  const computed = diagnosticCalculatedArea(row);
   if (computed == null) return;
   row.area = computed;
-  row.computed_area = computed;
-  row.area_mismatch = false;
+  markAreaDiagnosticFixed(row, computed);
   if (bucket.rowWarnings && row._rid && bucket.rowWarnings[row._rid]){
     bucket.rowWarnings[row._rid] = bucket.rowWarnings[row._rid].filter(item => !item.includes("area"));
   }
@@ -7809,11 +7869,10 @@ function fixAllAreas(scope){
   const bucket = scope === "history" ? appState.historyDetail : appState.extract;
   let changed = false;
   (bucket.rows || []).forEach((row, idx) => {
-    const computed = typeof row.computed_area === "number" ? row.computed_area : areaFromDim(row.dimension);
-    if (computed != null && Math.abs(Number(row.area || 0) - computed) > 0.01){
+    const computed = diagnosticCalculatedArea(row);
+    if (computed != null && hasDiagnosticIssue(row, "AREA_MISMATCH")){
       row.area = computed;
-      row.computed_area = computed;
-      row.area_mismatch = false;
+      markAreaDiagnosticFixed(row, computed);
       if (bucket.rowWarnings && row._rid && bucket.rowWarnings[row._rid]){
         bucket.rowWarnings[row._rid] = bucket.rowWarnings[row._rid].filter(item => !item.includes("area"));
       }
@@ -7900,16 +7959,22 @@ function renderEditableTable(scope, containerId, rows, rowWarnings){
       if (hasSplit){
         warningBadges.push('<span class="editable-badge" title="Possible split line; please fix dimension/position wrap">⚠️</span>');
       }
-      const computed = typeof row.computed_area === "number" ? row.computed_area : areaFromDim(row.dimension);
-      const providedArea = Number(row.area || 0);
-      const mismatch = computed != null && Math.abs(providedArea - computed) > 0.01;
-      if (mismatch){
-        const delta = (providedArea - computed).toFixed(3);
-        warningBadges.push(`<span class="pill warn" title="Provided ${providedArea.toFixed(3)} vs computed ${computed.toFixed(3)}">Δ ${delta} m²</span>`);
+      const diagnostics = getRowDiagnostics(row);
+      const diagnosticIssues = getDiagnosticIssues(row);
+      const mismatch = hasDiagnosticIssue(row, "AREA_MISMATCH");
+      const computed = diagnosticCalculatedArea(row);
+      const extractedArea = Number(diagnostics?.computed?.extracted_area ?? row.area ?? 0);
+      if (mismatch && computed != null){
+        const delta = Number.isFinite(extractedArea) ? (extractedArea - computed).toFixed(3) : "";
+        const title = Number.isFinite(extractedArea)
+          ? `Provided ${extractedArea.toFixed(3)} vs computed ${computed.toFixed(3)}`
+          : `Computed ${computed.toFixed(3)}`;
+        warningBadges.push(`<span class="pill warn" title="${escapeHtml(title)}">Δ ${escapeHtml(delta)} m²</span>`);
       }
-      const otherWarnings = warns.filter(w => !w.includes("possible_split_line"));
-      if (otherWarnings.length){
-        warningBadges.push(`<span class="editable-badge" title="${escapeHtml(otherWarnings.join('; '))}">!</span>`);
+      const otherIssues = diagnosticIssues.filter(issue => String(issue?.code || "") !== "AREA_MISMATCH");
+      if (otherIssues.length){
+        const issueText = otherIssues.map(issue => issue?.message || issue?.code || "Diagnostic warning").join("; ");
+        warningBadges.push(`<span class="editable-badge" title="${escapeHtml(issueText)}">!</span>`);
       }
       const warningBadge = warningBadges.join(" ");
       const inputBase = `data-scope="${scope}" data-index="${rowIndex}" autocomplete="off" class="cell"`;
@@ -7919,7 +7984,7 @@ function renderEditableTable(scope, containerId, rows, rowWarnings){
       const posKey = `${row._rid}:position`;
       const qtyKey = `${row._rid}:quantity`;
       const areaKey = `${row._rid}:area`;
-      const fixBtn = mismatch ? `<button type="button" class="btn small" data-fix-area="${rowIndex}" title="Set area to ${computed?.toFixed(3) ?? ""}">Fix</button>` : "";
+      const fixBtn = mismatch && computed != null ? `<button type="button" class="btn small" data-fix-area="${rowIndex}" title="Set area to ${computed.toFixed(3)}">Fix</button>` : "";
       const removeBtn = `<button type="button" class="btn small danger" data-remove-row="${escapeHtml(row._rid)}">Remove</button>`;
       const actionButtons = [fixBtn, removeBtn].filter(Boolean).join(" ");
       html += `<tr data-index="${rowIndex}" data-order="${escapeHtml(order)}">
@@ -7962,17 +8027,11 @@ function updateRowValue(scope, index, field, value, options = {}){
   if (bucket.rowWarnings && rid){
     delete bucket.rowWarnings[rid];
   }
-  if (field === "dimension" || field === "area"){
-    const computed = areaFromDim(row.dimension);
-    row.computed_area = computed;
-    if (computed != null){
-      row.area_mismatch = Math.abs(Number(row.area || 0) - computed) > 0.01;
-    }else{
-      row.area_mismatch = null;
-    }
-  }
   if (field === "quantity"){
     row.quantity = Math.max(0, Number(row.quantity || 0));
+  }
+  if (field === "dimension" || field === "quantity" || field === "area"){
+    clearDiagnosticsForManualEdit(row);
   }
   if (scope === "extract"){
     window.__rows = bucket.rows;
@@ -11184,13 +11243,7 @@ function isExtractLowConfidenceEnabled(){
 
 function isLowConfidenceRow(row, rowWarnings){
   if (!row) return false;
-  const flags = Array.isArray(row.flags) ? row.flags : [];
-  if (
-    row.area_mismatch ||
-    flags.includes("AREA_DIMENSION_MISMATCH") ||
-    flags.includes("SUSPICIOUS_TRUNCATION") ||
-    flags.includes("SUGGESTED_DIMENSION_FROM_AREA")
-  ){
+  if (hasActionableDiagnostics(row)){
     return true;
   }
   const warnings = Array.isArray(rowWarnings) ? rowWarnings : [];
@@ -11334,18 +11387,14 @@ function updateFixAllState(scope){
     const order = appState.historyDetail.order;
     const status = normalizeHistoryStatusValue(order && order.status);
     const mismatchCount = (appState.historyDetail.rows || []).filter(row => {
-      const computed = typeof row.computed_area === "number" ? row.computed_area : areaFromDim(row.dimension);
-      if (computed == null) return false;
-      return Math.abs(Number(row.area || 0) - computed) > 0.01;
+      return hasDiagnosticIssue(row, "AREA_MISMATCH") && diagnosticCalculatedArea(row) != null;
     }).length;
     btn.hidden = !canEditDraftStatus(status) || mismatchCount === 0;
   }else{
     const btn = document.getElementById("fixAllAreas");
     if (!btn) return;
     const mismatchCount = (appState.extract.rows || []).filter(row => {
-      const computed = typeof row.computed_area === "number" ? row.computed_area : areaFromDim(row.dimension);
-      if (computed == null) return false;
-      return Math.abs(Number(row.area || 0) - computed) > 0.01;
+      return hasDiagnosticIssue(row, "AREA_MISMATCH") && diagnosticCalculatedArea(row) != null;
     }).length;
     btn.hidden = groupState || mismatchCount === 0;
   }

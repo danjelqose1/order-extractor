@@ -13,6 +13,7 @@ import fitz
 from sqlalchemy import func, select
 
 from area_dimension_validator import apply_area_dimension_validation
+from agents.skills.extraction_diagnostics import diagnose_extraction_row_issue
 from db import (
     Order,
     ProcessingBatch,
@@ -487,15 +488,12 @@ def _validate_order(order: Dict[str, Any]) -> Dict[str, Any]:
         if any(token in text.lower() for token in ("missing", "invalid", "mismatch", "dimension", "quantity", "area")):
             critical.append(text)
     for idx, row in enumerate(final_rows, start=1):
-        _, dims = clean_dimension(row.get("dimension") or "")
-        try:
-            qty = int(row.get("quantity") or 0)
-        except Exception:
-            qty = 0
-        if len(dims or []) < 2:
-            critical.append(f"Row {idx} has missing or invalid dimensions.")
-        if qty <= 0:
-            critical.append(f"Row {idx} has invalid quantity.")
+        diagnostics = diagnose_extraction_row_issue(row)
+        if diagnostics.get("severity") not in {"warning", "error"}:
+            continue
+        for issue in diagnostics.get("issues") or []:
+            message = issue.get("message") or issue.get("code") or "Extraction diagnostic warning"
+            critical.append(f"Row {idx}: {message}")
     for key, values in (row_warnings.items() if isinstance(row_warnings, dict) else []):
         for value in values or []:
             critical.append(f"Row {key}: {value}")
