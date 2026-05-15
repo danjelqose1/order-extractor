@@ -14,6 +14,9 @@ import time
 BACKEND_DIR = os.path.dirname(__file__)
 if BACKEND_DIR not in sys.path:
     sys.path.insert(0, BACKEND_DIR)
+PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 from fastapi import FastAPI, HTTPException, Header, UploadFile, File, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -71,7 +74,7 @@ from db import (
 from validators import validate_rows
 from dimension_repair import apply_dimension_repair
 from area_dimension_validator import apply_area_dimension_validation
-from agents.skills.extraction_diagnostics import diagnose_extraction_row_issue
+from backend.agents.skills.extraction_diagnostics import diagnose_extraction_row_issue
 from extraction_normalizer import normalize_extracted_rows
 from utils_text import clean_dimension, parse_declared_totals
 from prompts import PROMPTS

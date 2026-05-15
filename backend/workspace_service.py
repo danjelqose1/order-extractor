@@ -13,7 +13,7 @@ import fitz
 from sqlalchemy import func, select
 
 from area_dimension_validator import apply_area_dimension_validation
-from agents.skills.extraction_diagnostics import diagnose_extraction_row_issue
+from backend.agents.skills.extraction_diagnostics import diagnose_extraction_row_issue
 from db import (
     Order,
     ProcessingBatch,

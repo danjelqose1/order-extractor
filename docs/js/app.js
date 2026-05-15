@@ -7714,18 +7714,6 @@ function withPreservedFocus(callback, options = {}){
   }
 }
 
-function parseDim(dim){
-  const match = (dim || "").trim().match(/^(\d{2,4})\s*[xX×]\s*(\d{2,4})$/);
-  return match ? [Number(match[1]), Number(match[2])] : null;
-}
-
-function areaFromDim(dim){
-  const parsed = parseDim(dim);
-  if (!parsed) return null;
-  const [w, h] = parsed;
-  return Math.round(((w * h) / 1_000_000) * 1000) / 1000;
-}
-
 function getRowDiagnostics(row){
   if (!row || typeof row !== "object") return null;
   const diagnostics = row.diagnostics || row.extraction_diagnostics || row.extractionDiagnostics;
@@ -7820,8 +7808,6 @@ function addRowToGroup(scope, order){
     position: nextPositionForGroup(rows, targetOrder),
     quantity: 1,
     area: 0,
-    computed_area: null,
-    area_mismatch: null,
     _rid: rid,
   };
   rows.push(newRow);
@@ -7953,12 +7939,7 @@ function renderEditableTable(scope, containerId, rows, rowWarnings){
         row._rid = `${scope}-${Date.now()}-${globalIndex}`;
       }
       const rowIndex = indexMap.has(row._rid) ? indexMap.get(row._rid) : globalIndex;
-      const warns = rowWarnings && rowWarnings[row._rid] ? rowWarnings[row._rid] : [];
-      const hasSplit = warns.some(w => w.includes("possible_split_line"));
       const warningBadges = [];
-      if (hasSplit){
-        warningBadges.push('<span class="editable-badge" title="Possible split line; please fix dimension/position wrap">⚠️</span>');
-      }
       const diagnostics = getRowDiagnostics(row);
       const diagnosticIssues = getDiagnosticIssues(row);
       const mismatch = hasDiagnosticIssue(row, "AREA_MISMATCH");
@@ -11243,11 +11224,7 @@ function isExtractLowConfidenceEnabled(){
 
 function isLowConfidenceRow(row, rowWarnings){
   if (!row) return false;
-  if (hasActionableDiagnostics(row)){
-    return true;
-  }
-  const warnings = Array.isArray(rowWarnings) ? rowWarnings : [];
-  return warnings.some(entry => String(entry || "").toLowerCase().includes("warning"));
+  return hasActionableDiagnostics(row);
 }
 
 function getExtractRowsForView(){
