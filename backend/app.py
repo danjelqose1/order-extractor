@@ -77,6 +77,7 @@ from area_dimension_validator import apply_area_dimension_validation
 from backend.agents.skills.extraction_diagnostics import (
     diagnose_extraction_row_issue,
     diagnose_extraction_row_warning,
+    ocr_fallback_row_repair,
 )
 from extraction_normalizer import normalize_extracted_rows
 from utils_text import clean_dimension, parse_declared_totals
@@ -358,6 +359,16 @@ class ApprovePayload(BaseModel):
 class ExtractionRowDiagnosisPayload(BaseModel):
     row: Dict[str, Any]
     diagnostics: Optional[Dict[str, Any]] = None
+    order_context: Optional[Dict[str, Any]] = None
+
+
+class ExtractionRowOcrFallbackPayload(BaseModel):
+    order_id: Optional[str] = None
+    pdf_id: Optional[str] = None
+    row_index: int = 0
+    row: Dict[str, Any]
+    diagnostics: Optional[Dict[str, Any]] = None
+    target_field: Optional[str] = None
     order_context: Optional[Dict[str, Any]] = None
 
 
@@ -1234,6 +1245,20 @@ def diagnose_extraction_row(payload: ExtractionRowDiagnosisPayload) -> Dict[str,
     )
     diagnosis["diagnostics"] = diagnostics
     return diagnosis
+
+
+@app.post("/api/extraction/ocr-fallback-row")
+def ocr_fallback_extraction_row(payload: ExtractionRowOcrFallbackPayload) -> Dict[str, Any]:
+    row = deepcopy(payload.row or {})
+    diagnostics = diagnose_extraction_row_issue(row)
+    return ocr_fallback_row_repair(
+        row=deepcopy(row),
+        diagnostics=deepcopy(diagnostics),
+        target_field=payload.target_field,
+        order_context=deepcopy(payload.order_context or {}),
+        row_index=payload.row_index,
+        pdf_id=payload.pdf_id,
+    )
 
 
 @app.post("/extract")

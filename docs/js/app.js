@@ -7737,6 +7737,27 @@ function hasDiagnosticIssue(row, code){
   return getDiagnosticIssues(row).some(issue => String(issue?.code || "") === code);
 }
 
+function chooseFallbackTargetField(row){
+  const codes = getDiagnosticIssues(row).map(issue => String(issue?.code || "").toUpperCase());
+  const hasAny = (...items) => items.some(item => codes.includes(item));
+  if (hasAny("MISSING_DIMENSION", "INVALID_DIMENSION", "INVALID_DIMENSION_FORMAT", "DIMENSION_OUT_OF_RANGE", "SUSPICIOUS_DIMENSION_SIZE", "AREA_MISMATCH", "POSSIBLE_DIMENSION_OCR_ERROR")){
+    return "dimension";
+  }
+  if (hasAny("INVALID_AREA", "MISSING_EXTRACTED_AREA", "INVALID_EXTRACTED_AREA")){
+    return "area";
+  }
+  if (hasAny("MISSING_QUANTITY", "INVALID_QUANTITY")){
+    return "quantity";
+  }
+  if (hasAny("GLASS_TYPE_UNCLEAR")){
+    return "type";
+  }
+  if (hasAny("POSITION_WARNING", "EMPTY_POSITION", "DUPLICATE_POSITION")){
+    return "position";
+  }
+  return "dimension";
+}
+
 function diagnosticCalculatedArea(row){
   const value = getRowDiagnostics(row)?.computed?.calculated_area;
   if (value == null) return null;
@@ -7856,12 +7877,16 @@ async function requestRowDiagnosis(scope, index){
     updateExtractUI();
   }
   try{
-    const response = await fetch(API_BASE + "/api/extraction/diagnose-row", {
+    const response = await fetch(API_BASE + "/api/extraction/ocr-fallback-row", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        order_id: bucket.draftId || bucket.savedOrderId || bucket.order?.id || null,
+        pdf_id: bucket.source_hash || bucket.order?.source_hash || null,
+        row_index: index,
         row,
         diagnostics,
+        target_field: chooseFallbackTargetField(row),
         order_context: buildRowDiagnosisContext(scope, index),
       }),
     });
@@ -7870,11 +7895,10 @@ async function requestRowDiagnosis(scope, index){
       throw new Error(message || `HTTP ${response.status}`);
     }
     bucket.rowDiagnoses[rid] = await response.json();
-    if (bucket.rowDiagnoses[rid]?.diagnostics){
-      row.diagnostics = bucket.rowDiagnoses[rid].diagnostics;
-    }
+    bucket.rowDiagnoses[rid].row_key = rid;
   }catch(error){
     bucket.rowDiagnoses[rid] = {
+      row_key: rid,
       severity: "error",
       summary: "Diagnosis request failed.",
       likely_cause: error.message || String(error),
@@ -7888,6 +7912,76 @@ async function requestRowDiagnosis(scope, index){
     updateHistoryDetailUI();
   }else{
     updateExtractUI();
+  }
+}
+
+function coerceSuggestionValue(field, value){
+  if (field === "quantity"){
+    const parsed = parseInt(value, 10);
+    return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+  }
+  if (field === "area"){
+    const parsed = parseFloat(value);
+    return Number.isFinite(parsed) ? Number(parsed.toFixed(3)) : 0;
+  }
+  return value == null ? "" : String(value);
+}
+
+function acceptRowSuggestion(scope, rowKey){
+  const bucket = scope === "history" ? appState.historyDetail : appState.extract;
+  const rows = bucket.rows || [];
+  const row = rows.find(item => String(item._rid || item.id || "") === String(rowKey));
+  if (!row) return;
+  const suggestion = bucket.rowDiagnoses && bucket.rowDiagnoses[rowKey];
+  if (!suggestion || !suggestion.success || suggestion.suggested_value == null) return;
+  const field = suggestion.target_field || "dimension";
+  row._original_values = row._original_values || {};
+  if (!(field in row._original_values)){
+    row._original_values[field] = row[field];
+  }
+  row[field] = coerceSuggestionValue(field, suggestion.suggested_value);
+  row._accepted_suggestions = Array.isArray(row._accepted_suggestions) ? row._accepted_suggestions : [];
+  row._accepted_suggestions.push({
+    field,
+    original_value: suggestion.original_value,
+    suggested_value: suggestion.suggested_value,
+    method: suggestion.method,
+    accepted_at: new Date().toISOString(),
+  });
+  clearDiagnosticsForManualEdit(row);
+  delete bucket.rowDiagnoses[rowKey];
+  const index = rows.indexOf(row);
+  recalcParsedTotals(bucket);
+  if (scope === "history"){
+    updateHistoryDetailUI();
+  }else{
+    updateExtractUI();
+  }
+  refreshRowDiagnostics(scope, index);
+}
+
+function keepOriginalSuggestion(scope, rowKey){
+  const bucket = scope === "history" ? appState.historyDetail : appState.extract;
+  if (bucket.rowDiagnoses){
+    delete bucket.rowDiagnoses[rowKey];
+  }
+  if (scope === "history"){
+    updateHistoryDetailUI();
+  }else{
+    updateExtractUI();
+  }
+}
+
+function focusRowField(scope, rowKey, field){
+  const selector = `[data-scope="${cssEscape(scope)}"][data-field="${cssEscape(field)}"]`;
+  const bucket = scope === "history" ? appState.historyDetail : appState.extract;
+  const rows = bucket.rows || [];
+  const index = rows.findIndex(item => String(item._rid || item.id || "") === String(rowKey));
+  if (index < 0) return;
+  const input = [...document.querySelectorAll(selector)].find(item => Number(item.dataset.index) === index);
+  if (input){
+    input.focus();
+    if (typeof input.select === "function") input.select();
   }
 }
 
@@ -7978,6 +8072,38 @@ function renderRowDiagnosisPanel(diagnosis){
   if (!diagnosis) return "";
   if (diagnosis.loading){
     return '<div class="diagnosis-panel"><span class="spinner"></span> Diagnosing row...</div>';
+  }
+  if (Object.prototype.hasOwnProperty.call(diagnosis, "success")){
+    const confidence = Number(diagnosis.confidence);
+    const confidenceText = Number.isFinite(confidence) ? `${Math.round(confidence * 100)}%` : "—";
+    const targetField = diagnosis.target_field || "dimension";
+    const suggestionHtml = diagnosis.success
+      ? `<div><span class="muted">Original:</span> <span class="mono">${escapeHtml(String(diagnosis.original_value ?? ""))}</span></div>
+        <div><span class="muted">Suggested:</span> <span class="mono">${escapeHtml(String(diagnosis.suggested_value ?? ""))}</span></div>`
+      : `<div><span class="muted">Suggestion:</span> ${escapeHtml(diagnosis.reason || "No safe suggestion is available yet.")}</div>`;
+    const nextStep = diagnosis.recommended_next_step
+      ? `<div><span class="muted">Next step:</span> <span class="mono">${escapeHtml(diagnosis.recommended_next_step)}</span></div>`
+      : "";
+    const actions = diagnosis.success
+      ? `<div class="diagnosis-actions">
+          <button type="button" class="btn small" data-accept-suggestion="${escapeHtml(diagnosis.row_key || "")}">Accept suggestion</button>
+          <button type="button" class="btn small" data-keep-suggestion="${escapeHtml(diagnosis.row_key || "")}">Keep original</button>
+          <button type="button" class="btn small" data-manual-suggestion="${escapeHtml(diagnosis.row_key || "")}" data-target-field="${escapeHtml(targetField)}">Manual edit</button>
+        </div>`
+      : `<div class="diagnosis-actions">
+          <button type="button" class="btn small" data-keep-suggestion="${escapeHtml(diagnosis.row_key || "")}">Keep original</button>
+          <button type="button" class="btn small" data-manual-suggestion="${escapeHtml(diagnosis.row_key || "")}" data-target-field="${escapeHtml(targetField)}">Manual edit</button>
+        </div>`;
+    return `<div class="diagnosis-panel">
+      <div><strong>${diagnosis.success ? "SUGGESTION" : "NO SAFE SUGGESTION"}</strong></div>
+      ${suggestionHtml}
+      <div><span class="muted">Confidence:</span> ${escapeHtml(confidenceText)}</div>
+      <div><span class="muted">Method:</span> <span class="mono">${escapeHtml(diagnosis.method || "pattern_fallback_no_pdf_coordinates")}</span></div>
+      <div><span class="muted">Reason:</span> ${escapeHtml(diagnosis.reason || "Review this row manually.")}</div>
+      ${nextStep}
+      <div class="muted">No automatic change was made.</div>
+      ${actions}
+    </div>`;
   }
   const confidence = Number(diagnosis.confidence);
   const confidenceText = Number.isFinite(confidence) ? `${Math.round(confidence * 100)}%` : "—";
@@ -8176,6 +8302,29 @@ document.getElementById("historyTableWrap").addEventListener("click", (event)=>{
 });
 
 document.addEventListener("click", (event)=>{
+  const acceptBtn = event.target.closest("[data-accept-suggestion]");
+  if (acceptBtn){
+    const scope = acceptBtn.closest("#historyTableWrap") ? "history" : (acceptBtn.closest("#tableWrap") ? "extract" : null);
+    if (scope) acceptRowSuggestion(scope, acceptBtn.getAttribute("data-accept-suggestion"));
+    return;
+  }
+  const keepBtn = event.target.closest("[data-keep-suggestion]");
+  if (keepBtn){
+    const scope = keepBtn.closest("#historyTableWrap") ? "history" : (keepBtn.closest("#tableWrap") ? "extract" : null);
+    if (scope) keepOriginalSuggestion(scope, keepBtn.getAttribute("data-keep-suggestion"));
+    return;
+  }
+  const manualBtn = event.target.closest("[data-manual-suggestion]");
+  if (manualBtn){
+    const scope = manualBtn.closest("#historyTableWrap") ? "history" : (manualBtn.closest("#tableWrap") ? "extract" : null);
+    if (scope){
+      const rowKey = manualBtn.getAttribute("data-manual-suggestion");
+      const field = manualBtn.getAttribute("data-target-field") || "dimension";
+      keepOriginalSuggestion(scope, rowKey);
+      setTimeout(() => focusRowField(scope, rowKey, field), 0);
+    }
+    return;
+  }
   const btn = event.target.closest("[data-remove-row]");
   if (!btn) return;
   const rowKey = btn.getAttribute("data-remove-row");

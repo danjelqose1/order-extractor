@@ -9,6 +9,7 @@ MIN_DIMENSION_MM = 200
 MAX_DIMENSION_MM = 6000
 AREA_MISMATCH_PERCENT = 2.0
 AREA_MISMATCH_ABSOLUTE = 0.01
+OCR_FALLBACK_NO_COORDINATES_STEP = "STORE_ROW_COORDINATES_DURING_EXTRACTION"
 
 
 def _issue(code: str, message: str, field: str, recommended_action: str) -> Dict[str, str]:
@@ -240,6 +241,166 @@ def _has_possible_ocr_dimension_fix(
             if abs(extracted_total_area - candidate_area) <= tolerance:
                 return True
     return False
+
+
+def _select_fallback_target_field(diagnostics: Optional[Dict[str, Any]], requested: Optional[str] = None) -> str:
+    allowed = {"dimension", "type", "quantity", "area", "position"}
+    if requested in allowed:
+        return str(requested)
+    codes = set(_issue_codes(diagnostics))
+    if codes & {
+        "MISSING_DIMENSION",
+        "INVALID_DIMENSION",
+        "INVALID_DIMENSION_FORMAT",
+        "DIMENSION_OUT_OF_RANGE",
+        "SUSPICIOUS_DIMENSION_SIZE",
+        "AREA_MISMATCH",
+        "POSSIBLE_DIMENSION_OCR_ERROR",
+    }:
+        return "dimension"
+    if codes & {"INVALID_AREA", "MISSING_EXTRACTED_AREA", "INVALID_EXTRACTED_AREA"}:
+        return "area"
+    if codes & {"MISSING_QUANTITY", "INVALID_QUANTITY"}:
+        return "quantity"
+    if "GLASS_TYPE_UNCLEAR" in codes:
+        return "type"
+    if codes & {"POSITION_WARNING", "EMPTY_POSITION", "DUPLICATE_POSITION"}:
+        return "position"
+    return "dimension"
+
+
+def _fallback_original_value(row: Dict[str, Any], target_field: str) -> Any:
+    if target_field == "type":
+        return row.get("type", row.get("glass_type"))
+    if target_field == "area":
+        return _area_value(row)
+    return row.get(target_field)
+
+
+def _dimension_matches_area(dimension: str, quantity: int, area: float) -> bool:
+    width_mm, height_mm, _raw = _parse_dimension(dimension)
+    if width_mm is None or height_mm is None or quantity <= 0:
+        return False
+    calculated = (width_mm * height_mm * quantity) / 1_000_000
+    tolerance = max(AREA_MISMATCH_ABSOLUTE, calculated * (AREA_MISMATCH_PERCENT / 100.0))
+    return abs(area - calculated) <= tolerance
+
+
+def _dimension_is_suspicious(row: Dict[str, Any], diagnostics: Dict[str, Any]) -> bool:
+    codes = set(_issue_codes(diagnostics))
+    if codes & {
+        "MISSING_DIMENSION",
+        "INVALID_DIMENSION",
+        "INVALID_DIMENSION_FORMAT",
+        "DIMENSION_OUT_OF_RANGE",
+        "SUSPICIOUS_DIMENSION_SIZE",
+        "AREA_MISMATCH",
+        "POSSIBLE_DIMENSION_OCR_ERROR",
+    }:
+        return True
+    width_mm, height_mm, _raw = _parse_dimension(row.get("dimension"))
+    return width_mm is None or height_mm is None or width_mm < MIN_DIMENSION_MM or height_mm < MIN_DIMENSION_MM
+
+
+def _pattern_dimension_suggestion(
+    row: Dict[str, Any],
+    diagnostics: Dict[str, Any],
+    order_context: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    if not _dimension_is_suspicious(row, diagnostics):
+        return None
+    quantity = _parse_quantity(row.get("quantity")) or 1
+    area = _parse_area(_area_value(row))
+    if area is None:
+        return None
+
+    counts: Dict[str, int] = {}
+    for nearby in _nearby_rows(order_context):
+        dimension = _dimension_key(nearby.get("dimension"))
+        if not dimension:
+            continue
+        nearby_quantity = _parse_quantity(nearby.get("quantity"))
+        if nearby_quantity is not None and nearby_quantity != quantity:
+            continue
+        counts[dimension] = counts.get(dimension, 0) + 1
+    if not counts:
+        return None
+
+    ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    best_dimension, best_count = ranked[0]
+    if best_count < 2:
+        return None
+    if not _dimension_matches_area(best_dimension, quantity, area):
+        return None
+
+    return {
+        "dimension": best_dimension,
+        "count": best_count,
+        "nearby_pattern": f"{best_dimension} repeats {best_count} time(s) nearby and matches row area.",
+    }
+
+
+def ocr_fallback_row_repair(
+    row: dict,
+    diagnostics: Optional[dict] = None,
+    target_field: Optional[str] = None,
+    order_context: Optional[dict] = None,
+    row_index: Optional[int] = None,
+    pdf_id: Optional[str] = None,
+) -> dict:
+    diagnostics = diagnostics if isinstance(diagnostics, dict) else diagnose_extraction_row_issue(row)
+    target = _select_fallback_target_field(diagnostics, target_field)
+    codes = _issue_codes(diagnostics)
+    original_value = _fallback_original_value(row, target)
+
+    if str(diagnostics.get("severity") or "ok") not in {"warning", "error"}:
+        return {
+            "success": False,
+            "target_field": target,
+            "original_value": original_value,
+            "suggested_value": None,
+            "confidence": 0.0,
+            "method": "diagnostics_ok_no_fallback",
+            "reason": "Backend diagnostics did not report a row-level warning or error.",
+            "evidence": {"diagnostic_codes": codes},
+            "safe_to_auto_apply": False,
+        }
+
+    if target == "dimension":
+        suggestion = _pattern_dimension_suggestion(row, diagnostics, order_context)
+        if suggestion:
+            return {
+                "success": True,
+                "target_field": "dimension",
+                "original_value": original_value,
+                "suggested_value": suggestion["dimension"],
+                "confidence": 0.85,
+                "method": "pattern_fallback_no_pdf_coordinates",
+                "reason": "Nearby repeated dimensions match this row's quantity-aware area.",
+                "evidence": {
+                    "diagnostic_codes": codes,
+                    "nearby_pattern": suggestion["nearby_pattern"],
+                },
+                "safe_to_auto_apply": False,
+            }
+
+    return {
+        "success": False,
+        "target_field": target,
+        "original_value": original_value,
+        "suggested_value": None,
+        "confidence": 0.0,
+        "method": "pattern_fallback_no_pdf_coordinates",
+        "reason": "PDF row coordinates are not available yet",
+        "recommended_next_step": OCR_FALLBACK_NO_COORDINATES_STEP,
+        "evidence": {
+            "diagnostic_codes": codes,
+            "nearby_pattern": None,
+            "row_index": row_index,
+            "pdf_id": pdf_id,
+        },
+        "safe_to_auto_apply": False,
+    }
 
 
 def diagnose_extraction_row_issue(row: dict) -> dict:
@@ -536,4 +697,8 @@ def diagnose_extraction_row_warning(
     )
 
 
-__all__ = ["diagnose_extraction_row_issue", "diagnose_extraction_row_warning"]
+__all__ = [
+    "diagnose_extraction_row_issue",
+    "diagnose_extraction_row_warning",
+    "ocr_fallback_row_repair",
+]

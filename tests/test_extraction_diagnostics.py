@@ -5,6 +5,7 @@ from copy import deepcopy
 from backend.agents.skills.extraction_diagnostics import (
     diagnose_extraction_row_issue,
     diagnose_extraction_row_warning,
+    ocr_fallback_row_repair,
 )
 
 
@@ -266,3 +267,94 @@ def test_row_diagnosis_does_not_mutate_input():
 
     assert row == original_row
     assert diagnostics == original_diagnostics
+
+
+def test_ocr_fallback_pattern_suggests_truncated_dimension():
+    row = {
+        "row_id": "row-12",
+        "position": "1-12",
+        "dimension": "738x124",
+        "quantity": 1,
+        "area": 0.92,
+    }
+    diagnostics = diagnose_extraction_row_issue(row)
+
+    result = ocr_fallback_row_repair(
+        row,
+        diagnostics,
+        target_field="dimension",
+        order_context={
+            "rows_before": [
+                {"dimension": "738x1243", "quantity": 1, "area": 0.918},
+                {"dimension": "738x1243", "quantity": 1, "area": 0.918},
+            ],
+            "rows_after": [],
+        },
+    )
+
+    assert result["success"] is True
+    assert result["target_field"] == "dimension"
+    assert result["original_value"] == "738x124"
+    assert result["suggested_value"] == "738x1243"
+    assert result["confidence"] == 0.85
+    assert result["method"] == "pattern_fallback_no_pdf_coordinates"
+    assert result["safe_to_auto_apply"] is False
+
+
+def test_ocr_fallback_missing_dimension_does_not_fake_ocr_without_coordinates():
+    row = {
+        "row_id": "row-13",
+        "position": "1-13",
+        "dimension": "",
+        "quantity": 1,
+        "area": 0.92,
+    }
+    diagnostics = diagnose_extraction_row_issue(row)
+
+    result = ocr_fallback_row_repair(row, diagnostics, target_field="dimension")
+
+    assert result["success"] is False
+    assert result["suggested_value"] is None
+    assert result["reason"] == "PDF row coordinates are not available yet"
+    assert result["recommended_next_step"] == "STORE_ROW_COORDINATES_DURING_EXTRACTION"
+    assert result["safe_to_auto_apply"] is False
+
+
+def test_ocr_fallback_does_not_mutate_backend_inputs():
+    row = {
+        "row_id": "row-14",
+        "position": "1-14",
+        "dimension": "738x124",
+        "quantity": 1,
+        "area": 0.92,
+    }
+    diagnostics = diagnose_extraction_row_issue(row)
+    original_row = deepcopy(row)
+    original_diagnostics = deepcopy(diagnostics)
+
+    ocr_fallback_row_repair(
+        row,
+        diagnostics,
+        target_field="dimension",
+        order_context={"rows_before": [{"dimension": "738x1243", "quantity": 1, "area": 0.918}]},
+    )
+
+    assert row == original_row
+    assert diagnostics == original_diagnostics
+
+
+def test_ocr_fallback_valid_row_returns_no_fallback():
+    row = {
+        "row_id": "row-15",
+        "position": "1-15",
+        "dimension": "738x1243",
+        "quantity": 1,
+        "area": 0.918,
+    }
+    diagnostics = diagnose_extraction_row_issue(row)
+
+    result = ocr_fallback_row_repair(row, diagnostics, target_field="dimension")
+
+    assert result["success"] is False
+    assert result["method"] == "diagnostics_ok_no_fallback"
+    assert result["safe_to_auto_apply"] is False
