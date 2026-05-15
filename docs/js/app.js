@@ -147,6 +147,7 @@ const appState = {
     declaredArea: null,
     parsedUnits: 0,
     parsedArea: 0,
+    orderTotalDiagnostics: null,
     confidence: null,
     extractedAt: null,
     nextRid: 0,
@@ -164,6 +165,7 @@ const appState = {
     declaredArea: null,
     parsedUnits: 0,
     parsedArea: 0,
+    orderTotalDiagnostics: null,
     nextRid: 0,
   },
   processing: {
@@ -11468,9 +11470,14 @@ function updateHistorySummary(){
   }
 }
 
-function updateDeclaredBanner(elementId, declaredUnits, declaredArea, parsedUnits, parsedArea){
+function updateDeclaredBanner(elementId, declaredUnits, declaredArea, parsedUnits, parsedArea, orderTotalDiagnostics = null){
   const el = document.getElementById(elementId);
   if (!el) return;
+  if (orderTotalDiagnostics && (orderTotalDiagnostics.severity === "warning" || orderTotalDiagnostics.severity === "error")){
+    el.hidden = false;
+    el.innerHTML = `<strong style="display:block;margin-bottom:4px">PDF totals mismatch</strong><div>${escapeHtml(orderTotalDiagnostics.message || "Extracted totals do not match PDF totals.")}</div>`;
+    return;
+  }
   const issues = [];
   if (declaredUnits != null && parsedUnits != null && declaredUnits !== parsedUnits){
     issues.push(`Declared ${declaredUnits}, Parsed ${parsedUnits}`);
@@ -11623,9 +11630,9 @@ function updateTotalsUI(scope){
   bucket.parsedUnits = totals.units;
   bucket.parsedArea = totals.area;
   if (scope === "history"){
-    updateDeclaredBanner("historyDeclaredBanner", bucket.declaredUnits, bucket.declaredArea, bucket.parsedUnits, bucket.parsedArea);
+    updateDeclaredBanner("historyDeclaredBanner", bucket.declaredUnits, bucket.declaredArea, bucket.parsedUnits, bucket.parsedArea, bucket.orderTotalDiagnostics);
   }else{
-    updateDeclaredBanner("declaredBanner", bucket.declaredUnits, bucket.declaredArea, bucket.parsedUnits, bucket.parsedArea);
+    updateDeclaredBanner("declaredBanner", bucket.declaredUnits, bucket.declaredArea, bucket.parsedUnits, bucket.parsedArea, bucket.orderTotalDiagnostics);
   }
   updateOrderInfo(scope);
   updateFixAllState(scope);
@@ -14581,6 +14588,7 @@ function renderOrderDetail(){
     appState.historyDetail.rowDiagnoses = {};
     appState.historyDetail.warnings = [];
     appState.historyDetail.notes = "";
+    appState.historyDetail.orderTotalDiagnostics = null;
     if (historyRawTextEl) historyRawTextEl.textContent = "No raw extraction text available.";
     renderHistoryStatusTimeline([]);
     updateHistoryDetailUI();
@@ -14612,6 +14620,7 @@ function renderOrderDetail(){
   appState.historyDetail.declaredArea = order.declared_area ?? null;
   appState.historyDetail.parsedUnits = order.parsed_units ?? null;
   appState.historyDetail.parsedArea = order.parsed_area ?? null;
+  appState.historyDetail.orderTotalDiagnostics = order.order_total_diagnostics || null;
   const extraction = order.extraction || {};
   let rawText = extraction.prepared_text || extraction.raw_input || "";
   if (typeof rawText === "string" && rawText.startsWith("data:application/pdf;base64,")){
@@ -15804,6 +15813,7 @@ function applyExtractionResult(data){
   appState.extract.declaredArea = data?.declared_area ?? null;
   appState.extract.parsedUnits = data?.parsed_units ?? null;
   appState.extract.parsedArea = data?.parsed_area ?? null;
+  appState.extract.orderTotalDiagnostics = data?.order_total_diagnostics || null;
   appState.extract.confidence = Number.isFinite(Number(data?.confidence)) ? Number(data.confidence) : null;
   appState.extract.extractedAt = new Date().toISOString();
   const clientName = getClientName(data);
@@ -15898,6 +15908,7 @@ document.getElementById("approveSave").addEventListener("click", async ()=>{
     appState.extract.declaredArea = resp?.declared_area ?? appState.extract.declaredArea;
     appState.extract.parsedUnits = resp?.parsed_units ?? appState.extract.parsedUnits;
     appState.extract.parsedArea = resp?.parsed_area ?? appState.extract.parsedArea;
+    appState.extract.orderTotalDiagnostics = resp?.order_total_diagnostics || null;
     updateExtractUI();
     historyState.needsRefresh = true;
     analysisState.allOrdersDirty = true;

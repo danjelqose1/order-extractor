@@ -161,6 +161,11 @@ def attach_pdf_row_locations(rows: Sequence[Dict[str, Any]], pdf_bytes: bytes) -
     return output
 
 
+def extract_pdf_text_layer_text(pdf_bytes: bytes) -> str:
+    lines = _extract_pdf_text_lines(pdf_bytes)
+    return "\n".join(str(line.get("text") or "") for line in lines if str(line.get("text") or "").strip())
+
+
 def extract_pdf_text_for_row_location(pdf_bytes: bytes, row_location: Dict[str, Any]) -> str:
     if not pdf_bytes or not isinstance(row_location, dict):
         return ""
@@ -998,5 +1003,6 @@ __all__ = [
     "diagnose_extraction_row_issue",
     "diagnose_extraction_row_warning",
     "extract_pdf_text_for_row_location",
+    "extract_pdf_text_layer_text",
     "ocr_fallback_row_repair",
 ]

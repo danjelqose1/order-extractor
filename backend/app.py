@@ -79,10 +79,11 @@ from backend.agents.skills.extraction_diagnostics import (
     diagnose_extraction_row_issue,
     diagnose_extraction_row_warning,
     extract_pdf_text_for_row_location,
+    extract_pdf_text_layer_text,
     ocr_fallback_row_repair,
 )
 from extraction_normalizer import normalize_extracted_rows
-from utils_text import clean_dimension, parse_declared_totals
+from utils_text import build_order_total_diagnostics, clean_dimension, parse_declared_totals
 from prompts import PROMPTS
 from analysis_signals import generate_analysis_signals
 from services.pdf_native_text_editor import native_text_replace
@@ -573,6 +574,54 @@ def _summarize_totals(rows: List[Dict[str, Any]]) -> Dict[str, float]:
     return {"units": units, "area": round(area, 3)}
 
 
+def _declared_totals_from_sources(bundle: Dict[str, Any], *texts: Any) -> Tuple[Optional[int], Optional[float]]:
+    declared_units = bundle.get("declared_units") if isinstance(bundle, dict) else None
+    declared_area = bundle.get("declared_area") if isinstance(bundle, dict) else None
+    for text in texts:
+        parsed_units, parsed_area = parse_declared_totals(str(text or ""))
+        if declared_units is None and parsed_units is not None:
+            declared_units = parsed_units
+        if declared_area is None and parsed_area is not None:
+            declared_area = parsed_area
+        if declared_units is not None and declared_area is not None:
+            break
+    return declared_units, declared_area
+
+
+def _declared_totals_with_fallback(
+    primary_units: Optional[int],
+    primary_area: Optional[float],
+    fallback_units: Optional[int],
+    fallback_area: Optional[float],
+) -> Tuple[Optional[int], Optional[float]]:
+    return (
+        primary_units if primary_units is not None else fallback_units,
+        primary_area if primary_area is not None else fallback_area,
+    )
+
+
+def _order_total_diagnostics_from_totals(
+    declared_units: Optional[int],
+    declared_area: Optional[float],
+    totals: Dict[str, float],
+) -> Optional[Dict[str, Any]]:
+    return build_order_total_diagnostics(
+        declared_units,
+        declared_area,
+        int(totals.get("units") or 0),
+        float(totals.get("area") or 0.0),
+    )
+
+
+def _append_order_total_warning(
+    warnings: List[str],
+    diagnostics: Optional[Dict[str, Any]],
+) -> List[str]:
+    if diagnostics and diagnostics.get("message"):
+        warnings.append(str(diagnostics["message"]))
+    return warnings
+
+
 def _with_extraction_diagnostics(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     output: List[Dict[str, Any]] = []
     for row in rows or []:
@@ -593,6 +642,30 @@ def _stored_row_locations(extraction: Dict[str, Any]) -> List[Any]:
     meta = payload.get("_meta") if isinstance(payload, dict) else None
     locations = meta.get("row_locations") if isinstance(meta, dict) else None
     return locations if isinstance(locations, list) else []
+
+
+def _stored_declared_totals(extraction: Dict[str, Any]) -> Tuple[Optional[int], Optional[float]]:
+    raw_json = extraction.get("llm_output_json") if isinstance(extraction, dict) else None
+    if not raw_json:
+        return None, None
+    try:
+        payload = json.loads(raw_json)
+    except Exception:
+        return None, None
+    meta = payload.get("_meta") if isinstance(payload, dict) else None
+    if not isinstance(meta, dict):
+        return None, None
+    units = meta.get("declared_units")
+    area = meta.get("declared_area")
+    try:
+        units = int(units) if units is not None else None
+    except (TypeError, ValueError):
+        units = None
+    try:
+        area = float(area) if area is not None else None
+    except (TypeError, ValueError):
+        area = None
+    return units, area
 
 
 def _with_stored_row_locations(
@@ -1388,17 +1461,15 @@ def extract(inb: PasteIn, x_app_key: Optional[str] = Header(default=None)) -> Di
         )
         hash_value = _compute_hash(prepared_text or inb.text)
         llm_output_json = json.dumps(raw_payload, ensure_ascii=False)
-        declared_units = bundle.get("declared_units")
-        declared_area = bundle.get("declared_area")
+        declared_units, declared_area = _declared_totals_from_sources(
+            bundle,
+            prepared_text,
+            inb.text,
+            bundle.get("output_text"),
+        )
         totals = _summarize_totals(final_rows)
-        if declared_units is not None and declared_units != totals["units"]:
-            combined_warnings.append(
-                f"declared_units_mismatch: declared {declared_units}, parsed {totals['units']}"
-            )
-        if declared_area is not None and abs((declared_area or 0) - totals["area"]) > 0.05:
-            combined_warnings.append(
-                f"declared_area_mismatch: declared {declared_area:.3f}, parsed {totals['area']:.3f}"
-            )
+        order_total_diagnostics = _order_total_diagnostics_from_totals(declared_units, declared_area, totals)
+        _append_order_total_warning(combined_warnings, order_total_diagnostics)
         combined_warnings = _dedupe_warnings(combined_warnings)
         response_rows = _with_extraction_diagnostics(final_rows)
 
@@ -1435,6 +1506,7 @@ def extract(inb: PasteIn, x_app_key: Optional[str] = Header(default=None)) -> Di
             "declared_area": declared_area,
             "parsed_units": totals["units"],
             "parsed_area": totals["area"],
+            "order_total_diagnostics": order_total_diagnostics,
             "client_name": client_name,
             "clientName": client_name,
             "client": client_name or "—",
@@ -1575,6 +1647,7 @@ def _extract_order_file_bytes(
                 mime_type=normalized_content_type or "image/jpeg",
             )
 
+        pdf_text_layer_text = extract_pdf_text_layer_text(raw_bytes) if is_pdf else ""
         raw_payload = bundle.get("raw") or {}
         _ = ExtractionResult(**raw_payload)
         result_data = ExtractionResult(**(bundle.get("data") or raw_payload))
@@ -1582,7 +1655,7 @@ def _extract_order_file_bytes(
         _debug_log_rows(result_data.rows)
 
         rows_dict = _rows_to_dicts(result_data.rows)
-        prepared_text = prepared_text or bundle.get("prepared_text") or ""
+        prepared_text = prepared_text or bundle.get("prepared_text") or pdf_text_layer_text or ""
         repair_context = prepared_text or (bundle.get("output_text") or "")
         repaired_rows = apply_dimension_repair(repair_context, rows_dict)
         extracted_rows, normalization_warnings = normalize_extracted_rows(repaired_rows)
@@ -1610,6 +1683,13 @@ def _extract_order_file_bytes(
         metadata = dict(source_metadata or {})
         metadata.setdefault("source", source)
         metadata.setdefault("original_filename", normalized_filename)
+        hash_value = _compute_hash_bytes(raw_bytes)
+        declared_units, declared_area = _declared_totals_from_sources(
+            bundle,
+            prepared_text,
+            pdf_text_layer_text,
+            bundle.get("output_text"),
+        )
 
         llm_output_payload = dict(raw_payload) if isinstance(raw_payload, dict) else {"raw_payload": raw_payload}
         llm_output_payload["_meta"] = {
@@ -1617,15 +1697,14 @@ def _extract_order_file_bytes(
             "parsed_result": bundle.get("data") or raw_payload,
             "extraction_method": extraction_method,
             "source_metadata": metadata,
+            "declared_units": declared_units,
+            "declared_area": declared_area,
             "row_locations": [
                 row.get("row_location") if isinstance(row, dict) else None
                 for row in localized_response_rows
             ],
         }
         llm_output_json = json.dumps(llm_output_payload, ensure_ascii=False)
-        hash_value = _compute_hash_bytes(raw_bytes)
-        declared_units = bundle.get("declared_units")
-        declared_area = bundle.get("declared_area")
         data_payload = bundle.get("data") or {}
         client_name = _normalize_client_name_payload(
             client_name,
@@ -1638,14 +1717,8 @@ def _extract_order_file_bytes(
             extract_client_name(prepared_text),
         )
         totals = _summarize_totals(final_rows)
-        if declared_units is not None and declared_units != totals["units"]:
-            combined_warnings.append(
-                f"declared_units_mismatch: declared {declared_units}, parsed {totals['units']}"
-            )
-        if declared_area is not None and abs((declared_area or 0) - totals["area"]) > 0.05:
-            combined_warnings.append(
-                f"declared_area_mismatch: declared {declared_area:.3f}, parsed {totals['area']:.3f}"
-            )
+        order_total_diagnostics = _order_total_diagnostics_from_totals(declared_units, declared_area, totals)
+        _append_order_total_warning(combined_warnings, order_total_diagnostics)
         combined_warnings = _dedupe_warnings(combined_warnings)
         response_rows = _with_extraction_diagnostics(localized_response_rows)
 
@@ -1711,6 +1784,7 @@ def _extract_order_file_bytes(
             "declared_area": declared_area,
             "parsed_units": totals["units"],
             "parsed_area": totals["area"],
+            "order_total_diagnostics": order_total_diagnostics,
             "extraction_method": extraction_method,
             "confidence": (bundle.get("data") or {}).get("confidence"),
             "client_name": client_name,
@@ -2651,20 +2725,22 @@ def get_order_detail(order_id: int) -> Dict[str, Any]:
     order["rows"] = _with_stored_row_locations(order["rows"], extraction)
     order["row_warnings"] = validation.get("row_warnings", {})
     order["warnings"] = validation.get("warnings", [])
-    declared_units, declared_area = parse_declared_totals(extraction.get("prepared_text", ""))
+    parsed_declared_units, parsed_declared_area = parse_declared_totals(extraction.get("prepared_text", ""))
+    stored_declared_units, stored_declared_area = _stored_declared_totals(extraction)
+    declared_units, declared_area = _declared_totals_with_fallback(
+        parsed_declared_units,
+        parsed_declared_area,
+        stored_declared_units,
+        stored_declared_area,
+    )
     order["declared_units"] = declared_units
     order["declared_area"] = declared_area
     totals = _summarize_totals(order["rows"])
     order["parsed_units"] = totals["units"]
     order["parsed_area"] = totals["area"]
-    if declared_units is not None and declared_units != totals["units"]:
-        order["warnings"].append(
-            f"declared_units_mismatch: declared {declared_units}, parsed {totals['units']}"
-        )
-    if declared_area is not None and abs((declared_area or 0) - totals["area"]) > 0.05:
-        order["warnings"].append(
-            f"declared_area_mismatch: declared {declared_area:.3f}, parsed {totals['area']:.3f}"
-        )
+    order_total_diagnostics = _order_total_diagnostics_from_totals(declared_units, declared_area, totals)
+    order["order_total_diagnostics"] = order_total_diagnostics
+    order["warnings"] = _dedupe_warnings(_append_order_total_warning(order["warnings"], order_total_diagnostics))
     order["rows"] = _with_extraction_diagnostics(order["rows"])
     return order
 
@@ -2753,7 +2829,14 @@ def approve_order(order_id: int, payload: ApprovePayload) -> Dict[str, Any]:
     extraction = snapshot.get("extraction") or {}
     before_json = extraction.get("llm_output_json")
     prepared_text = extraction.get("prepared_text") or ""
-    declared_units, declared_area = parse_declared_totals(prepared_text)
+    parsed_declared_units, parsed_declared_area = parse_declared_totals(prepared_text)
+    stored_declared_units, stored_declared_area = _stored_declared_totals(extraction)
+    declared_units, declared_area = _declared_totals_with_fallback(
+        parsed_declared_units,
+        parsed_declared_area,
+        stored_declared_units,
+        stored_declared_area,
+    )
     if before_json:
         try:
             before_data = json.loads(before_json)
@@ -2768,14 +2851,9 @@ def approve_order(order_id: int, payload: ApprovePayload) -> Dict[str, Any]:
                 notes=payload.notes,
             )
     totals = _summarize_totals(updated_order.get("rows") or [])
-    if declared_units is not None and declared_units != totals["units"]:
-        combined_warnings.append(
-            f"declared_units_mismatch: declared {declared_units}, parsed {totals['units']}"
-        )
-    if declared_area is not None and abs((declared_area or 0) - totals["area"]) > 0.05:
-        combined_warnings.append(
-            f"declared_area_mismatch: declared {declared_area:.3f}, parsed {totals['area']:.3f}"
-        )
+    order_total_diagnostics = _order_total_diagnostics_from_totals(declared_units, declared_area, totals)
+    _append_order_total_warning(combined_warnings, order_total_diagnostics)
+    combined_warnings = _dedupe_warnings(combined_warnings)
     updated_order["rows"] = _with_extraction_diagnostics(updated_order.get("rows") or [])
     return {
         "saved_order_id": order_id,
@@ -2787,6 +2865,7 @@ def approve_order(order_id: int, payload: ApprovePayload) -> Dict[str, Any]:
         "declared_area": declared_area,
         "parsed_units": totals["units"],
         "parsed_area": totals["area"],
+        "order_total_diagnostics": order_total_diagnostics,
     }
 
 
