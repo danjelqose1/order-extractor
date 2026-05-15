@@ -7752,6 +7752,10 @@ function clearDiagnosticsForManualEdit(row){
   delete row.area_mismatch;
 }
 
+function isDiagnosticsRefreshField(field){
+  return ["dimension", "quantity", "area", "type", "position"].includes(field);
+}
+
 function cleanPosKey(position){
   if (!position) return [0, 0, ""];
   const [main, suffix = ""] = position.split("/");
@@ -7866,6 +7870,9 @@ async function requestRowDiagnosis(scope, index){
       throw new Error(message || `HTTP ${response.status}`);
     }
     bucket.rowDiagnoses[rid] = await response.json();
+    if (bucket.rowDiagnoses[rid]?.diagnostics){
+      row.diagnostics = bucket.rowDiagnoses[rid].diagnostics;
+    }
   }catch(error){
     bucket.rowDiagnoses[rid] = {
       severity: "error",
@@ -7881,6 +7888,57 @@ async function requestRowDiagnosis(scope, index){
     updateHistoryDetailUI();
   }else{
     updateExtractUI();
+  }
+}
+
+async function refreshRowDiagnostics(scope, index){
+  const bucket = scope === "history" ? appState.historyDetail : appState.extract;
+  const row = (bucket.rows || [])[index];
+  if (!row) return;
+  const rid = row._rid || String(index);
+  const rowSignature = JSON.stringify({
+    dimension: row.dimension || "",
+    quantity: row.quantity ?? null,
+    area: row.area ?? null,
+    type: row.type || "",
+    position: row.position || "",
+  });
+  try{
+    const response = await fetch(API_BASE + "/api/extraction/diagnose-row", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        row,
+        diagnostics: getRowDiagnostics(row),
+        order_context: buildRowDiagnosisContext(scope, index),
+      }),
+    });
+    if (!response.ok) return;
+    const result = await response.json();
+    const currentRow = (bucket.rows || []).find(item => (item._rid || "") === rid);
+    if (!currentRow) return;
+    const currentSignature = JSON.stringify({
+      dimension: currentRow.dimension || "",
+      quantity: currentRow.quantity ?? null,
+      area: currentRow.area ?? null,
+      type: currentRow.type || "",
+      position: currentRow.position || "",
+    });
+    if (currentSignature !== rowSignature) return;
+    if (result?.diagnostics){
+      currentRow.diagnostics = result.diagnostics;
+    }
+    if (bucket.rowDiagnoses && rid){
+      delete bucket.rowDiagnoses[rid];
+    }
+    if (scope === "history"){
+      updateHistoryDetailUI();
+    }else{
+      updateExtractUI();
+    }
+  }catch(_error){
+    // TODO: If backend diagnostics refresh is unavailable, keep existing
+    // row diagnostics only; do not duplicate area validation in the browser.
   }
 }
 
@@ -8053,7 +8111,7 @@ function updateRowValue(scope, index, field, value, options = {}){
   if (field === "quantity"){
     row.quantity = Math.max(0, Number(row.quantity || 0));
   }
-  if (field === "dimension" || field === "quantity" || field === "area"){
+  if (isDiagnosticsRefreshField(field)){
     clearDiagnosticsForManualEdit(row);
   }
   if (scope === "extract"){
@@ -8170,6 +8228,9 @@ function handleEditableBlur(event){
   }
   const parsed = parseFieldValue(field, value);
   updateRowValue(scope, index, field, parsed, { commit: true });
+  if (isDiagnosticsRefreshField(field)){
+    refreshRowDiagnostics(scope, index);
+  }
 }
 
 document.getElementById("tableWrap").addEventListener("blur", handleEditableBlur, true);

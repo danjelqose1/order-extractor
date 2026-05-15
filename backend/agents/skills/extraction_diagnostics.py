@@ -327,6 +327,18 @@ def diagnose_extraction_row_issue(row: dict) -> dict:
             )
         )
 
+    if ("type" in row or "glass_type" in row) and not str(
+        row.get("type") or row.get("glass_type") or ""
+    ).strip():
+        issues.append(
+            _issue(
+                "GLASS_TYPE_UNCLEAR",
+                "Glass type is missing or unclear for this extracted row.",
+                "type",
+                "OCR_FALLBACK_TYPE",
+            )
+        )
+
     calculated_area = None
     difference = None
     difference_percent = None

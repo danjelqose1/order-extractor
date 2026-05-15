@@ -1225,11 +1225,15 @@ def download_workspace_file(file_id: int):
 
 @app.post("/api/extraction/diagnose-row")
 def diagnose_extraction_row(payload: ExtractionRowDiagnosisPayload) -> Dict[str, Any]:
-    return diagnose_extraction_row_warning(
-        deepcopy(payload.row or {}),
-        deepcopy(payload.diagnostics or {}),
+    row = deepcopy(payload.row or {})
+    diagnostics = diagnose_extraction_row_issue(row)
+    diagnosis = diagnose_extraction_row_warning(
+        deepcopy(row),
+        deepcopy(diagnostics),
         deepcopy(payload.order_context or {}),
     )
+    diagnosis["diagnostics"] = diagnostics
+    return diagnosis
 
 
 @app.post("/extract")
