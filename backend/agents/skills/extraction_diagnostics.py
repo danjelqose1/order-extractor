@@ -1,0 +1,302 @@
+from __future__ import annotations
+
+import re
+from typing import Any, Dict, List, Optional, Tuple
+
+
+DIMENSION_RE = re.compile(r"^(\d{2,5})x(\d{2,5})$")
+MIN_DIMENSION_MM = 200
+MAX_DIMENSION_MM = 6000
+AREA_MISMATCH_PERCENT = 2.0
+AREA_MISMATCH_ABSOLUTE = 0.01
+
+
+def _issue(code: str, message: str, field: str, recommended_action: str) -> Dict[str, str]:
+    return {
+        "code": code,
+        "message": message,
+        "field": field,
+        "recommended_action": recommended_action,
+    }
+
+
+def _parse_dimension(value: Any) -> Tuple[Optional[int], Optional[int], str]:
+    if value is None:
+        return None, None, ""
+    raw = str(value)
+    token = raw.strip().lower().replace("×", "x")
+    token = re.sub(r"\s+", "", token)
+    match = DIMENSION_RE.match(token)
+    if not match:
+        return None, None, raw
+    width = int(match.group(1))
+    height = int(match.group(2))
+    if width <= 0 or height <= 0:
+        return None, None, raw
+    return width, height, raw
+
+
+def _parse_quantity(value: Any) -> Optional[int]:
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value > 0 else None
+    if isinstance(value, float):
+        return int(value) if value.is_integer() and value > 0 else None
+    text = str(value).strip()
+    if not text:
+        return None
+    if re.fullmatch(r"\d+", text):
+        quantity = int(text)
+        return quantity if quantity > 0 else None
+    if re.fullmatch(r"\d+\.0+", text):
+        quantity = int(float(text))
+        return quantity if quantity > 0 else None
+    return None
+
+
+def _parse_area(value: Any) -> Optional[float]:
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        area = float(value)
+        return area if area > 0 else None
+    text = str(value).strip()
+    if not text:
+        return None
+    cleaned = text.replace(" ", "")
+    if "," in cleaned and "." in cleaned:
+        cleaned = cleaned.replace(".", "").replace(",", ".")
+    elif "," in cleaned:
+        cleaned = cleaned.replace(",", ".")
+    try:
+        area = float(cleaned)
+    except ValueError:
+        return None
+    return area if area > 0 else None
+
+
+def _area_value(row: Dict[str, Any]) -> Any:
+    for key in ("area", "extracted_area", "area_m2"):
+        if key in row:
+            return row.get(key)
+    return None
+
+
+def _row_id(row: Dict[str, Any]) -> str:
+    for key in ("row_id", "id", "order_row_id"):
+        value = row.get(key)
+        if value is not None and str(value).strip():
+            return str(value)
+    position = row.get("position")
+    return str(position) if position is not None else ""
+
+
+def _position_count(row: Dict[str, Any], position: str) -> Optional[int]:
+    for key in ("position_count", "duplicate_position_count"):
+        value = row.get(key)
+        if value is None:
+            continue
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    counts = row.get("position_counts")
+    if isinstance(counts, dict) and position:
+        value = counts.get(position)
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _has_possible_ocr_dimension_fix(width_mm: int, height_mm: int, per_piece_area: float) -> bool:
+    for side in ("width", "height"):
+        base = width_mm if side == "width" else height_mm
+        other = height_mm if side == "width" else width_mm
+        if base >= 400 or len(str(base)) > 3:
+            continue
+        for digit in range(10):
+            candidate = int(f"{base}{digit}")
+            if candidate < MIN_DIMENSION_MM or candidate > MAX_DIMENSION_MM:
+                continue
+            candidate_area = (candidate * other) / 1_000_000
+            tolerance = max(
+                AREA_MISMATCH_ABSOLUTE,
+                candidate_area * (AREA_MISMATCH_PERCENT / 100.0),
+            )
+            if abs(per_piece_area - candidate_area) <= tolerance:
+                return True
+    return False
+
+
+def diagnose_extraction_row_issue(row: dict) -> dict:
+    issues: List[Dict[str, str]] = []
+    error_codes = set()
+
+    dimension_value = row.get("dimension")
+    width_mm: Optional[int] = None
+    height_mm: Optional[int] = None
+    if dimension_value is None or not str(dimension_value).strip():
+        error_codes.add("MISSING_DIMENSION")
+        issues.append(
+            _issue(
+                "MISSING_DIMENSION",
+                "Dimension is missing from the extracted row.",
+                "dimension",
+                "OCR_FALLBACK_DIMENSION",
+            )
+        )
+    else:
+        width_mm, height_mm, _raw_dimension = _parse_dimension(dimension_value)
+        if width_mm is None or height_mm is None:
+            error_codes.add("INVALID_DIMENSION_FORMAT")
+            issues.append(
+                _issue(
+                    "INVALID_DIMENSION_FORMAT",
+                    "Dimension must contain width and height in millimeters, such as 1200x1400.",
+                    "dimension",
+                    "OCR_FALLBACK_DIMENSION",
+                )
+            )
+        elif (
+            width_mm < MIN_DIMENSION_MM
+            or height_mm < MIN_DIMENSION_MM
+            or width_mm > MAX_DIMENSION_MM
+            or height_mm > MAX_DIMENSION_MM
+        ):
+            issues.append(
+                _issue(
+                    "SUSPICIOUS_DIMENSION_SIZE",
+                    "Dimension is outside the expected production range for glass rows.",
+                    "dimension",
+                    "HUMAN_REVIEW_DIMENSION",
+                )
+            )
+
+    quantity_missing = (
+        "quantity" not in row
+        or row.get("quantity") is None
+        or not str(row.get("quantity")).strip()
+    )
+    quantity = _parse_quantity(row.get("quantity"))
+    if quantity is None:
+        code = "MISSING_QUANTITY" if quantity_missing else "INVALID_QUANTITY"
+        error_codes.add(code)
+        issues.append(
+            _issue(
+                code,
+                (
+                    "Quantity is missing from the extracted row."
+                    if quantity_missing
+                    else "Quantity must be a positive whole number."
+                ),
+                "quantity",
+                "HUMAN_REVIEW_QUANTITY",
+            )
+        )
+
+    area_raw = _area_value(row)
+    area_missing = area_raw is None or not str(area_raw).strip()
+    extracted_area = _parse_area(area_raw)
+    if extracted_area is None:
+        code = "MISSING_EXTRACTED_AREA" if area_missing else "INVALID_EXTRACTED_AREA"
+        error_codes.add(code)
+        issues.append(
+            _issue(
+                code,
+                (
+                    "Extracted area is missing from the row."
+                    if area_missing
+                    else "Extracted area must be a positive number."
+                ),
+                "area",
+                "HUMAN_REVIEW_AREA",
+            )
+        )
+
+    calculated_area = None
+    difference = None
+    difference_percent = None
+    if width_mm is not None and height_mm is not None and quantity is not None:
+        calculated_area = round((width_mm * height_mm * quantity) / 1_000_000, 3)
+
+    if calculated_area is not None and extracted_area is not None:
+        difference = round(abs(extracted_area - calculated_area), 3)
+        difference_percent = (
+            round((difference / calculated_area) * 100.0, 2)
+            if calculated_area
+            else None
+        )
+        tolerance = max(
+            AREA_MISMATCH_ABSOLUTE,
+            calculated_area * (AREA_MISMATCH_PERCENT / 100.0),
+        )
+        if difference > tolerance:
+            issues.append(
+                _issue(
+                    "AREA_MISMATCH",
+                    "Extracted area does not match width x height x quantity.",
+                    "area",
+                    "OCR_FALLBACK_DIMENSION",
+                )
+            )
+
+            per_piece_area = extracted_area / max(quantity or 1, 1)
+            if _has_possible_ocr_dimension_fix(width_mm, height_mm, per_piece_area):
+                issues.append(
+                    _issue(
+                        "POSSIBLE_DIMENSION_OCR_ERROR",
+                        "A width or height value may have lost a digit during OCR.",
+                        "dimension",
+                        "OCR_FALLBACK_DIMENSION",
+                    )
+                )
+
+    if "position" in row:
+        position = str(row.get("position") or "").strip()
+        if not position:
+            issues.append(
+                _issue(
+                    "EMPTY_POSITION",
+                    "Position is empty for this extracted row.",
+                    "position",
+                    "HUMAN_REVIEW_POSITION",
+                )
+            )
+        elif (
+            bool(row.get("duplicate_position"))
+            or bool(row.get("position_duplicate"))
+            or bool(row.get("is_duplicate_position"))
+            or (_position_count(row, position) or 0) > 1
+        ):
+            issues.append(
+                _issue(
+                    "DUPLICATE_POSITION",
+                    "Position appears more than once in the available row context.",
+                    "position",
+                    "HUMAN_REVIEW_POSITION",
+                )
+            )
+
+    severity = "ok"
+    if issues:
+        severity = "error" if error_codes else "warning"
+
+    return {
+        "row_id": _row_id(row),
+        "severity": severity,
+        "issues": issues,
+        "computed": {
+            "calculated_area": calculated_area,
+            "extracted_area": round(extracted_area, 3) if extracted_area is not None else None,
+            "difference": difference,
+            "difference_percent": difference_percent,
+        },
+        "requires_human_review": severity != "ok",
+    }
+
+
+__all__ = ["diagnose_extraction_row_issue"]
