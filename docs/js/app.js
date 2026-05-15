@@ -7877,11 +7877,12 @@ async function requestRowDiagnosis(scope, index){
     updateExtractUI();
   }
   try{
+    const orderId = bucket.draftId || bucket.savedOrderId || bucket.order?.id || null;
     const response = await fetch(API_BASE + "/api/extraction/ocr-fallback-row", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        order_id: bucket.draftId || bucket.savedOrderId || bucket.order?.id || null,
+        order_id: orderId == null ? null : String(orderId),
         pdf_id: bucket.source_hash || bucket.order?.source_hash || null,
         row_index: index,
         row,
@@ -7892,6 +7893,10 @@ async function requestRowDiagnosis(scope, index){
     });
     if (!response.ok){
       const message = await response.text();
+      console.warn("OCR fallback row request failed", { status: response.status, body: message });
+      if (response.status === 422){
+        throw new Error("Repair diagnosis could not be completed because the request format was invalid.");
+      }
       throw new Error(message || `HTTP ${response.status}`);
     }
     bucket.rowDiagnoses[rid] = await response.json();

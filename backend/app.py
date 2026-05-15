@@ -6,7 +6,7 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from io import StringIO
 from pathlib import Path
-from typing import Any, Deque, Dict, List, Optional, Set, Tuple
+from typing import Any, Deque, Dict, List, Optional, Set, Tuple, Union
 import uuid
 import threading
 import time
@@ -363,7 +363,7 @@ class ExtractionRowDiagnosisPayload(BaseModel):
 
 
 class ExtractionRowOcrFallbackPayload(BaseModel):
-    order_id: Optional[str] = None
+    order_id: Optional[Union[str, int]] = None
     pdf_id: Optional[str] = None
     row_index: int = 0
     row: Dict[str, Any]
@@ -550,6 +550,13 @@ def _with_extraction_diagnostics(rows: List[Dict[str, Any]]) -> List[Dict[str, A
         working["diagnostics"] = diagnose_extraction_row_issue(working)
         output.append(working)
     return output
+
+
+def _optional_id_to_string(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def _is_pdf_file(filename: str, content_type: str) -> bool:
@@ -1251,11 +1258,15 @@ def diagnose_extraction_row(payload: ExtractionRowDiagnosisPayload) -> Dict[str,
 def ocr_fallback_extraction_row(payload: ExtractionRowOcrFallbackPayload) -> Dict[str, Any]:
     row = deepcopy(payload.row or {})
     diagnostics = diagnose_extraction_row_issue(row)
+    normalized_order_id = _optional_id_to_string(payload.order_id)
+    order_context = deepcopy(payload.order_context or {})
+    if normalized_order_id is not None:
+        order_context.setdefault("order_id", normalized_order_id)
     return ocr_fallback_row_repair(
         row=deepcopy(row),
         diagnostics=deepcopy(diagnostics),
         target_field=payload.target_field,
-        order_context=deepcopy(payload.order_context or {}),
+        order_context=order_context,
         row_index=payload.row_index,
         pdf_id=payload.pdf_id,
     )
