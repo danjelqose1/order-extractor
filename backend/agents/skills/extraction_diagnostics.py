@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from copy import deepcopy
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 
 DIMENSION_RE = re.compile(r"^(\d{2,5})x(\d{2,5})$")
@@ -10,6 +11,189 @@ MAX_DIMENSION_MM = 6000
 AREA_MISMATCH_PERCENT = 2.0
 AREA_MISMATCH_ABSOLUTE = 0.01
 OCR_FALLBACK_NO_COORDINATES_STEP = "STORE_ROW_COORDINATES_DURING_EXTRACTION"
+DIMENSION_IN_TEXT_RE = re.compile(r"\b(\d{2,5})\s*[x×]\s*(\d{2,5})\b", re.IGNORECASE)
+
+
+def _short_text(value: Any, limit: int = 240) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if len(text) <= limit:
+        return text
+    return f"{text[: limit - 1].rstrip()}..."
+
+
+def _normalize_anchor_text(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").lower().replace("×", "x"))
+
+
+def _numeric_text_variants(value: Any) -> List[str]:
+    area = _parse_area(value)
+    if area is None:
+        return []
+    variants = {
+        f"{area:.3f}",
+        f"{area:.2f}",
+        f"{area:.1f}",
+        str(area).rstrip("0").rstrip("."),
+    }
+    return [item for item in variants if item]
+
+
+def _text_line_bbox(line: Dict[str, Any]) -> Optional[Dict[str, float]]:
+    bbox = line.get("bbox")
+    if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
+        return None
+    try:
+        x0, y0, x1, y1 = (float(value) for value in bbox)
+    except (TypeError, ValueError):
+        return None
+    if x1 <= x0 or y1 <= y0:
+        return None
+    return {"x0": x0, "y0": y0, "x1": x1, "y1": y1}
+
+
+def _extract_pdf_text_lines(pdf_bytes: bytes) -> List[Dict[str, Any]]:
+    if not pdf_bytes:
+        return []
+    try:
+        import fitz  # type: ignore
+    except Exception:
+        return []
+
+    lines: List[Dict[str, Any]] = []
+    try:
+        with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
+            for page_index, page in enumerate(doc, start=1):
+                page_dict = page.get_text("dict") or {}
+                for block in page_dict.get("blocks") or []:
+                    for line in block.get("lines") or []:
+                        spans = line.get("spans") or []
+                        text = " ".join(
+                            str(span.get("text") or "").strip()
+                            for span in spans
+                            if str(span.get("text") or "").strip()
+                        )
+                        bbox = _text_line_bbox(line)
+                        if text and bbox:
+                            lines.append(
+                                {
+                                    "page": page_index,
+                                    "bbox": bbox,
+                                    "text": _short_text(text),
+                                }
+                            )
+    except Exception:
+        return []
+    return lines
+
+
+def _score_row_location_match(row: Dict[str, Any], line: Dict[str, Any]) -> Tuple[float, bool]:
+    text = str(line.get("text") or "")
+    normalized = _normalize_anchor_text(text)
+    score = 0.0
+    has_strong_anchor = False
+
+    dimension = _dimension_key(row.get("dimension"))
+    if dimension and _normalize_anchor_text(dimension) in normalized:
+        score += 3.0
+        has_strong_anchor = True
+
+    position = str(row.get("position") or "").strip()
+    if position and _normalize_anchor_text(position) in normalized:
+        score += 2.0
+        has_strong_anchor = True
+
+    for area_variant in _numeric_text_variants(_area_value(row)):
+        if _normalize_anchor_text(area_variant) in normalized:
+            score += 1.5
+            break
+
+    quantity = _parse_quantity(row.get("quantity"))
+    if quantity is not None and re.search(rf"(?<!\d){quantity}(?!\d)", text):
+        score += 0.75
+
+    glass_type = str(row.get("type") or row.get("glass_type") or "").strip()
+    if glass_type:
+        type_words = [
+            _normalize_anchor_text(word)
+            for word in re.split(r"\s+", glass_type)
+            if len(_normalize_anchor_text(word)) >= 4
+        ]
+        if type_words and any(word in normalized for word in type_words[:4]):
+            score += 0.75
+
+    return score, has_strong_anchor
+
+
+def attach_pdf_row_locations(rows: Sequence[Dict[str, Any]], pdf_bytes: bytes) -> List[Dict[str, Any]]:
+    """Attach best-effort PDF text-layer location metadata without changing row data."""
+    text_lines = _extract_pdf_text_lines(pdf_bytes)
+    if not text_lines:
+        return [dict(row, row_location=None) for row in rows or []]
+
+    output: List[Dict[str, Any]] = []
+    used_line_indexes: set[int] = set()
+    for row in rows or []:
+        working = dict(row)
+        best: Optional[Tuple[float, int, Dict[str, Any]]] = None
+        for index, line in enumerate(text_lines):
+            if index in used_line_indexes:
+                continue
+            score, has_strong_anchor = _score_row_location_match(working, line)
+            if score < 3.0 or not has_strong_anchor:
+                continue
+            if best is None or score > best[0]:
+                best = (score, index, line)
+
+        if best is None:
+            working["row_location"] = None
+        else:
+            score, index, line = best
+            used_line_indexes.add(index)
+            confidence = max(0.45, min(0.95, score / 7.0))
+            working["row_location"] = {
+                "page": int(line["page"]),
+                "bbox": dict(line["bbox"]),
+                "source": "pdf_text_layer",
+                "confidence": round(confidence, 2),
+                "matched_text": _short_text(line.get("text")),
+            }
+        output.append(working)
+    return output
+
+
+def extract_pdf_text_for_row_location(pdf_bytes: bytes, row_location: Dict[str, Any]) -> str:
+    if not pdf_bytes or not isinstance(row_location, dict):
+        return ""
+    bbox = row_location.get("bbox")
+    if not isinstance(bbox, dict):
+        return ""
+    try:
+        page_number = int(row_location.get("page") or 0)
+        x0 = float(bbox.get("x0"))
+        y0 = float(bbox.get("y0"))
+        x1 = float(bbox.get("x1"))
+        y1 = float(bbox.get("y1"))
+    except (TypeError, ValueError):
+        return ""
+    if page_number < 1 or x1 <= x0 or y1 <= y0:
+        return ""
+    try:
+        import fitz  # type: ignore
+    except Exception:
+        return ""
+    try:
+        with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
+            if page_number > len(doc):
+                return ""
+            page = doc[page_number - 1]
+            rect = fitz.Rect(x0, y0, x1, y1)
+            words = page.get_text("words", clip=rect) or []
+    except Exception:
+        return ""
+    if not words:
+        return ""
+    words = sorted(words, key=lambda item: (round(float(item[1]), 1), float(item[0])))
+    return _short_text(" ".join(str(item[4]) for item in words if len(item) >= 5))
 
 
 def _issue(code: str, message: str, field: str, recommended_action: str) -> Dict[str, str]:
@@ -340,6 +524,85 @@ def _pattern_dimension_suggestion(
     }
 
 
+def _row_location(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    value = row.get("row_location")
+    return value if isinstance(value, dict) else None
+
+
+def _row_location_text(row: Dict[str, Any]) -> str:
+    location = _row_location(row)
+    if not location:
+        return ""
+    return _short_text(location.get("matched_text") or location.get("ocr_text") or "")
+
+
+def _dimension_candidates_from_text(text: str) -> List[str]:
+    candidates: List[str] = []
+    seen: set[str] = set()
+    for match in DIMENSION_IN_TEXT_RE.finditer(text or ""):
+        candidate = f"{int(match.group(1))}x{int(match.group(2))}"
+        if candidate not in seen:
+            seen.add(candidate)
+            candidates.append(candidate)
+    return candidates
+
+
+def _text_layer_dimension_suggestion(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    region_text = _row_location_text(row)
+    if not region_text:
+        return None
+    quantity = _parse_quantity(row.get("quantity")) or 1
+    area = _parse_area(_area_value(row))
+    original = _dimension_key(row.get("dimension"))
+
+    ranked: List[Tuple[float, str, str]] = []
+    for candidate in _dimension_candidates_from_text(region_text):
+        confidence = 0.65
+        reason = "Text-layer row region contains a dimension candidate."
+        if area is not None and _dimension_matches_area(candidate, quantity, area):
+            confidence = 0.9
+            reason = "Text-layer row region contains a dimension that matches the row's quantity-aware area."
+        if original and candidate == original:
+            confidence -= 0.25
+            reason = "Text-layer row region repeated the current dimension value."
+        if original and candidate != original:
+            original_width, original_height, _raw = _parse_dimension(original)
+            candidate_width, candidate_height, _candidate_raw = _parse_dimension(candidate)
+            if (
+                original_width is not None
+                and original_height is not None
+                and candidate_width == original_width
+                and str(candidate_height).startswith(str(original_height))
+            ):
+                confidence = max(confidence, 0.85)
+                reason = "Text-layer row region suggests the extracted height may have lost a trailing digit."
+        ranked.append((confidence, candidate, reason))
+
+    if not ranked:
+        return None
+    confidence, candidate, reason = sorted(ranked, key=lambda item: (-item[0], item[1]))[0]
+    if confidence < 0.75 or (original and candidate == original):
+        return None
+    return {
+        "dimension": candidate,
+        "confidence": round(min(0.95, confidence), 2),
+        "reason": reason,
+    }
+
+
+def _row_location_evidence(row: Dict[str, Any], codes: List[str]) -> Dict[str, Any]:
+    location = _row_location(row) or {}
+    return {
+        "diagnostic_codes": codes,
+        "page": location.get("page"),
+        "bbox": deepcopy(location.get("bbox")) if isinstance(location.get("bbox"), dict) else None,
+        "source": location.get("source"),
+        "matched_text": _short_text(location.get("matched_text")),
+        "ocr_text": _short_text(location.get("matched_text")),
+        "row_location_confidence": location.get("confidence"),
+    }
+
+
 def ocr_fallback_row_repair(
     row: dict,
     diagnostics: Optional[dict] = None,
@@ -366,6 +629,36 @@ def ocr_fallback_row_repair(
             "safe_to_auto_apply": False,
         }
 
+    location = _row_location(row)
+    location_no_suggestion: Optional[Dict[str, Any]] = None
+    if location:
+        evidence = _row_location_evidence(row, codes)
+        if target == "dimension":
+            text_layer_suggestion = _text_layer_dimension_suggestion(row)
+            if text_layer_suggestion:
+                return {
+                    "success": True,
+                    "target_field": "dimension",
+                    "original_value": original_value,
+                    "suggested_value": text_layer_suggestion["dimension"],
+                    "confidence": text_layer_suggestion["confidence"],
+                    "method": "pdf_text_layer_row_region",
+                    "reason": text_layer_suggestion["reason"],
+                    "evidence": evidence,
+                    "safe_to_auto_apply": False,
+                }
+        location_no_suggestion = {
+            "success": False,
+            "target_field": target,
+            "original_value": original_value,
+            "suggested_value": None,
+            "confidence": float(location.get("confidence") or 0.0),
+            "method": "pdf_text_layer_row_region",
+            "reason": "Text-layer row region did not contain a confident correction.",
+            "evidence": evidence,
+            "safe_to_auto_apply": False,
+        }
+
     if target == "dimension":
         suggestion = _pattern_dimension_suggestion(row, diagnostics, order_context)
         if suggestion:
@@ -383,6 +676,9 @@ def ocr_fallback_row_repair(
                 },
                 "safe_to_auto_apply": False,
             }
+
+    if location_no_suggestion is not None:
+        return location_no_suggestion
 
     return {
         "success": False,
@@ -698,7 +994,9 @@ def diagnose_extraction_row_warning(
 
 
 __all__ = [
+    "attach_pdf_row_locations",
     "diagnose_extraction_row_issue",
     "diagnose_extraction_row_warning",
+    "extract_pdf_text_for_row_location",
     "ocr_fallback_row_repair",
 ]

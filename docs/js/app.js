@@ -8082,6 +8082,22 @@ function renderRowDiagnosisPanel(diagnosis){
     const confidence = Number(diagnosis.confidence);
     const confidenceText = Number.isFinite(confidence) ? `${Math.round(confidence * 100)}%` : "—";
     const targetField = diagnosis.target_field || "dimension";
+    const evidence = diagnosis.evidence || {};
+    const evidenceLines = [];
+    if (evidence.page != null){
+      evidenceLines.push(`<div><span class="muted">Page:</span> ${escapeHtml(String(evidence.page))}</div>`);
+    }
+    if (evidence.source){
+      evidenceLines.push(`<div><span class="muted">Source:</span> <span class="mono">${escapeHtml(String(evidence.source))}</span></div>`);
+    }
+    const evidenceText = evidence.ocr_text || evidence.matched_text || "";
+    if (evidenceText){
+      evidenceLines.push(`<div><span class="muted">Evidence:</span> <span class="mono">${escapeHtml(String(evidenceText))}</span></div>`);
+    }
+    if (evidence.nearby_pattern){
+      evidenceLines.push(`<div><span class="muted">Pattern:</span> ${escapeHtml(String(evidence.nearby_pattern))}</div>`);
+    }
+    const evidenceHtml = evidenceLines.length ? `<div class="diagnosis-evidence">${evidenceLines.join("")}</div>` : "";
     const suggestionHtml = diagnosis.success
       ? `<div><span class="muted">Original:</span> <span class="mono">${escapeHtml(String(diagnosis.original_value ?? ""))}</span></div>
         <div><span class="muted">Suggested:</span> <span class="mono">${escapeHtml(String(diagnosis.suggested_value ?? ""))}</span></div>`
@@ -8104,6 +8120,7 @@ function renderRowDiagnosisPanel(diagnosis){
       ${suggestionHtml}
       <div><span class="muted">Confidence:</span> ${escapeHtml(confidenceText)}</div>
       <div><span class="muted">Method:</span> <span class="mono">${escapeHtml(diagnosis.method || "pattern_fallback_no_pdf_coordinates")}</span></div>
+      ${evidenceHtml}
       <div><span class="muted">Reason:</span> ${escapeHtml(diagnosis.reason || "Review this row manually.")}</div>
       ${nextStep}
       <div class="muted">No automatic change was made.</div>

@@ -75,8 +75,10 @@ from validators import validate_rows
 from dimension_repair import apply_dimension_repair
 from area_dimension_validator import apply_area_dimension_validation
 from backend.agents.skills.extraction_diagnostics import (
+    attach_pdf_row_locations,
     diagnose_extraction_row_issue,
     diagnose_extraction_row_warning,
+    extract_pdf_text_for_row_location,
     ocr_fallback_row_repair,
 )
 from extraction_normalizer import normalize_extracted_rows
@@ -510,6 +512,34 @@ def _file_data_url(file_bytes: bytes, content_type: str) -> str:
     return f"data:{content_type};base64,{encoded}"
 
 
+def _pdf_bytes_from_data_url(value: Any) -> Optional[bytes]:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if text.lower().startswith("data:"):
+        content_type, _, encoded = text.partition(",")
+        if "application/pdf" not in content_type.lower() or not encoded:
+            return None
+    else:
+        encoded = text
+    try:
+        pdf_bytes = base64.b64decode(encoded, validate=True)
+    except Exception:
+        return None
+    return pdf_bytes if pdf_bytes.startswith(b"%PDF") else None
+
+
+def _stored_pdf_bytes_for_order_id(order_id: Optional[str]) -> Optional[bytes]:
+    if not order_id or not str(order_id).isdigit():
+        return None
+    try:
+        order = get_order_with_extraction(int(order_id))
+    except Exception:
+        return None
+    extraction = (order or {}).get("extraction") or {}
+    return _pdf_bytes_from_data_url(extraction.get("raw_input"))
+
+
 def _rows_to_dicts(rows: List[Any]) -> List[Dict[str, Any]]:
     output: List[Dict[str, Any]] = []
     for row in rows or []:
@@ -548,6 +578,36 @@ def _with_extraction_diagnostics(rows: List[Dict[str, Any]]) -> List[Dict[str, A
     for row in rows or []:
         working = dict(row)
         working["diagnostics"] = diagnose_extraction_row_issue(working)
+        output.append(working)
+    return output
+
+
+def _stored_row_locations(extraction: Dict[str, Any]) -> List[Any]:
+    raw_json = extraction.get("llm_output_json") if isinstance(extraction, dict) else None
+    if not raw_json:
+        return []
+    try:
+        payload = json.loads(raw_json)
+    except Exception:
+        return []
+    meta = payload.get("_meta") if isinstance(payload, dict) else None
+    locations = meta.get("row_locations") if isinstance(meta, dict) else None
+    return locations if isinstance(locations, list) else []
+
+
+def _with_stored_row_locations(
+    rows: List[Dict[str, Any]],
+    extraction: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    locations = _stored_row_locations(extraction)
+    if not locations:
+        return rows
+    output: List[Dict[str, Any]] = []
+    for index, row in enumerate(rows or []):
+        working = dict(row)
+        if "row_location" not in working and index < len(locations):
+            location = locations[index]
+            working["row_location"] = location if isinstance(location, dict) else None
         output.append(working)
     return output
 
@@ -1262,6 +1322,14 @@ def ocr_fallback_extraction_row(payload: ExtractionRowOcrFallbackPayload) -> Dic
     order_context = deepcopy(payload.order_context or {})
     if normalized_order_id is not None:
         order_context.setdefault("order_id", normalized_order_id)
+    row_location = row.get("row_location")
+    if isinstance(row_location, dict):
+        pdf_bytes = _stored_pdf_bytes_for_order_id(normalized_order_id)
+        region_text = extract_pdf_text_for_row_location(pdf_bytes or b"", row_location)
+        if region_text:
+            updated_location = dict(row_location)
+            updated_location["matched_text"] = region_text
+            row["row_location"] = updated_location
     return ocr_fallback_row_repair(
         row=deepcopy(row),
         diagnostics=deepcopy(diagnostics),
@@ -1521,6 +1589,7 @@ def _extract_order_file_bytes(
         validation = validate_rows(extracted_rows, context={"prepared_text": prepared_text})
         normalized_rows = validation.get("rows", extracted_rows)
         final_rows = apply_area_dimension_validation(normalized_rows)
+        localized_response_rows = attach_pdf_row_locations(final_rows, raw_bytes) if is_pdf else final_rows
         row_warnings = validation.get("row_warnings", {})
 
         combined_warnings: List[str] = []
@@ -1548,6 +1617,10 @@ def _extract_order_file_bytes(
             "parsed_result": bundle.get("data") or raw_payload,
             "extraction_method": extraction_method,
             "source_metadata": metadata,
+            "row_locations": [
+                row.get("row_location") if isinstance(row, dict) else None
+                for row in localized_response_rows
+            ],
         }
         llm_output_json = json.dumps(llm_output_payload, ensure_ascii=False)
         hash_value = _compute_hash_bytes(raw_bytes)
@@ -1574,7 +1647,7 @@ def _extract_order_file_bytes(
                 f"declared_area_mismatch: declared {declared_area:.3f}, parsed {totals['area']:.3f}"
             )
         combined_warnings = _dedupe_warnings(combined_warnings)
-        response_rows = _with_extraction_diagnostics(final_rows)
+        response_rows = _with_extraction_diagnostics(localized_response_rows)
 
         possible_duplicate = None
         possible_duplicate_reason = None
@@ -2575,6 +2648,7 @@ def get_order_detail(order_id: int) -> Dict[str, Any]:
     validation = validate_rows([dict(row) for row in rows], context={"prepared_text": extraction.get("prepared_text", "")})
     normalized_rows = validation.get("rows", rows)
     order["rows"] = apply_area_dimension_validation(normalized_rows)
+    order["rows"] = _with_stored_row_locations(order["rows"], extraction)
     order["row_warnings"] = validation.get("row_warnings", {})
     order["warnings"] = validation.get("warnings", [])
     declared_units, declared_area = parse_declared_totals(extraction.get("prepared_text", ""))

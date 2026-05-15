@@ -2,9 +2,13 @@ from __future__ import annotations
 
 from copy import deepcopy
 
+import pytest
+
 from backend.agents.skills.extraction_diagnostics import (
+    attach_pdf_row_locations,
     diagnose_extraction_row_issue,
     diagnose_extraction_row_warning,
+    extract_pdf_text_for_row_location,
     ocr_fallback_row_repair,
 )
 
@@ -358,3 +362,91 @@ def test_ocr_fallback_valid_row_returns_no_fallback():
     assert result["success"] is False
     assert result["method"] == "diagnostics_ok_no_fallback"
     assert result["safe_to_auto_apply"] is False
+
+
+def test_text_layer_row_location_suggests_truncated_dimension():
+    row = {
+        "row_id": "row-16",
+        "position": "1-16",
+        "dimension": "738x124",
+        "quantity": 1,
+        "area": 0.92,
+        "row_location": {
+            "page": 1,
+            "bbox": {"x0": 10.0, "y0": 20.0, "x1": 200.0, "y1": 32.0},
+            "source": "pdf_text_layer",
+            "confidence": 0.88,
+            "matched_text": "1-16 LOWE 738x1243 1 0.92",
+        },
+    }
+    diagnostics = diagnose_extraction_row_issue(row)
+
+    result = ocr_fallback_row_repair(row, diagnostics, target_field="dimension")
+
+    assert result["success"] is True
+    assert result["method"] == "pdf_text_layer_row_region"
+    assert result["suggested_value"] == "738x1243"
+    assert result["safe_to_auto_apply"] is False
+    assert result["evidence"]["page"] == 1
+    assert result["evidence"]["matched_text"] == "1-16 LOWE 738x1243 1 0.92"
+
+
+def test_pdf_text_layer_location_is_attached_when_row_matches():
+    fitz = pytest.importorskip("fitz")
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "1-17 LOWE 738x1243 1 0.918")
+    pdf_bytes = doc.tobytes()
+    doc.close()
+    row = {
+        "row_id": "row-17",
+        "position": "1-17",
+        "dimension": "738x1243",
+        "quantity": 1,
+        "area": 0.918,
+    }
+
+    result = attach_pdf_row_locations([row], pdf_bytes)
+
+    assert result[0]["row_location"]["page"] == 1
+    assert result[0]["row_location"]["source"] == "pdf_text_layer"
+    assert "738x1243" in result[0]["row_location"]["matched_text"]
+    assert "row_location" not in row
+
+
+def test_pdf_text_layer_location_is_null_when_no_row_match():
+    fitz = pytest.importorskip("fitz")
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "unrelated PDF line")
+    pdf_bytes = doc.tobytes()
+    doc.close()
+
+    result = attach_pdf_row_locations(
+        [{"position": "1-18", "dimension": "738x1243", "quantity": 1, "area": 0.918}],
+        pdf_bytes,
+    )
+
+    assert result[0]["row_location"] is None
+
+
+def test_pdf_text_layer_region_text_uses_row_location_bbox():
+    fitz = pytest.importorskip("fitz")
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "1-19 LOWE 738x1243 1 0.918")
+    page.insert_text((72, 120), "unrelated 999x999 1 0.998")
+    pdf_bytes = doc.tobytes()
+    doc.close()
+    location = {
+        "page": 1,
+        "bbox": {"x0": 65.0, "y0": 60.0, "x1": 260.0, "y1": 85.0},
+        "source": "pdf_text_layer",
+        "confidence": 0.9,
+        "matched_text": "",
+    }
+
+    result = extract_pdf_text_for_row_location(pdf_bytes, location)
+
+    assert "738x1243" in result
+    assert "999x999" not in result
