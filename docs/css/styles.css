@@ -290,6 +290,8 @@
     .editable-table input,.editable-table select{width:100%;padding:6px 8px;border:1px solid var(--border-dark);border-radius:8px;font-size:13px;background:#fff}
     .editable-table input:focus{outline:2px solid var(--primary-soft);border-color:var(--primary)}
     .editable-badge{display:inline-flex;align-items:center;padding:2px 6px;border-radius:6px;background:#fee2e2;color:#9f1239;font-size:11px}
+    .diagnosis-row td{background:#fbfcff}
+    .diagnosis-panel{display:grid;gap:5px;border:1px solid var(--border);border-radius:8px;background:#fff;padding:10px 12px;font-size:13px;color:var(--text)}
     .order-chip-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px}
     .order-chips{display:flex;flex-wrap:wrap;gap:6px}
     .order-chip{display:inline-flex;align-items:center;gap:6px;padding:2px 10px;border-radius:999px;background:#eef2ff;color:#374151;font-size:12px}

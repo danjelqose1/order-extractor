@@ -74,7 +74,10 @@ from db import (
 from validators import validate_rows
 from dimension_repair import apply_dimension_repair
 from area_dimension_validator import apply_area_dimension_validation
-from backend.agents.skills.extraction_diagnostics import diagnose_extraction_row_issue
+from backend.agents.skills.extraction_diagnostics import (
+    diagnose_extraction_row_issue,
+    diagnose_extraction_row_warning,
+)
 from extraction_normalizer import normalize_extracted_rows
 from utils_text import clean_dimension, parse_declared_totals
 from prompts import PROMPTS
@@ -350,6 +353,12 @@ class ApprovePayload(BaseModel):
     client_name: Optional[str] = None
     client: Optional[str] = None
     clientName: Optional[str] = None
+
+
+class ExtractionRowDiagnosisPayload(BaseModel):
+    row: Dict[str, Any]
+    diagnostics: Optional[Dict[str, Any]] = None
+    order_context: Optional[Dict[str, Any]] = None
 
 
 class StatusUpdatePayload(BaseModel):
@@ -1212,6 +1221,15 @@ def download_workspace_file(file_id: int):
         raise HTTPException(status_code=404, detail="File missing on disk")
     filename = path.name
     return FileResponse(path, media_type="application/pdf", filename=filename)
+
+
+@app.post("/api/extraction/diagnose-row")
+def diagnose_extraction_row(payload: ExtractionRowDiagnosisPayload) -> Dict[str, Any]:
+    return diagnose_extraction_row_warning(
+        deepcopy(payload.row or {}),
+        deepcopy(payload.diagnostics or {}),
+        deepcopy(payload.order_context or {}),
+    )
 
 
 @app.post("/extract")

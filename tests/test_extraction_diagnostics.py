@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-from backend.agents.skills.extraction_diagnostics import diagnose_extraction_row_issue
+from backend.agents.skills.extraction_diagnostics import (
+    diagnose_extraction_row_issue,
+    diagnose_extraction_row_warning,
+)
 
 
 def test_valid_row_returns_ok():
@@ -190,3 +193,76 @@ def test_diagnostics_do_not_mutate_original_row():
     diagnose_extraction_row_issue(row)
 
     assert row == original
+
+
+def test_area_mismatch_diagnosis():
+    row = {
+        "row_id": "row-8",
+        "position": "1-8",
+        "dimension": "472x1413",
+        "quantity": 2,
+        "area": 0.67,
+    }
+    diagnostics = diagnose_extraction_row_issue(row)
+
+    result = diagnose_extraction_row_warning(row, diagnostics)
+
+    assert result["severity"] == "warning"
+    assert result["recommended_action"] == "CHECK_AREA"
+    assert "single-piece area" in result["likely_cause"]
+    assert result["safe_to_auto_fix"] is False
+    assert result["suggested_fix"] is None
+
+
+def test_missing_dimension_diagnosis():
+    row = {
+        "row_id": "row-9",
+        "position": "1-9",
+        "dimension": "",
+        "quantity": 1,
+        "area": 0.67,
+    }
+    diagnostics = diagnose_extraction_row_issue(row)
+
+    result = diagnose_extraction_row_warning(row, diagnostics)
+
+    assert result["severity"] == "error"
+    assert result["recommended_action"] == "OCR_FALLBACK_DIMENSION"
+    assert "Dimension is missing" in result["summary"]
+    assert result["safe_to_auto_fix"] is False
+
+
+def test_valid_row_diagnosis_returns_ok_no_issue():
+    row = {
+        "row_id": "row-10",
+        "position": "1-10",
+        "dimension": "472x1413",
+        "quantity": 2,
+        "area": 1.34,
+    }
+    diagnostics = diagnose_extraction_row_issue(row)
+
+    result = diagnose_extraction_row_warning(row, diagnostics)
+
+    assert result["severity"] == "ok"
+    assert result["recommended_action"] == "MANUAL_REVIEW"
+    assert "No extraction issue" in result["summary"]
+    assert result["safe_to_auto_fix"] is False
+
+
+def test_row_diagnosis_does_not_mutate_input():
+    row = {
+        "row_id": "row-11",
+        "position": "1-11",
+        "dimension": "337x102",
+        "quantity": 1,
+        "area": 0.35,
+    }
+    diagnostics = diagnose_extraction_row_issue(row)
+    original_row = deepcopy(row)
+    original_diagnostics = deepcopy(diagnostics)
+
+    diagnose_extraction_row_warning(row, diagnostics)
+
+    assert row == original_row
+    assert diagnostics == original_diagnostics

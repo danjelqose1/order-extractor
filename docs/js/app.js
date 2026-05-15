@@ -135,6 +135,7 @@ const appState = {
   extract: {
     rows: [],
     rowWarnings: {},
+    rowDiagnoses: {},
     warnings: [],
     draftId: null,
     status: "idle",
@@ -156,6 +157,7 @@ const appState = {
     order: null,
     rows: [],
     rowWarnings: {},
+    rowDiagnoses: {},
     warnings: [],
     notes: "",
     declaredUnits: null,
@@ -7750,31 +7752,6 @@ function clearDiagnosticsForManualEdit(row){
   delete row.area_mismatch;
 }
 
-function markAreaDiagnosticFixed(row, calculatedArea){
-  const diagnostics = getRowDiagnostics(row);
-  if (!diagnostics) return;
-  const remainingIssues = Array.isArray(diagnostics.issues)
-    ? diagnostics.issues.filter(issue => {
-        const code = String(issue?.code || "");
-        return code !== "AREA_MISMATCH" && code !== "POSSIBLE_DIMENSION_OCR_ERROR";
-      })
-    : [];
-  const nextSeverity = remainingIssues.length ? diagnostics.severity : "ok";
-  row.diagnostics = {
-    ...diagnostics,
-    severity: nextSeverity,
-    issues: remainingIssues,
-    computed: {
-      ...(diagnostics.computed || {}),
-      calculated_area: calculatedArea,
-      extracted_area: calculatedArea,
-      difference: 0,
-      difference_percent: 0,
-    },
-    requires_human_review: nextSeverity !== "ok",
-  };
-}
-
 function cleanPosKey(position){
   if (!position) return [0, 0, ""];
   const [main, suffix = ""] = position.split("/");
@@ -7831,19 +7808,75 @@ function addRowToGroup(scope, order){
   }
 }
 
-function fixAreaForRow(scope, index){
+function buildRowDiagnosisContext(scope, index){
+  const bucket = scope === "history" ? appState.historyDetail : appState.extract;
+  const rows = bucket.rows || [];
+  const row = rows[index];
+  return {
+    order_number: row?.order_number || bucket.orderNumber || "",
+    client: getClientName(bucket, ""),
+    rows_before: rows.slice(Math.max(0, index - 3), index),
+    rows_after: rows.slice(index + 1, index + 4),
+  };
+}
+
+async function requestRowDiagnosis(scope, index){
   const bucket = scope === "history" ? appState.historyDetail : appState.extract;
   const rows = bucket.rows || [];
   const row = rows[index];
   if (!row) return;
-  const computed = diagnosticCalculatedArea(row);
-  if (computed == null) return;
-  row.area = computed;
-  markAreaDiagnosticFixed(row, computed);
-  if (bucket.rowWarnings && row._rid && bucket.rowWarnings[row._rid]){
-    bucket.rowWarnings[row._rid] = bucket.rowWarnings[row._rid].filter(item => !item.includes("area"));
+  const diagnostics = getRowDiagnostics(row);
+  const rid = row._rid || String(index);
+  bucket.rowDiagnoses = bucket.rowDiagnoses || {};
+  if (!hasActionableDiagnostics(row)){
+    bucket.rowDiagnoses[rid] = {
+      severity: "ok",
+      summary: "No issue detected for this row.",
+      likely_cause: "Backend diagnostics did not report a row-level warning or error.",
+      recommended_action: "MANUAL_REVIEW",
+      confidence: 1,
+      safe_to_auto_fix: false,
+      suggested_fix: null,
+    };
+    if (scope === "history"){
+      updateHistoryDetailUI();
+    }else{
+      updateExtractUI();
+    }
+    return;
   }
-  recalcParsedTotals(bucket);
+  bucket.rowDiagnoses[rid] = { loading: true };
+  if (scope === "history"){
+    updateHistoryDetailUI();
+  }else{
+    updateExtractUI();
+  }
+  try{
+    const response = await fetch(API_BASE + "/api/extraction/diagnose-row", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        row,
+        diagnostics,
+        order_context: buildRowDiagnosisContext(scope, index),
+      }),
+    });
+    if (!response.ok){
+      const message = await response.text();
+      throw new Error(message || `HTTP ${response.status}`);
+    }
+    bucket.rowDiagnoses[rid] = await response.json();
+  }catch(error){
+    bucket.rowDiagnoses[rid] = {
+      severity: "error",
+      summary: "Diagnosis request failed.",
+      likely_cause: error.message || String(error),
+      recommended_action: "MANUAL_REVIEW",
+      confidence: 0,
+      safe_to_auto_fix: false,
+      suggested_fix: null,
+    };
+  }
   if (scope === "history"){
     updateHistoryDetailUI();
   }else{
@@ -7852,26 +7885,7 @@ function fixAreaForRow(scope, index){
 }
 
 function fixAllAreas(scope){
-  const bucket = scope === "history" ? appState.historyDetail : appState.extract;
-  let changed = false;
-  (bucket.rows || []).forEach((row, idx) => {
-    const computed = diagnosticCalculatedArea(row);
-    if (computed != null && hasDiagnosticIssue(row, "AREA_MISMATCH")){
-      row.area = computed;
-      markAreaDiagnosticFixed(row, computed);
-      if (bucket.rowWarnings && row._rid && bucket.rowWarnings[row._rid]){
-        bucket.rowWarnings[row._rid] = bucket.rowWarnings[row._rid].filter(item => !item.includes("area"));
-      }
-      changed = true;
-    }
-  });
-  if (!changed) return;
-  recalcParsedTotals(bucket);
-  if (scope === "history"){
-    updateHistoryDetailUI();
-  }else{
-    updateExtractUI();
-  }
+  setStatusMessage("Use the row Fix button to diagnose one warning at a time. No automatic change was made.");
 }
 
 function removeRow(scope, rowKey){
@@ -7890,6 +7904,9 @@ function removeRow(scope, rowKey){
   if (bucket.rowWarnings && removedRow && removedRow._rid){
     delete bucket.rowWarnings[removedRow._rid];
   }
+  if (bucket.rowDiagnoses && removedRow && removedRow._rid){
+    delete bucket.rowDiagnoses[removedRow._rid];
+  }
   recalcParsedTotals(bucket);
   if (scope === "history"){
     updateHistoryDetailUI();
@@ -7897,6 +7914,22 @@ function removeRow(scope, rowKey){
     window.__rows = rows;
     updateExtractUI();
   }
+}
+
+function renderRowDiagnosisPanel(diagnosis){
+  if (!diagnosis) return "";
+  if (diagnosis.loading){
+    return '<div class="diagnosis-panel"><span class="spinner"></span> Diagnosing row...</div>';
+  }
+  const confidence = Number(diagnosis.confidence);
+  const confidenceText = Number.isFinite(confidence) ? `${Math.round(confidence * 100)}%` : "—";
+  return `<div class="diagnosis-panel">
+    <div><strong>${escapeHtml(String(diagnosis.severity || "warning").toUpperCase())}</strong> ${escapeHtml(diagnosis.summary || "Review this row.")}</div>
+    <div><span class="muted">Likely cause:</span> ${escapeHtml(diagnosis.likely_cause || "Manual review needed.")}</div>
+    <div><span class="muted">Recommended action:</span> <span class="mono">${escapeHtml(diagnosis.recommended_action || "MANUAL_REVIEW")}</span></div>
+    <div><span class="muted">Confidence:</span> ${escapeHtml(confidenceText)}</div>
+    <div class="muted">No automatic change was made.</div>
+  </div>`;
 }
 
 function renderEditableTable(scope, containerId, rows, rowWarnings){
@@ -7965,7 +7998,7 @@ function renderEditableTable(scope, containerId, rows, rowWarnings){
       const posKey = `${row._rid}:position`;
       const qtyKey = `${row._rid}:quantity`;
       const areaKey = `${row._rid}:area`;
-      const fixBtn = mismatch && computed != null ? `<button type="button" class="btn small" data-fix-area="${rowIndex}" title="Set area to ${computed.toFixed(3)}">Fix</button>` : "";
+      const fixBtn = hasActionableDiagnostics(row) ? `<button type="button" class="btn small" data-fix-area="${rowIndex}" title="Diagnose this warning">Fix</button>` : "";
       const removeBtn = `<button type="button" class="btn small danger" data-remove-row="${escapeHtml(row._rid)}">Remove</button>`;
       const actionButtons = [fixBtn, removeBtn].filter(Boolean).join(" ");
       html += `<tr data-index="${rowIndex}" data-order="${escapeHtml(order)}">
@@ -7979,6 +8012,12 @@ function renderEditableTable(scope, containerId, rows, rowWarnings){
         <td data-col="area"><input ${inputBase} data-field="area" data-key="${areaKey}" type="number" inputmode="decimal" min="0" step="0.001" value="${escapeHtml(row.area ?? 0)}" /></td>
         <td data-col="actions">${actionButtons}</td>
       </tr>`;
+      const diagnosis = bucket.rowDiagnoses && row._rid ? bucket.rowDiagnoses[row._rid] : null;
+      if (diagnosis){
+        html += `<tr class="diagnosis-row" data-index="${rowIndex}" data-order="${escapeHtml(order)}">
+          <td colspan="9">${renderRowDiagnosisPanel(diagnosis)}</td>
+        </tr>`;
+      }
       globalIndex += 1;
     });
     html += "</tbody></table>";
@@ -8007,6 +8046,9 @@ function updateRowValue(scope, index, field, value, options = {}){
   const rid = row._rid;
   if (bucket.rowWarnings && rid){
     delete bucket.rowWarnings[rid];
+  }
+  if (bucket.rowDiagnoses && rid){
+    delete bucket.rowDiagnoses[rid];
   }
   if (field === "quantity"){
     row.quantity = Math.max(0, Number(row.quantity || 0));
@@ -8058,7 +8100,7 @@ document.getElementById("tableWrap").addEventListener("click", (event)=>{
   const fixBtn = event.target.closest("[data-fix-area]");
   if (fixBtn){
     const idx = Number(fixBtn.dataset.fixArea);
-    if (!Number.isNaN(idx)) fixAreaForRow("extract", idx);
+    if (!Number.isNaN(idx)) requestRowDiagnosis("extract", idx);
   }
 });
 
@@ -8071,7 +8113,7 @@ document.getElementById("historyTableWrap").addEventListener("click", (event)=>{
   const fixBtn = event.target.closest("[data-fix-area]");
   if (fixBtn){
     const idx = Number(fixBtn.dataset.fixArea);
-    if (!Number.isNaN(idx)) fixAreaForRow("history", idx);
+    if (!Number.isNaN(idx)) requestRowDiagnosis("history", idx);
   }
 });
 
@@ -11361,19 +11403,11 @@ function updateFixAllState(scope){
   if (scope === "history"){
     const btn = document.getElementById("historyFixAllAreas");
     if (!btn) return;
-    const order = appState.historyDetail.order;
-    const status = normalizeHistoryStatusValue(order && order.status);
-    const mismatchCount = (appState.historyDetail.rows || []).filter(row => {
-      return hasDiagnosticIssue(row, "AREA_MISMATCH") && diagnosticCalculatedArea(row) != null;
-    }).length;
-    btn.hidden = !canEditDraftStatus(status) || mismatchCount === 0;
+    btn.hidden = true;
   }else{
     const btn = document.getElementById("fixAllAreas");
     if (!btn) return;
-    const mismatchCount = (appState.extract.rows || []).filter(row => {
-      return hasDiagnosticIssue(row, "AREA_MISMATCH") && diagnosticCalculatedArea(row) != null;
-    }).length;
-    btn.hidden = groupState || mismatchCount === 0;
+    btn.hidden = true;
   }
 }
 
@@ -14312,6 +14346,7 @@ function renderOrderDetail(){
     appState.historyDetail.order = null;
     appState.historyDetail.rows = [];
     appState.historyDetail.rowWarnings = {};
+    appState.historyDetail.rowDiagnoses = {};
     appState.historyDetail.warnings = [];
     appState.historyDetail.notes = "";
     if (historyRawTextEl) historyRawTextEl.textContent = "No raw extraction text available.";
@@ -14338,6 +14373,7 @@ function renderOrderDetail(){
     return enriched;
   });
   appState.historyDetail.rowWarnings = warningsMap;
+  appState.historyDetail.rowDiagnoses = {};
   appState.historyDetail.warnings = order.warnings || [];
   appState.historyDetail.notes = order.notes || "";
   appState.historyDetail.declaredUnits = order.declared_units ?? null;
@@ -15517,6 +15553,7 @@ function applyExtractionResult(data){
     return enriched;
   });
   appState.extract.rowWarnings = warningsMap;
+  appState.extract.rowDiagnoses = {};
   appState.extract.warnings = data?.warnings || [];
   if (data?.created_new_version && data?.protected_order_id){
     const protectedId = data.protected_order_id;
@@ -15620,6 +15657,7 @@ document.getElementById("approveSave").addEventListener("click", async ()=>{
       return enriched;
     });
     appState.extract.rowWarnings = warningsMap;
+    appState.extract.rowDiagnoses = {};
     appState.extract.warnings = resp?.warnings || [];
     appState.extract.draftId = null;
     appState.extract.status = "approved";

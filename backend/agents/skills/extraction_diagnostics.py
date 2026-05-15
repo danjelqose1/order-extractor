@@ -76,6 +76,111 @@ def _parse_area(value: Any) -> Optional[float]:
     return area if area > 0 else None
 
 
+def _dimension_key(value: Any) -> str:
+    width_mm, height_mm, _raw = _parse_dimension(value)
+    if width_mm is None or height_mm is None:
+        return ""
+    return f"{width_mm}x{height_mm}"
+
+
+def _issue_codes(diagnostics: Optional[Dict[str, Any]]) -> List[str]:
+    issues = diagnostics.get("issues") if isinstance(diagnostics, dict) else None
+    if not isinstance(issues, list):
+        return []
+    return [str(issue.get("code") or "").strip().upper() for issue in issues if isinstance(issue, dict)]
+
+
+def _nearby_rows(order_context: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    if not isinstance(order_context, dict):
+        return []
+    rows: List[Dict[str, Any]] = []
+    for key in ("rows_before", "rows_after"):
+        value = order_context.get(key)
+        if isinstance(value, list):
+            rows.extend(item for item in value if isinstance(item, dict))
+    return rows
+
+
+def _same_dimension_neighbors(row: Dict[str, Any], order_context: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    current_dimension = _dimension_key(row.get("dimension"))
+    if not current_dimension:
+        return []
+    return [
+        nearby
+        for nearby in _nearby_rows(order_context)
+        if _dimension_key(nearby.get("dimension")) == current_dimension
+    ]
+
+
+def _has_matching_neighbor(row: Dict[str, Any], neighbors: List[Dict[str, Any]]) -> bool:
+    quantity = _parse_quantity(row.get("quantity"))
+    area = _parse_area(_area_value(row))
+    if quantity is None or area is None:
+        return False
+    for nearby in neighbors:
+        nearby_quantity = _parse_quantity(nearby.get("quantity"))
+        nearby_area = _parse_area(_area_value(nearby))
+        if nearby_quantity == quantity and nearby_area is not None and abs(nearby_area - area) <= 0.01:
+            return True
+    return False
+
+
+def _has_same_dimension_area_conflict(row: Dict[str, Any], neighbors: List[Dict[str, Any]]) -> bool:
+    area = _parse_area(_area_value(row))
+    if area is None:
+        return False
+    for nearby in neighbors:
+        nearby_area = _parse_area(_area_value(nearby))
+        if nearby_area is not None and abs(nearby_area - area) > 0.01:
+            return True
+    return False
+
+
+def _position_prefix(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    return text.split("-", 1)[0]
+
+
+def _breaks_nearby_pattern(row: Dict[str, Any], order_context: Optional[Dict[str, Any]]) -> bool:
+    current_dimension = _dimension_key(row.get("dimension"))
+    current_prefix = _position_prefix(row.get("position"))
+    if not current_dimension or not current_prefix:
+        return False
+    pattern_counts: Dict[Tuple[str, str], int] = {}
+    for nearby in _nearby_rows(order_context):
+        dimension = _dimension_key(nearby.get("dimension"))
+        prefix = _position_prefix(nearby.get("position"))
+        if dimension and prefix:
+            key = (prefix, dimension)
+            pattern_counts[key] = pattern_counts.get(key, 0) + 1
+    same_position_patterns = [
+        count
+        for (prefix, dimension), count in pattern_counts.items()
+        if prefix == current_prefix and dimension != current_dimension
+    ]
+    return bool(same_position_patterns and max(same_position_patterns) >= 2)
+
+
+def _base_diagnosis(
+    severity: str,
+    summary: str,
+    likely_cause: str,
+    recommended_action: str,
+    confidence: float,
+) -> Dict[str, Any]:
+    return {
+        "severity": severity,
+        "summary": summary,
+        "likely_cause": likely_cause,
+        "recommended_action": recommended_action,
+        "confidence": max(0.0, min(1.0, float(confidence))),
+        "safe_to_auto_fix": False,
+        "suggested_fix": None,
+    }
+
+
 def _area_value(row: Dict[str, Any]) -> Any:
     for key in ("area", "extracted_area", "area_m2"):
         if key in row:
@@ -308,4 +413,115 @@ def diagnose_extraction_row_issue(row: dict) -> dict:
     }
 
 
-__all__ = ["diagnose_extraction_row_issue"]
+def diagnose_extraction_row_warning(
+    row: dict,
+    diagnostics: Optional[dict] = None,
+    order_context: Optional[dict] = None,
+) -> dict:
+    diagnostics = diagnostics if isinstance(diagnostics, dict) else diagnose_extraction_row_issue(row)
+    severity = str(diagnostics.get("severity") or "ok")
+    codes = set(_issue_codes(diagnostics))
+    if severity not in {"warning", "error"} or not codes:
+        return _base_diagnosis(
+            "ok",
+            "No extraction issue was detected for this row.",
+            "Backend diagnostics did not report a row-level warning or error.",
+            "MANUAL_REVIEW",
+            1.0,
+        )
+
+    neighbors = _same_dimension_neighbors(row, order_context)
+    context_notes: List[str] = []
+    if neighbors and _has_matching_neighbor(row, neighbors):
+        context_notes.append("Nearby rows repeat the same dimension, quantity, and area.")
+    if neighbors and _has_same_dimension_area_conflict(row, neighbors):
+        context_notes.append("Nearby rows use the same dimension but a different area.")
+    if _breaks_nearby_pattern(row, order_context):
+        context_notes.append("This row breaks a repeated nearby position/dimension pattern.")
+    context_suffix = f" {' '.join(context_notes)}" if context_notes else ""
+
+    if "GLASS_TYPE_UNCLEAR" in codes:
+        return _base_diagnosis(
+            severity,
+            f"Glass type needs review.{context_suffix}",
+            "The extracted glass type is unclear or inconsistent with row context.",
+            "OCR_FALLBACK_TYPE",
+            0.72,
+        )
+
+    if "MISSING_DIMENSION" in codes:
+        return _base_diagnosis(
+            severity,
+            f"Dimension is missing for this row.{context_suffix}",
+            "The PDF extraction did not capture a width x height value.",
+            "OCR_FALLBACK_DIMENSION",
+            0.9,
+        )
+
+    if "INVALID_DIMENSION" in codes or "INVALID_DIMENSION_FORMAT" in codes:
+        return _base_diagnosis(
+            severity,
+            f"Dimension format is invalid for this row.{context_suffix}",
+            "The dimension text is not a reliable width x height value.",
+            "OCR_FALLBACK_DIMENSION",
+            0.88,
+        )
+
+    if "MISSING_QUANTITY" in codes or "INVALID_QUANTITY" in codes:
+        return _base_diagnosis(
+            severity,
+            f"Quantity needs review.{context_suffix}",
+            "The extracted quantity is missing or is not a positive whole number.",
+            "CHECK_QUANTITY",
+            0.86,
+        )
+
+    if "MISSING_EXTRACTED_AREA" in codes or "INVALID_EXTRACTED_AREA" in codes or "INVALID_AREA" in codes:
+        return _base_diagnosis(
+            severity,
+            f"Area needs review.{context_suffix}",
+            "The extracted row area is missing or is not a positive number.",
+            "CHECK_AREA",
+            0.86,
+        )
+
+    if "AREA_MISMATCH" in codes:
+        computed = diagnostics.get("computed") if isinstance(diagnostics.get("computed"), dict) else {}
+        calculated_area = _parse_area(computed.get("calculated_area"))
+        extracted_area = _parse_area(computed.get("extracted_area"))
+        quantity = _parse_quantity(row.get("quantity")) or 1
+        likely_cause = "The extracted row area does not match width x height x quantity."
+        recommended_action = "CHECK_AREA"
+        confidence = 0.74
+
+        if "POSSIBLE_DIMENSION_OCR_ERROR" in codes or _breaks_nearby_pattern(row, order_context):
+            likely_cause = "A dimension digit may have been missed or misread during OCR."
+            recommended_action = "OCR_FALLBACK_DIMENSION"
+            confidence = 0.8
+        elif calculated_area and extracted_area and quantity > 1 and abs(extracted_area - (calculated_area / quantity)) <= 0.01:
+            likely_cause = "The extracted area looks like a single-piece area, but row area should be total area."
+            recommended_action = "CHECK_AREA"
+            confidence = 0.9
+        elif neighbors and _has_same_dimension_area_conflict(row, neighbors):
+            likely_cause = "Rows with the same dimension nearby have a different area, so the area value may be wrong."
+            recommended_action = "CHECK_AREA"
+            confidence = 0.82
+
+        return _base_diagnosis(
+            severity,
+            f"Area does not match the backend quantity-aware calculation.{context_suffix}",
+            likely_cause,
+            recommended_action,
+            confidence,
+        )
+
+    return _base_diagnosis(
+        severity,
+        f"Backend diagnostics reported a row issue that needs review.{context_suffix}",
+        "The issue does not match a specialized rule yet.",
+        "MANUAL_REVIEW",
+        0.6,
+    )
+
+
+__all__ = ["diagnose_extraction_row_issue", "diagnose_extraction_row_warning"]
