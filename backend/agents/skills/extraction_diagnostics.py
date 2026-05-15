@@ -112,7 +112,12 @@ def _position_count(row: Dict[str, Any], position: str) -> Optional[int]:
     return None
 
 
-def _has_possible_ocr_dimension_fix(width_mm: int, height_mm: int, per_piece_area: float) -> bool:
+def _has_possible_ocr_dimension_fix(
+    width_mm: int,
+    height_mm: int,
+    quantity: int,
+    extracted_total_area: float,
+) -> bool:
     for side in ("width", "height"):
         base = width_mm if side == "width" else height_mm
         other = height_mm if side == "width" else width_mm
@@ -122,12 +127,12 @@ def _has_possible_ocr_dimension_fix(width_mm: int, height_mm: int, per_piece_are
             candidate = int(f"{base}{digit}")
             if candidate < MIN_DIMENSION_MM or candidate > MAX_DIMENSION_MM:
                 continue
-            candidate_area = (candidate * other) / 1_000_000
+            candidate_area = (candidate * other * quantity) / 1_000_000
             tolerance = max(
                 AREA_MISMATCH_ABSOLUTE,
                 candidate_area * (AREA_MISMATCH_PERCENT / 100.0),
             )
-            if abs(per_piece_area - candidate_area) <= tolerance:
+            if abs(extracted_total_area - candidate_area) <= tolerance:
                 return True
     return False
 
@@ -244,8 +249,12 @@ def diagnose_extraction_row_issue(row: dict) -> dict:
                 )
             )
 
-            per_piece_area = extracted_area / max(quantity or 1, 1)
-            if _has_possible_ocr_dimension_fix(width_mm, height_mm, per_piece_area):
+            if _has_possible_ocr_dimension_fix(
+                width_mm,
+                height_mm,
+                quantity,
+                extracted_area,
+            ):
                 issues.append(
                     _issue(
                         "POSSIBLE_DIMENSION_OCR_ERROR",
