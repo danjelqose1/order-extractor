@@ -7896,7 +7896,10 @@ async function requestRowDiagnosis(scope, index){
         diagnostics,
         target_field: chooseFallbackTargetField(row),
         nearby_rows: [...(orderContext.rows_before || []), ...(orderContext.rows_after || [])],
+<<<<<<< HEAD
         order_rows: orderContext.order_rows || [],
+=======
+>>>>>>> 8d2075de3889c7eae5f98da2e2d67ad2b3ffa251
         order_context: orderContext,
       }),
     });
@@ -7963,8 +7966,13 @@ function acceptRowSuggestion(scope, rowKey){
     methods_used: suggestion.methods_used || [],
     accepted_at: new Date().toISOString(),
   });
+<<<<<<< HEAD
   if ((suggestion.methods_used || []).includes("family_pattern_repair") || suggestion.method === "family_pattern_repair"){
     row.repaired_by_family_pattern = true;
+=======
+  if ((suggestion.methods_used || []).includes("pattern_repair") || suggestion.method === "pattern_repair"){
+    row.repaired_by_pattern_engine = true;
+>>>>>>> 8d2075de3889c7eae5f98da2e2d67ad2b3ffa251
   }
   clearDiagnosticsForManualEdit(row);
   delete bucket.rowDiagnoses[rowKey];
@@ -8069,19 +8077,34 @@ function renderRepairEvidenceValue(value){
 function renderRepairEvidence(evidence){
   if (!evidence || typeof evidence !== "object") return "";
   const lines = [];
+<<<<<<< HEAD
   const family = evidence.family_pattern || evidence;
   const selected = family.selected_candidate || null;
   const diagnosticCodes = evidence.diagnostic_codes || family.diagnostic_codes || [];
+=======
+  const pattern = evidence.pattern_repair || evidence;
+  const selected = pattern.selected_candidate || null;
+  const diagnosticCodes = evidence.diagnostic_codes || pattern.diagnostic_codes || [];
+>>>>>>> 8d2075de3889c7eae5f98da2e2d67ad2b3ffa251
   if (diagnosticCodes.length){
     lines.push(`<div><span class="muted">Diagnostics:</span> <span class="mono">${escapeHtml(diagnosticCodes.join(", "))}</span></div>`);
   }
   if (selected && selected.dimension){
+<<<<<<< HEAD
     lines.push(`<div><span class="muted">Family candidate:</span> <span class="mono">${escapeHtml(String(selected.dimension))}</span></div>`);
     if (selected.support_count != null){
       lines.push(`<div><span class="muted">Support:</span> ${escapeHtml(String(selected.support_count))} row(s)</div>`);
     }
     if (selected.sources && selected.sources.length){
       lines.push(`<div><span class="muted">Sources:</span> <span class="mono">${escapeHtml(selected.sources.join(", "))}</span></div>`);
+=======
+    lines.push(`<div><span class="muted">Selected pattern:</span> <span class="mono">${escapeHtml(String(selected.dimension))}</span></div>`);
+    if (selected.count != null){
+      lines.push(`<div><span class="muted">Nearby support:</span> ${escapeHtml(String(selected.count))} row(s)</div>`);
+    }
+    if (selected.calculated_area != null){
+      lines.push(`<div><span class="muted">Calculated area:</span> ${escapeHtml(String(selected.calculated_area))}</div>`);
+>>>>>>> 8d2075de3889c7eae5f98da2e2d67ad2b3ffa251
     }
   }
   const ocr = evidence.ocr_fallback || evidence;
