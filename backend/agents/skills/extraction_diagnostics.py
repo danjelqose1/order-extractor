@@ -445,6 +445,7 @@ def _select_fallback_target_field(diagnostics: Optional[Dict[str, Any]], request
         "SUSPICIOUS_DIMENSION_SIZE",
         "AREA_MISMATCH",
         "POSSIBLE_DIMENSION_OCR_ERROR",
+        "POSSIBLE_DIMENSION_FAMILY_MISMATCH",
     }:
         return "dimension"
     if codes & {"INVALID_AREA", "MISSING_EXTRACTED_AREA", "INVALID_EXTRACTED_AREA"}:
@@ -485,6 +486,7 @@ def _dimension_is_suspicious(row: Dict[str, Any], diagnostics: Dict[str, Any]) -
         "SUSPICIOUS_DIMENSION_SIZE",
         "AREA_MISMATCH",
         "POSSIBLE_DIMENSION_OCR_ERROR",
+        "POSSIBLE_DIMENSION_FAMILY_MISMATCH",
     }:
         return True
     width_mm, height_mm, _raw = _parse_dimension(row.get("dimension"))
@@ -948,6 +950,20 @@ def diagnose_extraction_row_warning(
             "The extracted quantity is missing or is not a positive whole number.",
             "CHECK_QUANTITY",
             0.86,
+        )
+
+    if "POSSIBLE_DIMENSION_FAMILY_MISMATCH" in codes:
+        family = diagnostics.get("family_pattern") if isinstance(diagnostics.get("family_pattern"), dict) else {}
+        suggested = family.get("suggested_value")
+        likely_cause = "The dimension is valid, but it may not match a nearby or original order dimension family."
+        if suggested:
+            likely_cause = f"The dimension is valid, but {suggested} is a nearby/order family candidate."
+        return _base_diagnosis(
+            severity,
+            f"Dimension may not match the nearby/order family pattern.{context_suffix}",
+            likely_cause,
+            "PATTERN_REPAIR",
+            float(family.get("confidence") or 0.72),
         )
 
     if "MISSING_EXTRACTED_AREA" in codes or "INVALID_EXTRACTED_AREA" in codes or "INVALID_AREA" in codes:

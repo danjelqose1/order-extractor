@@ -134,6 +134,7 @@ const historyState = {
 const appState = {
   extract: {
     rows: [],
+    originalRows: [],
     rowWarnings: {},
     rowDiagnoses: {},
     warnings: [],
@@ -157,6 +158,7 @@ const appState = {
   historyDetail: {
     order: null,
     rows: [],
+    originalRows: [],
     rowWarnings: {},
     rowDiagnoses: {},
     warnings: [],
@@ -7742,7 +7744,7 @@ function hasDiagnosticIssue(row, code){
 function chooseFallbackTargetField(row){
   const codes = getDiagnosticIssues(row).map(issue => String(issue?.code || "").toUpperCase());
   const hasAny = (...items) => items.some(item => codes.includes(item));
-  if (hasAny("MISSING_DIMENSION", "INVALID_DIMENSION", "INVALID_DIMENSION_FORMAT", "DIMENSION_OUT_OF_RANGE", "SUSPICIOUS_DIMENSION_SIZE", "AREA_MISMATCH", "POSSIBLE_DIMENSION_OCR_ERROR")){
+  if (hasAny("MISSING_DIMENSION", "INVALID_DIMENSION", "INVALID_DIMENSION_FORMAT", "DIMENSION_OUT_OF_RANGE", "SUSPICIOUS_DIMENSION_SIZE", "AREA_MISMATCH", "POSSIBLE_DIMENSION_OCR_ERROR", "POSSIBLE_DIMENSION_FAMILY_MISMATCH")){
     return "dimension";
   }
   if (hasAny("INVALID_AREA", "MISSING_EXTRACTED_AREA", "INVALID_EXTRACTED_AREA")){
@@ -7844,6 +7846,8 @@ function buildRowDiagnosisContext(scope, index){
     client: getClientName(bucket, ""),
     rows_before: rows.slice(Math.max(0, index - 3), index),
     rows_after: rows.slice(index + 1, index + 4),
+    order_rows: rows,
+    original_order_rows: bucket.originalRows || [],
   };
 }
 
@@ -7880,7 +7884,8 @@ async function requestRowDiagnosis(scope, index){
   }
   try{
     const orderId = bucket.draftId || bucket.savedOrderId || bucket.order?.id || null;
-    const response = await fetch(API_BASE + "/api/extraction/ocr-fallback-row", {
+    const orderContext = buildRowDiagnosisContext(scope, index);
+    const response = await fetch(API_BASE + "/api/extraction/repair-row", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -7890,7 +7895,9 @@ async function requestRowDiagnosis(scope, index){
         row,
         diagnostics,
         target_field: chooseFallbackTargetField(row),
-        order_context: buildRowDiagnosisContext(scope, index),
+        nearby_rows: [...(orderContext.rows_before || []), ...(orderContext.rows_after || [])],
+        order_rows: orderContext.order_rows || [],
+        order_context: orderContext,
       }),
     });
     if (!response.ok){
@@ -7953,8 +7960,12 @@ function acceptRowSuggestion(scope, rowKey){
     original_value: suggestion.original_value,
     suggested_value: suggestion.suggested_value,
     method: suggestion.method,
+    methods_used: suggestion.methods_used || [],
     accepted_at: new Date().toISOString(),
   });
+  if ((suggestion.methods_used || []).includes("family_pattern_repair") || suggestion.method === "family_pattern_repair"){
+    row.repaired_by_family_pattern = true;
+  }
   clearDiagnosticsForManualEdit(row);
   delete bucket.rowDiagnoses[rowKey];
   const index = rows.indexOf(row);
@@ -8043,6 +8054,64 @@ async function refreshRowDiagnostics(scope, index){
   }
 }
 
+function renderRepairEvidenceValue(value){
+  if (value == null || value === "") return "";
+  if (Array.isArray(value)){
+    if (!value.length) return "";
+    return `<span class="mono">${escapeHtml(JSON.stringify(value.slice(0, 4)))}</span>`;
+  }
+  if (typeof value === "object"){
+    return `<span class="mono">${escapeHtml(JSON.stringify(value))}</span>`;
+  }
+  return escapeHtml(String(value));
+}
+
+function renderRepairEvidence(evidence){
+  if (!evidence || typeof evidence !== "object") return "";
+  const lines = [];
+  const family = evidence.family_pattern || evidence;
+  const selected = family.selected_candidate || null;
+  const diagnosticCodes = evidence.diagnostic_codes || family.diagnostic_codes || [];
+  if (diagnosticCodes.length){
+    lines.push(`<div><span class="muted">Diagnostics:</span> <span class="mono">${escapeHtml(diagnosticCodes.join(", "))}</span></div>`);
+  }
+  if (selected && selected.dimension){
+    lines.push(`<div><span class="muted">Family candidate:</span> <span class="mono">${escapeHtml(String(selected.dimension))}</span></div>`);
+    if (selected.support_count != null){
+      lines.push(`<div><span class="muted">Support:</span> ${escapeHtml(String(selected.support_count))} row(s)</div>`);
+    }
+    if (selected.sources && selected.sources.length){
+      lines.push(`<div><span class="muted">Sources:</span> <span class="mono">${escapeHtml(selected.sources.join(", "))}</span></div>`);
+    }
+  }
+  const ocr = evidence.ocr_fallback || evidence;
+  if (ocr.page != null){
+    lines.push(`<div><span class="muted">Page:</span> ${escapeHtml(String(ocr.page))}</div>`);
+  }
+  if (ocr.source){
+    lines.push(`<div><span class="muted">Source:</span> <span class="mono">${escapeHtml(String(ocr.source))}</span></div>`);
+  }
+  const evidenceText = ocr.ocr_text || ocr.matched_text || evidence.ocr_text || evidence.matched_text || "";
+  if (evidenceText){
+    lines.push(`<div><span class="muted">Evidence:</span> <span class="mono">${escapeHtml(String(evidenceText))}</span></div>`);
+  }
+  if (evidence.nearby_pattern){
+    lines.push(`<div><span class="muted">Pattern:</span> ${escapeHtml(String(evidence.nearby_pattern))}</div>`);
+  }
+  if (!lines.length){
+    Object.entries(evidence).slice(0, 4).forEach(([key, value]) => {
+      const rendered = renderRepairEvidenceValue(value);
+      if (rendered) lines.push(`<div><span class="muted">${escapeHtml(key)}:</span> ${rendered}</div>`);
+    });
+  }
+  return lines.length ? `<div class="diagnosis-evidence">${lines.join("")}</div>` : "";
+}
+
+function renderRepairTrace(trace){
+  if (!Array.isArray(trace) || !trace.length) return "";
+  return `<ol class="diagnosis-trace">${trace.map(step => `<li>${escapeHtml(String(step))}</li>`).join("")}</ol>`;
+}
+
 function fixAllAreas(scope){
   setStatusMessage("Use the row Fix button to diagnose one warning at a time. No automatic change was made.");
 }
@@ -8084,26 +8153,15 @@ function renderRowDiagnosisPanel(diagnosis){
     const confidence = Number(diagnosis.confidence);
     const confidenceText = Number.isFinite(confidence) ? `${Math.round(confidence * 100)}%` : "—";
     const targetField = diagnosis.target_field || "dimension";
-    const evidence = diagnosis.evidence || {};
-    const evidenceLines = [];
-    if (evidence.page != null){
-      evidenceLines.push(`<div><span class="muted">Page:</span> ${escapeHtml(String(evidence.page))}</div>`);
-    }
-    if (evidence.source){
-      evidenceLines.push(`<div><span class="muted">Source:</span> <span class="mono">${escapeHtml(String(evidence.source))}</span></div>`);
-    }
-    const evidenceText = evidence.ocr_text || evidence.matched_text || "";
-    if (evidenceText){
-      evidenceLines.push(`<div><span class="muted">Evidence:</span> <span class="mono">${escapeHtml(String(evidenceText))}</span></div>`);
-    }
-    if (evidence.nearby_pattern){
-      evidenceLines.push(`<div><span class="muted">Pattern:</span> ${escapeHtml(String(evidence.nearby_pattern))}</div>`);
-    }
-    const evidenceHtml = evidenceLines.length ? `<div class="diagnosis-evidence">${evidenceLines.join("")}</div>` : "";
+    const evidenceHtml = renderRepairEvidence(diagnosis.evidence || {});
+    const traceHtml = renderRepairTrace(diagnosis.trace || []);
+    const methods = Array.isArray(diagnosis.methods_used) && diagnosis.methods_used.length
+      ? diagnosis.methods_used.join(" → ")
+      : (diagnosis.method || "repair_orchestrator");
     const suggestionHtml = diagnosis.success
       ? `<div><span class="muted">Original:</span> <span class="mono">${escapeHtml(String(diagnosis.original_value ?? ""))}</span></div>
         <div><span class="muted">Suggested:</span> <span class="mono">${escapeHtml(String(diagnosis.suggested_value ?? ""))}</span></div>`
-      : `<div><span class="muted">Suggestion:</span> ${escapeHtml(diagnosis.reason || "No safe suggestion is available yet.")}</div>`;
+      : `<div><span class="muted">Suggestion:</span> ${escapeHtml(diagnosis.reasoning || diagnosis.reason || "No safe suggestion is available yet.")}</div>`;
     const nextStep = diagnosis.recommended_next_step
       ? `<div><span class="muted">Next step:</span> <span class="mono">${escapeHtml(diagnosis.recommended_next_step)}</span></div>`
       : "";
@@ -8121,9 +8179,10 @@ function renderRowDiagnosisPanel(diagnosis){
       <div><strong>${diagnosis.success ? "SUGGESTION" : "NO SAFE SUGGESTION"}</strong></div>
       ${suggestionHtml}
       <div><span class="muted">Confidence:</span> ${escapeHtml(confidenceText)}</div>
-      <div><span class="muted">Method:</span> <span class="mono">${escapeHtml(diagnosis.method || "pattern_fallback_no_pdf_coordinates")}</span></div>
+      <div><span class="muted">Methods:</span> <span class="mono">${escapeHtml(methods)}</span></div>
       ${evidenceHtml}
-      <div><span class="muted">Reason:</span> ${escapeHtml(diagnosis.reason || "Review this row manually.")}</div>
+      <div><span class="muted">Reasoning:</span> ${escapeHtml(diagnosis.reasoning || diagnosis.reason || "Review this row manually.")}</div>
+      ${traceHtml}
       ${nextStep}
       <div class="muted">No automatic change was made.</div>
       ${actions}
@@ -8184,6 +8243,7 @@ function renderEditableTable(scope, containerId, rows, rowWarnings){
       const diagnostics = getRowDiagnostics(row);
       const diagnosticIssues = getDiagnosticIssues(row);
       const mismatch = hasDiagnosticIssue(row, "AREA_MISMATCH");
+      const familyMismatch = hasDiagnosticIssue(row, "POSSIBLE_DIMENSION_FAMILY_MISMATCH");
       const computed = diagnosticCalculatedArea(row);
       const extractedArea = Number(diagnostics?.computed?.extracted_area ?? row.area ?? 0);
       if (mismatch && computed != null){
@@ -8193,7 +8253,12 @@ function renderEditableTable(scope, containerId, rows, rowWarnings){
           : `Computed ${computed.toFixed(3)}`;
         warningBadges.push(`<span class="pill warn" title="${escapeHtml(title)}">Δ ${escapeHtml(delta)} m²</span>`);
       }
-      const otherIssues = diagnosticIssues.filter(issue => String(issue?.code || "") !== "AREA_MISMATCH");
+      if (familyMismatch){
+        warningBadges.push(
+          `<span class="pill warn" title="Dimension is valid but may not match the nearby/order pattern.">Pattern</span>`
+        );
+      }
+      const otherIssues = diagnosticIssues.filter(issue => !["AREA_MISMATCH", "POSSIBLE_DIMENSION_FAMILY_MISMATCH"].includes(String(issue?.code || "")));
       if (otherIssues.length){
         const issueText = otherIssues.map(issue => issue?.message || issue?.code || "Diagnostic warning").join("; ");
         warningBadges.push(`<span class="editable-badge" title="${escapeHtml(issueText)}">!</span>`);
@@ -14584,6 +14649,7 @@ function renderOrderDetail(){
   if (!order){
     appState.historyDetail.order = null;
     appState.historyDetail.rows = [];
+    appState.historyDetail.originalRows = [];
     appState.historyDetail.rowWarnings = {};
     appState.historyDetail.rowDiagnoses = {};
     appState.historyDetail.warnings = [];
@@ -14597,6 +14663,7 @@ function renderOrderDetail(){
 
   appState.historyDetail.order = order;
   const rows = Array.isArray(order.rows) ? order.rows.map(row => ({ ...row })) : [];
+  appState.historyDetail.originalRows = rows.map(row => ({ ...row }));
   const warningsSource = order.row_warnings || {};
   const warningsMap = {};
   appState.historyDetail.nextRid = 0;
@@ -15778,6 +15845,7 @@ async function approveDraft(orderId, rows, notes, clientSource = {}){
 
 function applyExtractionResult(data){
   const rows = Array.isArray(data?.rows) ? data.rows.map(row => ({ ...row })) : [];
+  appState.extract.originalRows = rows.map(row => ({ ...row }));
   const warningsSource = data?.row_warnings || {};
   appState.extract.nextRid = 0;
   const warningsMap = {};
@@ -15883,6 +15951,7 @@ document.getElementById("approveSave").addEventListener("click", async ()=>{
   try{
     const resp = await approveDraft(draftId, rows, appState.extract.notes, appState.extract);
     const updatedRows = Array.isArray(resp?.order?.rows) ? resp.order.rows.map(r => ({ ...r })) : rows;
+    appState.extract.originalRows = updatedRows.map(row => ({ ...row }));
     const warningsSource = resp?.row_warnings || {};
     const warningsMap = {};
     const timestampBase = Date.now();

@@ -82,6 +82,8 @@ from backend.agents.skills.extraction_diagnostics import (
     extract_pdf_text_layer_text,
     ocr_fallback_row_repair,
 )
+from backend.agents.skills.family_pattern import attach_family_pattern_diagnostic
+from backend.agents.repair_orchestrator import repair_suspicious_row
 from extraction_normalizer import normalize_extracted_rows
 from utils_text import build_order_total_diagnostics, clean_dimension, parse_declared_totals
 from prompts import PROMPTS
@@ -375,6 +377,19 @@ class ExtractionRowOcrFallbackPayload(BaseModel):
     order_context: Optional[Dict[str, Any]] = None
 
 
+class ExtractionRowRepairPayload(BaseModel):
+    order_id: Optional[Union[str, int]] = None
+    pdf_id: Optional[str] = None
+    row_index: int = 0
+    row: Dict[str, Any]
+    diagnostics: Optional[Dict[str, Any]] = None
+    nearby_rows: Optional[List[Dict[str, Any]]] = None
+    order_rows: Optional[List[Dict[str, Any]]] = None
+    order_context: Optional[Dict[str, Any]] = None
+    optional_pdf_context: Optional[Dict[str, Any]] = None
+    target_field: Optional[str] = None
+
+
 class StatusUpdatePayload(BaseModel):
     status: str
     note: Optional[str] = None
@@ -624,9 +639,17 @@ def _append_order_total_warning(
 
 def _with_extraction_diagnostics(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     output: List[Dict[str, Any]] = []
+    order_rows = [dict(row) for row in rows or [] if isinstance(row, dict)]
     for row in rows or []:
         working = dict(row)
-        working["diagnostics"] = diagnose_extraction_row_issue(working)
+        diagnostics = diagnose_extraction_row_issue(working)
+        diagnostics = attach_family_pattern_diagnostic(
+            working,
+            diagnostics,
+            order_rows=order_rows,
+            order_context={"order_rows": order_rows},
+        )
+        working["diagnostics"] = diagnostics
         output.append(working)
     return output
 
@@ -1378,13 +1401,69 @@ def download_workspace_file(file_id: int):
 def diagnose_extraction_row(payload: ExtractionRowDiagnosisPayload) -> Dict[str, Any]:
     row = deepcopy(payload.row or {})
     diagnostics = diagnose_extraction_row_issue(row)
+    order_context = deepcopy(payload.order_context or {})
+    nearby_rows = []
+    if isinstance(order_context.get("rows_before"), list):
+        nearby_rows.extend(item for item in order_context.get("rows_before") if isinstance(item, dict))
+    if isinstance(order_context.get("rows_after"), list):
+        nearby_rows.extend(item for item in order_context.get("rows_after") if isinstance(item, dict))
+    order_rows = order_context.get("order_rows") if isinstance(order_context.get("order_rows"), list) else []
+    diagnostics = attach_family_pattern_diagnostic(
+        row,
+        diagnostics,
+        nearby_rows=nearby_rows,
+        order_rows=order_rows,
+        order_context=order_context,
+    )
     diagnosis = diagnose_extraction_row_warning(
         deepcopy(row),
         deepcopy(diagnostics),
-        deepcopy(payload.order_context or {}),
+        order_context,
     )
     diagnosis["diagnostics"] = diagnostics
     return diagnosis
+
+
+@app.post("/api/extraction/repair-row")
+def repair_extraction_row(payload: ExtractionRowRepairPayload) -> Dict[str, Any]:
+    row = deepcopy(payload.row or {})
+    normalized_order_id = _optional_id_to_string(payload.order_id)
+    order_context = deepcopy(payload.order_context or {})
+    if normalized_order_id is not None:
+        order_context.setdefault("order_id", normalized_order_id)
+    row_location = row.get("row_location")
+    if isinstance(row_location, dict):
+        pdf_bytes = _stored_pdf_bytes_for_order_id(normalized_order_id)
+        region_text = extract_pdf_text_for_row_location(pdf_bytes or b"", row_location)
+        if region_text:
+            updated_location = dict(row_location)
+            updated_location["matched_text"] = region_text
+            row["row_location"] = updated_location
+
+    diagnostics = deepcopy(payload.diagnostics) if isinstance(payload.diagnostics, dict) else diagnose_extraction_row_issue(row)
+    nearby_rows = deepcopy(payload.nearby_rows or [])
+    order_rows = deepcopy(payload.order_rows or [])
+    diagnostics = attach_family_pattern_diagnostic(
+        row,
+        diagnostics,
+        nearby_rows=nearby_rows,
+        order_rows=order_rows,
+        order_context=order_context,
+    )
+    optional_pdf_context = deepcopy(payload.optional_pdf_context or {})
+    if payload.pdf_id is not None:
+        optional_pdf_context.setdefault("pdf_id", payload.pdf_id)
+    return repair_suspicious_row(
+        row=deepcopy(row),
+        diagnostics=deepcopy(diagnostics),
+        nearby_rows=nearby_rows,
+        order_rows=order_rows,
+        order_context=order_context,
+        optional_pdf_context=optional_pdf_context,
+        target_field=payload.target_field,
+        row_index=payload.row_index,
+        pdf_id=payload.pdf_id,
+    )
 
 
 @app.post("/api/extraction/ocr-fallback-row")
