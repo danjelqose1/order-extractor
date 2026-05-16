@@ -7880,7 +7880,8 @@ async function requestRowDiagnosis(scope, index){
   }
   try{
     const orderId = bucket.draftId || bucket.savedOrderId || bucket.order?.id || null;
-    const response = await fetch(API_BASE + "/api/extraction/ocr-fallback-row", {
+    const orderContext = buildRowDiagnosisContext(scope, index);
+    const response = await fetch(API_BASE + "/api/extraction/repair-row", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -7890,7 +7891,8 @@ async function requestRowDiagnosis(scope, index){
         row,
         diagnostics,
         target_field: chooseFallbackTargetField(row),
-        order_context: buildRowDiagnosisContext(scope, index),
+        nearby_rows: [...(orderContext.rows_before || []), ...(orderContext.rows_after || [])],
+        order_context: orderContext,
       }),
     });
     if (!response.ok){
@@ -7953,8 +7955,12 @@ function acceptRowSuggestion(scope, rowKey){
     original_value: suggestion.original_value,
     suggested_value: suggestion.suggested_value,
     method: suggestion.method,
+    methods_used: suggestion.methods_used || [],
     accepted_at: new Date().toISOString(),
   });
+  if ((suggestion.methods_used || []).includes("pattern_repair") || suggestion.method === "pattern_repair"){
+    row.repaired_by_pattern_engine = true;
+  }
   clearDiagnosticsForManualEdit(row);
   delete bucket.rowDiagnoses[rowKey];
   const index = rows.indexOf(row);
@@ -8043,6 +8049,64 @@ async function refreshRowDiagnostics(scope, index){
   }
 }
 
+function renderRepairEvidenceValue(value){
+  if (value == null || value === "") return "";
+  if (Array.isArray(value)){
+    if (!value.length) return "";
+    return `<span class="mono">${escapeHtml(JSON.stringify(value.slice(0, 4)))}</span>`;
+  }
+  if (typeof value === "object"){
+    return `<span class="mono">${escapeHtml(JSON.stringify(value))}</span>`;
+  }
+  return escapeHtml(String(value));
+}
+
+function renderRepairEvidence(evidence){
+  if (!evidence || typeof evidence !== "object") return "";
+  const lines = [];
+  const pattern = evidence.pattern_repair || evidence;
+  const selected = pattern.selected_candidate || null;
+  const diagnosticCodes = evidence.diagnostic_codes || pattern.diagnostic_codes || [];
+  if (diagnosticCodes.length){
+    lines.push(`<div><span class="muted">Diagnostics:</span> <span class="mono">${escapeHtml(diagnosticCodes.join(", "))}</span></div>`);
+  }
+  if (selected && selected.dimension){
+    lines.push(`<div><span class="muted">Selected pattern:</span> <span class="mono">${escapeHtml(String(selected.dimension))}</span></div>`);
+    if (selected.count != null){
+      lines.push(`<div><span class="muted">Nearby support:</span> ${escapeHtml(String(selected.count))} row(s)</div>`);
+    }
+    if (selected.calculated_area != null){
+      lines.push(`<div><span class="muted">Calculated area:</span> ${escapeHtml(String(selected.calculated_area))}</div>`);
+    }
+  }
+  const ocr = evidence.ocr_fallback || evidence;
+  if (ocr.page != null){
+    lines.push(`<div><span class="muted">Page:</span> ${escapeHtml(String(ocr.page))}</div>`);
+  }
+  if (ocr.source){
+    lines.push(`<div><span class="muted">Source:</span> <span class="mono">${escapeHtml(String(ocr.source))}</span></div>`);
+  }
+  const evidenceText = ocr.ocr_text || ocr.matched_text || evidence.ocr_text || evidence.matched_text || "";
+  if (evidenceText){
+    lines.push(`<div><span class="muted">Evidence:</span> <span class="mono">${escapeHtml(String(evidenceText))}</span></div>`);
+  }
+  if (evidence.nearby_pattern){
+    lines.push(`<div><span class="muted">Pattern:</span> ${escapeHtml(String(evidence.nearby_pattern))}</div>`);
+  }
+  if (!lines.length){
+    Object.entries(evidence).slice(0, 4).forEach(([key, value]) => {
+      const rendered = renderRepairEvidenceValue(value);
+      if (rendered) lines.push(`<div><span class="muted">${escapeHtml(key)}:</span> ${rendered}</div>`);
+    });
+  }
+  return lines.length ? `<div class="diagnosis-evidence">${lines.join("")}</div>` : "";
+}
+
+function renderRepairTrace(trace){
+  if (!Array.isArray(trace) || !trace.length) return "";
+  return `<ol class="diagnosis-trace">${trace.map(step => `<li>${escapeHtml(String(step))}</li>`).join("")}</ol>`;
+}
+
 function fixAllAreas(scope){
   setStatusMessage("Use the row Fix button to diagnose one warning at a time. No automatic change was made.");
 }
@@ -8084,26 +8148,15 @@ function renderRowDiagnosisPanel(diagnosis){
     const confidence = Number(diagnosis.confidence);
     const confidenceText = Number.isFinite(confidence) ? `${Math.round(confidence * 100)}%` : "—";
     const targetField = diagnosis.target_field || "dimension";
-    const evidence = diagnosis.evidence || {};
-    const evidenceLines = [];
-    if (evidence.page != null){
-      evidenceLines.push(`<div><span class="muted">Page:</span> ${escapeHtml(String(evidence.page))}</div>`);
-    }
-    if (evidence.source){
-      evidenceLines.push(`<div><span class="muted">Source:</span> <span class="mono">${escapeHtml(String(evidence.source))}</span></div>`);
-    }
-    const evidenceText = evidence.ocr_text || evidence.matched_text || "";
-    if (evidenceText){
-      evidenceLines.push(`<div><span class="muted">Evidence:</span> <span class="mono">${escapeHtml(String(evidenceText))}</span></div>`);
-    }
-    if (evidence.nearby_pattern){
-      evidenceLines.push(`<div><span class="muted">Pattern:</span> ${escapeHtml(String(evidence.nearby_pattern))}</div>`);
-    }
-    const evidenceHtml = evidenceLines.length ? `<div class="diagnosis-evidence">${evidenceLines.join("")}</div>` : "";
+    const evidenceHtml = renderRepairEvidence(diagnosis.evidence || {});
+    const traceHtml = renderRepairTrace(diagnosis.trace || []);
+    const methods = Array.isArray(diagnosis.methods_used) && diagnosis.methods_used.length
+      ? diagnosis.methods_used.join(" → ")
+      : (diagnosis.method || "repair_orchestrator");
     const suggestionHtml = diagnosis.success
       ? `<div><span class="muted">Original:</span> <span class="mono">${escapeHtml(String(diagnosis.original_value ?? ""))}</span></div>
         <div><span class="muted">Suggested:</span> <span class="mono">${escapeHtml(String(diagnosis.suggested_value ?? ""))}</span></div>`
-      : `<div><span class="muted">Suggestion:</span> ${escapeHtml(diagnosis.reason || "No safe suggestion is available yet.")}</div>`;
+      : `<div><span class="muted">Suggestion:</span> ${escapeHtml(diagnosis.reasoning || diagnosis.reason || "No safe suggestion is available yet.")}</div>`;
     const nextStep = diagnosis.recommended_next_step
       ? `<div><span class="muted">Next step:</span> <span class="mono">${escapeHtml(diagnosis.recommended_next_step)}</span></div>`
       : "";
@@ -8121,9 +8174,10 @@ function renderRowDiagnosisPanel(diagnosis){
       <div><strong>${diagnosis.success ? "SUGGESTION" : "NO SAFE SUGGESTION"}</strong></div>
       ${suggestionHtml}
       <div><span class="muted">Confidence:</span> ${escapeHtml(confidenceText)}</div>
-      <div><span class="muted">Method:</span> <span class="mono">${escapeHtml(diagnosis.method || "pattern_fallback_no_pdf_coordinates")}</span></div>
+      <div><span class="muted">Methods:</span> <span class="mono">${escapeHtml(methods)}</span></div>
       ${evidenceHtml}
-      <div><span class="muted">Reason:</span> ${escapeHtml(diagnosis.reason || "Review this row manually.")}</div>
+      <div><span class="muted">Reasoning:</span> ${escapeHtml(diagnosis.reasoning || diagnosis.reason || "Review this row manually.")}</div>
+      ${traceHtml}
       ${nextStep}
       <div class="muted">No automatic change was made.</div>
       ${actions}
