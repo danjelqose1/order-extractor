@@ -319,8 +319,105 @@ def test_ocr_fallback_missing_dimension_does_not_fake_ocr_without_coordinates():
 
     assert result["success"] is False
     assert result["suggested_value"] is None
-    assert result["reason"] == "PDF row coordinates are not available yet"
-    assert result["recommended_next_step"] == "STORE_ROW_COORDINATES_DURING_EXTRACTION"
+    assert result["method"] == "openai_vision_page_ocr"
+    assert result["reason"] == "OpenAI OCR fallback could not run because the original PDF page was not available."
+    assert result["safe_to_auto_apply"] is False
+
+
+def test_openai_vision_fallback_runs_for_missing_dimension_without_coordinates():
+    fitz = pytest.importorskip("fitz")
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "R-26-0001 1-13 LOWE 582x1137 1 0.662")
+    pdf_bytes = doc.tobytes()
+    doc.close()
+    row = {
+        "row_id": "row-13b",
+        "order_number": "R-26-0001",
+        "position": "1-13",
+        "type": "LOWE",
+        "dimension": "",
+        "quantity": 1,
+        "area": 0.662,
+    }
+    diagnostics = diagnose_extraction_row_issue(row)
+    original_row = deepcopy(row)
+    original_diagnostics = deepcopy(diagnostics)
+    calls = []
+
+    def fake_openai_vision(**kwargs):
+        calls.append(kwargs)
+        assert kwargs["target_field"] == "dimension"
+        assert kwargs["pages"] == [1]
+        assert kwargs["page_images"]
+        assert "order number: R-26-0001" in kwargs["prompt"]
+        assert "glass type: LOWE" in kwargs["prompt"]
+        assert "Neighboring rows before" in kwargs["prompt"]
+        assert "Page/table context" in kwargs["prompt"]
+        return {"text": "582x1137", "confidence": 0.88}
+
+    result = ocr_fallback_row_repair(
+        row,
+        diagnostics,
+        target_field="dimension",
+        order_context={
+            "rows_before": [{"position": "1-12", "dimension": "500x1000", "quantity": 1, "area": 0.5}],
+            "rows_after": [{"position": "1-14", "dimension": "600x900", "quantity": 1, "area": 0.54}],
+            "order_rows": [row],
+        },
+        row_index=0,
+        pdf_id="pdf-1",
+        pdf_bytes=pdf_bytes,
+        openai_vision_repair_fn=fake_openai_vision,
+    )
+
+    assert calls
+    assert result["success"] is True
+    assert result["target_field"] == "dimension"
+    assert result["original_value"] == ""
+    assert result["suggested_value"] == "582x1137"
+    assert result["confidence"] == 0.88
+    assert result["method"] == "openai_vision_page_ocr"
+    assert result["evidence"]["page"] == 1
+    assert result["evidence"]["nearby_rows"]
+    assert result["safe_to_auto_apply"] is False
+    assert row == original_row
+    assert diagnostics == original_diagnostics
+
+
+def test_openai_vision_fallback_runs_for_missing_position_without_coordinates():
+    fitz = pytest.importorskip("fitz")
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "R-26-0002 7-2 LOWE 582x1137 1 0.662")
+    pdf_bytes = doc.tobytes()
+    doc.close()
+    row = {
+        "row_id": "row-13c",
+        "order_number": "R-26-0002",
+        "position": "",
+        "type": "LOWE",
+        "dimension": "582x1137",
+        "quantity": 1,
+        "area": 0.662,
+    }
+    diagnostics = diagnose_extraction_row_issue(row)
+
+    result = ocr_fallback_row_repair(
+        row,
+        diagnostics,
+        target_field="position",
+        order_context={"rows_before": [], "rows_after": [], "order_rows": [row]},
+        row_index=0,
+        pdf_bytes=pdf_bytes,
+        openai_vision_repair_fn=lambda **kwargs: {"text": "7-2", "confidence": 0.81},
+    )
+
+    assert result["success"] is True
+    assert result["target_field"] == "position"
+    assert result["original_value"] == ""
+    assert result["suggested_value"] == "7-2"
+    assert result["method"] == "openai_vision_page_ocr"
     assert result["safe_to_auto_apply"] is False
 
 
@@ -357,7 +454,15 @@ def test_ocr_fallback_valid_row_returns_no_fallback():
     }
     diagnostics = diagnose_extraction_row_issue(row)
 
-    result = ocr_fallback_row_repair(row, diagnostics, target_field="dimension")
+    def fake_openai_vision(**_kwargs):
+        raise AssertionError("OpenAI vision should not run for valid rows")
+
+    result = ocr_fallback_row_repair(
+        row,
+        diagnostics,
+        target_field="dimension",
+        openai_vision_repair_fn=fake_openai_vision,
+    )
 
     assert result["success"] is False
     assert result["method"] == "diagnostics_ok_no_fallback"

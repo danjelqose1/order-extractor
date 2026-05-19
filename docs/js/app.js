@@ -7756,7 +7756,7 @@ function chooseFallbackTargetField(row){
   if (hasAny("GLASS_TYPE_UNCLEAR")){
     return "type";
   }
-  if (hasAny("POSITION_WARNING", "EMPTY_POSITION", "DUPLICATE_POSITION")){
+  if (hasAny("MISSING_POSITION", "POSITION_WARNING", "EMPTY_POSITION", "DUPLICATE_POSITION")){
     return "position";
   }
   return "dimension";
@@ -8096,8 +8096,14 @@ function renderRepairEvidence(evidence){
     }
   }
   const ocr = evidence.ocr_fallback || evidence;
+  if (ocr.method || evidence.method){
+    lines.push(`<div><span class="muted">OCR method:</span> <span class="mono">${escapeHtml(String(ocr.method || evidence.method))}</span></div>`);
+  }
   if (ocr.page != null){
     lines.push(`<div><span class="muted">Page:</span> ${escapeHtml(String(ocr.page))}</div>`);
+  }
+  if (Array.isArray(ocr.pages) && ocr.pages.length > 1){
+    lines.push(`<div><span class="muted">Pages checked:</span> <span class="mono">${escapeHtml(ocr.pages.join(", "))}</span></div>`);
   }
   if (ocr.source){
     lines.push(`<div><span class="muted">Source:</span> <span class="mono">${escapeHtml(String(ocr.source))}</span></div>`);
@@ -8105,6 +8111,12 @@ function renderRepairEvidence(evidence){
   const evidenceText = ocr.ocr_text || ocr.matched_text || evidence.ocr_text || evidence.matched_text || "";
   if (evidenceText){
     lines.push(`<div><span class="muted">Evidence:</span> <span class="mono">${escapeHtml(String(evidenceText))}</span></div>`);
+  }
+  if (ocr.page_context){
+    lines.push(`<div><span class="muted">Page context:</span> <span class="mono">${escapeHtml(String(ocr.page_context))}</span></div>`);
+  }
+  if (Array.isArray(ocr.nearby_rows) && ocr.nearby_rows.length){
+    lines.push(`<div><span class="muted">Nearby rows:</span> <span class="mono">${escapeHtml(JSON.stringify(ocr.nearby_rows.slice(0, 4)))}</span></div>`);
   }
   if (evidence.nearby_pattern){
     lines.push(`<div><span class="muted">Pattern:</span> ${escapeHtml(String(evidence.nearby_pattern))}</div>`);
@@ -8169,6 +8181,9 @@ function renderRowDiagnosisPanel(diagnosis){
     const methods = Array.isArray(diagnosis.methods_used) && diagnosis.methods_used.length
       ? diagnosis.methods_used.join(" → ")
       : (diagnosis.method || "repair_orchestrator");
+    const ocrMethod = diagnosis.method === "openai_vision_page_ocr" || methods.includes("openai_vision_page_ocr")
+      ? `<div><span class="muted">OCR method:</span> <span class="mono">openai_vision_page_ocr</span></div>`
+      : "";
     const suggestionHtml = diagnosis.success
       ? `<div><span class="muted">Original:</span> <span class="mono">${escapeHtml(String(diagnosis.original_value ?? ""))}</span></div>
         <div><span class="muted">Suggested:</span> <span class="mono">${escapeHtml(String(diagnosis.suggested_value ?? ""))}</span></div>`
@@ -8191,6 +8206,7 @@ function renderRowDiagnosisPanel(diagnosis){
       ${suggestionHtml}
       <div><span class="muted">Confidence:</span> ${escapeHtml(confidenceText)}</div>
       <div><span class="muted">Methods:</span> <span class="mono">${escapeHtml(methods)}</span></div>
+      ${ocrMethod}
       ${evidenceHtml}
       <div><span class="muted">Reasoning:</span> ${escapeHtml(diagnosis.reasoning || diagnosis.reason || "Review this row manually.")}</div>
       ${traceHtml}

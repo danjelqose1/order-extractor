@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from copy import deepcopy
 
+import pytest
+
 from backend.agents.repair_orchestrator import repair_suspicious_row
 from backend.agents.skills.extraction_diagnostics import diagnose_extraction_row_issue
 from backend.agents.skills.pattern_repair import suggest_pattern_repair
@@ -150,3 +152,52 @@ def test_orchestrator_trace_generation_and_no_automatic_mutation():
     assert result["safe_to_auto_apply"] is False
     assert result["trace"][0].startswith("Detected")
     assert any(step.startswith("Pattern repair confidence") for step in result["trace"])
+
+
+def test_orchestrator_uses_openai_vision_for_missing_dimension_without_row_location():
+    fitz = pytest.importorskip("fitz")
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "R-26-0700 4-1 LOWE 582x1137 1 0.662")
+    pdf_bytes = doc.tobytes()
+    doc.close()
+    row = {
+        "row_id": "row-6",
+        "order_number": "R-26-0700",
+        "position": "4-1",
+        "type": "LOWE",
+        "dimension": "",
+        "quantity": 1,
+        "area": 0.662,
+    }
+    diagnostics = diagnose_extraction_row_issue(row)
+
+    result = repair_suspicious_row(
+        row=row,
+        diagnostics=diagnostics,
+        nearby_rows=[
+            {"position": "4-2", "type": "LOWE", "dimension": "600x900", "quantity": 1, "area": 0.54},
+        ],
+        order_context={
+            "order_number": "R-26-0700",
+            "rows_before": [],
+            "rows_after": [
+                {"position": "4-2", "type": "LOWE", "dimension": "600x900", "quantity": 1, "area": 0.54},
+            ],
+            "order_rows": [row],
+        },
+        row_index=0,
+        pdf_id="pdf-vision",
+        pdf_bytes=pdf_bytes,
+        openai_vision_repair_fn=lambda **kwargs: {"text": "582x1137", "confidence": 0.87},
+    )
+
+    assert result["success"] is True
+    assert result["target_field"] == "dimension"
+    assert result["suggested_value"] == "582x1137"
+    assert result["method"] == "openai_vision_page_ocr"
+    assert "openai_vision_page_ocr" in result["methods_used"]
+    assert result["evidence"]["page"] == 1
+    assert result["evidence"]["ocr_text"] == "582x1137"
+    assert isinstance(result["evidence"]["nearby_rows"], list)
+    assert result["safe_to_auto_apply"] is False

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from backend.agents.skills.extraction_diagnostics import (
+    OPENAI_VISION_PAGE_UNAVAILABLE_REASON,
     diagnose_extraction_row_issue,
     diagnose_extraction_row_warning,
     ocr_fallback_row_repair,
@@ -45,7 +46,7 @@ def _select_target_field(diagnostics: Dict[str, Any], requested: Optional[str] =
         return "quantity"
     if "GLASS_TYPE_UNCLEAR" in codes:
         return "type"
-    if codes & {"POSITION_WARNING", "EMPTY_POSITION", "DUPLICATE_POSITION"}:
+    if codes & {"MISSING_POSITION", "POSITION_WARNING", "EMPTY_POSITION", "DUPLICATE_POSITION"}:
         return "position"
     return "dimension"
 
@@ -63,6 +64,15 @@ def _original_value(row: Dict[str, Any], target_field: str) -> Any:
 
 def _has_row_location(row: Dict[str, Any]) -> bool:
     return isinstance(row.get("row_location"), dict)
+
+
+def _should_attempt_openai_vision_page_ocr(codes: List[str], target_field: str) -> bool:
+    code_set = set(codes or [])
+    if target_field == "dimension":
+        return bool(code_set & {"MISSING_DIMENSION", "INVALID_DIMENSION", "INVALID_DIMENSION_FORMAT"})
+    if target_field == "position":
+        return bool(code_set & {"MISSING_POSITION", "POSITION_WARNING", "EMPTY_POSITION", "DUPLICATE_POSITION"})
+    return False
 
 
 def _response(
@@ -105,6 +115,8 @@ def repair_suspicious_row(
     target_field: Optional[str] = None,
     row_index: Optional[int] = None,
     pdf_id: Optional[str] = None,
+    pdf_bytes: Optional[bytes] = None,
+    openai_vision_repair_fn: Optional[Callable[..., Any]] = None,
 ) -> Dict[str, Any]:
     working_row = deepcopy(row or {})
     working_context = deepcopy(order_context or {})
@@ -132,7 +144,6 @@ def repair_suspicious_row(
 
     family_result: Optional[Dict[str, Any]] = None
     if target == "dimension":
-        methods_used.append("family_pattern_repair")
         family_result = analyze_dimension_family(
             deepcopy(working_row),
             nearby_rows=working_nearby_rows,
@@ -143,6 +154,7 @@ def repair_suspicious_row(
             if step not in trace:
                 trace.append(str(step))
         if family_result.get("success") and float(family_result.get("confidence") or 0.0) >= FAMILY_REPAIR_THRESHOLD:
+            methods_used.append("family_pattern_repair")
             return _response(
                 success=True,
                 target_field="dimension",
@@ -179,6 +191,65 @@ def repair_suspicious_row(
             trace=trace,
             methods_used=methods_used,
         )
+
+    openai_result: Optional[Dict[str, Any]] = None
+    if _should_attempt_openai_vision_page_ocr(codes, target):
+        trace.append("Attempting OpenAI vision OCR fallback using page context")
+        openai_result = ocr_fallback_row_repair(
+            row=deepcopy(working_row),
+            diagnostics=deepcopy(working_diagnostics),
+            target_field=target,
+            order_context=working_context,
+            row_index=row_index,
+            pdf_id=pdf_id or working_pdf_context.get("pdf_id"),
+            pdf_bytes=pdf_bytes,
+            openai_vision_repair_fn=openai_vision_repair_fn,
+        )
+        openai_method = str(openai_result.get("method") or "openai_vision_page_ocr")
+        if openai_method not in methods_used:
+            methods_used.append(openai_method)
+        if openai_result.get("success"):
+            trace.append(f"OpenAI vision OCR confidence {float(openai_result.get('confidence') or 0.0):.2f}")
+            openai_evidence = deepcopy(openai_result.get("evidence") or {})
+            return _response(
+                success=True,
+                target_field=openai_result.get("target_field") or target,
+                original_value=openai_result.get("original_value"),
+                suggested_value=openai_result.get("suggested_value"),
+                confidence=float(openai_result.get("confidence") or 0.0),
+                recommended_action="ACCEPT_OCR_SUGGESTION_OR_REVIEW",
+                reasoning=openai_result.get("reason") or "OpenAI vision OCR found a supported correction.",
+                evidence={
+                    **openai_evidence,
+                    "diagnostic_codes": codes,
+                    "diagnosis": diagnosis,
+                    "family_pattern": (family_result or {}).get("evidence") or {},
+                    "ocr_fallback": openai_evidence,
+                },
+                trace=trace,
+                methods_used=methods_used,
+            )
+        trace.append(openai_result.get("reason") or "OpenAI vision OCR fallback did not find a confident correction")
+        if openai_result.get("reason") == OPENAI_VISION_PAGE_UNAVAILABLE_REASON:
+            openai_evidence = deepcopy(openai_result.get("evidence") or {})
+            return _response(
+                success=False,
+                target_field=openai_result.get("target_field") or target,
+                original_value=openai_result.get("original_value"),
+                suggested_value=None,
+                confidence=0.0,
+                recommended_action="MANUAL_REVIEW",
+                reasoning=OPENAI_VISION_PAGE_UNAVAILABLE_REASON,
+                evidence={
+                    **openai_evidence,
+                    "diagnostic_codes": codes,
+                    "diagnosis": diagnosis,
+                    "family_pattern": (family_result or {}).get("evidence") or {},
+                    "ocr_fallback": openai_evidence,
+                },
+                trace=trace,
+                methods_used=methods_used,
+            )
 
     pattern_result: Optional[Dict[str, Any]] = None
     if target == "dimension":

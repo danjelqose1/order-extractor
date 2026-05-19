@@ -1431,9 +1431,9 @@ def repair_extraction_row(payload: ExtractionRowRepairPayload) -> Dict[str, Any]
     order_context = deepcopy(payload.order_context or {})
     if normalized_order_id is not None:
         order_context.setdefault("order_id", normalized_order_id)
+    pdf_bytes = _stored_pdf_bytes_for_order_id(normalized_order_id)
     row_location = row.get("row_location")
     if isinstance(row_location, dict):
-        pdf_bytes = _stored_pdf_bytes_for_order_id(normalized_order_id)
         region_text = extract_pdf_text_for_row_location(pdf_bytes or b"", row_location)
         if region_text:
             updated_location = dict(row_location)
@@ -1463,6 +1463,7 @@ def repair_extraction_row(payload: ExtractionRowRepairPayload) -> Dict[str, Any]
         target_field=payload.target_field,
         row_index=payload.row_index,
         pdf_id=payload.pdf_id,
+        pdf_bytes=pdf_bytes,
     )
 
 
@@ -1474,9 +1475,9 @@ def ocr_fallback_extraction_row(payload: ExtractionRowOcrFallbackPayload) -> Dic
     order_context = deepcopy(payload.order_context or {})
     if normalized_order_id is not None:
         order_context.setdefault("order_id", normalized_order_id)
+    pdf_bytes = _stored_pdf_bytes_for_order_id(normalized_order_id)
     row_location = row.get("row_location")
     if isinstance(row_location, dict):
-        pdf_bytes = _stored_pdf_bytes_for_order_id(normalized_order_id)
         region_text = extract_pdf_text_for_row_location(pdf_bytes or b"", row_location)
         if region_text:
             updated_location = dict(row_location)
@@ -1489,6 +1490,7 @@ def ocr_fallback_extraction_row(payload: ExtractionRowOcrFallbackPayload) -> Dic
         order_context=order_context,
         row_index=payload.row_index,
         pdf_id=payload.pdf_id,
+        pdf_bytes=pdf_bytes,
     )
 
 
