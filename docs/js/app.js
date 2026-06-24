@@ -14821,7 +14821,6 @@ function renderOrdersList(){
           <button data-action="approve" data-id="${order.id}" ${canApproveStatus(normalizedStatus) ? "" : "disabled"}>Approve</button>
           <button data-action="processing" data-id="${order.id}" ${canProcessingStatus(normalizedStatus) ? "" : "disabled"}>Send to Processing</button>
           <button data-action="labels" data-id="${order.id}">Generate Labels</button>
-          <button data-action="invoice" data-id="${order.id}" ${canInvoiceStatus(normalizedStatus) ? "" : "disabled"}>Add to Invoice</button>
           <button data-action="archive" data-id="${order.id}" class="warn" ${canArchiveStatus(normalizedStatus) ? "" : "disabled"}>Archive</button>
           <button data-action="delete" data-id="${order.id}" class="warn">Delete order</button>
         </div>
@@ -15065,16 +15064,6 @@ document.getElementById("historyListWrap").addEventListener("click", async (even
     }catch(error){
       setHistoryStatus("Failed to generate labels: " + (error.message || error));
     }
-  }else if (action === "invoice"){
-    try{
-      const order = await fetchOrder(id);
-      const job = await createInvoiceJobFromOrder(order);
-      if (job){
-        setHistoryStatus("Invoice job added. Check the Invoices tab to review.");
-      }
-    }catch(error){
-        setHistoryStatus("Failed to build invoice: " + (error.message || error));
-      }
   }else if (action === "archive"){
     if (!confirm("Archive this order?")) return;
     try{
