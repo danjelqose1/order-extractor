@@ -368,6 +368,70 @@ def test_invalid_rows_are_flagged(monkeypatch):
     assert any("missing_required_field:type" in msg for msg in flattened)
 
 
+def test_pdf_missing_dimension_gets_ocr_overlay_without_overwriting_base64_rows(monkeypatch):
+    app_module, calls = _load_app(monkeypatch, legacy_enabled="false")
+
+    app_module.call_llm_for_pdf_base64_visual = lambda pdf_bytes, filename: _bundle(
+        [
+            {
+                "order_number": "R-26-1004",
+                "type": "2 VETRI 4F + 16 + 4 LOWE 24mm",
+                "dimension": "",
+                "position": "3-1",
+                "quantity": 1,
+                "area": 0.72,
+            },
+            {
+                "order_number": "R-26-1004",
+                "type": "2 VETRI 4F + 16 + 4 LOWE 24mm",
+                "dimension": "500x1000",
+                "position": "4-1",
+                "quantity": 1,
+                "area": 0.5,
+            },
+        ]
+    )
+    repair_calls: List[Dict[str, Any]] = []
+
+    def _fake_ocr_fallback(**kwargs):
+        repair_calls.append(kwargs)
+        return {
+            "success": True,
+            "target_field": kwargs["target_field"],
+            "original_value": "",
+            "suggested_value": "600x1200",
+            "confidence": 0.91,
+            "method": "openai_vision_page_ocr",
+            "reason": "test repair",
+            "evidence": {"ocr_text": "600x1200", "page": 1},
+            "safe_to_auto_apply": False,
+        }
+
+    app_module.ocr_fallback_row_repair = _fake_ocr_fallback
+    client = TestClient(app_module.app)
+    response = client.post(
+        "/extract_pdf",
+        files={"file": ("missing-dimension.pdf", b"%PDF-1.7\nmissing-dimension", "application/pdf")},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(repair_calls) == 1
+    assert repair_calls[0]["row_index"] == 0
+    assert repair_calls[0]["target_field"] == "dimension"
+    assert body["rows"][0]["dimension"] == ""
+    assert body["rows"][0]["dimension_repaired"] == "600x1200"
+    assert body["rows"][0]["raw_base64_value"]["dimension"] == ""
+    assert body["rows"][0]["raw_ocr_value"]["dimension"] == "600x1200"
+    assert "dimension_repaired" not in body["rows"][1]
+
+    stored_rows = calls["insert_extraction_with_rows"][0]["rows"]
+    assert stored_rows[0]["dimension"] == ""
+    assert "dimension_repaired" not in stored_rows[0]
+    assert stored_rows[1]["dimension"] == "500x1000"
+    assert "dimension_repaired" not in stored_rows[1]
+
+
 def test_extraction_removes_dimension_from_type_once(monkeypatch):
     app_module, calls = _load_app(monkeypatch, legacy_enabled="false")
 
@@ -1293,6 +1357,58 @@ def test_approve_payload_client_name_is_passed_to_save(monkeypatch):
     assert response.status_code == 200
     assert calls[0]["kwargs"]["client_name"] == "DEDA PALLATI VAZHDIM FAZA 3"
     assert response.json()["order"]["client_name"] == "DEDA PALLATI VAZHDIM FAZA 3"
+
+
+def test_approve_manual_override_ignores_ocr_repair_metadata(monkeypatch):
+    app_module, _ = _load_app(monkeypatch, legacy_enabled="false")
+    stored_row = {
+        "order_number": "R-26-1005",
+        "type": "2 VETRI C.CALDO 28mm",
+        "dimension": "",
+        "position": "1-1",
+        "quantity": 1,
+        "area": 0.66,
+    }
+    captured: List[Dict[str, Any]] = []
+
+    app_module.get_order_with_extraction = lambda order_id: {
+        "id": order_id,
+        "status": "draft",
+        "rows": [stored_row],
+        "extraction": {"prepared_text": ""},
+    }
+
+    def _update_order_rows(order_id, rows, **kwargs):
+        captured.append({"order_id": order_id, "rows": rows, "kwargs": kwargs})
+        return {
+            "id": order_id,
+            "status": kwargs.get("status"),
+            "rows": rows,
+        }
+
+    app_module.update_order_rows = _update_order_rows
+    client = TestClient(app_module.app)
+    response = client.post(
+        "/orders/12/approve",
+        json={
+            "rows": [
+                {
+                    **stored_row,
+                    "dimension": "700x900",
+                    "dimension_repaired": "600x1200",
+                    "raw_base64_value": {"dimension": ""},
+                    "raw_ocr_value": {"dimension": "600x1200"},
+                    "repaired_by": "openai_vision_page_ocr",
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    saved_row = captured[0]["rows"][0]
+    assert saved_row["dimension"] == "700x900"
+    assert "dimension_repaired" not in saved_row
+    assert "raw_ocr_value" not in saved_row
 
 
 def test_approve_legacy_client_payload_is_normalized(monkeypatch):

@@ -654,6 +654,310 @@ def _with_extraction_diagnostics(rows: List[Dict[str, Any]]) -> List[Dict[str, A
     return output
 
 
+CRITICAL_EXTRACTION_FIELDS: Tuple[str, ...] = ("position", "dimension", "quantity", "type", "area")
+REPAIR_FIELD_KEYS: Dict[str, str] = {
+    "position": "position_repaired",
+    "dimension": "dimension_repaired",
+    "quantity": "quantity_repaired",
+    "type": "type_repaired",
+    "area": "area_repaired",
+}
+
+
+def _critical_field_label(field: str) -> str:
+    return "glass_type" if field == "type" else field
+
+
+def _row_field_value(row: Dict[str, Any], field: str) -> Any:
+    if field == "type":
+        return row.get("type", row.get("glass_type"))
+    return row.get(field)
+
+
+def _is_critical_field_missing(row: Dict[str, Any], field: str) -> bool:
+    value = _row_field_value(row, field)
+    if field == "quantity":
+        if value is None or str(value).strip() == "":
+            return True
+        try:
+            return int(value) <= 0
+        except (TypeError, ValueError):
+            return True
+    if field == "area":
+        if value is None or str(value).strip() == "":
+            return True
+        try:
+            return float(str(value).replace(",", ".")) <= 0
+        except (TypeError, ValueError):
+            return True
+    return not str(value or "").strip()
+
+
+def _raw_base64_values_for_row(row: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    source = row if isinstance(row, dict) else {}
+    return {
+        "position": source.get("position", ""),
+        "dimension": source.get("dimension", ""),
+        "quantity": source.get("quantity", ""),
+        "type": source.get("type", source.get("glass_type", "")),
+        "area": source.get("area", ""),
+    }
+
+
+def _merge_critical_row_warnings(
+    row_warnings: Dict[Any, List[str]],
+    rows: List[Dict[str, Any]],
+) -> Dict[Any, List[str]]:
+    merged: Dict[Any, List[str]] = {
+        key: list(value or [])
+        for key, value in (row_warnings or {}).items()
+    }
+    for idx, row in enumerate(rows or []):
+        for field in CRITICAL_EXTRACTION_FIELDS:
+            if not _is_critical_field_missing(row, field):
+                continue
+            message = f"warning: critical_missing:{_critical_field_label(field)}"
+            messages = merged.setdefault(idx, [])
+            if message not in messages:
+                messages.append(message)
+    return merged
+
+
+def _row_repair_context(rows: List[Dict[str, Any]], index: int, order_number: str = "") -> Dict[str, Any]:
+    return {
+        "order_number": order_number or (rows[index].get("order_number") if 0 <= index < len(rows) else ""),
+        "rows_before": [dict(row) for row in rows[max(0, index - 3):index]],
+        "rows_after": [dict(row) for row in rows[index + 1:index + 4]],
+        "order_rows": [dict(row) for row in rows],
+    }
+
+
+def _repair_confidence_threshold(field: str) -> float:
+    if field == "position":
+        return 0.78
+    if field == "type":
+        return 0.78
+    return 0.80
+
+
+def _coerce_repair_value(field: str, value: Any) -> Any:
+    if value is None:
+        return ""
+    if field == "quantity":
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return value
+    if field == "area":
+        try:
+            return round(float(str(value).replace(",", ".")), 3)
+        except (TypeError, ValueError):
+            return value
+    return str(value).strip()
+
+
+def _ocr_raw_value_from_result(result: Dict[str, Any]) -> Any:
+    if result.get("suggested_value") is not None:
+        return result.get("suggested_value")
+    evidence = result.get("evidence") if isinstance(result.get("evidence"), dict) else {}
+    return evidence.get("ocr_text") or evidence.get("matched_text") or ""
+
+
+def _extract_ocr_overlay(row: Dict[str, Any]) -> Dict[str, Any]:
+    keys = {
+        "raw_base64_value",
+        "raw_ocr_value",
+        "repaired_by",
+        "repair_confidence",
+        "repair_warning",
+        "repair_warnings",
+        "needs_manual_review",
+        "ocr_repaired_fields",
+        "ocr_repair_attempted_fields",
+        "glass_type_repaired",
+        *REPAIR_FIELD_KEYS.values(),
+    }
+    return {key: deepcopy(row.get(key)) for key in keys if key in row}
+
+
+def _apply_ocr_overlay_to_row(row: Dict[str, Any], overlay: Dict[str, Any]) -> Dict[str, Any]:
+    working = dict(row)
+    if not isinstance(overlay, dict):
+        return working
+    raw_values = overlay.get("raw_base64_value")
+    if isinstance(raw_values, dict):
+        working["raw_base64_value"] = deepcopy(raw_values)
+    if isinstance(overlay.get("raw_ocr_value"), dict):
+        working["raw_ocr_value"] = deepcopy(overlay["raw_ocr_value"])
+    for field, repair_key in REPAIR_FIELD_KEYS.items():
+        if repair_key not in overlay:
+            continue
+        if not _is_critical_field_missing(working, field):
+            continue
+        working[repair_key] = deepcopy(overlay[repair_key])
+        if field == "type":
+            working["glass_type_repaired"] = deepcopy(overlay[repair_key])
+    active_repair_warnings: Dict[str, str] = {}
+    overlay_warnings = overlay.get("repair_warnings")
+    if isinstance(overlay_warnings, dict):
+        for field, message in overlay_warnings.items():
+            field_name = str(field)
+            if field_name in REPAIR_FIELD_KEYS and _is_critical_field_missing(working, field_name):
+                active_repair_warnings[field_name] = str(message or "Needs manual review")
+    for key in ("repaired_by", "repair_confidence", "ocr_repaired_fields", "ocr_repair_attempted_fields"):
+        if key in overlay:
+            working[key] = deepcopy(overlay[key])
+    if active_repair_warnings:
+        working["repair_warnings"] = active_repair_warnings
+        working["needs_manual_review"] = True
+        labels = ", ".join(_critical_field_label(field) for field in active_repair_warnings.keys())
+        working["repair_warning"] = f"Needs manual review: {labels}"
+    return working
+
+
+def _with_stored_ocr_overlays(
+    rows: List[Dict[str, Any]],
+    extraction: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    raw_json = extraction.get("llm_output_json") if isinstance(extraction, dict) else None
+    if not raw_json:
+        return rows
+    try:
+        payload = json.loads(raw_json)
+    except Exception:
+        return rows
+    meta = payload.get("_meta") if isinstance(payload, dict) else None
+    if not isinstance(meta, dict):
+        return rows
+    overlays = meta.get("ocr_row_overlays")
+    if not isinstance(overlays, list):
+        return rows
+    output: List[Dict[str, Any]] = []
+    for index, row in enumerate(rows or []):
+        overlay = overlays[index] if index < len(overlays) and isinstance(overlays[index], dict) else {}
+        output.append(_apply_ocr_overlay_to_row(dict(row), overlay))
+    return output
+
+
+def _run_targeted_ocr_repair_for_missing_fields(
+    rows: List[Dict[str, Any]],
+    raw_base64_rows: List[Dict[str, Any]],
+    *,
+    pdf_bytes: Optional[bytes],
+    pdf_id: Optional[str],
+    order_number: str = "",
+    enabled: bool = True,
+) -> Dict[str, Any]:
+    repaired_rows: List[Dict[str, Any]] = []
+    repair_attempts: List[Dict[str, Any]] = []
+    warnings: List[str] = []
+
+    for index, row in enumerate(rows or []):
+        working = dict(row)
+        raw_row = raw_base64_rows[index] if index < len(raw_base64_rows) and isinstance(raw_base64_rows[index], dict) else {}
+        working["raw_base64_value"] = _raw_base64_values_for_row(raw_row or row)
+        working.setdefault("raw_ocr_value", {})
+
+        target_fields = [
+            field
+            for field in CRITICAL_EXTRACTION_FIELDS
+            if _is_critical_field_missing(working, field)
+        ]
+        if not target_fields:
+            repaired_rows.append(working)
+            continue
+
+        attempted_fields: List[str] = []
+        repaired_fields: List[str] = []
+        repair_warnings: Dict[str, str] = {}
+        best_confidence = 0.0
+        methods: List[str] = []
+        order_context = _row_repair_context(rows, index, order_number=order_number)
+
+        for field in target_fields:
+            attempted_fields.append(field)
+            if not enabled:
+                repair_warnings[field] = "Needs manual review"
+                repair_attempts.append(
+                    {
+                        "row_index": index,
+                        "target_field": field,
+                        "success": False,
+                        "reason": "OCR fallback disabled for this extraction.",
+                    }
+                )
+                continue
+
+            diagnostics = diagnose_extraction_row_issue(working)
+            result = ocr_fallback_row_repair(
+                row=deepcopy(working),
+                diagnostics=deepcopy(diagnostics),
+                target_field=field,
+                order_context=deepcopy(order_context),
+                row_index=index,
+                pdf_id=pdf_id,
+                pdf_bytes=pdf_bytes,
+            )
+            confidence = float(result.get("confidence") or 0.0)
+            raw_ocr_value = _ocr_raw_value_from_result(result)
+            working.setdefault("raw_ocr_value", {})[field] = raw_ocr_value
+            method = str(result.get("method") or result.get("repaired_by") or "ocr_fallback")
+            if method and method not in methods:
+                methods.append(method)
+
+            accepted = (
+                bool(result.get("success"))
+                and result.get("suggested_value") not in (None, "")
+                and confidence >= _repair_confidence_threshold(field)
+            )
+            if accepted:
+                repair_key = REPAIR_FIELD_KEYS[field]
+                repaired_value = _coerce_repair_value(field, result.get("suggested_value"))
+                working[repair_key] = repaired_value
+                if field == "type":
+                    working["glass_type_repaired"] = repaired_value
+                repaired_fields.append(field)
+                best_confidence = max(best_confidence, confidence)
+            else:
+                repair_warnings[field] = "Needs manual review"
+
+            repair_attempts.append(
+                {
+                    "row_index": index,
+                    "target_field": field,
+                    "success": accepted,
+                    "suggested_value": result.get("suggested_value"),
+                    "confidence": confidence,
+                    "method": method,
+                    "reason": result.get("reason") or result.get("reasoning") or "",
+                    "raw_base64_value": working["raw_base64_value"].get(field),
+                    "raw_ocr_value": raw_ocr_value,
+                }
+            )
+
+        if attempted_fields:
+            working["ocr_repair_attempted_fields"] = attempted_fields
+        if repaired_fields:
+            working["ocr_repaired_fields"] = repaired_fields
+            working["repaired_by"] = ", ".join(methods) if methods else "ocr_fallback"
+            working["repair_confidence"] = round(best_confidence, 2)
+        if repair_warnings:
+            working["repair_warnings"] = repair_warnings
+            working["needs_manual_review"] = True
+            labels = ", ".join(_critical_field_label(field) for field in repair_warnings.keys())
+            working["repair_warning"] = f"Needs manual review: {labels}"
+            warnings.append(f"Row {index + 1}: Needs manual review after OCR fallback ({labels}).")
+
+        repaired_rows.append(working)
+
+    return {
+        "rows": repaired_rows,
+        "repair_attempts": repair_attempts,
+        "row_overlays": [_extract_ocr_overlay(row) for row in repaired_rows],
+        "warnings": warnings,
+    }
+
+
 def _stored_row_locations(extraction: Dict[str, Any]) -> List[Any]:
     raw_json = extraction.get("llm_output_json") if isinstance(extraction, dict) else None
     if not raw_json:
@@ -1676,6 +1980,7 @@ def _extract_order_file_bytes(
     content_type: str,
     source: str,
     source_metadata: Optional[Dict[str, Any]] = None,
+    force_ocr: bool = False,
 ) -> Dict[str, Any]:
     if not raw_bytes:
         raise HTTPException(
@@ -1698,29 +2003,45 @@ def _extract_order_file_bytes(
     client_name = ""
     prepared_text = ""
     fallback_warning: Optional[str] = None
+    pdf_text_layer_text = extract_pdf_text_layer_text(raw_bytes) if is_pdf else ""
+    scanned_image_only = bool(is_pdf and not (pdf_text_layer_text or "").strip())
 
     try:
         if is_pdf:
-            try:
-                bundle = call_llm_for_pdf_base64_visual(raw_bytes, filename=normalized_filename)
-            except Exception as visual_exc:
-                if not LEGACY_OCR_ENABLED:
-                    raise HTTPException(
-                        status_code=502,
-                        detail=f"Base64 PDF extraction failed: {visual_exc}",
-                    ) from visual_exc
+            if force_ocr:
                 try:
                     legacy_result = _extract_pdf_via_legacy_ocr(raw_bytes)
                     bundle = legacy_result["bundle"]
                     client_name = legacy_result.get("client_name") or ""
                     prepared_text = bundle.get("prepared_text") or legacy_result.get("raw_joined") or ""
-                    extraction_method = "legacy_ocr"
-                    fallback_warning = f"legacy_ocr_fallback_used: {visual_exc}"
-                except Exception as legacy_exc:
+                    extraction_method = "forced_ocr"
+                    fallback_warning = "forced_ocr_extraction_used"
+                except Exception as ocr_exc:
                     raise HTTPException(
                         status_code=502,
-                        detail=f"Base64 PDF extraction failed: {visual_exc}; legacy OCR failed: {legacy_exc}",
-                    ) from legacy_exc
+                        detail=f"Forced OCR extraction failed: {ocr_exc}",
+                    ) from ocr_exc
+            else:
+                try:
+                    bundle = call_llm_for_pdf_base64_visual(raw_bytes, filename=normalized_filename)
+                except Exception as visual_exc:
+                    if not LEGACY_OCR_ENABLED or not scanned_image_only:
+                        raise HTTPException(
+                            status_code=502,
+                            detail=f"Base64 PDF extraction failed: {visual_exc}",
+                        ) from visual_exc
+                    try:
+                        legacy_result = _extract_pdf_via_legacy_ocr(raw_bytes)
+                        bundle = legacy_result["bundle"]
+                        client_name = legacy_result.get("client_name") or ""
+                        prepared_text = bundle.get("prepared_text") or legacy_result.get("raw_joined") or ""
+                        extraction_method = "legacy_ocr"
+                        fallback_warning = f"legacy_ocr_fallback_used: {visual_exc}"
+                    except Exception as legacy_exc:
+                        raise HTTPException(
+                            status_code=502,
+                            detail=f"Base64 PDF extraction failed: {visual_exc}; legacy OCR failed: {legacy_exc}",
+                        ) from legacy_exc
         else:
             bundle = call_llm_for_image_visual(
                 raw_bytes,
@@ -1728,7 +2049,6 @@ def _extract_order_file_bytes(
                 mime_type=normalized_content_type or "image/jpeg",
             )
 
-        pdf_text_layer_text = extract_pdf_text_layer_text(raw_bytes) if is_pdf else ""
         raw_payload = bundle.get("raw") or {}
         _ = ExtractionResult(**raw_payload)
         result_data = ExtractionResult(**(bundle.get("data") or raw_payload))
@@ -1744,7 +2064,17 @@ def _extract_order_file_bytes(
         normalized_rows = validation.get("rows", extracted_rows)
         final_rows = apply_area_dimension_validation(normalized_rows)
         localized_response_rows = attach_pdf_row_locations(final_rows, raw_bytes) if is_pdf else final_rows
-        row_warnings = validation.get("row_warnings", {})
+        row_warnings = _merge_critical_row_warnings(validation.get("row_warnings", {}), final_rows)
+        hash_value = _compute_hash_bytes(raw_bytes)
+        targeted_ocr = _run_targeted_ocr_repair_for_missing_fields(
+            localized_response_rows,
+            rows_dict,
+            pdf_bytes=raw_bytes if is_pdf else None,
+            pdf_id=hash_value if is_pdf else None,
+            order_number=(bundle.get("data") or {}).get("order_number") or _primary_order_number(final_rows),
+            enabled=bool(is_pdf and extraction_method == "base64_pdf_visual"),
+        )
+        localized_response_rows = targeted_ocr["rows"]
 
         combined_warnings: List[str] = []
         for source_list in (
@@ -1752,10 +2082,13 @@ def _extract_order_file_bytes(
             (bundle.get("data") or {}).get("warnings") or [],
             normalization_warnings,
             validation.get("warnings", []) or [],
+            targeted_ocr.get("warnings", []) or [],
         ):
             combined_warnings.extend(source_list)
         if fallback_warning:
             combined_warnings.append(fallback_warning)
+        if scanned_image_only and is_pdf:
+            combined_warnings.append("pdf_scanned_or_image_only_detected")
 
         applied = bundle.get("applied_corrections") or []
         if applied:
@@ -1764,7 +2097,6 @@ def _extract_order_file_bytes(
         metadata = dict(source_metadata or {})
         metadata.setdefault("source", source)
         metadata.setdefault("original_filename", normalized_filename)
-        hash_value = _compute_hash_bytes(raw_bytes)
         declared_units, declared_area = _declared_totals_from_sources(
             bundle,
             prepared_text,
@@ -1784,6 +2116,14 @@ def _extract_order_file_bytes(
                 row.get("row_location") if isinstance(row, dict) else None
                 for row in localized_response_rows
             ],
+            "raw_base64_values": [
+                _raw_base64_values_for_row(row if isinstance(row, dict) else {})
+                for row in rows_dict
+            ],
+            "ocr_repair_attempts": targeted_ocr.get("repair_attempts", []),
+            "ocr_row_overlays": targeted_ocr.get("row_overlays", []),
+            "scanned_image_only": scanned_image_only,
+            "force_ocr": bool(force_ocr),
         }
         llm_output_json = json.dumps(llm_output_payload, ensure_ascii=False)
         data_payload = bundle.get("data") or {}
@@ -1891,7 +2231,11 @@ def _extract_order_file_bytes(
 
 
 @app.post("/extract_pdf")
-async def extract_pdf(file: UploadFile = File(...), x_app_key: Optional[str] = Header(default=None)) -> Dict[str, Any]:
+async def extract_pdf(
+    file: UploadFile = File(...),
+    force_ocr: bool = Query(default=False),
+    x_app_key: Optional[str] = Header(default=None),
+) -> Dict[str, Any]:
     """Accept a PDF file upload and run base64 PDF visual extraction."""
     if APP_KEY and x_app_key != APP_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -1909,12 +2253,17 @@ async def extract_pdf(file: UploadFile = File(...), x_app_key: Optional[str] = H
         filename=file.filename or "upload.pdf",
         content_type=file.content_type or "application/pdf",
         source="pdf",
+        force_ocr=force_ocr,
     )
 
 
 @app.post("/extract-pdf")
-async def extract_pdf_dash_alias(file: UploadFile = File(...), x_app_key: Optional[str] = Header(default=None)) -> Dict[str, Any]:
-    return await extract_pdf(file=file, x_app_key=x_app_key)
+async def extract_pdf_dash_alias(
+    file: UploadFile = File(...),
+    force_ocr: bool = Query(default=False),
+    x_app_key: Optional[str] = Header(default=None),
+) -> Dict[str, Any]:
+    return await extract_pdf(file=file, force_ocr=force_ocr, x_app_key=x_app_key)
 
 
 def _telegram_token() -> str:
@@ -2804,7 +3153,9 @@ def get_order_detail(order_id: int) -> Dict[str, Any]:
     normalized_rows = validation.get("rows", rows)
     order["rows"] = apply_area_dimension_validation(normalized_rows)
     order["rows"] = _with_stored_row_locations(order["rows"], extraction)
+    order["rows"] = _with_stored_ocr_overlays(order["rows"], extraction)
     order["row_warnings"] = validation.get("row_warnings", {})
+    order["row_warnings"] = _merge_critical_row_warnings(order["row_warnings"], order["rows"])
     order["warnings"] = validation.get("warnings", [])
     parsed_declared_units, parsed_declared_area = parse_declared_totals(extraction.get("prepared_text", ""))
     stored_declared_units, stored_declared_area = _stored_declared_totals(extraction)

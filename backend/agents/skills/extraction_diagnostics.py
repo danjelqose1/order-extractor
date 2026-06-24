@@ -626,6 +626,12 @@ def _should_attempt_openai_vision_page_ocr(codes: Sequence[str], target_field: s
         return bool(code_set & {"MISSING_DIMENSION", "INVALID_DIMENSION", "INVALID_DIMENSION_FORMAT"})
     if target_field == "position":
         return bool(code_set & {"MISSING_POSITION", "POSITION_WARNING", "EMPTY_POSITION", "DUPLICATE_POSITION"})
+    if target_field == "quantity":
+        return bool(code_set & {"MISSING_QUANTITY", "INVALID_QUANTITY"})
+    if target_field == "area":
+        return bool(code_set & {"MISSING_EXTRACTED_AREA", "INVALID_EXTRACTED_AREA", "INVALID_AREA"})
+    if target_field == "type":
+        return bool(code_set & {"GLASS_TYPE_UNCLEAR"})
     return False
 
 
@@ -909,12 +915,19 @@ def _build_openai_vision_repair_prompt(
     position = str(row.get("position") or "").strip()
     area = _area_value(row)
     quantity = row.get("quantity")
-    target_instruction = (
-        "Return only dimension candidates in WIDTHxHEIGHT format, one per line. "
-        "Use millimeters. If no candidate is visible, return NO_VALUE."
-        if target_field == "dimension"
-        else "Return only position candidates, one per line. If no candidate is visible, return NO_VALUE."
-    )
+    if target_field == "dimension":
+        target_instruction = (
+            "Return only dimension candidates in WIDTHxHEIGHT format, one per line. "
+            "Use millimeters. If no candidate is visible, return NO_VALUE."
+        )
+    elif target_field == "position":
+        target_instruction = "Return only position candidates, one per line. If no candidate is visible, return NO_VALUE."
+    elif target_field == "quantity":
+        target_instruction = "Return only quantity candidates as positive whole numbers, one per line. If no candidate is visible, return NO_VALUE."
+    elif target_field == "area":
+        target_instruction = "Return only area candidates in square meters as decimal numbers, one per line. If no candidate is visible, return NO_VALUE."
+    else:
+        target_instruction = "Return only the glass type text for this row, one candidate per line. If no candidate is visible, return NO_VALUE."
     return (
         "Recover one missing or suspicious field from the attached glass-order PDF page image(s).\n"
         f"Target field: {target_field}\n"
@@ -1038,11 +1051,72 @@ def _position_candidates_from_text(text: str) -> List[str]:
     return candidates
 
 
+def _quantity_candidates_from_text(text: str) -> List[str]:
+    candidates: List[str] = []
+    seen: set[str] = set()
+    for raw_line in re.split(r"[\n,;]+", text or ""):
+        candidate = raw_line.strip()
+        if not candidate or candidate.upper() in {"NO_VALUE", "N/A", "NONE", "UNKNOWN"}:
+            continue
+        match = re.search(r"(?<!\d)(\d{1,3})(?!\d)", candidate)
+        if not match:
+            continue
+        value = str(int(match.group(1)))
+        if value != "0" and value not in seen:
+            seen.add(value)
+            candidates.append(value)
+    return candidates
+
+
+def _area_candidates_from_text(text: str) -> List[str]:
+    candidates: List[str] = []
+    seen: set[str] = set()
+    for raw_line in re.split(r"[\n;]+", text or ""):
+        candidate = raw_line.strip()
+        if not candidate or candidate.upper() in {"NO_VALUE", "N/A", "NONE", "UNKNOWN"}:
+            continue
+        for match in re.finditer(r"(?<!\d)(\d+(?:[.,]\d{1,3})?)(?!\d)", candidate):
+            parsed = _parse_area(match.group(1))
+            if parsed is None:
+                continue
+            value = f"{parsed:.3f}".rstrip("0").rstrip(".")
+            if value and value not in seen:
+                seen.add(value)
+                candidates.append(value)
+    return candidates
+
+
+def _type_candidates_from_text(text: str) -> List[str]:
+    candidates: List[str] = []
+    seen: set[str] = set()
+    for raw_line in re.split(r"[\n;]+", text or ""):
+        candidate = re.sub(r"\s+", " ", raw_line.strip(" .:-"))
+        if not candidate or candidate.upper() in {"NO_VALUE", "N/A", "NONE", "UNKNOWN"}:
+            continue
+        if len(candidate) > 160:
+            continue
+        if not re.search(r"(?:vetri?|lowe|satinat|float|strat|laminat|termico|caldo|\d+\s*mm|\d{1,2}\.\d)", candidate, flags=re.IGNORECASE):
+            continue
+        if candidate not in seen:
+            seen.add(candidate)
+            candidates.append(candidate)
+    return candidates
+
+
 def _openai_vision_candidate_from_text(text: str, target_field: str) -> Optional[str]:
     if target_field == "dimension":
         candidates = _dimension_candidates_from_text(text)
         return candidates[0] if candidates else None
-    candidates = _position_candidates_from_text(text)
+    if target_field == "position":
+        candidates = _position_candidates_from_text(text)
+        return candidates[0] if candidates else None
+    if target_field == "quantity":
+        candidates = _quantity_candidates_from_text(text)
+        return candidates[0] if candidates else None
+    if target_field == "area":
+        candidates = _area_candidates_from_text(text)
+        return candidates[0] if candidates else None
+    candidates = _type_candidates_from_text(text)
     return candidates[0] if candidates else None
 
 
@@ -1062,9 +1136,21 @@ def _openai_vision_confidence(
         area = _parse_area(_area_value(row))
         if area is not None and _dimension_matches_area(candidate, quantity, area):
             confidence = max(confidence, 0.84)
-    else:
+    elif target_field == "position":
         current = str(row.get("position") or "").strip()
         if not current:
+            confidence = max(confidence, 0.78)
+    elif target_field == "quantity":
+        if _parse_quantity(candidate) is not None:
+            confidence = max(confidence, 0.78)
+    elif target_field == "area":
+        area = _parse_area(candidate)
+        dimension = _dimension_key(row.get("dimension"))
+        quantity = _parse_quantity(row.get("quantity")) or 1
+        if area is not None and dimension and _dimension_matches_area(dimension, quantity, area):
+            confidence = max(confidence, 0.84)
+    elif target_field == "type":
+        if _type_candidates_from_text(candidate):
             confidence = max(confidence, 0.78)
     return round(min(0.92, confidence), 2)
 

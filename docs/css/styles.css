@@ -287,6 +287,9 @@
     .warning-list h4{margin:0 0 6px;font-size:13px;font-weight:600}
     .warning-list ul{margin:0;padding-left:18px}
     .warning-badge{display:inline-flex;align-items:center;gap:6px;background:#fee2e2;color:#991b1b;padding:0 8px;border-radius:999px;font-size:11px}
+    .ocr-action-row{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px;padding:0 16px}
+    .ocr-repair-badge{display:inline-flex;align-items:center;padding:2px 7px;border-radius:999px;background:#dbeafe;color:#1d4ed8;font-size:11px;font-weight:800;white-space:nowrap}
+    .ocr-repair-badge.review{background:#fee2e2;color:#991b1b}
     .editable-table input,.editable-table select{width:100%;padding:6px 8px;border:1px solid var(--border-dark);border-radius:8px;font-size:13px;background:#fff}
     .editable-table input:focus{outline:2px solid var(--primary-soft);border-color:var(--primary)}
     .editable-badge{display:inline-flex;align-items:center;padding:2px 6px;border-radius:6px;background:#fee2e2;color:#9f1239;font-size:11px}

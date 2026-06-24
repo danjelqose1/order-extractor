@@ -141,6 +141,8 @@ const appState = {
     draftId: null,
     status: "idle",
     savedOrderId: null,
+    source_hash: "",
+    extractionMethod: "",
     orderNumber: "",
     appliedCorrections: [],
     notes: "",
@@ -208,6 +210,8 @@ const appState = {
     counter: 1,
   },
 };
+
+let lastExtractPdfFile = null;
 
 const processingState = {
   processedRows: [],
@@ -8139,6 +8143,224 @@ function fixAllAreas(scope){
   setStatusMessage("Use the row Fix button to diagnose one warning at a time. No automatic change was made.");
 }
 
+const OCR_REPAIR_CONFIDENCE_MIN = 0.8;
+const OCR_FIELD_REPAIR_KEYS = {
+  dimension: "dimension_repaired",
+  position: "position_repaired",
+  quantity: "quantity_repaired",
+  type: "type_repaired",
+  area: "area_repaired",
+};
+
+function criticalFieldLabel(field){
+  return field === "type" ? "glass type" : field;
+}
+
+function repairKeyForField(field){
+  return OCR_FIELD_REPAIR_KEYS[field] || `${field}_repaired`;
+}
+
+function isCriticalFieldMissing(row, field){
+  if (!row) return true;
+  const value = field === "type" ? row.type : row[field];
+  if (field === "quantity"){
+    if (value == null || String(value).trim() === "") return true;
+    const parsed = Number(value);
+    return !Number.isFinite(parsed) || parsed <= 0;
+  }
+  if (field === "area"){
+    if (value == null || String(value).trim() === "") return true;
+    const parsed = Number(value);
+    return !Number.isFinite(parsed) || parsed <= 0;
+  }
+  return !String(value || "").trim();
+}
+
+function missingCriticalFields(row){
+  return ["dimension", "position", "quantity", "type", "area"].filter(field => isCriticalFieldMissing(row, field));
+}
+
+function normalizeRepairValue(field, value){
+  if (field === "quantity"){
+    const parsed = parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : value;
+  }
+  if (field === "area"){
+    const parsed = parseFloat(String(value).replace(",", "."));
+    return Number.isFinite(parsed) ? Number(parsed.toFixed(3)) : value;
+  }
+  return value == null ? "" : String(value).trim();
+}
+
+function refreshRowRepairWarning(row){
+  if (!row) return;
+  const warnings = row.repair_warnings && typeof row.repair_warnings === "object" ? row.repair_warnings : {};
+  const activeFields = Object.keys(warnings).filter(field => isCriticalFieldMissing(row, field));
+  if (!activeFields.length){
+    delete row.repair_warning;
+    row.needs_manual_review = false;
+    row.repair_warnings = {};
+    return;
+  }
+  row.repair_warnings = Object.fromEntries(activeFields.map(field => [field, warnings[field] || "Needs manual review"]));
+  row.needs_manual_review = true;
+  row.repair_warning = `Needs manual review: ${activeFields.map(criticalFieldLabel).join(", ")}`;
+}
+
+function clearOcrRepairForField(row, field){
+  if (!row || !OCR_FIELD_REPAIR_KEYS[field]) return;
+  const repairKey = repairKeyForField(field);
+  delete row[repairKey];
+  if (field === "type") delete row.glass_type_repaired;
+  if (row.raw_ocr_value && typeof row.raw_ocr_value === "object"){
+    delete row.raw_ocr_value[field];
+  }
+  if (Array.isArray(row.ocr_repaired_fields)){
+    row.ocr_repaired_fields = row.ocr_repaired_fields.filter(item => item !== field);
+  }
+  if (row.repair_warnings && typeof row.repair_warnings === "object"){
+    delete row.repair_warnings[field];
+  }
+  refreshRowRepairWarning(row);
+  const stillRepaired = Object.keys(OCR_FIELD_REPAIR_KEYS).some(candidate => row[repairKeyForField(candidate)] != null && row[repairKeyForField(candidate)] !== "");
+  if (!stillRepaired){
+    delete row.repaired_by;
+    delete row.repair_confidence;
+  }
+}
+
+function rowHasOcrRepair(row, field){
+  const repairKey = repairKeyForField(field);
+  return row && row[repairKey] != null && String(row[repairKey]).trim() !== "";
+}
+
+function rowRepairBadgeTitle(row, field){
+  const repairKey = repairKeyForField(field);
+  const repaired = row?.[repairKey];
+  const rawBase = row?.raw_base64_value && typeof row.raw_base64_value === "object" ? row.raw_base64_value[field] : row?.[field];
+  const rawOcr = row?.raw_ocr_value && typeof row.raw_ocr_value === "object" ? row.raw_ocr_value[field] : repaired;
+  const confidence = Number(row?.repair_confidence);
+  const pieces = [
+    `${criticalFieldLabel(field)} repaired by OCR`,
+    `base64: ${rawBase ?? ""}`,
+    `OCR: ${rawOcr ?? repaired ?? ""}`,
+  ];
+  if (Number.isFinite(confidence)) pieces.push(`confidence: ${Math.round(confidence * 100)}%`);
+  if (row?.repaired_by) pieces.push(`method: ${row.repaired_by}`);
+  return pieces.join(" | ");
+}
+
+function renderOcrRepairBadges(row){
+  const badges = [];
+  Object.keys(OCR_FIELD_REPAIR_KEYS).forEach(field => {
+    if (rowHasOcrRepair(row, field)){
+      badges.push(`<span class="ocr-repair-badge" title="${escapeHtml(rowRepairBadgeTitle(row, field))}">OCR ${escapeHtml(criticalFieldLabel(field))}</span>`);
+    }
+  });
+  const repairWarnings = row?.repair_warnings && typeof row.repair_warnings === "object" ? row.repair_warnings : {};
+  Object.keys(repairWarnings).forEach(field => {
+    if (isCriticalFieldMissing(row, field)){
+      badges.push(`<span class="ocr-repair-badge review" title="${escapeHtml(String(repairWarnings[field] || row.repair_warning || "Needs manual review"))}">Needs review</span>`);
+    }
+  });
+  return badges;
+}
+
+function applyOcrFallbackResultToRow(row, field, result){
+  if (!row) return false;
+  row.raw_base64_value = row.raw_base64_value && typeof row.raw_base64_value === "object" ? row.raw_base64_value : {};
+  if (!Object.prototype.hasOwnProperty.call(row.raw_base64_value, field)){
+    row.raw_base64_value[field] = field === "type" ? (row.type || "") : (row[field] ?? "");
+  }
+  row.raw_ocr_value = row.raw_ocr_value && typeof row.raw_ocr_value === "object" ? row.raw_ocr_value : {};
+  const rawOcr = result?.suggested_value ?? result?.evidence?.ocr_text ?? result?.evidence?.matched_text ?? "";
+  row.raw_ocr_value[field] = rawOcr;
+  const confidence = Number(result?.confidence);
+  const repaired = !!result?.success
+    && result.suggested_value != null
+    && String(result.suggested_value).trim() !== ""
+    && Number.isFinite(confidence)
+    && confidence >= OCR_REPAIR_CONFIDENCE_MIN;
+  if (repaired){
+    const repairKey = repairKeyForField(field);
+    row[repairKey] = normalizeRepairValue(field, result.suggested_value);
+    if (field === "type") row.glass_type_repaired = row[repairKey];
+    row.ocr_repaired_fields = Array.isArray(row.ocr_repaired_fields) ? row.ocr_repaired_fields : [];
+    if (!row.ocr_repaired_fields.includes(field)) row.ocr_repaired_fields.push(field);
+    row.repaired_by = result.method || result.repaired_by || "ocr_fallback";
+    row.repair_confidence = Math.max(Number(row.repair_confidence) || 0, confidence);
+    if (row.repair_warnings && typeof row.repair_warnings === "object"){
+      delete row.repair_warnings[field];
+    }
+    refreshRowRepairWarning(row);
+    return true;
+  }
+  row.repair_warnings = row.repair_warnings && typeof row.repair_warnings === "object" ? row.repair_warnings : {};
+  row.repair_warnings[field] = "Needs manual review";
+  refreshRowRepairWarning(row);
+  return false;
+}
+
+async function recheckMissingFieldsWithOcr(){
+  const bucket = appState.extract;
+  const rows = bucket.rows || [];
+  const orderId = bucket.draftId || bucket.savedOrderId;
+  if (!orderId){
+    setStatusMessage("OCR recheck needs a saved PDF draft.");
+    return;
+  }
+  const targets = [];
+  rows.forEach((row, index) => {
+    missingCriticalFields(row).forEach(field => {
+      if (!rowHasOcrRepair(row, field)){
+        targets.push({ row, index, field });
+      }
+    });
+  });
+  if (!targets.length){
+    setStatusMessage("No missing critical fields to recheck.");
+    return;
+  }
+  const recheckBtn = document.getElementById("ocrRecheckMissing");
+  if (recheckBtn) recheckBtn.disabled = true;
+  let repairedCount = 0;
+  let manualCount = 0;
+  setStatusMessage(`<span class="spinner"></span> Rechecking ${targets.length} field(s) with OCR…`);
+  for (const target of targets){
+    const orderContext = buildRowDiagnosisContext("extract", target.index);
+    try{
+      const response = await fetch(API_BASE + "/api/extraction/ocr-fallback-row", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          order_id: String(orderId),
+          pdf_id: bucket.source_hash || null,
+          row_index: target.index,
+          row: target.row,
+          target_field: target.field,
+          order_context: orderContext,
+        }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      const result = await response.json();
+      if (applyOcrFallbackResultToRow(target.row, target.field, result)){
+        repairedCount += 1;
+      }else{
+        manualCount += 1;
+      }
+    }catch(error){
+      applyOcrFallbackResultToRow(target.row, target.field, {
+        success: false,
+        confidence: 0,
+        reason: error.message || String(error),
+      });
+      manualCount += 1;
+    }
+  }
+  updateExtractUI();
+  setStatusMessage(`OCR recheck complete: ${repairedCount} repaired, ${manualCount} need manual review.`);
+}
+
 function removeRow(scope, rowKey){
   if (!rowKey) return;
   const key = String(rowKey);
@@ -8290,6 +8512,7 @@ function renderEditableTable(scope, containerId, rows, rowWarnings){
         const issueText = otherIssues.map(issue => issue?.message || issue?.code || "Diagnostic warning").join("; ");
         warningBadges.push(`<span class="editable-badge" title="${escapeHtml(issueText)}">!</span>`);
       }
+      warningBadges.push(...renderOcrRepairBadges(row));
       const warningBadge = warningBadges.join(" ");
       const inputBase = `data-scope="${scope}" data-index="${rowIndex}" autocomplete="off" class="cell"`;
       const orderKey = `${row._rid}:order_number`;
@@ -8355,6 +8578,7 @@ function updateRowValue(scope, index, field, value, options = {}){
   }
   if (isDiagnosticsRefreshField(field)){
     clearDiagnosticsForManualEdit(row);
+    clearOcrRepairForField(row, field);
   }
   if (scope === "extract"){
     window.__rows = bucket.rows;
@@ -8454,6 +8678,20 @@ document.addEventListener("click", (event)=>{
 const fixAllAreasBtn = document.getElementById("fixAllAreas");
 if (fixAllAreasBtn){
   fixAllAreasBtn.addEventListener("click", ()=> fixAllAreas("extract"));
+}
+const ocrRecheckMissingBtn = document.getElementById("ocrRecheckMissing");
+if (ocrRecheckMissingBtn){
+  ocrRecheckMissingBtn.addEventListener("click", ()=> recheckMissingFieldsWithOcr());
+}
+const forceOcrExtractionBtn = document.getElementById("forceOcrExtraction");
+if (forceOcrExtractionBtn){
+  forceOcrExtractionBtn.addEventListener("click", async ()=>{
+    if (!lastExtractPdfFile){
+      setStatusMessage("Upload a PDF before forcing OCR.");
+      return;
+    }
+    await handlePdfExtraction(lastExtractPdfFile, { forceOcr: true });
+  });
 }
 const historyFixAllAreasBtn = document.getElementById("historyFixAllAreas");
 if (historyFixAllAreasBtn){
@@ -11633,6 +11871,14 @@ function updateExtractUI(){
     if (approveBtn) approveBtn.disabled = !appState.extract.draftId || !(appState.extract.rows && appState.extract.rows.length);
     const rerunBtn = document.getElementById("rerun");
     if (rerunBtn) rerunBtn.disabled = !appState.extract.draftId;
+    const ocrRecheckBtn = document.getElementById("ocrRecheckMissing");
+    if (ocrRecheckBtn){
+      const hasMissingFields = (appState.extract.rows || []).some(row => missingCriticalFields(row).some(field => !rowHasOcrRepair(row, field)));
+      const hasPdfContext = appState.extract.extractionMethod === "base64_pdf_visual" || appState.extract.extractionMethod === "legacy_ocr" || appState.extract.extractionMethod === "forced_ocr";
+      ocrRecheckBtn.disabled = !appState.extract.draftId || !hasPdfContext || !hasMissingFields;
+    }
+    const forceOcrBtn = document.getElementById("forceOcrExtraction");
+    if (forceOcrBtn) forceOcrBtn.disabled = !lastExtractPdfFile;
     const notesEl = document.getElementById("extractNotes");
     if (notesEl && notesEl.value !== appState.extract.notes){
       notesEl.value = appState.extract.notes || "";
@@ -15833,12 +16079,14 @@ async function callAPI(text){
   return data;
 }
 
-async function callPdfAPI(file){
+async function callPdfAPI(file, options = {}){
   setErrorMessage("");
-  setStatusMessage('<span class="spinner"></span> Extracting PDF…');
+  const forceOcr = !!options.forceOcr;
+  setStatusMessage(forceOcr ? '<span class="spinner"></span> Extracting PDF with OCR…' : '<span class="spinner"></span> Extracting PDF…');
   const formData = new FormData();
   formData.append("file", file, file.name || "upload.pdf");
-  const res = await fetch(API_BASE + "/extract_pdf", {
+  const endpoint = API_BASE + "/extract_pdf" + (forceOcr ? "?force_ocr=true" : "");
+  const res = await fetch(endpoint, {
     method: "POST",
     body: formData
   });
@@ -15901,6 +16149,8 @@ function applyExtractionResult(data){
   appState.extract.draftId = data?.draft_order_id || null;
   appState.extract.status = data?.status || (data?.saved_order_id ? "approved" : "draft");
   appState.extract.savedOrderId = data?.saved_order_id || null;
+  appState.extract.source_hash = data?.source_hash || "";
+  appState.extract.extractionMethod = data?.extraction_method || "";
   appState.extract.orderNumber = data?.order_number || "";
   appState.extract.appliedCorrections = data?.applied_corrections || [];
   appState.extract.notes = "";
@@ -15929,6 +16179,7 @@ async function handleTextExtraction(text){
   const value = (text || "").trim();
   if (!value) return;
   try{
+    lastExtractPdfFile = null;
     const data = await callAPI(value);
     applyExtractionResult(data);
   }catch(error){
@@ -15937,10 +16188,11 @@ async function handleTextExtraction(text){
   }
 }
 
-async function handlePdfExtraction(file){
+async function handlePdfExtraction(file, options = {}){
   if (!file) return;
   try{
-    const data = await callPdfAPI(file);
+    lastExtractPdfFile = file;
+    const data = await callPdfAPI(file, options);
     applyExtractionResult(data);
   }catch(error){
     setStatusMessage("");

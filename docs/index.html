@@ -123,7 +123,11 @@
           <h4>Warnings</h4>
           <ul></ul>
         </div>
-        <div style="margin-bottom:12px"><button type="button" id="fixAllAreas" class="btn small" hidden>Fix all areas</button></div>
+        <div class="ocr-action-row">
+          <button type="button" id="ocrRecheckMissing" class="btn small" disabled>Recheck missing fields with OCR</button>
+          <button type="button" id="forceOcrExtraction" class="btn small" disabled>Force OCR extraction</button>
+          <button type="button" id="fixAllAreas" class="btn small" hidden>Fix all areas</button>
+        </div>
         <div class="table-responsive" id="tableWrap"></div>
         <div class="notes-field">
           <label for="extractNotes" class="muted small">Approval notes (optional)</label>
