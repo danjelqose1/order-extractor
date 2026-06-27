@@ -5,7 +5,7 @@ import json
 import os
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
 from sqlalchemy import (
     Boolean,
@@ -24,6 +24,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
 
 from utils_text import build_signature, extract_client_hint, normalize_order_number
@@ -259,11 +260,13 @@ class ProductionFile(Base):
 
 class TelegramFile(Base):
     __tablename__ = "telegram_files"
+    __table_args__ = (UniqueConstraint("telegram_update_id", name="uq_telegram_files_update_id"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
     source: Mapped[str] = mapped_column(String(40), default="telegram", index=True)
+    telegram_update_id: Mapped[Optional[str]] = mapped_column(String(160), nullable=True)
     original_filename: Mapped[str] = mapped_column(Text, nullable=False)
     stored_filename: Mapped[str] = mapped_column(Text, nullable=False)
     file_path: Mapped[str] = mapped_column(Text, nullable=False)
@@ -292,10 +295,15 @@ class TelegramFile(Base):
     deleted: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     queued_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    download_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    downloaded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    download_retry_count: Mapped[int] = mapped_column(Integer, default=0)
     processing_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     processed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
     last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    intake_reply_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    outcome_reply_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class WhatsAppFile(Base):
@@ -378,6 +386,56 @@ def _ensure_schema() -> None:
         conn.execute(text("UPDATE orders SET updated_at = created_at WHERE updated_at IS NULL"))
         conn.execute(text("UPDATE orders SET source_hash = hash WHERE source_hash IS NULL AND hash IS NOT NULL"))
         conn.execute(text("UPDATE orders SET version = 1 WHERE version IS NULL OR version < 1"))
+
+        telegram_info = conn.execute(text("PRAGMA table_info(telegram_files)")).fetchall()
+        telegram_columns = {row[1] for row in telegram_info}
+        telegram_additions = {
+            "telegram_update_id": "TEXT",
+            "download_started_at": "DATETIME",
+            "downloaded_at": "DATETIME",
+            "download_retry_count": "INTEGER DEFAULT 0",
+            "intake_reply_sent_at": "DATETIME",
+            "outcome_reply_sent_at": "DATETIME",
+        }
+        for column_name, column_type in telegram_additions.items():
+            if column_name not in telegram_columns:
+                conn.execute(text(f"ALTER TABLE telegram_files ADD COLUMN {column_name} {column_type}"))
+        # SQLite permits multiple NULL values in a regular unique index. Keep
+        # this non-partial so INSERT ... ON CONFLICT(telegram_update_id) works
+        # on upgraded databases as well as newly-created ones.
+        conn.execute(text("DROP INDEX IF EXISTS uq_telegram_files_update_id"))
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX uq_telegram_files_update_id "
+                "ON telegram_files (telegram_update_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE telegram_files SET download_retry_count = 0 "
+                "WHERE download_retry_count IS NULL"
+            )
+        )
+        # Rows from before durable intake predate reply markers. Treat their
+        # historical notifications as complete so a deployment does not resend
+        # messages for the entire Telegram archive.
+        conn.execute(
+            text(
+                "UPDATE telegram_files "
+                "SET intake_reply_sent_at = COALESCE(received_at, created_at) "
+                "WHERE telegram_update_id IS NULL AND intake_reply_sent_at IS NULL"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE telegram_files "
+                "SET outcome_reply_sent_at = COALESCE(processed_at, received_at, created_at) "
+                "WHERE telegram_update_id IS NULL "
+                "AND extraction_status IN ('extracted', 'duplicate', 'failed', 'too_large', "
+                "'unsupported', 'missing_file_id') "
+                "AND outcome_reply_sent_at IS NULL"
+            )
+        )
         conn.execute(text("UPDATE orders SET status = 'draft' WHERE status IS NULL OR TRIM(status) = ''"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_orders_source_hash ON orders(source_hash)"))
         telegram_info = conn.execute(text("PRAGMA table_info(telegram_files)")).fetchall()
@@ -591,6 +649,7 @@ def _serialize_telegram_file(file: TelegramFile, order: Optional[Order] = None) 
         "created_at": file.created_at.isoformat(),
         "received_at": file.received_at.isoformat(),
         "source": file.source,
+        "telegram_update_id": file.telegram_update_id,
         "original_filename": file.original_filename,
         "stored_filename": file.stored_filename,
         "file_path": file.file_path,
@@ -620,10 +679,15 @@ def _serialize_telegram_file(file: TelegramFile, order: Optional[Order] = None) 
         "deleted": bool(file.deleted),
         "deleted_at": file.deleted_at.isoformat() if file.deleted_at else None,
         "queued_at": file.queued_at.isoformat() if file.queued_at else None,
+        "download_started_at": file.download_started_at.isoformat() if file.download_started_at else None,
+        "downloaded_at": file.downloaded_at.isoformat() if file.downloaded_at else None,
+        "download_retry_count": int(file.download_retry_count or 0),
         "processing_started_at": file.processing_started_at.isoformat() if file.processing_started_at else None,
         "processed_at": file.processed_at.isoformat() if file.processed_at else None,
         "retry_count": int(file.retry_count or 0),
         "last_error": file.last_error,
+        "intake_reply_sent_at": file.intake_reply_sent_at.isoformat() if file.intake_reply_sent_at else None,
+        "outcome_reply_sent_at": file.outcome_reply_sent_at.isoformat() if file.outcome_reply_sent_at else None,
         "view_url": f"/telegram-files/{file.id}/view",
         "download_url": f"/telegram-files/{file.id}/download",
     }
@@ -924,6 +988,7 @@ def create_telegram_file_record(
     mime_type: str,
     file_size: int,
     file_sha256: Optional[str] = None,
+    telegram_update_id: Optional[Any] = None,
     telegram_file_id: Optional[str] = None,
     telegram_chat_id: Optional[Any] = None,
     telegram_message_id: Optional[Any] = None,
@@ -945,6 +1010,7 @@ def create_telegram_file_record(
             mime_type=str(mime_type or "application/pdf"),
             file_size=int(file_size or 0),
             file_sha256=str(file_sha256).strip().lower() if file_sha256 else None,
+            telegram_update_id=str(telegram_update_id) if telegram_update_id is not None else None,
             telegram_file_id=str(telegram_file_id) if telegram_file_id else None,
             telegram_chat_id=str(telegram_chat_id) if telegram_chat_id is not None else None,
             telegram_message_id=str(telegram_message_id) if telegram_message_id is not None else None,
@@ -961,11 +1027,71 @@ def create_telegram_file_record(
             pdf_printed=False,
             deleted=False,
             queued_at=queued_at,
+            download_retry_count=0,
             retry_count=0,
         )
         session.add(record)
         session.flush()
         return _serialize_telegram_file(record)
+
+
+def create_or_get_telegram_intake(
+    *,
+    telegram_update_id: Any,
+    original_filename: str,
+    mime_type: str,
+    file_size: int,
+    telegram_file_id: Optional[str],
+    telegram_chat_id: Optional[Any],
+    telegram_message_id: Optional[Any],
+    telegram_sender_name: Optional[str],
+    telegram_caption: Optional[str],
+    extraction_status: str,
+    received_at: Optional[datetime] = None,
+) -> Tuple[Dict[str, Any], bool]:
+    """Atomically create one durable Telegram intake row per update/dedupe key."""
+    update_value = str(telegram_update_id or "").strip()
+    if not update_value:
+        raise ValueError("telegram_update_id is required")
+    now = received_at or datetime.now(timezone.utc)
+    values = {
+        "source": "telegram",
+        "telegram_update_id": update_value[:160],
+        "original_filename": str(original_filename or "telegram-upload"),
+        "stored_filename": "",
+        "file_path": "",
+        "mime_type": str(mime_type or "application/octet-stream"),
+        "file_size": max(0, int(file_size or 0)),
+        "telegram_file_id": str(telegram_file_id) if telegram_file_id else None,
+        "telegram_chat_id": str(telegram_chat_id) if telegram_chat_id is not None else None,
+        "telegram_message_id": str(telegram_message_id) if telegram_message_id is not None else None,
+        "telegram_sender_name": telegram_sender_name or None,
+        "telegram_caption": telegram_caption or None,
+        "received_at": now,
+        "extraction_status": str(extraction_status or "download_queued"),
+        "duplicate_status": "unique",
+        "touched": False,
+        "labels_printed": False,
+        "linked_order_opened": False,
+        "pdf_printed": False,
+        "deleted": False,
+        "queued_at": now,
+        "download_retry_count": 0,
+        "retry_count": 0,
+    }
+    with get_session() as session:
+        statement = (
+            sqlite_insert(TelegramFile)
+            .values(**values)
+            .on_conflict_do_nothing(index_elements=["telegram_update_id"])
+        )
+        result = session.execute(statement)
+        created = bool(result.rowcount)
+        record = session.execute(
+            select(TelegramFile).where(TelegramFile.telegram_update_id == update_value[:160]).limit(1)
+        ).scalar_one()
+        linked_order = session.get(Order, record.linked_order_id) if record.linked_order_id else None
+        return _serialize_telegram_file(record, linked_order), created
 
 
 def backfill_telegram_file_hashes() -> int:
@@ -999,9 +1125,18 @@ def backfill_telegram_file_hashes() -> int:
 def update_telegram_file_record(
     file_id: int,
     *,
+    original_filename: Optional[str] = None,
+    stored_filename: Optional[str] = None,
+    file_path: Optional[str] = None,
+    mime_type: Optional[str] = None,
+    file_size: Optional[int] = None,
+    file_sha256: Optional[str] = None,
     linked_order_id: Optional[int] = None,
     extraction_status: Optional[str] = None,
     queued_at: Optional[datetime] = None,
+    download_started_at: Optional[datetime] = None,
+    downloaded_at: Optional[datetime] = None,
+    download_retry_count: Optional[int] = None,
     processing_started_at: Optional[datetime] = None,
     processed_at: Optional[datetime] = None,
     retry_count: Optional[int] = None,
@@ -1010,11 +1145,25 @@ def update_telegram_file_record(
     duplicate_status: Optional[str] = None,
     duplicate_of_file_id: Optional[int] = None,
     duplicate_reason: Optional[str] = None,
+    intake_reply_sent_at: Optional[datetime] = None,
+    outcome_reply_sent_at: Optional[datetime] = None,
 ) -> Optional[Dict[str, Any]]:
     with get_session() as session:
         record = session.get(TelegramFile, int(file_id))
         if not record:
             return None
+        if original_filename is not None:
+            record.original_filename = str(original_filename or "telegram-upload")
+        if stored_filename is not None:
+            record.stored_filename = str(stored_filename)
+        if file_path is not None:
+            record.file_path = str(file_path)
+        if mime_type is not None:
+            record.mime_type = str(mime_type or "application/octet-stream")
+        if file_size is not None:
+            record.file_size = max(0, int(file_size))
+        if file_sha256 is not None:
+            record.file_sha256 = str(file_sha256).strip().lower() or None
         if linked_order_id is not None:
             record.linked_order_id = int(linked_order_id)
         if extraction_status:
@@ -1027,6 +1176,12 @@ def update_telegram_file_record(
             record.duplicate_reason = str(duplicate_reason).strip()[:1000] or None
         if queued_at is not None:
             record.queued_at = queued_at
+        if download_started_at is not None:
+            record.download_started_at = download_started_at
+        if downloaded_at is not None:
+            record.downloaded_at = downloaded_at
+        if download_retry_count is not None:
+            record.download_retry_count = max(0, int(download_retry_count))
         if processing_started_at is not None:
             record.processing_started_at = processing_started_at
         if processed_at is not None:
@@ -1037,6 +1192,10 @@ def update_telegram_file_record(
             record.last_error = None
         elif last_error is not None:
             record.last_error = str(last_error)[:1000]
+        if intake_reply_sent_at is not None and record.intake_reply_sent_at is None:
+            record.intake_reply_sent_at = intake_reply_sent_at
+        if outcome_reply_sent_at is not None and record.outcome_reply_sent_at is None:
+            record.outcome_reply_sent_at = outcome_reply_sent_at
         session.flush()
         linked_order = session.get(Order, record.linked_order_id) if record.linked_order_id else None
         return _serialize_telegram_file(record, linked_order)
@@ -1361,8 +1520,8 @@ def get_telegram_file_counts() -> Dict[str, int]:
     with get_session() as session:
         active_filter = TelegramFile.deleted.is_(False)
         untouched = int(session.scalar(select(func.count()).select_from(TelegramFile).where(active_filter, TelegramFile.touched.is_(False))) or 0)
-        queued = int(session.scalar(select(func.count()).select_from(TelegramFile).where(active_filter, TelegramFile.extraction_status == "queued")) or 0)
-        processing = int(session.scalar(select(func.count()).select_from(TelegramFile).where(active_filter, TelegramFile.extraction_status == "processing")) or 0)
+        queued = int(session.scalar(select(func.count()).select_from(TelegramFile).where(active_filter, TelegramFile.extraction_status.in_(("download_queued", "queued", "received")))) or 0)
+        processing = int(session.scalar(select(func.count()).select_from(TelegramFile).where(active_filter, TelegramFile.extraction_status.in_(("downloading", "processing")))) or 0)
         failed = int(session.scalar(select(func.count()).select_from(TelegramFile).where(active_filter, TelegramFile.extraction_status == "failed")) or 0)
         return {
             "untouched_count": untouched,
@@ -1462,8 +1621,30 @@ def list_unfinished_telegram_file_ids(*, stale_processing_before: datetime) -> L
             select(TelegramFile.id).where(
                 TelegramFile.deleted.is_(False),
                 or_(
+                    TelegramFile.extraction_status == "download_queued",
                     TelegramFile.extraction_status == "queued",
                     TelegramFile.extraction_status == "received",
+                    (
+                        TelegramFile.telegram_update_id.is_not(None)
+                        & TelegramFile.extraction_status.in_(
+                            (
+                                "extracted",
+                                "duplicate",
+                                "failed",
+                                "too_large",
+                                "unsupported",
+                                "missing_file_id",
+                            )
+                        )
+                        & TelegramFile.outcome_reply_sent_at.is_(None)
+                    ),
+                    (
+                        (TelegramFile.extraction_status == "downloading")
+                        & (
+                            (TelegramFile.download_started_at.is_(None))
+                            | (TelegramFile.download_started_at < stale_processing_before)
+                        )
+                    ),
                     (
                         (TelegramFile.extraction_status == "processing")
                         & (
@@ -1945,6 +2126,7 @@ __all__ = [
     "init_db",
     "backfill_telegram_file_hashes",
     "insert_extraction_with_rows",
+    "create_or_get_telegram_intake",
     "create_telegram_file_record",
     "update_telegram_file_record",
     "touch_telegram_file_record",

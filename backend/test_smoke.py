@@ -3,11 +3,14 @@ from __future__ import annotations
 import asyncio
 import importlib
 import sys
+import threading
+import time
 import types
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from fastapi.testclient import TestClient
+import httpx
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -20,6 +23,7 @@ def _install_fake_db(monkeypatch) -> Dict[str, List[Dict[str, Any]]]:
         "update_order_rows": [],
         "update_order_status": [],
         "create_telegram_file_record": [],
+        "create_or_get_telegram_intake": [],
         "update_telegram_file_record": [],
         "touch_telegram_file_record": [],
         "soft_delete_telegram_file_record": [],
@@ -33,6 +37,8 @@ def _install_fake_db(monkeypatch) -> Dict[str, List[Dict[str, Any]]]:
         "mark_whatsapp_file_deleted": [],
     }
     whatsapp_records: Dict[int, Dict[str, Any]] = {}
+    telegram_records: Dict[int, Dict[str, Any]] = {}
+    telegram_intake_lock = threading.Lock()
 
     fake_db = types.ModuleType("db")
     fake_db.init_db = lambda: None
@@ -53,11 +59,52 @@ def _install_fake_db(monkeypatch) -> Dict[str, List[Dict[str, Any]]]:
 
     def _create_telegram_file_record(**kwargs):
         calls["create_telegram_file_record"].append(kwargs)
-        return {"id": len(calls["create_telegram_file_record"]), "touched": False, "touched_at": None, **kwargs}
+        record = {
+            "id": len(telegram_records) + 1,
+            "touched": False,
+            "touched_at": None,
+            "download_retry_count": 0,
+            "retry_count": 0,
+            "last_error": None,
+            **kwargs,
+        }
+        telegram_records[record["id"]] = record
+        return dict(record)
+
+    def _create_or_get_telegram_intake(**kwargs):
+        calls["create_or_get_telegram_intake"].append(kwargs)
+        update_id = str(kwargs["telegram_update_id"])
+        with telegram_intake_lock:
+            for existing in telegram_records.values():
+                if existing.get("telegram_update_id") == update_id:
+                    return dict(existing), False
+            record = {
+                "id": len(telegram_records) + 1,
+                "touched": False,
+                "touched_at": None,
+                "stored_filename": "",
+                "file_path": "",
+                "file_sha256": None,
+                "download_retry_count": 0,
+                "retry_count": 0,
+                "last_error": None,
+                "intake_reply_sent_at": None,
+                "outcome_reply_sent_at": None,
+                **kwargs,
+            }
+            telegram_records[record["id"]] = record
+            return dict(record), True
 
     def _update_telegram_file_record(*args, **kwargs):
-        calls["update_telegram_file_record"].append({"args": args, "kwargs": kwargs})
-        return {"id": args[0] if args else 1, **kwargs}
+        calls["update_telegram_file_record"].append({"args": args, "kwargs": dict(kwargs)})
+        record_id = int(args[0] if args else 1)
+        record = telegram_records.setdefault(record_id, {"id": record_id})
+        if kwargs.pop("clear_last_error", False):
+            record["last_error"] = None
+        for key, value in kwargs.items():
+            if value is not None:
+                record[key] = value
+        return dict(record)
 
     def _touch_telegram_file_record(*args, **kwargs):
         calls["touch_telegram_file_record"].append({"args": args, "kwargs": kwargs})
@@ -89,6 +136,7 @@ def _install_fake_db(monkeypatch) -> Dict[str, List[Dict[str, Any]]]:
 
     fake_db.insert_extraction_with_rows = _insert_extraction_with_rows
     fake_db.update_order_rows = _update_order_rows
+    fake_db.create_or_get_telegram_intake = _create_or_get_telegram_intake
     fake_db.create_telegram_file_record = _create_telegram_file_record
     fake_db.update_telegram_file_record = _update_telegram_file_record
     fake_db.touch_telegram_file_record = _touch_telegram_file_record
@@ -152,7 +200,7 @@ def _install_fake_db(monkeypatch) -> Dict[str, List[Dict[str, Any]]]:
     fake_db.get_whatsapp_file = lambda file_id: dict(whatsapp_records[int(file_id)]) if int(file_id) in whatsapp_records else None
     fake_db.mark_whatsapp_file_deleted = _mark_whatsapp_file_deleted
     fake_db.list_unfinished_telegram_file_ids = lambda *args, **kwargs: []
-    fake_db.get_telegram_file = lambda *args, **kwargs: None
+    fake_db.get_telegram_file = lambda file_id: dict(telegram_records[int(file_id)]) if int(file_id) in telegram_records else None
     fake_db.update_order_status = _update_order_status
     fake_db.get_orders = lambda *args, **kwargs: []
     fake_db.get_orders_by_identifiers = lambda *args, **kwargs: []
@@ -444,7 +492,7 @@ def test_approved_orders_not_overwritten(monkeypatch):
     assert calls["update_order_rows"] == []
 
 
-def test_telegram_pdf_document_extracts_as_draft_with_metadata(monkeypatch):
+def test_telegram_pdf_document_extracts_as_draft_with_metadata(monkeypatch, tmp_path):
     app_module, calls = _load_app(monkeypatch, legacy_enabled="false")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "telegram-test-token")
     replies: List[Dict[str, Any]] = []
@@ -472,6 +520,19 @@ def test_telegram_pdf_document_extracts_as_draft_with_metadata(monkeypatch):
     app_module._telegram_download_file = _download
     app_module._telegram_reply = _reply
     app_module._enqueue_telegram_extraction = lambda file_id: enqueued.append(int(file_id)) or True
+    stored_path = tmp_path / "order.pdf"
+
+    def _store(raw_bytes, original_filename):
+        stored_path.write_bytes(raw_bytes)
+        return {
+            "original_filename": original_filename,
+            "stored_filename": stored_path.name,
+            "file_path": str(stored_path),
+            "file_size": len(raw_bytes),
+        }
+
+    app_module._store_telegram_file = _store
+    app_module._safe_telegram_file_path = lambda record: Path(record["file_path"])
 
     client = TestClient(app_module.app)
     response = client.post(
@@ -495,20 +556,15 @@ def test_telegram_pdf_document_extracts_as_draft_with_metadata(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["status"] == "queued"
-    assert [reply["text"] for reply in replies] == ["Order received ✅ Queued for extraction."]
+    assert replies == []
     assert calls["insert_extraction_with_rows"] == []
     assert enqueued == [1]
-    assert calls["create_telegram_file_record"][0]["original_filename"] == "order.pdf"
-    assert calls["create_telegram_file_record"][0]["extraction_status"] == "queued"
-    assert calls["create_telegram_file_record"][0]["telegram_file_id"] == "file_pdf"
-    assert calls["create_telegram_file_record"][0]["telegram_caption"] == "Please process"
+    intake = calls["create_or_get_telegram_intake"][0]
+    assert intake["original_filename"] == "order.pdf"
+    assert intake["extraction_status"] == "download_queued"
+    assert intake["telegram_file_id"] == "file_pdf"
+    assert intake["telegram_caption"] == "Please process"
 
-    record = {
-        "id": 1,
-        "received_at": "2026-05-02T12:00:00+00:00",
-        **calls["create_telegram_file_record"][0],
-    }
-    app_module.get_telegram_file = lambda file_id: record
     asyncio.run(app_module._process_telegram_queue_job(1))
 
     stored = calls["insert_extraction_with_rows"][0]
@@ -520,13 +576,23 @@ def test_telegram_pdf_document_extracts_as_draft_with_metadata(monkeypatch):
     assert stored["source_metadata"]["caption"] == "Please process"
     assert stored["raw_input"].startswith("data:application/pdf;base64,")
     assert calls["update_order_rows"] == []
-    assert calls["update_telegram_file_record"][0]["kwargs"]["extraction_status"] == "processing"
-    assert calls["update_telegram_file_record"][-1]["kwargs"]["linked_order_id"] == 1
-    assert calls["update_telegram_file_record"][-1]["kwargs"]["extraction_status"] == "extracted"
-    assert replies[-1]["text"] == "Extraction finished ✅ Please review in platform."
+    assert any(
+        call["kwargs"].get("extraction_status") == "processing"
+        for call in calls["update_telegram_file_record"]
+    )
+    extracted_updates = [
+        call["kwargs"]
+        for call in calls["update_telegram_file_record"]
+        if call["kwargs"].get("extraction_status") == "extracted"
+    ]
+    assert extracted_updates[-1]["linked_order_id"] == 1
+    assert [reply["text"] for reply in replies] == [
+        "Order received ✅ Queued for extraction.",
+        "Extraction finished ✅ Please review in platform.",
+    ]
 
 
-def test_telegram_photo_uses_largest_image(monkeypatch):
+def test_telegram_photo_uses_largest_image(monkeypatch, tmp_path):
     app_module, calls = _load_app(monkeypatch, legacy_enabled="false")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "telegram-test-token")
     seen: Dict[str, Any] = {}
@@ -555,6 +621,19 @@ def test_telegram_photo_uses_largest_image(monkeypatch):
     app_module._telegram_download_file = _download
     app_module._telegram_reply = _reply
     app_module._enqueue_telegram_extraction = lambda file_id: enqueued.append(int(file_id)) or True
+    stored_path = tmp_path / "photo.jpg"
+
+    def _store(raw_bytes, original_filename):
+        stored_path.write_bytes(raw_bytes)
+        return {
+            "original_filename": original_filename,
+            "stored_filename": stored_path.name,
+            "file_path": str(stored_path),
+            "file_size": len(raw_bytes),
+        }
+
+    app_module._store_telegram_file = _store
+    app_module._safe_telegram_file_path = lambda record: Path(record["file_path"])
 
     client = TestClient(app_module.app)
     response = client.post(
@@ -573,19 +652,14 @@ def test_telegram_photo_uses_largest_image(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["status"] == "queued"
-    assert seen["file_id"] == "large"
+    assert seen == {}
     assert enqueued == [1]
-    assert calls["create_telegram_file_record"][0]["mime_type"] == "image/jpeg"
-    assert len(calls["create_telegram_file_record"][0]["file_sha256"]) == 64
+    assert calls["create_or_get_telegram_intake"][0]["mime_type"] == "image/jpeg"
+    assert calls["create_or_get_telegram_intake"][0]["telegram_file_id"] == "large"
 
-    record = {
-        "id": 1,
-        "received_at": "2026-05-02T12:00:00+00:00",
-        **calls["create_telegram_file_record"][0],
-    }
-    app_module.get_telegram_file = lambda file_id: record
     asyncio.run(app_module._process_telegram_queue_job(1))
 
+    assert seen["file_id"] == "large"
     stored = calls["insert_extraction_with_rows"][0]
     assert stored["source"] == "telegram"
     assert stored["raw_input"].startswith("data:image/jpeg;base64,")
@@ -605,9 +679,11 @@ def test_telegram_text_message_is_ignored(monkeypatch):
     assert calls["insert_extraction_with_rows"] == []
 
 
-def test_telegram_missing_token_fails_clearly(monkeypatch):
-    app_module, _calls = _load_app(monkeypatch, legacy_enabled="false")
+def test_telegram_missing_token_is_durably_accepted_for_background_failure(monkeypatch):
+    app_module, calls = _load_app(monkeypatch, legacy_enabled="false")
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    enqueued: List[int] = []
+    app_module._enqueue_telegram_extraction = lambda file_id: enqueued.append(int(file_id)) or True
     client = TestClient(app_module.app)
 
     response = client.post(
@@ -626,8 +702,10 @@ def test_telegram_missing_token_fails_clearly(monkeypatch):
         },
     )
 
-    assert response.status_code == 500
-    assert response.json()["detail"] == "TELEGRAM_BOT_TOKEN is not set"
+    assert response.status_code == 200
+    assert response.json()["status"] == "queued"
+    assert enqueued == [1]
+    assert calls["create_or_get_telegram_intake"][0]["extraction_status"] == "download_queued"
 
 
 def test_telegram_webhook_secret_is_validated(monkeypatch):
@@ -810,7 +888,7 @@ def test_whatsapp_oversized_file_is_rejected_safely(monkeypatch):
     assert calls["update_whatsapp_file_record"] == []
 
 
-def test_telegram_pdf_extraction_failure_still_stores_file(monkeypatch):
+def test_telegram_pdf_extraction_failure_still_stores_file(monkeypatch, tmp_path):
     app_module, calls = _load_app(monkeypatch, legacy_enabled="false")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "telegram-test-token")
     replies: List[str] = []
@@ -828,6 +906,19 @@ def test_telegram_pdf_extraction_failure_still_stores_file(monkeypatch):
     app_module._telegram_download_file = _download
     app_module._telegram_reply = _reply
     app_module._enqueue_telegram_extraction = lambda file_id: enqueued.append(int(file_id)) or True
+    stored_path = tmp_path / "failed.pdf"
+
+    def _store(raw_bytes, original_filename):
+        stored_path.write_bytes(raw_bytes)
+        return {
+            "original_filename": original_filename,
+            "stored_filename": stored_path.name,
+            "file_path": str(stored_path),
+            "file_size": len(raw_bytes),
+        }
+
+    app_module._store_telegram_file = _store
+    app_module._safe_telegram_file_path = lambda record: Path(record["file_path"])
 
     client = TestClient(app_module.app)
     response = client.post(
@@ -849,22 +940,23 @@ def test_telegram_pdf_extraction_failure_still_stores_file(monkeypatch):
     assert response.status_code == 200
     assert response.json()["status"] == "queued"
     assert enqueued == [1]
-    assert calls["create_telegram_file_record"][0]["original_filename"] == "failed.pdf"
+    assert calls["create_or_get_telegram_intake"][0]["original_filename"] == "failed.pdf"
     assert calls["insert_extraction_with_rows"] == []
-    assert replies == ["Order received ✅ Queued for extraction."]
+    assert replies == []
 
-    record = {
-        "id": 1,
-        "received_at": "2026-05-02T12:00:00+00:00",
-        **calls["create_telegram_file_record"][0],
-    }
-    app_module.get_telegram_file = lambda file_id: record
     asyncio.run(app_module._process_telegram_queue_job(1))
 
     assert calls["insert_extraction_with_rows"] == []
-    assert calls["update_telegram_file_record"][-1]["kwargs"]["extraction_status"] == "failed"
-    assert calls["update_telegram_file_record"][-1]["kwargs"]["last_error"]
-    assert replies[-1] == "Extraction failed ⚠️ Original PDF is saved in Telegram Files."
+    failed_updates = [
+        call["kwargs"]
+        for call in calls["update_telegram_file_record"]
+        if call["kwargs"].get("extraction_status") == "failed"
+    ]
+    assert failed_updates[-1]["last_error"]
+    assert replies == [
+        "Order received ✅ Queued for extraction.",
+        "Extraction failed ⚠️ Original PDF is saved in Telegram Files.",
+    ]
 
 
 def test_telegram_file_size_limit(monkeypatch):
@@ -1157,47 +1249,48 @@ def test_telegram_duplicate_webhook_reuses_existing_queue_record(monkeypatch):
     app_module, calls = _load_app(monkeypatch, legacy_enabled="false")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "telegram-test-token")
     replies: List[str] = []
-    enqueued: List[int] = []
+    enqueued: set = set()
 
-    app_module.find_telegram_file_record = lambda **kwargs: {
-        "id": 55,
-        "extraction_status": "queued",
-    }
     app_module._telegram_download_file = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not download duplicate"))
 
     async def _reply(token, chat_id, message_id, text):
         replies.append(text)
 
     app_module._telegram_reply = _reply
-    app_module._enqueue_telegram_extraction = lambda file_id: enqueued.append(int(file_id)) or True
+    app_module._enqueue_telegram_extraction = lambda file_id: (
+        False if int(file_id) in enqueued else (enqueued.add(int(file_id)) or True)
+    )
     client = TestClient(app_module.app)
 
-    response = client.post(
-        "/webhook/telegram",
-        json={
-            "message": {
-                "message_id": 42,
-                "chat": {"id": 1},
-                "document": {
-                    "file_id": "file_pdf",
-                    "file_name": "order.pdf",
-                    "mime_type": "application/pdf",
-                    "file_size": 1024,
-                },
-            }
+    payload = {
+        "update_id": 8001,
+        "message": {
+            "message_id": 42,
+            "chat": {"id": 1},
+            "document": {
+                "file_id": "file_pdf",
+                "file_name": "order.pdf",
+                "mime_type": "application/pdf",
+                "file_size": 1024,
+            },
         },
-    )
+    }
+    first = client.post("/webhook/telegram", json=payload)
+    response = client.post("/webhook/telegram", json=payload)
 
+    assert first.status_code == 200
+    assert first.json()["status"] == "queued"
     assert response.status_code == 200
     assert response.json()["status"] == "duplicate"
-    assert response.json()["telegram_file_id"] == 55
-    assert enqueued == [55]
-    assert replies == ["Order received ✅ Queued for extraction."]
+    assert response.json()["telegram_file_id"] == 1
+    assert enqueued == {1}
+    assert replies == []
     assert calls["create_telegram_file_record"] == []
+    assert len(calls["create_or_get_telegram_intake"]) == 2
     assert calls["insert_extraction_with_rows"] == []
 
 
-def test_telegram_exact_file_duplicate_is_preserved_but_not_queued(monkeypatch):
+def test_telegram_exact_file_duplicate_is_preserved_but_not_extracted(monkeypatch, tmp_path):
     app_module, calls = _load_app(monkeypatch, legacy_enabled="false")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "telegram-test-token")
     replies: List[str] = []
@@ -1212,6 +1305,18 @@ def test_telegram_exact_file_duplicate_is_preserved_but_not_queued(monkeypatch):
     app_module._telegram_download_file = _download
     app_module._telegram_reply = _reply
     app_module._enqueue_telegram_extraction = lambda file_id: enqueued.append(int(file_id)) or True
+    stored_path = tmp_path / "order-copy.pdf"
+
+    def _store(raw_bytes, original_filename):
+        stored_path.write_bytes(raw_bytes)
+        return {
+            "original_filename": original_filename,
+            "stored_filename": stored_path.name,
+            "file_path": str(stored_path),
+            "file_size": len(raw_bytes),
+        }
+
+    app_module._store_telegram_file = _store
     sha_lookup_calls: List[Dict[str, Any]] = []
 
     def _find_by_sha(digest, **kwargs):
@@ -1238,20 +1343,27 @@ def test_telegram_exact_file_duplicate_is_preserved_but_not_queued(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json()["status"] == "duplicate"
-    assert response.json()["duplicate_of_file_id"] == 12
-    assert enqueued == []
+    assert response.json()["status"] == "queued"
+    assert enqueued == [1]
     assert calls["insert_extraction_with_rows"] == []
-    assert sha_lookup_calls[0]["kwargs"] == {"exclude_file_id": None}
-    created = calls["create_telegram_file_record"][0]
+    assert replies == []
+
+    outcome = asyncio.run(app_module._process_telegram_queue_job(1))
+
+    assert outcome["status"] == "duplicate"
+    assert sha_lookup_calls[0]["kwargs"] == {"exclude_file_id": 1}
+    created = app_module.get_telegram_file(1)
     assert created["extraction_status"] == "duplicate"
     assert created["duplicate_status"] == "duplicate"
     assert created["duplicate_of_file_id"] == 12
     assert len(created["file_sha256"]) == 64
-    assert replies == ["Duplicate detected ⚠️ This PDF was already received."]
+    assert replies == [
+        "Order received ✅ Queued for extraction.",
+        "Duplicate detected ⚠️ This PDF was already received.",
+    ]
 
 
-def test_telegram_same_filename_different_hash_queues_extraction(monkeypatch):
+def test_telegram_same_filename_different_hash_queues_extraction(monkeypatch, tmp_path):
     app_module, calls = _load_app(monkeypatch, legacy_enabled="false")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "telegram-test-token")
     enqueued: List[int] = []
@@ -1266,6 +1378,19 @@ def test_telegram_same_filename_different_hash_queues_extraction(monkeypatch):
     app_module._telegram_reply = _reply
     app_module._enqueue_telegram_extraction = lambda file_id: enqueued.append(int(file_id)) or True
     app_module.find_telegram_file_by_sha256 = lambda digest, **kwargs: None
+    stored_path = tmp_path / "order.pdf"
+
+    def _store(raw_bytes, original_filename):
+        stored_path.write_bytes(raw_bytes)
+        return {
+            "original_filename": original_filename,
+            "stored_filename": stored_path.name,
+            "file_path": str(stored_path),
+            "file_size": len(raw_bytes),
+        }
+
+    app_module._store_telegram_file = _store
+    app_module._safe_telegram_file_path = lambda record: Path(record["file_path"])
     client = TestClient(app_module.app)
 
     response = client.post(
@@ -1287,8 +1412,14 @@ def test_telegram_same_filename_different_hash_queues_extraction(monkeypatch):
     assert response.status_code == 200
     assert response.json()["status"] == "queued"
     assert enqueued == [1]
-    created = calls["create_telegram_file_record"][0]
-    assert created["original_filename"] == "order.pdf"
+    assert calls["create_or_get_telegram_intake"][0]["original_filename"] == "order.pdf"
+
+    outcome = asyncio.run(
+        app_module._download_telegram_queue_file(app_module.get_telegram_file(1))
+    )
+
+    assert outcome["status"] == "queued"
+    created = app_module.get_telegram_file(1)
     assert created["extraction_status"] == "queued"
     assert created.get("duplicate_status", "unique") == "unique"
     assert len(created["file_sha256"]) == 64
@@ -1372,6 +1503,331 @@ def test_telegram_queue_recovery_reenqueues_unfinished(monkeypatch):
     app_module._recover_telegram_extraction_queue()
 
     assert enqueued == [10, 11]
+
+
+def _telegram_pdf_update(update_id: int = 9001) -> Dict[str, Any]:
+    return {
+        "update_id": update_id,
+        "message": {
+            "message_id": 408,
+            "chat": {"id": 1234, "type": "private"},
+            "from": {"first_name": "Queue", "last_name": "Test"},
+            "document": {
+                "file_id": "telegram-pdf-file",
+                "file_name": "order.pdf",
+                "mime_type": "application/pdf",
+                "file_size": 1024,
+            },
+        },
+    }
+
+
+def _httpx_response(status_code: int, *, json_data: Any = None, content: bytes = b"", headers=None):
+    request = httpx.Request("GET", "https://telegram.invalid/redacted")
+    if json_data is not None:
+        return httpx.Response(status_code, request=request, json=json_data, headers=headers)
+    return httpx.Response(status_code, request=request, content=content, headers=headers)
+
+
+class _SequenceAsyncClient:
+    def __init__(self, outcomes):
+        self.outcomes = list(outcomes)
+        self.calls: List[Dict[str, Any]] = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        return None
+
+    async def get(self, url, **kwargs):
+        self.calls.append({"url": url, "kwargs": kwargs})
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+
+def test_telegram_slow_download_is_not_part_of_webhook_request(monkeypatch):
+    app_module, calls = _load_app(monkeypatch, legacy_enabled="false")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "telegram-test-token")
+    download_called = False
+    enqueued: List[int] = []
+
+    async def _slow_download(*_args):
+        nonlocal download_called
+        download_called = True
+        await asyncio.sleep(1)
+        return b"%PDF", {"file_path": "documents/order.pdf"}
+
+    app_module._telegram_download_file = _slow_download
+    app_module._enqueue_telegram_extraction = lambda file_id: enqueued.append(int(file_id)) or True
+    started = time.monotonic()
+    response = TestClient(app_module.app).post("/webhook/telegram", json=_telegram_pdf_update())
+    elapsed = time.monotonic() - started
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "queued"
+    assert elapsed < 0.5
+    assert download_called is False
+    assert enqueued == [1]
+    intake = calls["create_or_get_telegram_intake"][0]
+    assert intake["extraction_status"] == "download_queued"
+
+
+def test_telegram_webhook_returns_503_only_when_durable_intake_fails(monkeypatch):
+    app_module, _calls = _load_app(monkeypatch, legacy_enabled="false")
+    download_called = False
+
+    def _fail_intake(**_kwargs):
+        raise OSError("database unavailable")
+
+    async def _download(*_args):
+        nonlocal download_called
+        download_called = True
+        return b"%PDF", {}
+
+    app_module.create_or_get_telegram_intake = _fail_intake
+    app_module._telegram_download_file = _download
+
+    response = TestClient(app_module.app).post(
+        "/webhook/telegram",
+        json=_telegram_pdf_update(9005),
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Unable to durably accept Telegram update"
+    assert download_called is False
+
+
+def test_concurrent_telegram_deliveries_create_one_intake_and_job(monkeypatch):
+    app_module, _calls = _load_app(monkeypatch, legacy_enabled="false")
+    queued_ids: Set[int] = set()
+
+    def _deduplicating_enqueue(file_id):
+        normalized = int(file_id)
+        if normalized in queued_ids:
+            return False
+        queued_ids.add(normalized)
+        return True
+
+    app_module._enqueue_telegram_extraction = _deduplicating_enqueue
+
+    async def _run():
+        return await asyncio.gather(
+            *(app_module._handle_telegram_update(_telegram_pdf_update()) for _ in range(20))
+        )
+
+    responses = asyncio.run(_run())
+
+    assert {response["telegram_file_id"] for response in responses} == {1}
+    assert sum(response["status"] == "queued" for response in responses) == 1
+    assert sum(response["status"] == "duplicate" for response in responses) == 19
+    assert queued_ids == {1}
+
+
+def test_telegram_timeout_retries_then_downloads_and_processes_once(monkeypatch):
+    app_module, _calls = _load_app(monkeypatch, legacy_enabled="false")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "telegram-test-token")
+    request = httpx.Request("GET", "https://telegram.invalid/redacted")
+    client = _SequenceAsyncClient(
+        [
+            httpx.ReadTimeout("slow read", request=request),
+            _httpx_response(
+                200,
+                json_data={
+                    "ok": True,
+                    "result": {"file_path": "documents/order.pdf", "file_size": 18},
+                },
+            ),
+            _httpx_response(200, content=b"%PDF-1.7\ntelegram"),
+        ]
+    )
+    monkeypatch.setattr(app_module.httpx, "AsyncClient", lambda *args, **kwargs: client)
+
+    async def _no_wait(_delay):
+        return None
+
+    monkeypatch.setattr(app_module.asyncio, "sleep", _no_wait)
+    app_module._store_telegram_file = lambda raw_bytes, original_filename: {
+        "original_filename": original_filename,
+        "stored_filename": "stored.pdf",
+        "file_path": "/tmp/stored.pdf",
+        "file_size": len(raw_bytes),
+    }
+    app_module.find_telegram_file_by_sha256 = lambda *_args, **_kwargs: None
+    replies: List[str] = []
+
+    async def _reply(_token, _chat_id, _message_id, text):
+        replies.append(text)
+
+    app_module._telegram_reply = _reply
+    extraction_calls: List[int] = []
+
+    def _extract_once(file_id):
+        extraction_calls.append(file_id)
+        record = app_module.update_telegram_file_record(
+            file_id,
+            extraction_status="extracted",
+            processed_at=app_module.datetime.now(app_module.timezone.utc),
+        )
+        return {"status": "extracted", "file_id": file_id, "record": record}
+
+    app_module._process_telegram_queue_job_sync = _extract_once
+    record, created = app_module.create_or_get_telegram_intake(
+        telegram_update_id=9002,
+        original_filename="order.pdf",
+        mime_type="application/pdf",
+        file_size=1024,
+        telegram_file_id="telegram-pdf-file",
+        telegram_chat_id=1234,
+        telegram_message_id=408,
+        telegram_sender_name="Queue Test",
+        telegram_caption="",
+        extraction_status="download_queued",
+    )
+    assert created is True
+
+    first = asyncio.run(app_module._process_telegram_queue_job(record["id"]))
+    second = asyncio.run(app_module._process_telegram_queue_job(record["id"]))
+
+    assert first["status"] == "extracted"
+    assert second["status"] == "extracted"
+    assert extraction_calls == [record["id"]]
+    assert len([call for call in client.calls if call["url"].endswith("/getFile")]) == 2
+    assert replies == [
+        "Order received ✅ Queued for extraction.",
+        "Extraction finished ✅ Please review in platform.",
+    ]
+    latest = app_module.get_telegram_file(record["id"])
+    assert latest["download_retry_count"] == 1
+
+
+def test_telegram_429_honors_retry_after(monkeypatch):
+    app_module, _calls = _load_app(monkeypatch, legacy_enabled="false")
+    client = _SequenceAsyncClient(
+        [
+            _httpx_response(
+                429,
+                json_data={"ok": False, "error_code": 429},
+                headers={"Retry-After": "3"},
+            ),
+            _httpx_response(
+                200,
+                json_data={
+                    "ok": True,
+                    "result": {"file_path": "documents/order.pdf", "file_size": 4},
+                },
+            ),
+            _httpx_response(200, content=b"%PDF"),
+        ]
+    )
+    monkeypatch.setattr(app_module.httpx, "AsyncClient", lambda *args, **kwargs: client)
+    delays: List[float] = []
+
+    async def _capture_sleep(delay):
+        delays.append(delay)
+
+    monkeypatch.setattr(app_module.asyncio, "sleep", _capture_sleep)
+    raw_bytes, _info = asyncio.run(
+        app_module._telegram_download_file("never-logged-token", "telegram-file")
+    )
+
+    assert raw_bytes == b"%PDF"
+    assert delays == [3.0]
+    assert len(client.calls) == 3
+
+
+def test_telegram_permanent_4xx_is_not_retried(monkeypatch):
+    app_module, _calls = _load_app(monkeypatch, legacy_enabled="false")
+    client = _SequenceAsyncClient(
+        [
+            _httpx_response(
+                400,
+                json_data={"ok": False, "error_code": 400, "description": "Bad Request"},
+            )
+        ]
+    )
+    monkeypatch.setattr(app_module.httpx, "AsyncClient", lambda *args, **kwargs: client)
+    delays: List[float] = []
+
+    async def _capture_sleep(delay):
+        delays.append(delay)
+
+    monkeypatch.setattr(app_module.asyncio, "sleep", _capture_sleep)
+
+    try:
+        asyncio.run(app_module._telegram_download_file("never-logged-token", "bad-file"))
+        assert False, "permanent Telegram error should fail"
+    except app_module.TelegramRequestError as exc:
+        assert exc.retryable is False
+
+    assert len(client.calls) == 1
+    assert delays == []
+
+
+def test_telegram_size_limit_is_durable_and_does_not_download(monkeypatch):
+    app_module, calls = _load_app(monkeypatch, legacy_enabled="false")
+    queued: List[int] = []
+    app_module._enqueue_telegram_extraction = lambda file_id: queued.append(int(file_id)) or True
+    update = _telegram_pdf_update(9003)
+    update["message"]["document"]["file_size"] = app_module.TELEGRAM_MAX_FILE_BYTES + 1
+
+    response = TestClient(app_module.app).post("/webhook/telegram", json=update)
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "too_large"
+    assert calls["create_or_get_telegram_intake"][0]["extraction_status"] == "too_large"
+    assert queued == [1]
+
+
+def test_telegram_exact_sha_duplicate_and_replies_are_processed_once(monkeypatch):
+    app_module, _calls = _load_app(monkeypatch, legacy_enabled="false")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "telegram-test-token")
+    app_module._telegram_download_file = lambda *_args: None
+
+    async def _download(*_args):
+        return b"%PDF-1.7\nsame", {"file_path": "documents/order.pdf"}
+
+    app_module._telegram_download_file = _download
+    app_module._store_telegram_file = lambda raw_bytes, original_filename: {
+        "original_filename": original_filename,
+        "stored_filename": "duplicate.pdf",
+        "file_path": "/tmp/duplicate.pdf",
+        "file_size": len(raw_bytes),
+    }
+    app_module.find_telegram_file_by_sha256 = lambda *_args, **_kwargs: {"id": 77}
+    replies: List[str] = []
+
+    async def _reply(_token, _chat_id, _message_id, text):
+        replies.append(text)
+
+    app_module._telegram_reply = _reply
+    record, _created = app_module.create_or_get_telegram_intake(
+        telegram_update_id=9004,
+        original_filename="order.pdf",
+        mime_type="application/pdf",
+        file_size=1024,
+        telegram_file_id="telegram-pdf-file",
+        telegram_chat_id=1234,
+        telegram_message_id=408,
+        telegram_sender_name="Queue Test",
+        telegram_caption="",
+        extraction_status="download_queued",
+    )
+
+    first = asyncio.run(app_module._process_telegram_queue_job(record["id"]))
+    second = asyncio.run(app_module._process_telegram_queue_job(record["id"]))
+
+    assert first["status"] == "duplicate"
+    assert second["status"] == "duplicate"
+    latest = app_module.get_telegram_file(record["id"])
+    assert latest["duplicate_status"] == "duplicate"
+    assert latest["duplicate_of_file_id"] == 77
+    assert replies == [
+        "Order received ✅ Queued for extraction.",
+        "Duplicate detected ⚠️ This PDF was already received.",
+    ]
 
 
 def test_approve_payload_client_name_is_passed_to_save(monkeypatch):

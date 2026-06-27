@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -230,6 +231,112 @@ def test_telegram_file_queue_metadata_and_recovery_query(tmp_path, monkeypatch):
     assert failed["extraction_status"] == "failed"
     assert failed["retry_count"] == 3
     assert failed["last_error"] == "boom"
+
+
+def test_telegram_intake_insert_is_atomic_under_concurrent_delivery(tmp_path, monkeypatch):
+    db, _service = _load_modules(tmp_path, monkeypatch)
+    kwargs = {
+        "telegram_update_id": 7001,
+        "original_filename": "queued.pdf",
+        "mime_type": "application/pdf",
+        "file_size": 120,
+        "telegram_file_id": "telegram-file-atomic",
+        "telegram_chat_id": 123,
+        "telegram_message_id": 408,
+        "telegram_sender_name": "Sender",
+        "telegram_caption": "Caption",
+        "extraction_status": "download_queued",
+    }
+
+    with ThreadPoolExecutor(max_workers=12) as executor:
+        results = list(
+            executor.map(
+                lambda _index: db.create_or_get_telegram_intake(**kwargs),
+                range(24),
+            )
+        )
+
+    assert {record["id"] for record, _created in results} == {1}
+    assert sum(created for _record, created in results) == 1
+    stored = db.get_telegram_file(1)
+    assert stored["telegram_update_id"] == "7001"
+    assert stored["extraction_status"] == "download_queued"
+
+
+def test_telegram_download_and_processing_states_recover_after_restart(tmp_path, monkeypatch):
+    db, _service = _load_modules(tmp_path, monkeypatch)
+    now = datetime.now(timezone.utc)
+    queued, _ = db.create_or_get_telegram_intake(
+        telegram_update_id=7101,
+        original_filename="queued.pdf",
+        mime_type="application/pdf",
+        file_size=120,
+        telegram_file_id="queued-file",
+        telegram_chat_id=123,
+        telegram_message_id=501,
+        telegram_sender_name="Sender",
+        telegram_caption="",
+        extraction_status="download_queued",
+    )
+    downloading, _ = db.create_or_get_telegram_intake(
+        telegram_update_id=7102,
+        original_filename="downloading.pdf",
+        mime_type="application/pdf",
+        file_size=120,
+        telegram_file_id="downloading-file",
+        telegram_chat_id=123,
+        telegram_message_id=502,
+        telegram_sender_name="Sender",
+        telegram_caption="",
+        extraction_status="download_queued",
+    )
+    processing = db.create_telegram_file_record(
+        original_filename="processing.pdf",
+        stored_filename="processing.pdf",
+        file_path=str(tmp_path / "processing.pdf"),
+        mime_type="application/pdf",
+        file_size=120,
+        telegram_update_id=7103,
+        telegram_file_id="processing-file",
+        telegram_chat_id=123,
+        telegram_message_id=503,
+        extraction_status="queued",
+        queued_at=now,
+    )
+    terminal_without_reply = db.create_telegram_file_record(
+        original_filename="duplicate.pdf",
+        stored_filename="duplicate.pdf",
+        file_path=str(tmp_path / "duplicate.pdf"),
+        mime_type="application/pdf",
+        file_size=120,
+        telegram_update_id=7104,
+        telegram_file_id="duplicate-file",
+        telegram_chat_id=123,
+        telegram_message_id=504,
+        extraction_status="duplicate",
+        received_at=now,
+    )
+    db.update_telegram_file_record(
+        downloading["id"],
+        extraction_status="downloading",
+        download_started_at=now,
+    )
+    db.update_telegram_file_record(
+        processing["id"],
+        extraction_status="processing",
+        processing_started_at=now,
+    )
+
+    recovered = db.list_unfinished_telegram_file_ids(
+        stale_processing_before=now + timedelta(seconds=1)
+    )
+
+    assert set(recovered) == {
+        queued["id"],
+        downloading["id"],
+        processing["id"],
+        terminal_without_reply["id"],
+    }
 
 
 def test_telegram_file_sha_duplicate_lookup_and_status_fields(tmp_path, monkeypatch):
