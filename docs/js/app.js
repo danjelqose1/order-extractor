@@ -379,17 +379,23 @@ const panels = {
   labels: document.getElementById("tabLabels"),
   analysis: document.getElementById("tabAnalysis"),
   invoices: document.getElementById("tabInvoices"),
+  settings: document.getElementById("tabSettings"),
 };
 
 const PAGE_META = Object.freeze({
   extract: {
+    eyebrow: "Operations",
+    title: "Overview",
+    subtitle: "Monitor incoming orders, review work, and production readiness.",
+  },
+  newOrder: {
     eyebrow: "Orders",
-    title: "Dashboard",
-    subtitle: "Upload, extract, review, and approve factory orders.",
+    title: "New Order",
+    subtitle: "Upload a PDF or paste order text, then review the extracted result.",
   },
   workspace: {
-    eyebrow: "Production",
-    title: "Workspace",
+    eyebrow: "Workflow",
+    title: "Production",
     subtitle: "Manage approved orders, production files, and factory workflows.",
   },
   awa: {
@@ -398,13 +404,13 @@ const PAGE_META = Object.freeze({
     subtitle: "Review supervised automation suggestions before anything runs.",
   },
   telegram: {
-    eyebrow: "Intake",
-    title: "Telegram Files",
-    subtitle: "Review original PDF orders received from Telegram.",
+    eyebrow: "Files",
+    title: "Documents",
+    subtitle: "Review incoming PDFs and open document preparation tools.",
   },
   history: {
     eyebrow: "Orders",
-    title: "Order History",
+    title: "Orders",
     subtitle: "Find, review, export, and continue previously extracted orders.",
   },
   processing: {
@@ -424,7 +430,7 @@ const PAGE_META = Object.freeze({
   },
   analysis: {
     eyebrow: "Insights",
-    title: "Factory Analytics",
+    title: "Analytics",
     subtitle: "Track order volume, materials, clients, and production patterns.",
   },
   pdfeditor: {
@@ -442,6 +448,11 @@ const PAGE_META = Object.freeze({
     title: "Invoices",
     subtitle: "Build invoices from approved orders and configured prices.",
   },
+  settings: {
+    eyebrow: "System",
+    title: "Settings",
+    subtitle: "Review interface and backend connection preferences.",
+  },
 });
 
 const appSidebar = document.querySelector(".app-sidebar");
@@ -455,6 +466,25 @@ const environmentLabel = document.getElementById("environmentLabel");
 const environmentDetail = document.getElementById("environmentDetail");
 const sidebarEnvironmentLabel = document.getElementById("sidebarEnvironmentLabel");
 const mobileEnvironmentLabel = document.getElementById("mobileEnvironmentLabel");
+const overviewDashboard = document.getElementById("overviewDashboard");
+const newOrderWorkspace = document.getElementById("newOrderWorkspace");
+const overviewHeadline = document.getElementById("overviewHeadline");
+const overviewStatus = document.getElementById("overviewStatus");
+const overviewAttentionList = document.getElementById("overviewAttentionList");
+const overviewRecentOrders = document.getElementById("overviewRecentOrders");
+const overviewNeedsReview = document.getElementById("overviewNeedsReview");
+const overviewReadyProduction = document.getElementById("overviewReadyProduction");
+const overviewInProduction = document.getElementById("overviewInProduction");
+const overviewCompleted = document.getElementById("overviewCompleted");
+const settingsThemeMode = document.getElementById("settingsThemeMode");
+const settingsEnvironmentMode = document.getElementById("settingsEnvironmentMode");
+const settingsApiEndpoint = document.getElementById("settingsApiEndpoint");
+
+const iguWorkspaceModule = document.getElementById("iguWorkspaceModule");
+const workspaceMaterialsSlot = document.getElementById("workspaceMaterialsSlot");
+if (iguWorkspaceModule && workspaceMaterialsSlot){
+  workspaceMaterialsSlot.appendChild(iguWorkspaceModule);
+}
 
 function getEnvironmentMeta(){
   try{
@@ -477,6 +507,15 @@ function setMobileNavOpen(open){
   mobileNavToggle.setAttribute("aria-label", open ? "Close navigation" : "Open navigation");
 }
 
+function syncSettingsSummary(){
+  const environment = getEnvironmentMeta();
+  if (settingsThemeMode){
+    settingsThemeMode.textContent = window.matchMedia("(prefers-color-scheme: dark)").matches ? "System dark" : "System light";
+  }
+  if (settingsEnvironmentMode) settingsEnvironmentMode.textContent = environment.label;
+  if (settingsApiEndpoint) settingsApiEndpoint.textContent = environment.detail;
+}
+
 function updateAppChrome(name){
   const meta = PAGE_META[name] || PAGE_META.extract;
   if (pageEyebrow) pageEyebrow.textContent = meta.eyebrow;
@@ -496,6 +535,110 @@ function updateAppChrome(name){
   if (appSidebar){
     appSidebar.classList.toggle("is-local-environment", environment.local);
   }
+  syncSettingsSummary();
+}
+
+function setNewOrderWorkspaceOpen(open, options = {}){
+  if (!overviewDashboard || !newOrderWorkspace) return;
+  overviewDashboard.hidden = !!open;
+  newOrderWorkspace.hidden = !open;
+  if (open){
+    updateAppChrome("newOrder");
+    window.scrollTo({ top: 0, behavior: options.instant ? "auto" : "smooth" });
+    if (options.focus !== false){
+      window.setTimeout(()=> document.getElementById("pdfDropZone")?.focus?.(), 0);
+    }
+  }else{
+    updateAppChrome("extract");
+    if (options.load !== false) loadOverview();
+  }
+}
+
+function overviewOrderId(order){
+  return String(order?.order_id ?? order?.id ?? "");
+}
+
+function overviewOrderNumber(order){
+  const values = Array.isArray(order?.order_numbers) ? order.order_numbers.filter(Boolean) : [];
+  return String(order?.order_number || values.join(", ") || "—");
+}
+
+function overviewOrderRowHtml(order, options = {}){
+  const id = overviewOrderId(order);
+  const orderNumber = overviewOrderNumber(order);
+  const client = getClientName(order, order?.client_name || "—");
+  const dateValue = order?.approved_at || order?.updated_at || order?.created_at;
+  const warnings = Number(order?.warnings_count || 0);
+  const units = Number(order?.total_pieces ?? order?.units_total ?? 0);
+  const meta = [
+    units ? `${units} pcs` : "",
+    warnings ? `${warnings} warning${warnings === 1 ? "" : "s"}` : "",
+    dateValue ? formatDate(dateValue) : "",
+  ].filter(Boolean).join(" · ");
+  return `<button type="button" class="overview-order-row" data-overview-order-id="${escapeHtml(id)}" ${id ? "" : "disabled"}>
+    <span class="overview-order-main">
+      <span class="overview-order-number mono">${escapeHtml(orderNumber)}</span>
+      <span class="overview-order-client">${escapeHtml(client)}</span>
+      <span class="overview-order-meta">${escapeHtml(meta || options.emptyMeta || "Order ready")}</span>
+    </span>
+    <span class="overview-order-status">${historyStatusBadgeHtml(order?.status)}</span>
+    <span class="overview-order-arrow" aria-hidden="true">→</span>
+  </button>`;
+}
+
+let overviewLoading = false;
+
+async function loadOverview(){
+  if (!overviewDashboard || overviewLoading) return;
+  overviewLoading = true;
+  if (overviewStatus) overviewStatus.textContent = "Refreshing operational overview…";
+  const [queueResult, recentResult] = await Promise.allSettled([
+    fetchWorkspaceQueue(),
+    fetchOrders({ year: "all", limit: 6, offset: 0 }),
+  ]);
+
+  const queue = queueResult.status === "fulfilled" ? queueResult.value : null;
+  const recentData = recentResult.status === "fulfilled" ? recentResult.value : null;
+  const cached = readHistoryCache();
+  const groups = queue?.groups || {};
+  const counts = queue?.counts || {};
+  const needsReviewItems = Array.isArray(groups.needs_review)
+    ? groups.needs_review
+    : cached.filter(item => ["draft", "reviewed"].includes(normalizeHistoryStatusValue(item.status)));
+  const recentItems = Array.isArray(recentData?.items) ? recentData.items : cached.slice(0, 6);
+  const needsReviewCount = Number(counts.needs_review ?? needsReviewItems.length);
+  const readyCount = Number(counts.approved_ready ?? 0);
+  const inProductionCount = Number(counts.processing_done ?? 0) + Number(counts.labels_ready ?? 0);
+  const completedCount = Number(counts.finished ?? 0);
+
+  if (overviewNeedsReview) overviewNeedsReview.textContent = String(needsReviewCount);
+  if (overviewReadyProduction) overviewReadyProduction.textContent = String(readyCount);
+  if (overviewInProduction) overviewInProduction.textContent = String(inProductionCount);
+  if (overviewCompleted) overviewCompleted.textContent = String(completedCount);
+  if (overviewHeadline){
+    overviewHeadline.textContent = needsReviewCount
+      ? `${needsReviewCount} order${needsReviewCount === 1 ? "" : "s"} need review and ${readyCount} are ready for production.`
+      : `${readyCount} order${readyCount === 1 ? "" : "s"} are ready for production. Nothing currently needs review.`;
+  }
+  if (overviewAttentionList){
+    overviewAttentionList.innerHTML = needsReviewItems.length
+      ? needsReviewItems.slice(0, 4).map(item => overviewOrderRowHtml(item)).join("")
+      : '<div class="overview-empty success">No orders need review right now.</div>';
+  }
+  if (overviewRecentOrders){
+    overviewRecentOrders.innerHTML = recentItems.length
+      ? recentItems.slice(0, 5).map(item => overviewOrderRowHtml(item)).join("")
+      : '<div class="overview-empty">No saved orders yet.</div>';
+  }
+
+  if (queue) workspaceState.queue = queue;
+  const failures = [queueResult, recentResult].filter(result => result.status === "rejected").length;
+  if (overviewStatus){
+    overviewStatus.textContent = failures
+      ? "Some live data was unavailable. Showing the latest available information."
+      : `Updated ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+  }
+  overviewLoading = false;
 }
 
 const saveToast = document.getElementById("saveToast");
@@ -768,7 +911,11 @@ const typeCorrectionsCancelBtn = document.getElementById("typeCorrectionsCancel"
 const groupToggles = document.querySelectorAll("[data-group-toggle]");
 
 function activateTab(name){
-	  updateAppChrome(name);
+	  if (name === "extract"){
+	    setNewOrderWorkspaceOpen(false, { load: false });
+	  }else{
+	    updateAppChrome(name);
+	  }
 	  setMobileNavOpen(false);
 	  tabs.forEach(btn => {
 	    const isTarget = btn.dataset.tab === name;
@@ -777,6 +924,19 @@ function activateTab(name){
 	    }else{
 	      btn.classList.remove("active");
 	    }
+	  });
+	  const navParentByTab = {
+	    workspace: "production",
+	    processing: "production",
+	    labels: "production",
+	    awa: "production",
+	    telegram: "documents",
+	    pdfeditor: "documents",
+	    scanstudio: "documents",
+	  };
+	  const activeNavSection = navParentByTab[name] || "";
+	  document.querySelectorAll("[data-nav-section]").forEach(btn => {
+	    btn.classList.toggle("section-active", btn.dataset.navSection === activeNavSection);
 	  });
 	  Object.entries(panels).forEach(([key, panel])=>{
     if (!panel) return;
@@ -794,7 +954,9 @@ function activateTab(name){
   if (name !== "history"){
     closeHistoryDrawer();
   }
-  if (name === "history"){
+  if (name === "extract"){
+    loadOverview();
+  }else if (name === "history"){
     ensureHistoryLoaded();
   }else if (name === "workspace"){
     loadWorkspace();
@@ -834,6 +996,41 @@ tabs.forEach(btn=>{
   btn.addEventListener("click", ()=> activateTab(btn.dataset.tab));
 });
 
+document.getElementById("overviewNewOrder")?.addEventListener("click", ()=>{
+  setNewOrderWorkspaceOpen(true);
+});
+
+document.getElementById("newOrderBack")?.addEventListener("click", ()=>{
+  setNewOrderWorkspaceOpen(false);
+  window.scrollTo({ top: 0, behavior: "smooth" });
+});
+
+document.getElementById("overviewViewOrders")?.addEventListener("click", ()=>{
+  activateTab("history");
+});
+
+document.getElementById("overviewRefresh")?.addEventListener("click", ()=>{
+  loadOverview();
+});
+
+overviewDashboard?.addEventListener("click", async event=>{
+  const routeButton = event.target.closest("[data-overview-route]");
+  if (routeButton){
+    activateTab(routeButton.dataset.overviewRoute);
+    return;
+  }
+  const orderButton = event.target.closest("[data-overview-order-id]");
+  if (!orderButton?.dataset.overviewOrderId) return;
+  activateTab("history");
+  await openOrderFromList(orderButton.dataset.overviewOrderId);
+});
+
+document.getElementById("workspaceOpenAwa")?.addEventListener("click", ()=>{
+  activateTab("awa");
+});
+
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", syncSettingsSummary);
+
 if (mobileNavToggle){
   mobileNavToggle.addEventListener("click", ()=>{
     const open = mobileNavToggle.getAttribute("aria-expanded") !== "true";
@@ -855,6 +1052,7 @@ window.addEventListener("resize", ()=>{
 });
 
 updateAppChrome("extract");
+loadOverview();
 
 Object.entries(panels).forEach(([key, panel])=>{
   if (!panel) return;
@@ -16389,6 +16587,11 @@ function isPlainTextFile(file){
   });
 
   dropZone.addEventListener("click", ()=> fileInput.click());
+  dropZone.addEventListener("keydown", event=>{
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    fileInput.click();
+  });
   fileInput.addEventListener("change", async (event)=>{
     const file = event.target.files && event.target.files[0];
     event.target.value = "";

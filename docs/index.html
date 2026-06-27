@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#f6f8fb" media="(prefers-color-scheme: light)" />
   <meta name="theme-color" content="#0b1018" media="(prefers-color-scheme: dark)" />
   <link rel="icon" href="data:," />
-  <title>Dashboard — Order Extractor</title>
+  <title>Overview — Order Extractor</title>
   <link rel="stylesheet" href="./css/styles.css">
 </head>
 <body>
@@ -23,13 +23,14 @@
     <symbol id="icon-pdf" viewBox="0 0 24 24"><path d="M6 2h8l5 5v15H6V2Zm2 2v16h9V8h-4V4H8Zm7 .8V6h1.2L15 4.8ZM9 11h6v2H9v-2Zm0 4h6v2H9v-2Z"/></symbol>
     <symbol id="icon-scan" viewBox="0 0 24 24"><path d="M4 3h5v2H5v4H3V4a1 1 0 0 1 1-1Zm11 0h5a1 1 0 0 1 1 1v5h-2V5h-4V3ZM3 15h2v4h4v2H4a1 1 0 0 1-1-1v-5Zm16 0h2v5a1 1 0 0 1-1 1h-5v-2h4v-4ZM7 8h10v8H7V8Zm2 2v4h6v-4H9Z"/></symbol>
     <symbol id="icon-menu" viewBox="0 0 24 24"><path d="M3 6h18v2H3V6Zm0 5h18v2H3v-2Zm0 5h18v2H3v-2Z"/></symbol>
+    <symbol id="icon-settings" viewBox="0 0 24 24"><path d="m10.3 2-.5 2.2c-.5.2-1 .5-1.4.8L6.3 4.3 4.6 6l.7 2.1c-.3.5-.6 1-.8 1.5L2 10v2.4l2.3.5c.2.5.4 1 .7 1.5l-.7 2.1L6 18.2l2.1-.7c.5.3 1 .6 1.5.8l.5 2.3h2.4l.5-2.3c.5-.2 1-.4 1.5-.7l2.1.7 1.7-1.7-.7-2.1c.3-.5.6-1 .8-1.5l2.3-.5v-2.4l-2.3-.5c-.2-.5-.4-1-.7-1.5l.7-2.1-1.7-1.7-2.1.7c-.5-.3-1-.6-1.5-.8L12.7 2h-2.4ZM11.5 8a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7Z"/></symbol>
   </svg>
   <aside class="app-sidebar" aria-label="Primary navigation">
     <div class="mobile-nav-bar">
       <div class="mobile-nav-identity">
         <div class="sidebar-logo" aria-hidden="true">OE</div>
         <div>
-          <div id="mobilePageTitle" class="mobile-page-title">Dashboard</div>
+          <div id="mobilePageTitle" class="mobile-page-title">Overview</div>
           <div id="mobileEnvironmentLabel" class="mobile-environment-label">Checking backend…</div>
         </div>
       </div>
@@ -45,17 +46,22 @@
       </div>
     </div>
     <nav id="primaryNav" class="tab-bar sidebar-nav">
-      <button class="tab active" data-tab="extract"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-dashboard"></use></svg></span><span>Dashboard</span></button>
-      <button class="tab" data-tab="workspace"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-workspace"></use></svg></span><span>Workspace</span></button>
-      <button class="tab" data-tab="awa"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-sparkles"></use></svg></span><span>AWA Beta</span><span class="sidebar-beta-badge">Beta</span></button>
-      <button class="tab" data-tab="telegram"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-send"></use></svg></span><span>Telegram Files</span><span id="telegramFilesBadge" class="sidebar-badge" hidden>0</span></button>
-      <button class="tab" data-tab="history"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-history"></use></svg></span><span>History</span></button>
-      <button class="tab" data-tab="processing"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-processing"></use></svg></span><span>Processing</span></button>
-      <button class="tab" data-tab="labels"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-label"></use></svg></span><span>Labels</span></button>
-      <button class="tab" data-tab="analysis"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-analysis"></use></svg></span><span>Analysis</span></button>
-      <div class="sidebar-section-label">Tools</div>
-      <button class="tab" data-tab="pdfeditor"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-pdf"></use></svg></span><span>PDF Editor</span></button>
-      <button class="tab" data-tab="scanstudio"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-scan"></use></svg></span><span>Scan Studio</span></button>
+      <button class="tab active" data-tab="extract"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-dashboard"></use></svg></span><span>Overview</span></button>
+      <button class="tab" data-tab="history"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-history"></use></svg></span><span>Orders</span></button>
+      <div class="sidebar-section-label">Workflow</div>
+      <button class="tab" data-tab="workspace" data-nav-section="production"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-workspace"></use></svg></span><span>Production</span></button>
+      <div class="sidebar-subnav" aria-label="Production tools">
+        <button class="tab" data-tab="processing" data-nav-parent="production"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-processing"></use></svg></span><span>Processing</span></button>
+        <button class="tab" data-tab="labels" data-nav-parent="production"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-label"></use></svg></span><span>Labels</span></button>
+      </div>
+      <button class="tab" data-tab="telegram" data-nav-section="documents"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-pdf"></use></svg></span><span>Documents</span><span id="telegramFilesBadge" class="sidebar-badge" hidden>0</span></button>
+      <div class="sidebar-subnav" aria-label="Document tools">
+        <button class="tab" data-tab="pdfeditor" data-nav-parent="documents"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-pdf"></use></svg></span><span>PDF Editor</span></button>
+        <button class="tab" data-tab="scanstudio" data-nav-parent="documents"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-scan"></use></svg></span><span>Scan Studio</span></button>
+      </div>
+      <button class="tab" data-tab="analysis"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-analysis"></use></svg></span><span>Analytics</span></button>
+      <div class="sidebar-section-label">System</div>
+      <button class="tab" data-tab="settings"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-settings"></use></svg></span><span>Settings</span></button>
     </nav>
     <div class="sidebar-footer">
       <div class="sidebar-status-dot" aria-hidden="true"></div>
@@ -66,9 +72,9 @@
   <main class="app">
     <header class="app-header">
       <div>
-        <p id="pageEyebrow" class="page-eyebrow">Orders</p>
-        <h1 id="pageTitle">Dashboard</h1>
-        <p id="pageSubtitle" class="muted">Upload, extract, review, and approve factory orders.</p>
+        <p id="pageEyebrow" class="page-eyebrow">Operations</p>
+        <h1 id="pageTitle">Overview</h1>
+        <p id="pageSubtitle" class="muted">Monitor incoming orders, review work, and production readiness.</p>
       </div>
       <div id="environmentBadge" class="environment-badge" title="Current API connection">
         <span class="environment-dot" aria-hidden="true"></span>
@@ -98,6 +104,79 @@
 	    <div id="globalScanDropMessage" class="global-scan-drop-message" hidden></div>
 
 	    <section id="tabExtract" class="tab-panel active">
+      <div id="overviewDashboard" class="overview-dashboard">
+        <section class="card overview-hero">
+          <div>
+            <p class="section-eyebrow">Factory operations</p>
+            <h2>Today at a glance</h2>
+            <p id="overviewHeadline" class="muted">Loading the current workload…</p>
+          </div>
+          <div class="overview-hero-actions">
+            <button type="button" class="btn primary" id="overviewNewOrder">+ New order</button>
+            <button type="button" class="btn" id="overviewViewOrders">View orders</button>
+            <button type="button" class="btn tertiary" id="overviewRefresh">Refresh</button>
+          </div>
+        </section>
+
+        <div class="overview-kpi-grid" aria-label="Current order workload">
+          <button type="button" class="overview-kpi-card" data-overview-route="history">
+            <span class="overview-kpi-icon review" aria-hidden="true"><svg><use href="#icon-history"></use></svg></span>
+            <span class="overview-kpi-copy"><span>Needs review</span><strong id="overviewNeedsReview">—</strong><small>Drafts and warning cases</small></span>
+          </button>
+          <button type="button" class="overview-kpi-card" data-overview-route="workspace">
+            <span class="overview-kpi-icon ready" aria-hidden="true"><svg><use href="#icon-workspace"></use></svg></span>
+            <span class="overview-kpi-copy"><span>Ready for production</span><strong id="overviewReadyProduction">—</strong><small>Approved orders</small></span>
+          </button>
+          <button type="button" class="overview-kpi-card" data-overview-route="processing">
+            <span class="overview-kpi-icon production" aria-hidden="true"><svg><use href="#icon-processing"></use></svg></span>
+            <span class="overview-kpi-copy"><span>In production</span><strong id="overviewInProduction">—</strong><small>Processing and labels</small></span>
+          </button>
+          <button type="button" class="overview-kpi-card" data-overview-route="history">
+            <span class="overview-kpi-icon complete" aria-hidden="true"><svg><use href="#icon-analysis"></use></svg></span>
+            <span class="overview-kpi-copy"><span>Completed</span><strong id="overviewCompleted">—</strong><small>Finished or archived</small></span>
+          </button>
+        </div>
+
+        <div class="overview-content-grid">
+          <section class="card overview-list-card">
+            <div class="overview-section-header">
+              <div>
+                <h3>Needs attention</h3>
+                <p class="muted small">Orders that should be reviewed before production.</p>
+              </div>
+              <button type="button" class="btn small tertiary" data-overview-route="history">View all</button>
+            </div>
+            <div id="overviewAttentionList" class="overview-order-list">
+              <div class="overview-empty">Loading review queue…</div>
+            </div>
+          </section>
+
+          <section class="card overview-list-card">
+            <div class="overview-section-header">
+              <div>
+                <h3>Recent orders</h3>
+                <p class="muted small">Latest orders across every status.</p>
+              </div>
+              <button type="button" class="btn small tertiary" data-overview-route="history">Open Orders</button>
+            </div>
+            <div id="overviewRecentOrders" class="overview-order-list">
+              <div class="overview-empty">Loading recent orders…</div>
+            </div>
+          </section>
+        </div>
+
+        <div id="overviewStatus" class="muted small overview-status" aria-live="polite"></div>
+      </div>
+
+      <div id="newOrderWorkspace" class="new-order-workspace" hidden>
+        <div class="new-order-toolbar">
+          <button type="button" class="btn tertiary" id="newOrderBack">← Back to Overview</button>
+          <div>
+            <strong>New order</strong>
+            <span class="muted small">Upload a PDF or paste copied order text.</span>
+          </div>
+        </div>
+
       <div class="card extract-input-card">
         <label for="input" class="muted small" style="display:block;margin-bottom:6px;font-weight:600">Order text</label>
         <textarea id="input" placeholder="Paste order text here…"></textarea>
@@ -105,7 +184,7 @@
 
       <div class="card extract-shell">
         <h3 class="upload-heading">Order PDF</h3>
-        <div id="pdfDropZone" class="dropzone">Drop PDF here or click to upload.</div>
+        <div id="pdfDropZone" class="dropzone" role="button" tabindex="0">Drop PDF here or click to upload.</div>
         <div class="status-row extract-status-row">
           <span id="orderInfo" class="muted small"></span>
           <span id="status" class="muted small"></span>
@@ -175,7 +254,9 @@
         </div>
         <div id="error" class="alert" hidden></div>
       </div>
+      </div>
 
+      <div id="iguWorkspaceModule">
       <div class="card igu-card" id="iguCalculator">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
           <div>
@@ -285,6 +366,7 @@
           <div class="igu-breakdown-empty">Select orders to see item totals.</div>
         </div>
       </div>
+      </div>
     </section>
 
     <section id="tabScanStudio" class="tab-panel">
@@ -388,6 +470,7 @@
                 <span id="workspaceSelectionStatus" class="muted small"></span>
                 <button type="button" class="btn small" id="workspaceProcessSelected" disabled>Process selected together</button>
                 <button type="button" class="btn small" id="workspaceClearSelection" disabled>Clear selection</button>
+                <button type="button" class="btn small tertiary" id="workspaceOpenAwa">AWA suggestions</button>
                 <button type="button" class="btn small tertiary" id="workspaceRefresh">Refresh</button>
                 <span id="workspaceQueueStatus" class="muted small"></span>
               </div>
@@ -406,6 +489,7 @@
               <div class="workspace-empty">No production files loaded.</div>
             </div>
           </div>
+          <div id="workspaceMaterialsSlot"></div>
         </div>
 
         <aside class="workspace-side-panel">
@@ -1130,6 +1214,33 @@
           <button type="button" class="btn primary" id="analysisAsk">Ask</button>
         </div>
         <div id="analysisAnswer" class="muted small" style="margin-top:12px">Ask a question based on the computed analysis above.</div>
+      </div>
+    </section>
+
+    <section id="tabSettings" class="tab-panel">
+      <div class="settings-grid">
+        <section class="card settings-card">
+          <div class="settings-card-icon" aria-hidden="true"><svg><use href="#icon-settings"></use></svg></div>
+          <div>
+            <h2>Interface</h2>
+            <p class="muted small">The platform follows your operating system appearance automatically.</p>
+            <dl class="settings-list">
+              <div><dt>Theme</dt><dd id="settingsThemeMode">System setting</dd></div>
+              <div><dt>Navigation</dt><dd>Workflow layout</dd></div>
+            </dl>
+          </div>
+        </section>
+        <section class="card settings-card">
+          <div class="settings-card-icon" aria-hidden="true"><svg><use href="#icon-workspace"></use></svg></div>
+          <div>
+            <h2>Backend connection</h2>
+            <p class="muted small">Current destination used for orders, files, and production workflows.</p>
+            <dl class="settings-list">
+              <div><dt>Mode</dt><dd id="settingsEnvironmentMode">Checking…</dd></div>
+              <div><dt>Endpoint</dt><dd id="settingsApiEndpoint">Checking…</dd></div>
+            </dl>
+          </div>
+        </section>
       </div>
     </section>
 
