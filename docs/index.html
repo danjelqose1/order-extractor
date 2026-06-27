@@ -4,11 +4,36 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="icon" href="data:," />
-  <title>Order Extractor — Local</title>
+  <title>Dashboard — Order Extractor</title>
   <link rel="stylesheet" href="./css/styles.css">
 </head>
 <body>
+  <svg class="icon-sprite" aria-hidden="true">
+    <symbol id="icon-dashboard" viewBox="0 0 24 24"><path d="M4 4h6v6H4zM14 4h6v10h-6zM4 14h6v6H4zM14 18h6v2h-6z"/></symbol>
+    <symbol id="icon-workspace" viewBox="0 0 24 24"><path d="M9 4h6l1.4 2H20a2 2 0 0 1 2 2v9.5A2.5 2.5 0 0 1 19.5 20h-15A2.5 2.5 0 0 1 2 17.5V8a2 2 0 0 1 2-2h3.6L9 4Zm1.1 2-.7 1h5.2l-.7-1h-3.8ZM4 10v7.5c0 .3.2.5.5.5h15a.5.5 0 0 0 .5-.5V10H4Z"/></symbol>
+    <symbol id="icon-sparkles" viewBox="0 0 24 24"><path d="m12 2 1.5 4.5L18 8l-4.5 1.5L12 14l-1.5-4.5L6 8l4.5-1.5L12 2Zm7 11 .9 2.1L22 16l-2.1.9L19 19l-.9-2.1L16 16l2.1-.9L19 13ZM5 14l1.2 2.8L9 18l-2.8 1.2L5 22l-1.2-2.8L1 18l2.8-1.2L5 14Z"/></symbol>
+    <symbol id="icon-send" viewBox="0 0 24 24"><path d="M21.6 3.1 2.8 10.4c-1.3.5-1.2 1.2-.2 1.5l4.8 1.5 1.8 5.5c.2.7.1 1 .8 1 .5 0 .8-.2 1-.5l2.3-2.2 4.8 3.5c.9.5 1.5.3 1.8-.8L23 4.7c.4-1.4-.5-2.1-1.4-1.6ZM9.3 13l9.4-5.9c.5-.3.9-.1.6.2l-7.8 7.1-.3 3.2L9.3 13Z"/></symbol>
+    <symbol id="icon-history" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 1-8.5 6H1l3.5-4L8 9H5.6A7 7 0 1 0 12 5V3Zm-1 4h2v5.2l3.4 2-1 1.7-4.4-2.6V7Z"/></symbol>
+    <symbol id="icon-processing" viewBox="0 0 24 24"><path d="M5 3h5v5H5V3Zm9 0h5v5h-5V3ZM5 16h5v5H5v-5Zm11.5-5a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Zm0 2a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5ZM7 9h1v4h3v2H6V9h1Zm5-2h2v3h-2V7Z"/></symbol>
+    <symbol id="icon-label" viewBox="0 0 24 24"><path d="M3 4h9.2l8.5 8.5a2 2 0 0 1 0 2.8l-5.4 5.4a2 2 0 0 1-2.8 0L4 12.2A3.4 3.4 0 0 1 3 9.8V4Zm2 2v3.8c0 .4.1.7.4 1l8.5 8.5 5.4-5.4L11.4 6H5Zm3 1a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3Z"/></symbol>
+    <symbol id="icon-analysis" viewBox="0 0 24 24"><path d="M4 19h17v2H2V3h2v16Zm3-2H5v-6h2v6Zm4 0H9V7h2v10Zm4 0h-2V9h2v8Zm4 0h-2V4h2v13Z"/></symbol>
+    <symbol id="icon-pdf" viewBox="0 0 24 24"><path d="M6 2h8l5 5v15H6V2Zm2 2v16h9V8h-4V4H8Zm7 .8V6h1.2L15 4.8ZM9 11h6v2H9v-2Zm0 4h6v2H9v-2Z"/></symbol>
+    <symbol id="icon-scan" viewBox="0 0 24 24"><path d="M4 3h5v2H5v4H3V4a1 1 0 0 1 1-1Zm11 0h5a1 1 0 0 1 1 1v5h-2V5h-4V3ZM3 15h2v4h4v2H4a1 1 0 0 1-1-1v-5Zm16 0h2v5a1 1 0 0 1-1 1h-5v-2h4v-4ZM7 8h10v8H7V8Zm2 2v4h6v-4H9Z"/></symbol>
+    <symbol id="icon-menu" viewBox="0 0 24 24"><path d="M3 6h18v2H3V6Zm0 5h18v2H3v-2Zm0 5h18v2H3v-2Z"/></symbol>
+  </svg>
   <aside class="app-sidebar" aria-label="Primary navigation">
+    <div class="mobile-nav-bar">
+      <div class="mobile-nav-identity">
+        <div class="sidebar-logo" aria-hidden="true">OE</div>
+        <div>
+          <div id="mobilePageTitle" class="mobile-page-title">Dashboard</div>
+          <div id="mobileEnvironmentLabel" class="mobile-environment-label">Checking backend…</div>
+        </div>
+      </div>
+      <button type="button" id="mobileNavToggle" class="mobile-nav-toggle" aria-expanded="false" aria-controls="primaryNav" aria-label="Open navigation">
+        <svg aria-hidden="true"><use href="#icon-menu"></use></svg>
+      </button>
+    </div>
     <div class="sidebar-brand">
       <div class="sidebar-logo" aria-hidden="true">OE</div>
       <div>
@@ -16,29 +41,39 @@
         <div class="sidebar-subtitle">Factory platform</div>
       </div>
     </div>
-    <nav class="tab-bar sidebar-nav">
-      <button class="tab active" data-tab="extract"><span class="nav-icon" aria-hidden="true">D</span><span>Dashboard</span></button>
-      <button class="tab" data-tab="workspace"><span class="nav-icon" aria-hidden="true">W</span><span>Workspace</span></button>
-      <button class="tab" data-tab="awa"><span class="nav-icon" aria-hidden="true">A</span><span>AWA Beta</span><span class="sidebar-beta-badge">Beta</span></button>
-      <button class="tab" data-tab="telegram"><span class="nav-icon" aria-hidden="true">IN</span><span>Telegram Files</span><span id="telegramFilesBadge" class="sidebar-badge" hidden>0</span></button>
-      <button class="tab" data-tab="history"><span class="nav-icon" aria-hidden="true">H</span><span>History</span></button>
-      <button class="tab" data-tab="processing"><span class="nav-icon" aria-hidden="true">P</span><span>Processing</span></button>
-      <button class="tab" data-tab="labels"><span class="nav-icon" aria-hidden="true">L</span><span>Labels</span></button>
-      <button class="tab" data-tab="analysis"><span class="nav-icon" aria-hidden="true">A</span><span>Analysis</span></button>
+    <nav id="primaryNav" class="tab-bar sidebar-nav">
+      <button class="tab active" data-tab="extract"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-dashboard"></use></svg></span><span>Dashboard</span></button>
+      <button class="tab" data-tab="workspace"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-workspace"></use></svg></span><span>Workspace</span></button>
+      <button class="tab" data-tab="awa"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-sparkles"></use></svg></span><span>AWA Beta</span><span class="sidebar-beta-badge">Beta</span></button>
+      <button class="tab" data-tab="telegram"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-send"></use></svg></span><span>Telegram Files</span><span id="telegramFilesBadge" class="sidebar-badge" hidden>0</span></button>
+      <button class="tab" data-tab="history"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-history"></use></svg></span><span>History</span></button>
+      <button class="tab" data-tab="processing"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-processing"></use></svg></span><span>Processing</span></button>
+      <button class="tab" data-tab="labels"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-label"></use></svg></span><span>Labels</span></button>
+      <button class="tab" data-tab="analysis"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-analysis"></use></svg></span><span>Analysis</span></button>
       <div class="sidebar-section-label">Tools</div>
-      <button class="tab" data-tab="pdfeditor"><span class="nav-icon" aria-hidden="true">PDF</span><span>PDF Editor</span></button>
-      <button class="tab" data-tab="scanstudio"><span class="nav-icon" aria-hidden="true">S</span><span>Scan Studio</span></button>
+      <button class="tab" data-tab="pdfeditor"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-pdf"></use></svg></span><span>PDF Editor</span></button>
+      <button class="tab" data-tab="scanstudio"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-scan"></use></svg></span><span>Scan Studio</span></button>
     </nav>
     <div class="sidebar-footer">
       <div class="sidebar-status-dot" aria-hidden="true"></div>
-      <span>Local workspace</span>
+      <span id="sidebarEnvironmentLabel">Checking backend…</span>
     </div>
   </aside>
 
   <main class="app">
     <header class="app-header">
-      <h1>Order Extractor — Local</h1>
-      <p class="muted">Paste the text you copied from the PDF, then click Extract.</p>
+      <div>
+        <p id="pageEyebrow" class="page-eyebrow">Orders</p>
+        <h1 id="pageTitle">Dashboard</h1>
+        <p id="pageSubtitle" class="muted">Upload, extract, review, and approve factory orders.</p>
+      </div>
+      <div id="environmentBadge" class="environment-badge" title="Current API connection">
+        <span class="environment-dot" aria-hidden="true"></span>
+        <span>
+          <strong id="environmentLabel">Checking backend…</strong>
+          <small id="environmentDetail"></small>
+        </span>
+      </div>
     </header>
 
     <div id="saveToast" class="toast" hidden>
@@ -75,11 +110,11 @@
         <div id="summary" class="summary"></div>
         <div class="controls extract-controls">
           <button id="extract" class="btn primary">Extract</button>
-          <button id="rerun" class="btn" disabled>Re-run</button>
+          <button id="rerun" class="btn tertiary" disabled>Re-run</button>
           <button id="approveSave" class="btn success" disabled>Approve & Save</button>
-          <button id="copyCsv" class="btn">Copy CSV</button>
-          <button id="downloadCsv" class="btn">Download CSV</button>
-          <button id="printLabels" class="btn">Print Labels</button>
+          <button id="copyCsv" class="btn tertiary">Copy CSV</button>
+          <button id="downloadCsv" class="btn tertiary">Download CSV</button>
+          <button id="printLabels" class="btn tertiary">Print Labels</button>
           <label class="inline-toggle">
             <input type="checkbox" data-group-toggle id="groupToggle" disabled>
             <span>Group identical sizes</span>
@@ -345,21 +380,12 @@
         <div class="workspace-main">
           <div class="card">
             <div class="workspace-section-header">
-              <div>
-                <h2>Workspace</h2>
-                <p class="muted small" style="margin:4px 0 0">Factory command center for approved orders and production files.</p>
-              </div>
-              <button type="button" class="btn small" id="workspaceRefresh">Refresh</button>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="workspace-section-header">
               <h3>Work Queue</h3>
               <div class="workspace-selection-actions">
                 <span id="workspaceSelectionStatus" class="muted small"></span>
                 <button type="button" class="btn small" id="workspaceProcessSelected" disabled>Process selected together</button>
                 <button type="button" class="btn small" id="workspaceClearSelection" disabled>Clear selection</button>
+                <button type="button" class="btn small tertiary" id="workspaceRefresh">Refresh</button>
                 <span id="workspaceQueueStatus" class="muted small"></span>
               </div>
             </div>
@@ -385,14 +411,17 @@
               <h2 style="margin:0">Factory Assistant</h2>
               <p class="muted small" style="margin:4px 0 0">Run approved-order workflows and prepare production files.</p>
             </div>
-            <div class="workspace-prompt-grid" id="workspacePromptButtons">
-              <button type="button" class="btn small" data-workspace-prompt="Show approved orders">Show approved orders</button>
-              <button type="button" class="btn small" data-workspace-prompt="Process latest approved order">Process latest approved order</button>
-              <button type="button" class="btn small" data-workspace-prompt="What needs review today?">What needs review today?</button>
-              <button type="button" class="btn small" data-workspace-prompt="Show recent production files">Show recent production files</button>
-              <button type="button" class="btn small" data-workspace-prompt="Generate labels for latest processed order">Generate labels for latest processed order</button>
-              <button type="button" class="btn small" data-workspace-prompt="Process selected orders together">Process selected together</button>
-            </div>
+            <details class="workspace-quick-actions">
+              <summary>Quick commands</summary>
+              <div class="workspace-prompt-grid" id="workspacePromptButtons">
+                <button type="button" class="btn small tertiary" data-workspace-prompt="Show approved orders">Show approved orders</button>
+                <button type="button" class="btn small tertiary" data-workspace-prompt="Process latest approved order">Process latest approved order</button>
+                <button type="button" class="btn small tertiary" data-workspace-prompt="What needs review today?">What needs review today?</button>
+                <button type="button" class="btn small tertiary" data-workspace-prompt="Show recent production files">Show recent production files</button>
+                <button type="button" class="btn small tertiary" data-workspace-prompt="Generate labels for latest processed order">Generate labels for latest processed order</button>
+                <button type="button" class="btn small tertiary" data-workspace-prompt="Process selected orders together">Process selected together</button>
+              </div>
+            </details>
             <div id="workspaceChatLog" class="workspace-chat-log">
               <div class="workspace-message assistant">Ready for factory workflows. Tell me which approved orders to process or check.</div>
             </div>
@@ -409,13 +438,16 @@
               <h2 style="margin:0">Smart Chat</h2>
               <p class="muted small" style="margin:4px 0 0">Chat normally, ask questions, or get help understanding the platform.</p>
             </div>
-            <div class="workspace-prompt-grid" id="workspaceSmartPromptButtons">
-              <button type="button" class="btn small" data-smart-chat-prompt="Hi 👋">Hi 👋</button>
-              <button type="button" class="btn small" data-smart-chat-prompt="Explain this page">Explain this page</button>
-              <button type="button" class="btn small" data-smart-chat-prompt="How does processing work?">How does processing work?</button>
-              <button type="button" class="btn small" data-smart-chat-prompt="What should I do next?">What should I do next?</button>
-              <button type="button" class="btn small" data-smart-chat-prompt="What day is today?">What day is today?</button>
-            </div>
+            <details class="workspace-quick-actions">
+              <summary>Suggested questions</summary>
+              <div class="workspace-prompt-grid" id="workspaceSmartPromptButtons">
+                <button type="button" class="btn small tertiary" data-smart-chat-prompt="Hi 👋">Hi 👋</button>
+                <button type="button" class="btn small tertiary" data-smart-chat-prompt="Explain this page">Explain this page</button>
+                <button type="button" class="btn small tertiary" data-smart-chat-prompt="How does processing work?">How does processing work?</button>
+                <button type="button" class="btn small tertiary" data-smart-chat-prompt="What should I do next?">What should I do next?</button>
+                <button type="button" class="btn small tertiary" data-smart-chat-prompt="What day is today?">What day is today?</button>
+              </div>
+            </details>
             <div id="workspaceSmartChatLog" class="workspace-chat-log">
               <div class="workspace-message assistant">Ask me normal questions here. Production actions still run through Factory Assistant.</div>
             </div>
@@ -697,8 +729,8 @@
 	              <span>Approved only</span>
 	            </label>
 	            <div class="filter-actions history-filter-actions">
-	              <button class="btn small" id="historyRefresh">Refresh</button>
-	              <button class="btn small" id="historyDownloadAll">Export CSV</button>
+	              <button class="btn small tertiary" id="historyRefresh">Refresh</button>
+	              <button class="btn small tertiary" id="historyDownloadAll">Export CSV</button>
 	              <span id="historyOfflineBadge" class="badge offline" hidden>Offline cache</span>
 	            </div>
 	          </div>
@@ -706,7 +738,7 @@
         <div id="historyStatus" class="muted small" style="margin-top:10px"></div>
       </div>
 
-      <div class="card">
+      <div class="card history-results-card">
         <div class="table-responsive" id="historyListWrap"></div>
         <div class="history-pagination">
           <button class="btn small" id="historyPrev">Previous</button>

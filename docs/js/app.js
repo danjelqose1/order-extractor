@@ -381,6 +381,123 @@ const panels = {
   invoices: document.getElementById("tabInvoices"),
 };
 
+const PAGE_META = Object.freeze({
+  extract: {
+    eyebrow: "Orders",
+    title: "Dashboard",
+    subtitle: "Upload, extract, review, and approve factory orders.",
+  },
+  workspace: {
+    eyebrow: "Production",
+    title: "Workspace",
+    subtitle: "Manage approved orders, production files, and factory workflows.",
+  },
+  awa: {
+    eyebrow: "Automation",
+    title: "AWA Beta",
+    subtitle: "Review supervised automation suggestions before anything runs.",
+  },
+  telegram: {
+    eyebrow: "Intake",
+    title: "Telegram Files",
+    subtitle: "Review original PDF orders received from Telegram.",
+  },
+  history: {
+    eyebrow: "Orders",
+    title: "Order History",
+    subtitle: "Find, review, export, and continue previously extracted orders.",
+  },
+  processing: {
+    eyebrow: "Factory",
+    title: "Production Processing",
+    subtitle: "Prepare approved orders for the production floor.",
+  },
+  spacer: {
+    eyebrow: "Production",
+    title: "Spacer Processing",
+    subtitle: "Prepare spacer output from approved order data.",
+  },
+  labels: {
+    eyebrow: "Output",
+    title: "Label Studio",
+    subtitle: "Generate and print production labels from approved jobs.",
+  },
+  analysis: {
+    eyebrow: "Insights",
+    title: "Factory Analytics",
+    subtitle: "Track order volume, materials, clients, and production patterns.",
+  },
+  pdfeditor: {
+    eyebrow: "Tools",
+    title: "PDF Editor",
+    subtitle: "Review and adjust order PDFs before extraction.",
+  },
+  scanstudio: {
+    eyebrow: "Tools",
+    title: "Scan Studio",
+    subtitle: "Clean, rotate, crop, and export scanned order pages.",
+  },
+  invoices: {
+    eyebrow: "Finance",
+    title: "Invoices",
+    subtitle: "Build invoices from approved orders and configured prices.",
+  },
+});
+
+const appSidebar = document.querySelector(".app-sidebar");
+const mobileNavToggle = document.getElementById("mobileNavToggle");
+const mobilePageTitle = document.getElementById("mobilePageTitle");
+const pageEyebrow = document.getElementById("pageEyebrow");
+const pageTitle = document.getElementById("pageTitle");
+const pageSubtitle = document.getElementById("pageSubtitle");
+const environmentBadge = document.getElementById("environmentBadge");
+const environmentLabel = document.getElementById("environmentLabel");
+const environmentDetail = document.getElementById("environmentDetail");
+const sidebarEnvironmentLabel = document.getElementById("sidebarEnvironmentLabel");
+const mobileEnvironmentLabel = document.getElementById("mobileEnvironmentLabel");
+
+function getEnvironmentMeta(){
+  try{
+    const url = new URL(API_BASE, window.location.href);
+    const local = ["localhost", "127.0.0.1", "::1"].includes(url.hostname);
+    return {
+      label: local ? "Local backend" : "Cloud backend",
+      detail: local ? `${url.hostname}${url.port ? `:${url.port}` : ""}` : url.hostname,
+      local,
+    };
+  }catch{
+    return { label: "Custom backend", detail: "Configured API", local: false };
+  }
+}
+
+function setMobileNavOpen(open){
+  if (!appSidebar || !mobileNavToggle) return;
+  appSidebar.classList.toggle("mobile-nav-open", open);
+  mobileNavToggle.setAttribute("aria-expanded", String(open));
+  mobileNavToggle.setAttribute("aria-label", open ? "Close navigation" : "Open navigation");
+}
+
+function updateAppChrome(name){
+  const meta = PAGE_META[name] || PAGE_META.extract;
+  if (pageEyebrow) pageEyebrow.textContent = meta.eyebrow;
+  if (pageTitle) pageTitle.textContent = meta.title;
+  if (pageSubtitle) pageSubtitle.textContent = meta.subtitle;
+  if (mobilePageTitle) mobilePageTitle.textContent = meta.title;
+  document.title = `${meta.title} — Order Extractor`;
+
+  const environment = getEnvironmentMeta();
+  if (environmentLabel) environmentLabel.textContent = environment.label;
+  if (environmentDetail) environmentDetail.textContent = environment.detail;
+  if (sidebarEnvironmentLabel) sidebarEnvironmentLabel.textContent = environment.label;
+  if (mobileEnvironmentLabel) mobileEnvironmentLabel.textContent = environment.label;
+  if (environmentBadge){
+    environmentBadge.classList.toggle("is-local", environment.local);
+  }
+  if (appSidebar){
+    appSidebar.classList.toggle("is-local-environment", environment.local);
+  }
+}
+
 const saveToast = document.getElementById("saveToast");
 const saveToastMessage = document.getElementById("saveToastMessage");
 const saveToastView = document.getElementById("saveToastView");
@@ -651,6 +768,8 @@ const typeCorrectionsCancelBtn = document.getElementById("typeCorrectionsCancel"
 const groupToggles = document.querySelectorAll("[data-group-toggle]");
 
 function activateTab(name){
+	  updateAppChrome(name);
+	  setMobileNavOpen(false);
 	  tabs.forEach(btn => {
 	    const isTarget = btn.dataset.tab === name;
 	    if (isTarget){
@@ -659,10 +778,6 @@ function activateTab(name){
 	      btn.classList.remove("active");
 	    }
 	  });
-	  const activeTabButton = Array.from(tabs).find(btn => btn.dataset.tab === name);
-	  if (activeTabButton && window.matchMedia("(max-width: 768px)").matches){
-	    activeTabButton.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
-	  }
 	  Object.entries(panels).forEach(([key, panel])=>{
     if (!panel) return;
     const isTarget = key === name;
@@ -718,6 +833,28 @@ function activateTab(name){
 tabs.forEach(btn=>{
   btn.addEventListener("click", ()=> activateTab(btn.dataset.tab));
 });
+
+if (mobileNavToggle){
+  mobileNavToggle.addEventListener("click", ()=>{
+    const open = mobileNavToggle.getAttribute("aria-expanded") !== "true";
+    setMobileNavOpen(open);
+  });
+}
+
+document.addEventListener("keydown", event=>{
+  if (event.key === "Escape") setMobileNavOpen(false);
+});
+
+document.addEventListener("click", event=>{
+  if (!appSidebar?.classList.contains("mobile-nav-open")) return;
+  if (!appSidebar.contains(event.target)) setMobileNavOpen(false);
+});
+
+window.addEventListener("resize", ()=>{
+  if (!window.matchMedia("(max-width: 768px)").matches) setMobileNavOpen(false);
+});
+
+updateAppChrome("extract");
 
 Object.entries(panels).forEach(([key, panel])=>{
   if (!panel) return;
@@ -14653,8 +14790,8 @@ function renderOrdersList(){
       <td data-label="Status">${historyStatusBadgeHtml(normalizedStatus)}</td>
       <td class="mono" data-label="Units">${pieces}</td>
       <td class="mono" data-label="Area">${formatArea(order.area_total || 0)}</td>
-      <td data-label="Confidence">${escapeHtml(confidence)}</td>
-      <td data-label="Last updated">${escapeHtml(updated)}</td>
+      <td data-col="confidence" data-label="Confidence">${escapeHtml(confidence)}</td>
+      <td class="history-last-updated" data-col="updated" data-label="Last updated">${escapeHtml(updated)}</td>
       <td data-col="actions" data-label="Actions">${actions}</td>
     </tr>`;
   }).join("");
@@ -14667,9 +14804,9 @@ function renderOrdersList(){
         <th>Status</th>
         <th>Total pieces</th>
         <th>Total area</th>
-        <th>Confidence</th>
-        <th>Last updated</th>
-        <th>Actions</th>
+        <th data-col="confidence">Confidence</th>
+        <th class="history-last-updated" data-col="updated">Last updated</th>
+        <th data-col="actions">Actions</th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>
