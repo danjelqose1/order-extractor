@@ -4020,3 +4020,640 @@
         font-size:12px;
       }
     }
+
+    /* Follow the operating system theme without storing a user preference. */
+    @media (prefers-color-scheme:dark){
+      :root{
+        color-scheme:dark;
+        --bg:#0b1018;
+        --background:#0b1018;
+        --foreground:#e8edf5;
+        --card:#131b26;
+        --card-bg:#131b26;
+        --text:#e8edf5;
+        --muted:#a2adbd;
+        --muted-2:#7d899a;
+        --border:#2a3545;
+        --border-dark:#3d4b60;
+        --primary:#7096ff;
+        --primary-hover:#89a8ff;
+        --primary-soft:#1a2b4e;
+        --success:#34bd86;
+        --success-soft:#123528;
+        --warning:#e3ad4b;
+        --warning-soft:#382a13;
+        --danger:#f07a86;
+        --danger-soft:#3a1d24;
+        --shadow:0 1px 2px rgba(0,0,0,.28),0 14px 34px rgba(0,0,0,.3);
+        --shadow-sm:0 1px 2px rgba(0,0,0,.3);
+        --focus:0 0 0 3px rgba(112,150,255,.28);
+      }
+      html{
+        background:#0b1018;
+        color:#e8edf5;
+        scrollbar-color:#445168 #101721;
+      }
+      body{
+        background:
+          linear-gradient(180deg,#101722 0,#0b1018 280px),
+          #0b1018;
+        color:var(--foreground);
+      }
+      h1,
+      h2,
+      h3,
+      h4,
+      .app-header h1,
+      .card h2,
+      .card h3{
+        color:#f1f5fa;
+      }
+      code{
+        border-color:#334155;
+        background:#182230;
+        color:#cbd5e1;
+      }
+
+      .app-sidebar{
+        border-color:#263141;
+        background:#0f161f;
+        box-shadow:1px 0 0 rgba(255,255,255,.02);
+      }
+      .sidebar-brand{
+        border-color:#263141;
+      }
+      .sidebar-title,
+      .mobile-page-title{
+        color:#eef2f7;
+      }
+      .sidebar-subtitle{
+        color:#9ca8b8;
+      }
+      .sidebar-nav.tab-bar button{
+        color:#aeb8c7;
+      }
+      .sidebar-nav.tab-bar button:hover{
+        background:#192331;
+        color:#f4f7fb;
+      }
+      .sidebar-nav.tab-bar button.active{
+        background:#1c315b;
+        color:#a9c3ff;
+      }
+      .nav-icon{
+        background:#18222f;
+        color:#9da9ba;
+      }
+      .sidebar-nav.tab-bar button.active .nav-icon{
+        background:#5f86ee;
+        color:#fff;
+      }
+      .sidebar-section-label{
+        color:#748196;
+      }
+      .sidebar-footer{
+        border-color:#293545;
+        background:#151e29;
+        color:#aab5c4;
+      }
+      .app-sidebar .sidebar-nav.tab-bar{
+        border-color:#2c394a !important;
+        background:#111923 !important;
+        box-shadow:0 20px 55px rgba(0,0,0,.52) !important;
+      }
+      .mobile-nav-toggle{
+        border-color:#344155;
+        background:#17202b;
+        color:#d9e0e9;
+      }
+
+      .environment-badge{
+        border-color:#2e3a4c;
+        background:rgba(18,26,37,.9);
+        color:#d9e1ec;
+      }
+      .page-eyebrow,
+      .section-eyebrow{
+        color:#89a8ff !important;
+      }
+
+      .card,
+      #tabExtract .extract-input-card,
+      #tabExtract .extract-shell,
+      #tabExtract .extract-table-card,
+      .pdf-editor-toolbar,
+      .pdf-editor-sidebar,
+      .pdf-editor-properties{
+        border-color:var(--border);
+        background:var(--card);
+        box-shadow:var(--shadow-sm);
+      }
+      .card:hover{
+        border-color:#3a475a;
+      }
+      .analysis-hero-card{
+        background:linear-gradient(135deg,#141d28 0%,#111a27 100%);
+      }
+
+      .btn,
+      #tabExtract .extract-controls .btn,
+      #tabExtract .extract-footer .btn{
+        border-color:#3b485b;
+        background:#18222f;
+        color:#dce3ec;
+        box-shadow:none;
+      }
+      .btn:hover,
+      #tabExtract .extract-controls .btn:hover,
+      #tabExtract .extract-footer .btn:hover{
+        border-color:#526078;
+        background:#212d3c;
+      }
+      .btn.tertiary,
+      #tabExtract .extract-controls .btn.tertiary{
+        border-color:transparent;
+        background:transparent;
+        color:#b7c1cf;
+      }
+      .btn.tertiary:hover,
+      #tabExtract .extract-controls .btn.tertiary:hover{
+        border-color:#344155;
+        background:#1a2431;
+        color:#f0f4f8;
+      }
+      .btn.primary,
+      #tabExtract .extract-controls .btn.primary,
+      #analysisAsk.btn.primary{
+        border-color:#5f86ee;
+        background:#5f86ee;
+        color:#fff;
+      }
+      .btn.primary:hover,
+      #tabExtract .extract-controls .btn.primary:hover,
+      #analysisAsk.btn.primary:hover{
+        border-color:#7799f4;
+        background:#7799f4;
+      }
+      .btn.success,
+      #tabExtract .extract-controls .btn.success{
+        border-color:#269968;
+        background:#269968;
+        color:#fff;
+      }
+      .btn.success:disabled,
+      #tabExtract .extract-controls .btn.success:disabled{
+        border-color:#344050;
+        background:#202a36;
+        color:#7f8b9b;
+      }
+      .btn.danger{
+        border-color:#67323d;
+        background:#351c22;
+        color:#f39aa4;
+      }
+      .btn:disabled,
+      button:disabled{
+        color:#7e8998;
+        opacity:.68;
+      }
+
+      input[type="text"],
+      input[type="search"],
+      input[type="number"],
+      input[type="date"],
+      input[type="file"],
+      input[type="email"],
+      select,
+      textarea,
+      .appearance-select,
+      .scan-filter-select,
+      .history-filters input,
+      .history-filters select,
+      .invoice-filters input,
+      .invoice-filters select,
+      .analysis-filter-grid input,
+      .analysis-filter-grid select,
+      .editable-table input,
+      .editable-table select,
+      .igu-field input[type=number],
+      .processing-header-editor select,
+      .processing-header-editor input,
+      .add-order-search input,
+      .modal-card input,
+      .workspace-command-row input,
+      .pdf-prop-field input,
+      .pdf-prop-field textarea,
+      .pdf-prop-field select{
+        border-color:var(--border-dark);
+        background:#0f1620;
+        color:#e6ebf2;
+        box-shadow:inset 0 1px 1px rgba(0,0,0,.22);
+      }
+      #tabExtract .extract-input-card textarea,
+      #tabExtract .notes-field textarea{
+        border-color:var(--border-dark);
+        background:#0f1620;
+        color:#e6ebf2;
+      }
+      input::placeholder,
+      textarea::placeholder{
+        color:#718096;
+      }
+      input:disabled,
+      select:disabled,
+      textarea:disabled,
+      .scan-filter-select:disabled{
+        background:#171f2a;
+        color:#7f8b9b;
+      }
+      label,
+      .appearance-label,
+      #tabExtract .extract-meta-field span,
+      .analysis-filter-grid label,
+      .inline-toggle,
+      .toggle-row,
+      .igu-inline{
+        color:#aab5c4;
+      }
+
+      .dropzone,
+      #tabExtract .dropzone,
+      .scan-dropzone,
+      .pdf-dropzone{
+        border-color:#48576d;
+        background:#101822;
+        color:#aab5c4;
+      }
+      .dropzone:hover,
+      .dropzone.hover,
+      #tabExtract .dropzone.hover,
+      .scan-dropzone:hover,
+      .scan-dropzone.hover,
+      .pdf-dropzone.hover{
+        border-color:var(--primary);
+        background:var(--primary-soft);
+        color:#eaf0ff;
+      }
+      .pdf-dropzone strong{
+        color:#eef2f7;
+      }
+
+      .table-responsive,
+      .editable-table,
+      .read-only-table,
+      #tabExtract .editable-table,
+      #tabExtract .read-only-table{
+        border-color:var(--border);
+        background:#111923;
+      }
+      th,
+      #tabExtract .editable-table th,
+      #tabExtract .read-only-table th,
+      .history-list-table th{
+        border-color:var(--border);
+        background:#18212d;
+        color:#aeb9c8;
+        box-shadow:inset 0 -1px #2a3545;
+      }
+      td,
+      #tabExtract .editable-table td,
+      #tabExtract .read-only-table td{
+        border-color:#263140;
+        background:#111923;
+        color:#d8e0e9;
+      }
+      tbody tr:hover td{
+        background:#172231;
+      }
+      .diagnosis-row td{
+        background:#151e29;
+      }
+      .history-list-table tr{
+        border-color:var(--border);
+        background:#111923;
+      }
+      .history-list-table td{
+        border-color:#263140;
+      }
+      .history-list-table td::before{
+        color:#94a1b4;
+      }
+      .history-actions-menu{
+        border-color:#344155;
+        background:#151e29;
+        box-shadow:var(--shadow);
+      }
+      .history-actions-menu button{
+        background:#151e29;
+        color:#dce3ec;
+      }
+      .history-actions-menu button:hover:not(:disabled){
+        border-color:#354766;
+        background:#1d2a3d;
+      }
+      .history-status-timeline-item{
+        background:#151e29;
+      }
+
+      .pill,
+      .badge,
+      .order-chip,
+      .invoice-status-badge,
+      #tabExtract .pill,
+      .status-badge,
+      .telegram-status,
+      .telegram-touch-status,
+      .telegram-handling-pill{
+        border-color:#334155;
+        background:#202a37;
+        color:#c7d0dc;
+      }
+      .pill.warn,
+      .badge.offline,
+      .warning-badge,
+      .invoice-status-badge.draft,
+      .pill.confidence.medium,
+      .status-badge.awa-review,
+      .telegram-status.received,
+      .telegram-status.possible_duplicate{
+        border-color:#6b4f22;
+        background:#3a2b13;
+        color:#f2c66d;
+      }
+      .invoice-status-badge.finalized,
+      .pill.confidence.high,
+      .status-badge.awa-safe,
+      .telegram-status.extracted,
+      .telegram-handling-pill.done,
+      .telegram-handling-pill.pdf.done,
+      .history-status-badge.approved,
+      .history-status-badge.completed{
+        border-color:#286348;
+        background:#153828;
+        color:#8fe0b5;
+      }
+      .pill.confidence.low,
+      .status-badge.awa-requires_confirmation,
+      .status-badge.awa-warning,
+      .telegram-status.failed,
+      .telegram-status.duplicate{
+        border-color:#6c3540;
+        background:#3b2026;
+        color:#f3a5ae;
+      }
+      .status-badge.awa-ready,
+      .telegram-status.queued,
+      .telegram-touch-status.new,
+      .ocr-repair-badge{
+        border-color:#31558b;
+        background:#1a3157;
+        color:#a9c9ff;
+      }
+      .status-badge.awa-approved,
+      .telegram-status.processing,
+      .history-status-badge.draft{
+        border-color:#4b4f8b;
+        background:#292c57;
+        color:#c3c7ff;
+      }
+      .history-status-badge.reviewed,
+      .awa-beta-badge,
+      .sidebar-beta-badge{
+        border-color:#6b4c28;
+        background:#3a2918;
+        color:#f0bd78;
+      }
+      .history-status-badge.in_production{
+        border-color:#236275;
+        background:#123744;
+        color:#8dd5e8;
+      }
+      .history-status-badge.archived,
+      .status-badge.awa-rejected,
+      .telegram-touch-status.touched,
+      .telegram-handling-pill.pdf{
+        border-color:#3b4758;
+        background:#222c38;
+        color:#b7c1ce;
+      }
+
+      .alert,
+      .history-empty.error{
+        border-color:#67323d;
+        background:#351d23;
+        color:#f2a0aa;
+      }
+      .warning-list,
+      .workspace-pending-card,
+      .awa-warning{
+        border-color:#674d22;
+        background:#352912;
+        color:#edc477;
+      }
+      .toast,
+      .global-scan-drop-message{
+        border-color:#31558b;
+        background:#182d50;
+        color:#b3ceff;
+      }
+      .empty-state,
+      .history-empty,
+      .labels-empty,
+      .invoice-empty,
+      .igu-breakdown-empty,
+      .scan-page-empty,
+      .analysis-chart-empty,
+      .workspace-empty{
+        border-color:#3b485b;
+        background:#101822;
+        color:#9da9b9;
+      }
+      .modal-layer{
+        background:rgba(2,6,12,.72);
+      }
+      .modal-card,
+      .global-scan-drop-card{
+        border-color:#344155;
+        background:#141d28;
+        color:#e6ebf2;
+        box-shadow:0 26px 80px rgba(0,0,0,.58);
+      }
+      .global-scan-drop-helper{
+        color:#a2adbd;
+      }
+
+      #tabExtract .extract-meta-field input{
+        border-color:var(--border);
+        background:#101822;
+        color:#e6ebf2;
+      }
+      #tabExtract .upload-heading,
+      details summary{
+        color:#aeb8c7;
+      }
+      #tabExtract .summary,
+      #tabExtract .inline-toggle,
+      #tabExtract .extract-controls .inline-toggle{
+        color:#aeb8c7;
+      }
+      #tabExtract .extract-footer .btn.generate,
+      .pdf-editor-toolbar .btn.active{
+        border-color:#5477d6;
+        background:#5477d6;
+        color:#fff;
+      }
+
+      .igu-panel,
+      .processing-order-item,
+      .workspace-group,
+      .workspace-chat-log,
+      .analysis-chart-card,
+      .analysis-insight-card,
+      .scan-page-item,
+      .scan-control{
+        border-color:var(--border);
+        background:#101822;
+      }
+      .igu-order-list,
+      .workspace-order-card,
+      .workspace-file-item,
+      .workspace-message.assistant,
+      .awa-suggestion-card,
+      .awa-timeline-item,
+      .telegram-file-card,
+      .scan-page-list{
+        border-color:var(--border);
+        background:#151e29;
+      }
+      .workspace-group-title{
+        border-color:var(--border);
+        background:#101822;
+        color:#cbd4df;
+      }
+      .workspace-order-metrics{
+        color:#b0bac8;
+      }
+      .workspace-order-metrics span{
+        border-color:#303d4e;
+        background:#1a2431;
+      }
+      .workspace-message.user{
+        background:#1c315b;
+        color:#c8d8ff;
+      }
+      .workspace-quick-actions{
+        border-color:#2d3949;
+      }
+      .workspace-quick-actions > summary{
+        color:#aeb8c7;
+      }
+      .workspace-job-view{
+        border-color:#31558b;
+        background:#182d50;
+        color:#d8e5ff;
+      }
+      .workspace-job-preview{
+        border-color:#31558b;
+        background:#101822;
+      }
+
+      .awa-kpi-card strong,
+      .awa-suggestion-title{
+        color:#eef2f7;
+      }
+      .telegram-file-card.untouched{
+        border-color:#31558b;
+        background:#14233a;
+      }
+      .telegram-file-card.duplicate{
+        border-color:#6c3540;
+        background:#2f1c22;
+      }
+      .telegram-file-card.possible-duplicate{
+        border-color:#77571f;
+        background:#332812;
+      }
+      .telegram-pdf-frame{
+        background:#101822;
+      }
+
+      .scan-page-item.active,
+      .scan-control .btn.active{
+        border-color:var(--primary);
+        background:#1c315b;
+        color:#c7d7ff;
+      }
+      .scan-slider > span:first-child,
+      .scan-slider > span:last-child{
+        color:#b4becc;
+      }
+      .scan-preview-stage{
+        background:#242e3d;
+      }
+
+      .analysis-kpi-card,
+      .analysis-chart-card{
+        background:#131b26;
+      }
+      .analysis-kpi-value{
+        color:#eef3f8;
+      }
+      .analysis-donut-center{
+        background:#17212d;
+        box-shadow:0 1px 8px rgba(0,0,0,.38);
+      }
+      .analysis-donut-center strong,
+      .analysis-legend-label{
+        color:#e6ebf2;
+      }
+      .analysis-bar-track{
+        background:#2a3545;
+      }
+      .analysis-insight-card.high{
+        border-color:#6c3540;
+        background:#2f1c22;
+      }
+      .analysis-insight-card.medium{
+        border-color:#705321;
+        background:#332811;
+      }
+      .analysis-insight-explain{
+        color:#bdc7d4;
+      }
+      .analysis-chart-body svg text{
+        fill:#aeb9c8;
+      }
+
+      .pdf-panel-header,
+      .pdf-thumb,
+      .pdf-edit-row{
+        border-color:var(--border);
+        background:#101822;
+        color:#bdc7d4;
+      }
+      .pdf-panel-header h3,
+      .pdf-thumb-title{
+        color:#e3e9f1;
+      }
+      .pdf-thumb:hover,
+      .pdf-thumb.drag-over{
+        background:#1b2c4b;
+      }
+      .pdf-thumb.active{
+        border-color:var(--primary);
+        box-shadow:0 0 0 2px rgba(112,150,255,.18);
+      }
+      .pdf-editor-stage{
+        background:#303a49;
+      }
+      .pdf-inline-editor{
+        border-color:#46546a;
+        background:#151e29;
+        box-shadow:0 14px 34px rgba(0,0,0,.5);
+      }
+
+      .history-filters .history-filter-toolbar,
+      .history-pagination{
+        color:#c3ccd8;
+      }
+    }
