@@ -94,6 +94,7 @@ from utils_text import build_order_total_diagnostics, clean_dimension, parse_dec
 from prompts import PROMPTS
 from analysis_signals import generate_analysis_signals
 from services.pdf_native_text_editor import native_text_replace
+from invoice_ai import analyze_invoice_line, match_invoice_glass_type
 ENV_PATH = Path(__file__).parent / ".env"
 load_dotenv(ENV_PATH, override=True)
 
@@ -458,6 +459,16 @@ class AwaActionPayload(BaseModel):
 class AwaExplainPayload(BaseModel):
     action_id: Optional[str] = None
     question: Optional[str] = None
+
+
+class InvoiceAiGlassMatchPayload(BaseModel):
+    raw_name: str
+    known_types: List[str]
+
+
+class InvoiceAiLineAnalysisPayload(BaseModel):
+    raw_line: str
+    known_glass_types: List[str]
 
 
 def _debug_log_rows(rows):
@@ -1243,6 +1254,38 @@ def delete_invoice(invoice_id: str) -> Dict[str, Any]:
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to delete invoice: {exc}") from exc
     return {"ok": True, "deleted": deleted}
+
+
+@app.post("/api/invoices/ai/glass-match")
+def invoice_ai_glass_match(payload: InvoiceAiGlassMatchPayload) -> Dict[str, Any]:
+    try:
+        match = match_invoice_glass_type(
+            get_client(),
+            raw_name=payload.raw_name,
+            known_types=payload.known_types,
+        )
+        return {"match": match}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("invoice AI glass match failed")
+        raise HTTPException(status_code=502, detail="Invoice AI glass matching is unavailable.") from exc
+
+
+@app.post("/api/invoices/ai/analyze-line")
+def invoice_ai_analyze_line(payload: InvoiceAiLineAnalysisPayload) -> Dict[str, Any]:
+    try:
+        analysis = analyze_invoice_line(
+            get_client(),
+            raw_line=payload.raw_line,
+            known_glass_types=payload.known_glass_types,
+        )
+        return {"analysis": analysis}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("invoice AI line analysis failed")
+        raise HTTPException(status_code=502, detail="Invoice AI line analysis is unavailable.") from exc
 
 
 @app.get("/healthz")

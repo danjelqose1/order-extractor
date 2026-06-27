@@ -313,6 +313,66 @@ def test_text_pdf_extracts_rows(monkeypatch):
     assert stored["client_name"] == "Client A"
 
 
+def test_invoice_ai_glass_match_route_keeps_api_key_on_backend(monkeypatch):
+    app_module, _calls = _load_app(monkeypatch, legacy_enabled="false")
+    sentinel_client = object()
+    captured = {}
+    app_module.get_client = lambda: sentinel_client
+
+    def _match(client, *, raw_name, known_types):
+        captured.update(
+            client=client,
+            raw_name=raw_name,
+            known_types=known_types,
+        )
+        return "33.1Satinato"
+
+    app_module.match_invoice_glass_type = _match
+    client = TestClient(app_module.app)
+
+    response = client.post(
+        "/api/invoices/ai/glass-match",
+        json={
+            "raw_name": "33.1 STAINATO",
+            "known_types": ["4F", "33.1Satinato"],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"match": "33.1Satinato"}
+    assert captured == {
+        "client": sentinel_client,
+        "raw_name": "33.1 STAINATO",
+        "known_types": ["4F", "33.1Satinato"],
+    }
+
+
+def test_invoice_ai_line_analysis_route_returns_validated_result(monkeypatch):
+    app_module, _calls = _load_app(monkeypatch, legacy_enabled="false")
+    expected = {
+        "normalizedType": "2 vetri 4F + 16 + 4 LowE",
+        "glassKey": "4 LowE",
+        "spacerMode": "normal",
+        "isLaminated": False,
+        "confidence": 0.88,
+        "reason": "Normalized OCR spelling.",
+    }
+    app_module.get_client = lambda: object()
+    app_module.analyze_invoice_line = lambda client, **kwargs: expected
+    client = TestClient(app_module.app)
+
+    response = client.post(
+        "/api/invoices/ai/analyze-line",
+        json={
+            "raw_line": "2 vetri 4F + 16 + 4 LOE",
+            "known_glass_types": ["4F", "4 LowE"],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"analysis": expected}
+
+
 def test_pdf_visual_llm_uses_input_file_payload(monkeypatch):
     llm_module = _load_llm(monkeypatch)
     captured: Dict[str, Any] = {}

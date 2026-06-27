@@ -3,6 +3,16 @@ const RENDER_API_BASE = "https://order-extractor-kdih.onrender.com";
 const API_BASE_OVERRIDE = localStorage.getItem("loe.apiBase");
 const API_BASE = API_BASE_OVERRIDE || (window.location.protocol === "file:" ? LOCAL_API_BASE : RENDER_API_BASE);
 console.log("API_BASE:", API_BASE);
+try{
+  localStorage.removeItem("loe.openaiKey");
+  localStorage.removeItem("openai.apiKey");
+  if (Object.prototype.hasOwnProperty.call(window, "OPENAI_API_KEY")){
+    window.OPENAI_API_KEY = undefined;
+    delete window.OPENAI_API_KEY;
+  }
+}catch{
+  // Storage can be unavailable in private or restricted browser contexts.
+}
 const HISTORY_CACHE_KEY_BASE = "loe.history.cache.v1";
 const HISTORY_CACHE_LIMIT = 200;
 const DEFAULT_APPEARANCE_SETTINGS = Object.freeze({
@@ -3316,8 +3326,16 @@ function ensureMotherSheetObserver(){
   motherSheetObserver.observe(document.body, { childList: true, subtree: true });
 }
 
-function setStatusMessage(msg){
-  statusEl.innerHTML = msg || "";
+function setStatusMessage(message, options = {}){
+  if (!statusEl) return;
+  statusEl.textContent = "";
+  if (options.showSpinner){
+    const spinner = document.createElement("span");
+    spinner.className = "spinner";
+    statusEl.appendChild(spinner);
+    statusEl.appendChild(document.createTextNode(" "));
+  }
+  statusEl.appendChild(document.createTextNode(String(message || "")));
 }
 
 function setScanStatus(message, isError = false){
@@ -8325,7 +8343,7 @@ async function recheckMissingFieldsWithOcr(){
   if (recheckBtn) recheckBtn.disabled = true;
   let repairedCount = 0;
   let manualCount = 0;
-  setStatusMessage(`<span class="spinner"></span> Rechecking ${targets.length} field(s) with OCR…`);
+  setStatusMessage(`Rechecking ${targets.length} field(s) with OCR…`, { showSpinner: true });
   for (const target of targets){
     const orderContext = buildRowDiagnosisContext("extract", target.index);
     try{
@@ -8463,7 +8481,7 @@ function renderEditableTable(scope, containerId, rows, rowWarnings){
   for (const [order, items] of groups.entries()){
     const orderLabel = order || "—";
     html += `<div class="group-header" data-order="${escapeHtml(order)}" style="display:flex;justify-content:space-between;align-items:center;margin:16px 0 6px">
-      <div style="font-weight:600">${orderLabel}</div>
+      <div style="font-weight:600">${escapeHtml(orderLabel)}</div>
       <div style="display:flex;gap:8px;align-items:center">
         <button type="button" class="btn small" data-add-row="${escapeHtml(order)}">Add row</button>
       </div>
@@ -9002,7 +9020,6 @@ const invoiceAddOrderState = {
 };
 const glassAliasCache = Object.create(null);
 const glassAliasPending = new Map();
-const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
 
 function clearGlassAliasCache(){
   Object.keys(glassAliasCache).forEach(key=>{
@@ -10859,12 +10876,12 @@ function renderInvoiceDetail(){
     const orderNumbers = Array.isArray(job.orderNumbers) ? job.orderNumbers : [];
     const clientLabel = formatInvoiceClientLabel(job) || "—";
     const created = formatDate(job.createdAt);
-    const invoiceNo = job.invoiceNumber ? ` • Invoice: ${job.invoiceNumber}` : "";
+    const invoiceNo = job.invoiceNumber ? ` • Invoice: ${escapeHtml(job.invoiceNumber)}` : "";
     const orderChips = orderNumbers.length
       ? orderNumbers.map(num => `<span class="order-chip"><span>${escapeHtml(num)}</span><button type="button" data-remove-order="${escapeHtml(num)}" aria-label="Remove order ${escapeHtml(num)}">×</button></span>`).join("")
       : '<span class="muted small">(none)</span>';
     invoiceDetailMeta.innerHTML = `
-      <div>Client: ${escapeHtml(clientLabel)} • ${created}${invoiceNo}</div>
+      <div>Client: ${escapeHtml(clientLabel)} • ${escapeHtml(created)}${invoiceNo}</div>
       <div class="order-chip-row">
         <span class="muted small">Orders:</span>
         <div class="order-chips">${orderChips}</div>
@@ -11175,138 +11192,30 @@ async function resolveGlassType(rawName, knownTypes = []){
   return pending;
 }
 
-function getStoredOpenAiKey(){
-  // Allow local usage by checking a global override or a stored key.
-  try{
-    if (typeof window !== "undefined" && window.OPENAI_API_KEY){
-      return window.OPENAI_API_KEY;
-    }
-  }catch{/* ignore */}
-  try{
-    return localStorage.getItem("loe.openaiKey")
-      || localStorage.getItem("openai.apiKey")
-      || "";
-  }catch{
-    return "";
-  }
-}
-
 async function callAiGlassMatch(rawName, knownTypes){
   if (!rawName || !Array.isArray(knownTypes) || !knownTypes.length){
     return null;
   }
-  const apiKey = getStoredOpenAiKey();
-  if (!apiKey){
-    return null;
-  }
-  const systemPrompt = `
-You are an expert assistant for a glass processing factory invoicing system.
-
-You receive:
-- Noisy glass descriptions extracted from PDFs (often Italian).
-- A list of canonical glass type keys from the factory price list.
-
-Your job:
-- Decide which single canonical glass type key best corresponds to the
-  glass mentioned in the noisy text.
-- Handle OCR typos and many spelling variants (for example "stainato"
-  should match "satinato", "low e" or "loe" should match "lowe",
-  "33,1" is the same as "33.1", etc.).
-- Understand that the text often describes INSULATED GLASS UNITS (IGU),
-  like "3 vetri 33.1 LOWE+12+4F+14+33.1STAINATO 44mm", but the price
-  list is per single glass type (e.g. "33.1satinato", "33.1lowe", "4f").
-
-Important:
-- You MUST choose only from the provided canonical keys (knownTypes).
-- NEVER invent a new glass type.
-- If there is no reasonable match, answer "NONE".
-
-Think carefully about:
-- Thickness numbers (33.1, 4, 6, 8…)
-- Modifiers: "F" (float), "lowe" / "low-e" / "loe", "satinato" /
-  "satinat" / "stainato", "clear", "caldo" (thermal spacers context).
-- OCR mistakes where letters are swapped or missing.
-
-When deciding, compare the meaning, not the exact spelling:
-- "33.1STAINATO" is almost certainly the same as "33.1satinato".
-- "4f low e", "4f lowe", "4f Lowe", "4FLOE" are the same concept as
-  "4f lowe".
-- Ignore dimension info, number of panes ("2 vetri", "3 vetri"), and
-  spacer thickness ("+12+", "+14+") when choosing the glass type.`.trim();
-  const userPrompt = `
-You must choose the best match from this JSON array of canonical glass
-types (price keys):
-
-knownTypes = ${JSON.stringify(knownTypes)}
-
-The noisy glass text we care about is:
-
-raw_name = "${rawName}"
-
-Examples of how you should behave:
-
-1) If knownTypes = ["4f", "33.1satinato", "33.1lowe"] and
-   raw_name = "33.1STAINATO 44mm"
-   → BEST MATCH: "33.1satinato"
-
-2) If knownTypes = ["4f", "33.1satinato", "33.1lowe"] and
-   raw_name = "3 vetri 33.1 LOWE+12+4F+14+33.1STAINATO 44mm"
-   → You focus on the word nearest to the missing price ("33.1STAINATO"),
-     and BEST MATCH: "33.1satinato"
-
-3) If knownTypes = ["4f", "4f lowe", "33.1satinato"] and
-   raw_name = "4F low e 6mm"
-   → BEST MATCH: "4f lowe"
-
-4) If knownTypes = ["4f", "6f"] and
-   raw_name = "33.1STAINATO"
-   → There is no good match, so respond: "NONE".
-
-Now for the current request:
-
-- Think step by step about which canonical key has the same thickness
-  and treatment (float, lowe, satinato, etc.) as raw_name, ignoring
-  minor spelling errors.
-- Then answer with EXACTLY ONE of the strings from knownTypes that is
-  the best match.
-- If none match with reasonable confidence, answer exactly: "NONE".
-`.trim();
-  const payload = {
-    model: "gpt-4o-mini",
-    temperature: 0,
-    messages: [
-      {
-        role: "system",
-        content: systemPrompt,
-      },
-      {
-        role: "user",
-        content: userPrompt,
-      },
-    ],
-  };
-  const res = await fetch(OPENAI_CHAT_COMPLETIONS_URL, {
+  const res = await fetch(API_BASE + "/api/invoices/ai/glass-match", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({
+      raw_name: String(rawName),
+      known_types: knownTypes,
+    }),
   });
   if (!res.ok){
     const text = await res.text().catch(()=> "");
     throw new Error(text || `AI resolver responded with ${res.status}`);
   }
   const data = await res.json();
-  const content = data?.choices?.[0]?.message?.content;
-  if (!content){
+  const candidate = typeof data?.match === "string" ? data.match.trim() : "";
+  if (!candidate){
     return null;
   }
-  const normalized = content.trim().replace(/^["']|["']$/g, "");
-  if (!normalized || normalized.toUpperCase() === "NONE"){
-    return null;
-  }
-  const match = knownTypes.find(type => type.toLowerCase() === normalized.toLowerCase());
+  const match = knownTypes.find(type => type.toLowerCase() === candidate.toLowerCase());
   return match || null;
 }
 
@@ -11314,111 +11223,22 @@ async function analyzeInvoiceLineWithAI(rawLine, knownGlassTypes){
   if (!rawLine || !Array.isArray(knownGlassTypes)){
     return null;
   }
-  const apiKey = getStoredOpenAiKey();
-  if (!apiKey){
-    return null;
-  }
-  const systemPrompt = `
-You are an expert assistant for a glass processing factory invoicing system.
-
-You receive:
-- A noisy text description of an insulated glass unit (IGU) line, often in Italian,
-- A list of canonical glass type keys from the factory price list.
-
-Your tasks:
-1) Understand what the line describes: number of panes (2 vetri, 3 vetri),
-   glass types (33.1, 4F, LOWE, SATINATO, etc.), laminated vs simple,
-   and whether spacers are thermal (warm-edge) or normal.
-2) Produce a CLEAN and HUMAN-READABLE "normalizedType" string suitable
-   for the editable Type input field:
-   - Preserve the IGU structure and thicknesses,
-   - Fix obvious OCR typos (STAINATO → SATINATO, LOW E/LOE → LOWE,
-     33,1 → 33.1, etc.),
-   - Use consistent spacing and plus signs, e.g.
-       "3 vetri 33.1 LOWE + 12 + 4F + 14 + 33.1 SATINATO 44mm".
-3) Choose a SINGLE canonical glassKey from the price list that best
-   corresponds to the main glass that needs a price:
-   - glassKey must be one of the given canonical keys, or null if there
-     is no reasonable match.
-4) Decide spacerMode:
-   - "thermal" if text contains 'caldo', 'c.caldo', 'cald', 'termico',
-     'warm edge' or similar warm-edge indicators.
-   - "normal" otherwise.
-5) Decide isLaminated:
-   - true for laminated glass (33.1, 44.1, 'laminato', 'stratificato', etc.),
-   - false otherwise.
-
-You must output a JSON object with fields:
-  normalizedType, glassKey, spacerMode, isLaminated, confidence, reason.
-
-- normalizedType: cleaned IGU string for the UI.
-- glassKey: one of the canonical keys or null.
-- spacerMode: "normal" or "thermal".
-- isLaminated: boolean.
-- confidence: a number from 0 to 1 representing how sure you are
-  about glassKey.
-- reason: short explanation in Italian or English.
-
-NEVER invent new glass types. If none of the canonical keys match,
-set glassKey to null and confidence to 0.0.
-`.trim();
-  const listJson = JSON.stringify(knownGlassTypes);
-  const rawValue = String(rawLine || "");
-  const sanitizedRaw = rawValue.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-  const userPrompt = `
-Here is the list of canonical glass type keys (price list entries):
-
-knownGlassTypes = ${listJson}
-
-Here is the noisy IGU line to analyze:
-
-raw_line = "${sanitizedRaw}"
-
-Your task:
-Return ONLY a JSON object with this exact shape:
-
-{
-  "normalizedType": string,
-  "glassKey": string or null,
-  "spacerMode": "normal" | "thermal",
-  "isLaminated": boolean,
-  "confidence": number,
-  "reason": string
-}
-
-Do not wrap it in backticks and do not add any extra text.`.trim();
   try{
-    const payload = {
-      model: "gpt-4.1",
-      temperature: 0,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-    };
-    const res = await fetch(OPENAI_CHAT_COMPLETIONS_URL, {
+    const res = await fetch(API_BASE + "/api/invoices/ai/analyze-line", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        raw_line: String(rawLine),
+        known_glass_types: knownGlassTypes,
+      }),
     });
     if (!res.ok){
       throw new Error(`AI analysis failed with ${res.status}`);
     }
     const data = await res.json();
-    const raw = data?.choices?.[0]?.message?.content;
-    if (!raw || typeof raw !== "string"){
-      return null;
-    }
-    let parsed;
-    try{
-      parsed = JSON.parse(raw);
-    }catch(error){
-      console.warn("Failed to parse AI line analysis", error, raw);
-      return null;
-    }
+    const parsed = data?.analysis;
     if (typeof parsed !== "object" || !parsed){
       return null;
     }
@@ -16053,7 +15873,7 @@ if (historySearchInput){
 // ---------- LLM extraction + PDF handling -----------------------------------
 async function callAPI(text){
   setErrorMessage("");
-  setStatusMessage('<span class="spinner"></span> Extracting…');
+  setStatusMessage("Extracting…", { showSpinner: true });
   const res = await fetch(API_BASE + "/extract", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -16071,7 +15891,7 @@ async function callAPI(text){
 async function callPdfAPI(file, options = {}){
   setErrorMessage("");
   const forceOcr = !!options.forceOcr;
-  setStatusMessage(forceOcr ? '<span class="spinner"></span> Extracting PDF with OCR…' : '<span class="spinner"></span> Extracting PDF…');
+  setStatusMessage(forceOcr ? "Extracting PDF with OCR…" : "Extracting PDF…", { showSpinner: true });
   const formData = new FormData();
   formData.append("file", file, file.name || "upload.pdf");
   const endpoint = API_BASE + "/extract_pdf" + (forceOcr ? "?force_ocr=true" : "");
