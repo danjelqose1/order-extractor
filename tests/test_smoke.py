@@ -153,6 +153,7 @@ def _install_fake_db(monkeypatch) -> Dict[str, List[Dict[str, Any]]]:
     fake_db.get_telegram_file = lambda file_id: dict(telegram_records[int(file_id)]) if int(file_id) in telegram_records else None
     fake_db.update_order_status = _update_order_status
     fake_db.get_orders = lambda *args, **kwargs: []
+    fake_db.get_analysis_orders = lambda *args, **kwargs: []
     fake_db.get_orders_by_identifiers = lambda *args, **kwargs: []
     fake_db.get_order_with_extraction = lambda *args, **kwargs: None
     fake_db.delete_order = lambda *args, **kwargs: False
@@ -371,6 +372,48 @@ def test_invoice_ai_line_analysis_route_returns_validated_result(monkeypatch):
 
     assert response.status_code == 200
     assert response.json() == {"analysis": expected}
+
+
+def test_analysis_summary_route_returns_server_computed_snapshot(monkeypatch):
+    app_module, _calls = _load_app(monkeypatch, legacy_enabled="false")
+    captured = {}
+
+    def _analysis_orders(statuses):
+        captured["statuses"] = tuple(statuses)
+        return [
+            {
+                "id": 7,
+                "created_at": "2026-06-10T08:00:00Z",
+                "client": "Client A",
+                "order_numbers": ["R-7"],
+                "rows": [
+                    {
+                        "type": "LowE",
+                        "dimension": "1000x1000",
+                        "quantity": 2,
+                        "area": 2.0,
+                    }
+                ],
+            }
+        ]
+
+    app_module.get_analysis_orders = _analysis_orders
+    client = TestClient(app_module.app)
+    response = client.get(
+        "/analysis/summary",
+        params={
+            "start_date": "2026-06-10",
+            "end_date": "2026-06-10",
+            "compare_previous": "false",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["kpis"]["orders"] == 1
+    assert payload["kpis"]["units"] == 2
+    assert payload["topClients"][0]["client"] == "Client A"
+    assert captured["statuses"] == ("approved", "in_production", "completed")
 
 
 def test_pdf_visual_llm_uses_input_file_payload(monkeypatch):

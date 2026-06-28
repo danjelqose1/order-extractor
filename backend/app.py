@@ -48,6 +48,7 @@ from db import (
     update_order_rows,
     update_order_status,
     get_orders,
+    get_analysis_orders,
     get_orders_by_identifiers,
     get_order_with_extraction,
     delete_order,
@@ -93,6 +94,7 @@ from extraction_normalizer import normalize_extracted_rows
 from utils_text import build_order_total_diagnostics, clean_dimension, parse_declared_totals
 from prompts import PROMPTS
 from analysis_signals import generate_analysis_signals
+from analytics_summary import ANALYTICS_STATUSES, build_analysis_summary
 from services.pdf_native_text_editor import native_text_replace
 from invoice_ai import analyze_invoice_line, match_invoice_glass_type
 ENV_PATH = Path(__file__).parent / ".env"
@@ -4061,7 +4063,7 @@ def ask_analysis(request: Request, payload: AnalysisAskPayload) -> Dict[str, str
 
     user_content = (
         f"Question:\n{question}\n\n"
-        f"Dataset (all-time):\n{_clip(dataset_json, ANALYSIS_DATASET_MAX_CHARS)}\n\n"
+        f"Analytics snapshot:\n{_clip(dataset_json, ANALYSIS_DATASET_MAX_CHARS)}\n\n"
         f"Settings:\n{settings_json}"
     )
 
@@ -4118,6 +4120,37 @@ def ask_analysis(request: Request, payload: AnalysisAskPayload) -> Dict[str, str
     }
 
     return {"answerMarkdown": answer}
+
+
+@app.get("/analysis/summary")
+def analysis_summary(
+    start_date: Optional[str] = Query(default=None, description="Current period start date (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(default=None, description="Current period end date (YYYY-MM-DD)"),
+    compare_previous: bool = Query(default=True),
+    client: Optional[str] = Query(default=None),
+    glass_type: Optional[str] = Query(default=None),
+    tolerance_mm: float = Query(default=1.0, ge=0, le=5),
+    orientation_agnostic: bool = Query(default=True),
+    all_time: bool = Query(default=False),
+) -> Dict[str, Any]:
+    try:
+        orders = get_analysis_orders(ANALYTICS_STATUSES)
+        return build_analysis_summary(
+            orders,
+            start_date=start_date,
+            end_date=end_date,
+            compare_previous=compare_previous,
+            client=(client or "").strip(),
+            glass_type=(glass_type or "").strip(),
+            tolerance_mm=tolerance_mm,
+            orientation_agnostic=orientation_agnostic,
+            all_time=all_time,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        print("[analysis_summary] failed:\n" + "".join(traceback.format_exc()))
+        raise HTTPException(status_code=500, detail=f"Failed to build analytics summary: {exc}")
 
 
 @app.post("/analysis/signals")

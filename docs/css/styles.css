@@ -2486,8 +2486,69 @@
       gap:6px;
       min-width:180px;
     }
-    .analysis-kpi-grid{
+    .analysis-controls-header{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:24px;
+      margin-bottom:18px;
+    }
+    .analysis-controls-header h2{
+      margin:0;
+      font-size:20px;
+    }
+    .analysis-controls-header p:last-child{
+      margin:6px 0 0;
+    }
+    .analysis-status-stack{
+      display:flex;
+      min-width:220px;
+      flex-direction:column;
+      align-items:flex-end;
+      gap:5px;
+      text-align:right;
+    }
+    .analysis-range-row,
+    .analysis-filter-footer{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      flex-wrap:wrap;
+    }
+    .analysis-range-row{
+      margin-bottom:14px;
+      padding-bottom:14px;
+      border-bottom:1px solid var(--border);
+    }
+    .analysis-range-presets,
+    .analysis-filter-actions{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      flex-wrap:wrap;
+    }
+    .analysis-range-presets .btn.active{
+      border-color:var(--primary);
+      background:var(--primary-soft);
+      color:var(--primary);
+      font-weight:800;
+    }
+    .analysis-filter-grid{
       grid-template-columns:repeat(4,minmax(0,1fr));
+      gap:12px;
+    }
+    .analysis-filter-summary{
+      display:flex;
+      min-width:0;
+      flex-direction:column;
+      gap:8px;
+    }
+    .analysis-filter-footer{
+      margin-top:14px;
+    }
+    .analysis-kpi-grid{
+      grid-template-columns:repeat(3,minmax(0,1fr));
       margin-top:14px;
     }
     .analysis-kpi-card{
@@ -2537,6 +2598,46 @@
     }
     .analysis-chart-body svg{
       height:220px;
+    }
+    .analysis-skeleton{
+      display:block;
+      border-radius:999px;
+      background:linear-gradient(90deg,#e9eef6 25%,#f6f8fb 45%,#e9eef6 65%);
+      background-size:220% 100%;
+      animation:analysisSkeleton 1.35s ease-in-out infinite;
+    }
+    .analysis-skeleton-card{
+      justify-content:center;
+      gap:14px;
+    }
+    .analysis-skeleton-label{
+      width:42%;
+      height:10px;
+    }
+    .analysis-skeleton-value{
+      width:64%;
+      height:26px;
+    }
+    .analysis-skeleton-line{
+      width:78%;
+      height:10px;
+    }
+    .analysis-chart-loading{
+      display:flex;
+      min-height:220px;
+      flex-direction:column;
+      justify-content:center;
+      gap:15px;
+    }
+    .analysis-chart-loading .analysis-skeleton{
+      height:14px;
+    }
+    .analysis-chart-loading .analysis-skeleton:nth-child(1){width:88%}
+    .analysis-chart-loading .analysis-skeleton:nth-child(2){width:66%}
+    .analysis-chart-loading .analysis-skeleton:nth-child(3){width:76%}
+    @keyframes analysisSkeleton{
+      from{background-position:100% 0}
+      to{background-position:-100% 0}
     }
     .analysis-axis-chart{
       width:100%;
@@ -2636,6 +2737,9 @@
       main.app{
         padding:22px 18px 44px;
       }
+      .analysis-filter-grid{
+        grid-template-columns:repeat(2,minmax(0,1fr));
+      }
       .app-sidebar{
         width:76px;
         padding:16px 10px;
@@ -2673,6 +2777,36 @@
       main.app{
         margin-left:0;
         padding:92px 12px 36px;
+      }
+      .analysis-controls-header{
+        flex-direction:column;
+        gap:12px;
+      }
+      .analysis-status-stack{
+        min-width:0;
+        align-items:flex-start;
+        text-align:left;
+      }
+      .analysis-range-row{
+        align-items:flex-start;
+        flex-direction:column;
+      }
+      .analysis-range-presets{
+        display:grid;
+        width:100%;
+        grid-template-columns:repeat(2,minmax(0,1fr));
+      }
+      .analysis-range-presets .btn{
+        width:100%;
+      }
+      .analysis-filter-footer{
+        align-items:stretch;
+        flex-direction:column;
+      }
+      .analysis-filter-actions{
+        display:grid;
+        width:100%;
+        grid-template-columns:repeat(2,minmax(0,1fr));
       }
       .app-sidebar{
         inset:0 0 auto 0;
@@ -5537,6 +5671,10 @@
       .analysis-kpi-card,
       .analysis-chart-card{
         background:#131b26;
+      }
+      .analysis-skeleton{
+        background:linear-gradient(90deg,#263244 25%,#344154 45%,#263244 65%);
+        background-size:220% 100%;
       }
       .analysis-kpi-value{
         color:#eef3f8;

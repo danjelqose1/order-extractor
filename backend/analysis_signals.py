@@ -48,7 +48,7 @@ def _format_period(period: Dict[str, Any]) -> str:
     start = str(period.get("start") or "").strip()
     end = str(period.get("end") or "").strip()
     if start and end:
-        return f"{start} -> {end}"
+        return f"{start} – {end}"
     if start:
         return f"from {start}"
     if end:

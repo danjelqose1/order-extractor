@@ -25,7 +25,15 @@ from sqlalchemy import (
 )
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    Mapped,
+    Session,
+    mapped_column,
+    relationship,
+    selectinload,
+    sessionmaker,
+)
 
 from utils_text import build_signature, extract_client_hint, normalize_order_number
 
@@ -1425,6 +1433,49 @@ def get_orders(
             stmt = stmt.where(Order.created_at < to_dt)
         orders = session.execute(stmt).scalars().all()
         return [_serialize_order(order, include_rows=False) for order in orders]
+
+
+def get_analysis_orders(
+    statuses: Sequence[str] = PROCESSING_ELIGIBLE_STATUSES,
+) -> List[Dict[str, Any]]:
+    normalized_statuses = {
+        normalize_order_status(status, default="")
+        for status in statuses
+        if normalize_order_status(status, default="")
+    }
+    if not normalized_statuses:
+        return []
+    with SessionLocal() as session:
+        statement = (
+            select(Order)
+            .where(func.lower(Order.status).in_(sorted(normalized_statuses)))
+            .options(selectinload(Order.rows))
+            .order_by(Order.created_at.asc(), Order.id.asc())
+        )
+        orders = session.execute(statement).scalars().all()
+        return [
+            {
+                "id": order.id,
+                "created_at": order.created_at.isoformat(),
+                "status": normalize_order_status(order.status),
+                "client": _normalize_client_name(
+                    order.client_name,
+                    order.client_hint,
+                )
+                or "—",
+                "order_numbers": order.order_numbers,
+                "rows": [
+                    {
+                        "type": row.type,
+                        "dimension": row.dimension,
+                        "quantity": row.quantity,
+                        "area": row.area,
+                    }
+                    for row in order.rows
+                ],
+            }
+            for order in orders
+        ]
 
 
 def get_orders_by_identifiers(identifiers: Sequence[str]) -> List[Dict[str, Any]]:

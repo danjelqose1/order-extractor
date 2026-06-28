@@ -1,7 +1,9 @@
 const LOCAL_API_BASE = "http://127.0.0.1:5055";
 const RENDER_API_BASE = "https://order-extractor-kdih.onrender.com";
 const API_BASE_OVERRIDE = localStorage.getItem("loe.apiBase");
-const API_BASE = API_BASE_OVERRIDE || (window.location.protocol === "file:" ? LOCAL_API_BASE : RENDER_API_BASE);
+const IS_LOCAL_FRONTEND = window.location.protocol === "file:"
+  || ["127.0.0.1", "localhost", "::1"].includes(window.location.hostname);
+const API_BASE = API_BASE_OVERRIDE || (IS_LOCAL_FRONTEND ? LOCAL_API_BASE : RENDER_API_BASE);
 console.log("API_BASE:", API_BASE);
 try{
   localStorage.removeItem("loe.openaiKey");
@@ -26,8 +28,8 @@ const DEFAULT_APPEARANCE_SETTINGS = Object.freeze({
 const MOTHER_SHEET_SELECTOR = "#motherSheet, .mother-sheet";
 const ANALYSIS_MAX_DATASET_CHARS = 50000;
 const ANALYSIS_SNAPSHOT_TTL_MS = 7 * 60 * 1000;
-const ANALYSIS_SNAPSHOT_STORAGE_KEY = "loe.analysis.snapshots.v1";
-const ANALYSIS_SNAPSHOT_VERSION = 1;
+const ANALYSIS_SNAPSHOT_STORAGE_KEY = "loe.analysis.snapshots.v2";
+const ANALYSIS_SNAPSHOT_VERSION = 2;
 const ANALYSIS_MAX_SNAPSHOTS = 40;
 const INVOICE_PRICES_KEY = "loe.invoices.prices.v1";
 const INVOICE_JOBS_KEY = "loe.invoices.jobs.v1";
@@ -353,12 +355,14 @@ const scanStudioState = {
   tolerance: 1,
   orientationAgnostic: true,
   distributionMetric: "area",
+  lastSnapshot: null,
   controls: {
     startDate: "",
     endDate: "",
     comparePrevious: true,
     client: "",
     glassType: "",
+    allTime: false,
   },
   sort: {
     clients: { key: "area", direction: "desc" },
@@ -1047,6 +1051,8 @@ const analysisCompareToggle = document.getElementById("analysisCompareToggle");
 const analysisClientFilter = document.getElementById("analysisClientFilter");
 const analysisTypeFilter = document.getElementById("analysisTypeFilter");
 const analysisRefreshBtn = document.getElementById("analysisRefresh");
+const analysisExportBtn = document.getElementById("analysisExport");
+const analysisRangePresetsEl = document.getElementById("analysisRangePresets");
 const analysisPeriodMetaEl = document.getElementById("analysisPeriodMeta");
 const analysisFreshnessEl = document.getElementById("analysisFreshness");
 const analysisKpisEl = document.getElementById("analysisKpis");
@@ -2030,6 +2036,7 @@ function getAnalysisSessionId(){
  * @property {string} glassType
  * @property {number} tolerance
  * @property {boolean} orientationAgnostic
+ * @property {boolean} allTime
  */
 
 /**
@@ -2069,6 +2076,7 @@ function normalizeSnapshotFilters(settings){
     glassType: String(settings?.glassType || ""),
     tolerance: Number(settings?.tolerance) || 0,
     orientationAgnostic: !!settings?.orientationAgnostic,
+    allTime: !!settings?.allTime,
   };
 }
 
@@ -2510,6 +2518,7 @@ function readAnalysisSettings(){
     comparePrevious: analysisState.controls.comparePrevious,
     client: analysisState.controls.client,
     glassType: analysisState.controls.glassType,
+    allTime: analysisState.controls.allTime,
   };
 }
 
@@ -2793,6 +2802,34 @@ function makeSparkline(values, color = "#4c5cff"){
   </svg>`;
 }
 
+function renderAnalysisLoadingState(){
+  if (analysisKpisEl){
+    analysisKpisEl.innerHTML = Array.from({ length: 6 }, ()=> `
+      <article class="analysis-kpi-card analysis-skeleton-card" aria-hidden="true">
+        <span class="analysis-skeleton analysis-skeleton-label"></span>
+        <span class="analysis-skeleton analysis-skeleton-value"></span>
+        <span class="analysis-skeleton analysis-skeleton-line"></span>
+      </article>
+    `).join("");
+  }
+  [
+    analysisTypeDistributionChartEl,
+    analysisOrdersChartEl,
+    analysisDimensionsChartEl,
+    analysisAreaByTypeChartEl,
+    analysisTopClientsBarsEl,
+  ].forEach(container => {
+    if (container){
+      container.innerHTML = '<div class="analysis-chart-loading" aria-label="Loading chart"><span class="analysis-skeleton"></span><span class="analysis-skeleton"></span><span class="analysis-skeleton"></span></div>';
+    }
+  });
+  if (analysisTopClientsBody) analysisTopClientsBody.innerHTML = '<tr><td colspan="6" class="muted">Loading client metrics…</td></tr>';
+  if (analysisTopOrdersBody) analysisTopOrdersBody.innerHTML = '<tr><td colspan="3" class="muted">Loading order metrics…</td></tr>';
+  if (analysisTopTypesBody) analysisTopTypesBody.innerHTML = '<tr><td colspan="6" class="muted">Loading glass mix…</td></tr>';
+  if (analysisDimensionsBody) analysisDimensionsBody.innerHTML = '<tr><td colspan="8" class="muted">Loading dimension patterns…</td></tr>';
+  renderInsights([], null, true);
+}
+
 function renderAnalysisKpis(context){
   if (!analysisKpisEl) return;
   const current = context?.current?.totals || {
@@ -2808,6 +2845,7 @@ function renderAnalysisKpis(context){
       key: "orders",
       label: "Total Orders",
       value: formatNumber(current.orders),
+      detail: `${formatNumber(current.avg_orders_per_day || 0, { decimals: 1 })} per day`,
       delta: computePercentDelta(current.orders, previous?.orders || 0),
       trend: daily.map(item => item.orders),
     },
@@ -2826,10 +2864,26 @@ function renderAnalysisKpis(context){
       trend: daily.map(item => item.units),
     },
     {
+      key: "averageArea",
+      label: "Avg m² / Order",
+      value: formatAreaMetric(current.avg_area_per_order || 0),
+      detail: `${formatNumber(current.avg_units_per_order || 0, { decimals: 1 })} units per order`,
+      delta: computePercentDelta(current.avg_area_per_order, previous?.avg_area_per_order || 0),
+      trend: daily.map(item => item.avgAreaPerOrder),
+    },
+    {
+      key: "clients",
+      label: "Active Clients",
+      value: formatNumber(current.distinct_clients || 0),
+      detail: `${formatNumber(current.distinct_types || 0)} glass types`,
+      delta: computePercentDelta(current.distinct_clients, previous?.distinct_clients || 0),
+      trend: [],
+    },
+    {
       key: "topClient",
       label: "Top Client",
       value: topClient ? topClient.client : "—",
-      detail: topClient ? `${formatAreaMetric(topClient.area_m2)} m² | ${formatNumber(topClient.orders)} orders` : "No client data",
+      detail: topClient ? `${formatAreaMetric(topClient.area_m2)} | ${formatNumber(topClient.orders)} ${Number(topClient.orders) === 1 ? "order" : "orders"}` : "No client data",
       delta: topClient ? topClient.growth_pct : null,
       trend: topClient ? [0, Number(topClient.area_m2) || 0] : [],
     },
@@ -2865,10 +2919,11 @@ function renderBarList(container, rows, valueKey, labelFormatter){
   container.innerHTML = `<div class="analysis-bars">${list.map(item => {
     const value = Number(item[valueKey]) || 0;
     const widthPct = Math.max(3, (value / maxValue) * 100);
-    return `<div class="analysis-bar-row">
+    const displayValue = labelFormatter(item);
+    return `<div class="analysis-bar-row" title="${escapeHtml(`${item.label}: ${displayValue}`)}">
       <span class="analysis-bar-label">${escapeHtml(item.label)}</span>
-      <span class="analysis-bar-track"><span class="analysis-bar-fill" style="width:${widthPct}%"></span></span>
-      <span class="analysis-bar-value">${escapeHtml(labelFormatter(item))}</span>
+      <span class="analysis-bar-track" aria-hidden="true"><span class="analysis-bar-fill" style="width:${widthPct}%"></span></span>
+      <span class="analysis-bar-value">${escapeHtml(displayValue)}</span>
     </div>`;
   }).join("")}</div>`;
 }
@@ -3057,14 +3112,21 @@ function renderDailyOrderBars(container, series){
     const x = padLeft + (index * slot) + ((slot - barWidth) / 2);
     const h = Math.max(value > 0 ? 3 : 0, (value / max) * innerHeight);
     const y = padTop + innerHeight - h;
-    return `<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${barWidth.toFixed(2)}" height="${h.toFixed(2)}" rx="4" fill="#2557d6"></rect>`;
+    const label = rows[index]?.label || rows[index]?.date || "";
+    return `<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${barWidth.toFixed(2)}" height="${h.toFixed(2)}" rx="4" fill="#2557d6"><title>${escapeHtml(`${label}: ${formatNumber(value)} orders`)}</title></rect>`;
   }).join("");
   const firstLabel = rows[0]?.label || rows[0]?.date || "";
   const lastLabel = rows[rows.length - 1]?.label || rows[rows.length - 1]?.date || "";
+  const half = max / 2;
+  const halfY = padTop + (innerHeight / 2);
   container.innerHTML = `<svg class="analysis-axis-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Orders per day">
+    <line x1="${padLeft}" y1="${padTop}" x2="${width - padRight}" y2="${padTop}" stroke="#e7ebf2" stroke-width="1"></line>
+    <line x1="${padLeft}" y1="${halfY}" x2="${width - padRight}" y2="${halfY}" stroke="#e7ebf2" stroke-width="1"></line>
     <line x1="${padLeft}" y1="${padTop + innerHeight}" x2="${width - padRight}" y2="${padTop + innerHeight}" stroke="#d9e0eb" stroke-width="1"></line>
     <line x1="${padLeft}" y1="${padTop}" x2="${padLeft}" y2="${padTop + innerHeight}" stroke="#d9e0eb" stroke-width="1"></line>
     <text x="${padLeft}" y="13" fill="#667085" font-size="12">${escapeHtml(String(max))}</text>
+    <text x="${padLeft + 4}" y="${halfY - 4}" fill="#667085" font-size="11">${escapeHtml(formatNumber(half, { decimals: Number.isInteger(half) ? 0 : 1 }))}</text>
+    <text x="${padLeft + 4}" y="${padTop + innerHeight - 4}" fill="#667085" font-size="11">0</text>
     ${bars}
     <text x="${padLeft}" y="${height - 10}" fill="#667085" font-size="12">${escapeHtml(firstLabel)}</text>
     <text x="${width - padRight}" y="${height - 10}" text-anchor="end" fill="#667085" font-size="12">${escapeHtml(lastLabel)}</text>
@@ -3113,7 +3175,7 @@ function renderCharts(context){
     "qty",
     item => `${formatNumber(item.qty)} pcs`
   );
-  renderBarList(analysisAreaByTypeChartEl, topTypes, "area", item => `${formatAreaMetric(item.area)} m²`);
+  renderBarList(analysisAreaByTypeChartEl, topTypes, "area", item => formatAreaMetric(item.area));
   renderBarList(
     analysisTopClientsBarsEl,
     (current.topClients || []).slice(0, 8).map(item => ({
@@ -3131,14 +3193,14 @@ function renderPeriodMeta(context){
   const period = context?.period || {};
   const previous = context?.previousPeriod || null;
   const rangeText = (period.start && period.end)
-    ? `${period.start} -> ${period.end}`
+    ? `${period.start} – ${period.end}`
     : "All available dates";
   const filterParts = [];
   if (analysisState.controls.client) filterParts.push(`client: ${analysisState.controls.client}`);
   if (analysisState.controls.glassType) filterParts.push(`glass type: ${analysisState.controls.glassType}`);
   const filterText = filterParts.length ? ` | Filters: ${filterParts.join(", ")}` : "";
   const compareText = previous
-    ? ` | Comparison: ${previous.start} -> ${previous.end}`
+    ? ` | Comparison: ${previous.start} – ${previous.end}`
     : (analysisState.controls.comparePrevious ? " | Comparison unavailable (set date range)." : " | Comparison off");
   analysisPeriodMetaEl.textContent = `Period: ${rangeText}${compareText}${filterText}`;
 }
@@ -3311,6 +3373,20 @@ function applyAnalysisSnapshotPayload(payload, options = {}){
   if (!payload || typeof payload !== "object"){
     return;
   }
+  const payloadFilters = payload.filters && typeof payload.filters === "object" ? payload.filters : {};
+  analysisState.controls.startDate = String(payloadFilters.startDate || "");
+  analysisState.controls.endDate = String(payloadFilters.endDate || "");
+  analysisState.controls.comparePrevious = payloadFilters.compareToPrevious !== false;
+  analysisState.controls.client = String(payloadFilters.client || "");
+  analysisState.controls.glassType = String(payloadFilters.glassType || "");
+  analysisState.controls.allTime = !!payloadFilters.allTime;
+  analysisState.tolerance = Number(payloadFilters.tolerance ?? analysisState.tolerance) || 0;
+  analysisState.orientationAgnostic = payloadFilters.orientationAgnostic !== false;
+  if (analysisDateStartInput) analysisDateStartInput.value = analysisState.controls.startDate;
+  if (analysisDateEndInput) analysisDateEndInput.value = analysisState.controls.endDate;
+  if (analysisCompareToggle) analysisCompareToggle.checked = analysisState.controls.comparePrevious;
+  if (analysisToleranceInput) analysisToleranceInput.value = String(analysisState.tolerance);
+  if (analysisOrientationToggle) analysisOrientationToggle.checked = analysisState.orientationAgnostic;
   populateAnalysisFilterOptionsFromSnapshot(payload.availableFilters);
   const context = {
     period: payload.period || {},
@@ -3326,7 +3402,9 @@ function applyAnalysisSnapshotPayload(payload, options = {}){
   analysisState.topDimensions = Array.isArray(payload.topDimensions) ? payload.topDimensions.slice() : [];
   analysisState.insights = Array.isArray(payload.insights) ? payload.insights.slice() : [];
   analysisState.currentSnapshotComputedAt = payload.computedAt || "";
+  analysisState.lastSnapshot = payload;
   analysisState.hasRenderedSnapshot = true;
+  analysisState.allOrdersDirty = false;
   analysisState.advancedDataset = buildAdvancedAnalysisDataset(context, analysisState.insights);
   renderPeriodMeta(context);
   renderAnalysisKpis(context);
@@ -3338,6 +3416,8 @@ function applyAnalysisSnapshotPayload(payload, options = {}){
   renderSortIndicators();
   renderInsights(analysisState.insights, context, false);
   setAnalysisFreshnessLabel(payload.computedAt || "", !!options.refreshing);
+  updateAnalysisRangePresetState();
+  if (analysisExportBtn) analysisExportBtn.disabled = false;
 }
 
 async function ensureAnalysisOrdersLoaded(settings, options = {}){
@@ -3360,28 +3440,17 @@ function setAnalysisRefreshingState(isRefreshing, { manual = false } = {}){
   setAnalysisFreshnessLabel(analysisState.currentSnapshotComputedAt || "", analysisState.revalidating);
   if (analysisRefreshBtn){
     analysisRefreshBtn.disabled = !!manual && !!isRefreshing;
-    analysisRefreshBtn.textContent = (manual && isRefreshing) ? "Refreshing…" : "Refresh";
+    analysisRefreshBtn.textContent = (manual && isRefreshing) ? "Loading…" : "Apply filters";
   }
 }
 
-async function computeAnalysisSnapshot(settings, options = {}){
+async function computeAnalysisSnapshot(settings){
   const filters = normalizeSnapshotFilters(settings);
-  await ensureAnalysisOrdersLoaded(settings, { forceReload: !!options.forceReload });
-  const context = buildAnalysisContext(analysisState.orders || [], settings);
   const runId = ++analysisState.renderRunId;
-  let signals = [];
-  try{
-    const summary = buildSignalsSummary(context);
-    signals = await fetchAnalysisSignals(summary);
-  }catch(error){
-    console.warn("Analysis signals unavailable:", error);
-    signals = [];
-  }
+  const payload = await fetchAnalysisSummary(settings);
   if (runId !== analysisState.renderRunId){
     return null;
   }
-  const computedAt = new Date().toISOString();
-  const payload = buildAnalysisSnapshotPayload(filters, context, signals, computedAt, "fresh");
   const key = buildSnapshotCacheKey(filters);
   saveAnalysisSnapshot({
     version: ANALYSIS_SNAPSHOT_VERSION,
@@ -3422,9 +3491,9 @@ async function refreshAnalysis(options = {}){
       return cachedPayload;
     }
   }else{
-    setAnalysisStatus(analysisState.hasRenderedSnapshot ? "Refreshing selected filters…" : "Preparing analysis snapshot…");
+    setAnalysisStatus(analysisState.hasRenderedSnapshot ? "Refreshing selected filters…" : "Loading analytics…");
     if (!analysisState.hasRenderedSnapshot){
-      renderInsights([], null, true);
+      renderAnalysisLoadingState();
     }
   }
 
@@ -3437,9 +3506,7 @@ async function refreshAnalysis(options = {}){
   analysisState.loading = true;
   const task = (async ()=>{
     try{
-      const payload = await computeAnalysisSnapshot(settings, {
-        forceReload: force || analysisState.allOrdersDirty || !hasCached,
-      });
+      const payload = await computeAnalysisSnapshot(settings);
       if (!payload){
         return hasCached ? cachedEntry.payload : null;
       }
@@ -3468,6 +3535,7 @@ async function refreshAnalysis(options = {}){
       analysisState.currentPeriod = null;
       analysisState.previousPeriod = null;
       analysisState.insights = [];
+      analysisState.lastSnapshot = null;
       analysisState.advancedDataset = null;
       analysisState.currentSnapshotComputedAt = "";
       renderAnalysisKpis({ current: { totals: null } });
@@ -3478,6 +3546,7 @@ async function refreshAnalysis(options = {}){
       renderTopOrders({ current: { orderContributions: [] } });
       renderInsights([], null, false);
       setAnalysisFreshnessLabel("", false);
+      if (analysisExportBtn) analysisExportBtn.disabled = true;
       return null;
     }finally{
       analysisState.loading = false;
@@ -3537,17 +3606,141 @@ function bindAnalysisSortHandlers(){
   if (analysisDimensionsHead) analysisDimensionsHead.addEventListener("click", handler);
 }
 
+function updateAnalysisRangePresetState(){
+  if (!analysisRangePresetsEl) return;
+  let activeRange = "";
+  if (analysisState.controls.allTime){
+    activeRange = "all";
+  }else{
+    const start = parseDateInput(analysisState.controls.startDate, false);
+    const end = parseDateInput(analysisState.controls.endDate, false);
+    if (start && end){
+      const inclusiveDays = Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+      if ([7, 30, 90].includes(inclusiveDays)){
+        activeRange = String(inclusiveDays);
+      }
+    }
+  }
+  analysisRangePresetsEl.querySelectorAll("button[data-analysis-range]").forEach(button => {
+    button.classList.toggle("active", button.dataset.analysisRange === activeRange);
+  });
+  if (analysisCompareToggle){
+    analysisCompareToggle.disabled = analysisState.controls.allTime;
+  }
+}
+
+function markAnalysisFiltersPending({ dateChanged = false } = {}){
+  if (dateChanged){
+    analysisState.controls.allTime = false;
+  }
+  readAnalysisSettings();
+  updateAnalysisRangePresetState();
+  setAnalysisStatus("Filters changed — apply to update.");
+}
+
+function applyAnalysisRangePreset(value){
+  const range = String(value || "");
+  if (range === "all"){
+    analysisState.controls.allTime = true;
+    analysisState.controls.startDate = "";
+    analysisState.controls.endDate = "";
+    analysisState.controls.comparePrevious = false;
+    if (analysisDateStartInput) analysisDateStartInput.value = "";
+    if (analysisDateEndInput) analysisDateEndInput.value = "";
+    if (analysisCompareToggle) analysisCompareToggle.checked = false;
+  }else{
+    const days = Number(range);
+    if (![7, 30, 90].includes(days)) return;
+    const existingEnd = parseDateInput(analysisState.controls.endDate, false);
+    const end = existingEnd || new Date();
+    const start = new Date(end.getTime());
+    start.setDate(start.getDate() - (days - 1));
+    analysisState.controls.allTime = false;
+    analysisState.controls.startDate = toDateInputValue(start);
+    analysisState.controls.endDate = toDateInputValue(end);
+    if (analysisDateStartInput) analysisDateStartInput.value = analysisState.controls.startDate;
+    if (analysisDateEndInput) analysisDateEndInput.value = analysisState.controls.endDate;
+  }
+  updateAnalysisRangePresetState();
+  refreshAnalysis({ force: true, manual: true, reason: "range-preset" });
+}
+
+function analysisCsvCell(value){
+  const text = value == null ? "" : String(value);
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function exportAnalysisSnapshot(){
+  const snapshot = analysisState.lastSnapshot;
+  if (!snapshot) return;
+  const lines = [];
+  const addRow = values => lines.push(values.map(analysisCsvCell).join(","));
+  addRow(["Analytics report", "Value"]);
+  addRow(["Period start", snapshot.period?.start || "All time"]);
+  addRow(["Period end", snapshot.period?.end || "All time"]);
+  addRow(["Generated", snapshot.computedAt || ""]);
+  lines.push("");
+  addRow(["Metric", "Value"]);
+  Object.entries(snapshot.kpis || {}).forEach(([key, value]) => addRow([key, value]));
+  lines.push("");
+  addRow(["Top clients", "Orders", "Units", "Area m2", "Share %", "Growth %"]);
+  (snapshot.topClients || []).forEach(item => addRow([
+    item.client,
+    item.orders,
+    item.units,
+    item.area_m2,
+    item.share_area_pct,
+    item.growth_pct,
+  ]));
+  lines.push("");
+  addRow(["Glass types", "Lines", "Units", "Area m2", "Share %", "Growth %"]);
+  (snapshot.topGlassTypes || []).forEach(item => addRow([
+    item.type,
+    item.lines,
+    item.units,
+    item.area_m2,
+    item.share_area_pct,
+    item.growth_pct,
+  ]));
+  lines.push("");
+  addRow(["Dimensions", "Quantity", "Orders", "Clients", "Repeat score", "Batching"]);
+  (snapshot.topDimensions || []).forEach(item => addRow([
+    item.dimension,
+    item.qty,
+    item.orders,
+    item.clients,
+    item.repeatScore,
+    item.batchingOpportunity ? "Yes" : "No",
+  ]));
+  const blob = new Blob(["\ufeff" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `analytics-${snapshot.period?.start || "all"}-${snapshot.period?.end || "time"}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 function bindAnalysisFilterHandlers(){
-  const runLocal = ()=> {
-    refreshAnalysis({ reason: "filter-change" });
-  };
-  if (analysisDateStartInput) analysisDateStartInput.addEventListener("change", runLocal);
-  if (analysisDateEndInput) analysisDateEndInput.addEventListener("change", runLocal);
-  if (analysisCompareToggle) analysisCompareToggle.addEventListener("change", runLocal);
-  if (analysisClientFilter) analysisClientFilter.addEventListener("change", runLocal);
-  if (analysisTypeFilter) analysisTypeFilter.addEventListener("change", runLocal);
+  if (analysisDateStartInput) analysisDateStartInput.addEventListener("change", ()=> markAnalysisFiltersPending({ dateChanged: true }));
+  if (analysisDateEndInput) analysisDateEndInput.addEventListener("change", ()=> markAnalysisFiltersPending({ dateChanged: true }));
+  if (analysisCompareToggle) analysisCompareToggle.addEventListener("change", ()=> markAnalysisFiltersPending());
+  if (analysisClientFilter) analysisClientFilter.addEventListener("change", ()=> markAnalysisFiltersPending());
+  if (analysisTypeFilter) analysisTypeFilter.addEventListener("change", ()=> markAnalysisFiltersPending());
   if (analysisRefreshBtn){
     analysisRefreshBtn.addEventListener("click", ()=> refreshAnalysis({ force: true, manual: true, reason: "manual-refresh" }));
+  }
+  if (analysisExportBtn){
+    analysisExportBtn.addEventListener("click", exportAnalysisSnapshot);
+  }
+  if (analysisRangePresetsEl){
+    analysisRangePresetsEl.addEventListener("click", event => {
+      const button = event.target.closest("button[data-analysis-range]");
+      if (!button) return;
+      applyAnalysisRangePreset(button.dataset.analysisRange);
+    });
   }
   if (analysisDistributionMetricEl){
     analysisDistributionMetricEl.addEventListener("click", event => {
@@ -3574,13 +3767,9 @@ function initAnalysis(){
   if (analysisState.initialized) return;
   analysisState.initialized = true;
   readAnalysisSettings();
-  renderAnalysisKpis({ current: { totals: null } });
-  renderTopClients([]);
-  renderTopTypes([]);
-  renderTopDimensions([]);
-  renderCharts({ current: { daily: [], topClients: [], topTypes: [] } });
-  renderInsights([], null, false);
+  renderAnalysisLoadingState();
   setAnalysisFreshnessLabel("", false);
+  updateAnalysisRangePresetState();
   bindAnalysisFilterHandlers();
   bindAnalysisSortHandlers();
   refreshAnalysis({ reason: "init" });
@@ -12846,6 +13035,24 @@ async function fetchAnalysisSignals(summary){
   }
   const data = await res.json();
   return Array.isArray(data?.signals) ? data.signals : [];
+}
+
+async function fetchAnalysisSummary(settings){
+  const search = new URLSearchParams();
+  if (settings?.startDate && !settings?.allTime) search.set("start_date", settings.startDate);
+  if (settings?.endDate && !settings?.allTime) search.set("end_date", settings.endDate);
+  search.set("compare_previous", String(!!settings?.comparePrevious));
+  if (settings?.client) search.set("client", settings.client);
+  if (settings?.glassType) search.set("glass_type", settings.glassType);
+  search.set("tolerance_mm", String(Number(settings?.tolerance) || 0));
+  search.set("orientation_agnostic", String(!!settings?.orientationAgnostic));
+  search.set("all_time", String(!!settings?.allTime));
+  const res = await fetch(API_BASE + "/analysis/summary?" + search.toString());
+  if (!res.ok){
+    const text = await res.text();
+    throw new Error(text || ("HTTP " + res.status));
+  }
+  return res.json();
 }
 
 async function deleteOrder(id){

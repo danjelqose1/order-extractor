@@ -1177,20 +1177,27 @@
     </section>
 
     <section id="tabAnalysis" class="tab-panel">
-      <div class="card analysis-hero-card">
-        <div>
-          <p class="section-eyebrow">Analytics</p>
-          <h2 style="margin-top:0">Analysis</h2>
-          <p class="muted small">Deterministic analytics from saved order history for factory planning.</p>
-        </div>
-        <div class="analysis-hero-meta">
-          <span id="analysisStatus" class="muted small"></span>
-          <span id="analysisFreshness" class="muted small"></span>
-        </div>
-        <button type="button" class="btn small" id="analysisDebugToggle" style="display:none;margin-top:8px">Log dataset rows</button>
-      </div>
-
       <div class="card" id="analysisControlsCard">
+        <div class="analysis-controls-header">
+          <div>
+            <p class="section-eyebrow">Factory planning</p>
+            <h2>Plan by period</h2>
+            <p class="muted small">Approved and production-stage orders, summarized on the server.</p>
+          </div>
+          <div class="analysis-status-stack" aria-live="polite">
+            <span id="analysisStatus" class="muted small"></span>
+            <span id="analysisFreshness" class="muted small"></span>
+          </div>
+        </div>
+        <div class="analysis-range-row">
+          <span class="muted small">Quick range</span>
+          <div class="analysis-range-presets" id="analysisRangePresets">
+            <button type="button" class="btn small" data-analysis-range="7">7 days</button>
+            <button type="button" class="btn small active" data-analysis-range="30">30 days</button>
+            <button type="button" class="btn small" data-analysis-range="90">90 days</button>
+            <button type="button" class="btn small" data-analysis-range="all">All time</button>
+          </div>
+        </div>
         <div class="analysis-filter-grid">
           <label>
             <span>Start date</span>
@@ -1199,10 +1206,6 @@
           <label>
             <span>End date</span>
             <input type="date" id="analysisDateEnd" />
-          </label>
-          <label class="inline-toggle">
-            <input type="checkbox" id="analysisCompareToggle" checked />
-            <span>Compare to previous period</span>
           </label>
           <label>
             <span>Client</span>
@@ -1216,11 +1219,21 @@
               <option value="">All glass types</option>
             </select>
           </label>
-          <button type="button" class="btn small" id="analysisRefresh">Refresh</button>
         </div>
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px">
-          <div id="analysisPeriodMeta" class="muted small"></div>
+        <div class="analysis-filter-footer">
+          <div class="analysis-filter-summary">
+            <label class="inline-toggle">
+              <input type="checkbox" id="analysisCompareToggle" checked />
+              <span>Compare to previous period</span>
+            </label>
+            <div id="analysisPeriodMeta" class="muted small"></div>
+          </div>
+          <div class="analysis-filter-actions">
+            <button type="button" class="btn small" id="analysisExport" disabled>Export CSV</button>
+            <button type="button" class="btn primary small" id="analysisRefresh">Apply filters</button>
+          </div>
         </div>
+        <button type="button" class="btn small" id="analysisDebugToggle" hidden>Log dataset rows</button>
       </div>
 
       <div class="card" id="analysisKpisCard">
