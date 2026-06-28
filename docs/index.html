@@ -177,83 +177,131 @@
           </div>
         </div>
 
-      <div class="card extract-input-card">
-        <label for="input" class="muted small" style="display:block;margin-bottom:6px;font-weight:600">Order text</label>
-        <textarea id="input" placeholder="Paste order text here…"></textarea>
-      </div>
-
-      <div class="card extract-shell">
-        <h3 class="upload-heading">Order PDF</h3>
-        <div id="pdfDropZone" class="dropzone" role="button" tabindex="0">Drop PDF here or click to upload.</div>
-        <div class="status-row extract-status-row">
-          <span id="orderInfo" class="muted small"></span>
-          <span id="status" class="muted small"></span>
-        </div>
-        <div id="summary" class="summary"></div>
-        <div class="controls extract-controls">
-          <button id="extract" class="btn primary">Extract</button>
-          <button id="rerun" class="btn tertiary" disabled>Re-run</button>
-          <button id="approveSave" class="btn success" disabled>Approve & Save</button>
-          <button id="copyCsv" class="btn tertiary">Copy CSV</button>
-          <button id="downloadCsv" class="btn tertiary">Download CSV</button>
-          <button id="printLabels" class="btn tertiary">Print Labels</button>
-          <label class="inline-toggle">
-            <input type="checkbox" data-group-toggle id="groupToggle" disabled>
-            <span>Group identical sizes</span>
-          </label>
-          <label class="inline-toggle">
-            <input type="checkbox" id="lowConfidenceOnly">
-            <span>Low confidence only</span>
-          </label>
-          <details id="logoPanel">
-            <summary>Logos</summary>
-            <div style="display:flex;gap:12px;align-items:center;margin-top:8px;flex-wrap:wrap">
-              <label>logokeli.png <input type="file" id="logoKeli" accept="image/png" /></label>
-              <label>ce.png <input type="file" id="logoCe" accept="image/png" /></label>
-              <span class="muted small" id="logoStatus"></span>
+        <div class="extraction-review-layout">
+          <aside class="card extraction-source-pane" aria-label="Source document and review issues">
+            <div class="extraction-pane-header">
+              <div>
+                <span class="section-eyebrow">Source</span>
+                <h3>Order document</h3>
+              </div>
+              <span id="extractSourceMeta" class="muted small">No document selected</span>
             </div>
-            <div class="muted small" style="margin-top:6px">Tip: place <code>logokeli.png</code> / <code>ce.png</code> alongside this file or in <code>assets/</code>. These pickers store logos locally (browser only).</div>
-          </details>
-        </div>
+            <div id="pdfDropZone" class="dropzone" role="button" tabindex="0">Drop PDF here or click to upload.</div>
+            <div id="extractPdfPreviewEmpty" class="extract-preview-empty">
+              <strong>Your PDF preview will appear here.</strong>
+              <span>Upload an order to review its pages beside the extracted data.</span>
+            </div>
+            <div id="extractPdfPreview" class="extract-pdf-preview source-pdf-viewer" aria-label="Uploaded order PDF" hidden>
+              <div class="source-pdf-toolbar">
+                <button type="button" class="btn small tertiary" id="extractPdfPrev" aria-label="Previous PDF page">←</button>
+                <span id="extractPdfPageLabel">Page 1 of 1</span>
+                <button type="button" class="btn small tertiary" id="extractPdfNext" aria-label="Next PDF page">→</button>
+              </div>
+              <div class="source-pdf-canvas-wrap">
+                <canvas id="extractPdfCanvas"></canvas>
+              </div>
+            </div>
+            <div id="extractSourceHighlight" class="source-highlight" hidden></div>
 
-        <div class="extract-meta-grid">
-          <label class="extract-meta-field">
-            <span>Order no.</span>
-            <input id="extractMetaOrderNo" type="text" readonly />
-          </label>
-          <label class="extract-meta-field">
-            <span>Date</span>
-            <input id="extractMetaDate" type="text" readonly />
-          </label>
-          <label class="extract-meta-field">
-            <span>Client</span>
-            <input id="extractMetaClient" type="text" readonly />
-          </label>
-        </div>
-      </div>
+            <details class="manual-text-entry">
+              <summary>Paste order text instead</summary>
+              <div class="extract-input-card">
+                <label for="input" class="muted small">Order text</label>
+                <textarea id="input" placeholder="Paste order text here…"></textarea>
+                <button id="extract" class="btn primary">Extract text</button>
+              </div>
+            </details>
 
-      <div class="card extract-table-card">
-        <div id="declaredBanner" class="warning-list" hidden></div>
-        <div id="extractWarnings" class="warning-list" hidden>
-          <h4>Warnings</h4>
-          <ul></ul>
+            <section class="extract-review-panel" aria-labelledby="extractReviewHeading">
+              <div class="extraction-pane-header compact">
+                <div>
+                  <span class="section-eyebrow">Review queue</span>
+                  <h3 id="extractReviewHeading">Issues</h3>
+                </div>
+                <span id="extractIssueCount" class="issue-count">0</span>
+              </div>
+              <div class="issue-navigation">
+                <button type="button" class="btn small tertiary" id="extractPrevIssue" disabled>← Previous</button>
+                <button type="button" class="btn small tertiary" id="extractNextIssue" disabled>Next →</button>
+              </div>
+              <div id="extractReviewIssues" class="extract-review-issues">
+                <div class="review-issue-empty">Issues found during extraction will appear here.</div>
+              </div>
+            </section>
+          </aside>
+
+          <div class="extraction-data-pane">
+            <div class="card extract-shell">
+              <div class="status-row extract-status-row">
+                <span id="orderInfo" class="muted small"></span>
+                <span id="status" class="muted small"></span>
+              </div>
+              <div id="summary" class="summary"></div>
+              <div class="controls extract-controls">
+                <button id="rerun" class="btn tertiary" disabled>Re-run</button>
+                <button id="approveSave" class="btn success" disabled>Approve & Save</button>
+                <button id="copyCsv" class="btn tertiary">Copy CSV</button>
+                <button id="downloadCsv" class="btn tertiary">Download CSV</button>
+                <button id="printLabels" class="btn tertiary">Print Labels</button>
+                <label class="inline-toggle">
+                  <input type="checkbox" data-group-toggle id="groupToggle" disabled>
+                  <span>Group identical sizes</span>
+                </label>
+                <label class="inline-toggle">
+                  <input type="checkbox" id="lowConfidenceOnly">
+                  <span>Low confidence only</span>
+                </label>
+                <details id="logoPanel">
+                  <summary>Logos</summary>
+                  <div style="display:flex;gap:12px;align-items:center;margin-top:8px;flex-wrap:wrap">
+                    <label>logokeli.png <input type="file" id="logoKeli" accept="image/png" /></label>
+                    <label>ce.png <input type="file" id="logoCe" accept="image/png" /></label>
+                    <span class="muted small" id="logoStatus"></span>
+                  </div>
+                  <div class="muted small" style="margin-top:6px">Tip: place <code>logokeli.png</code> / <code>ce.png</code> alongside this file or in <code>assets/</code>. These pickers store logos locally (browser only).</div>
+                </details>
+              </div>
+
+              <div class="extract-meta-grid">
+                <label class="extract-meta-field">
+                  <span>Order no.</span>
+                  <input id="extractMetaOrderNo" type="text" readonly />
+                </label>
+                <label class="extract-meta-field">
+                  <span>Date</span>
+                  <input id="extractMetaDate" type="text" readonly />
+                </label>
+                <label class="extract-meta-field">
+                  <span>Client</span>
+                  <input id="extractMetaClient" type="text" readonly />
+                </label>
+              </div>
+            </div>
+
+            <div class="card extract-table-card">
+              <div id="declaredBanner" class="warning-list" hidden></div>
+              <div id="extractWarnings" class="warning-list" hidden>
+                <h4>Warnings</h4>
+                <ul></ul>
+              </div>
+              <div class="ocr-action-row">
+                <button type="button" id="ocrRecheckMissing" class="btn small" disabled>Recheck missing fields with OCR</button>
+                <button type="button" id="forceOcrExtraction" class="btn small" disabled>Force OCR extraction</button>
+                <button type="button" id="fixAllAreas" class="btn small" hidden>Fix all areas</button>
+              </div>
+              <div class="table-responsive" id="tableWrap"></div>
+              <div class="notes-field">
+                <label for="extractNotes" class="muted small">Approval notes (optional)</label>
+                <textarea id="extractNotes" placeholder="Add a note before approving…"></textarea>
+              </div>
+              <div class="extract-footer">
+                <button type="button" id="extractAddRow" class="btn">+ Add Row</button>
+                <button type="button" id="extractGenerateLabels" class="btn generate">Generate Labels →</button>
+              </div>
+              <div id="error" class="alert" hidden></div>
+            </div>
+          </div>
         </div>
-        <div class="ocr-action-row">
-          <button type="button" id="ocrRecheckMissing" class="btn small" disabled>Recheck missing fields with OCR</button>
-          <button type="button" id="forceOcrExtraction" class="btn small" disabled>Force OCR extraction</button>
-          <button type="button" id="fixAllAreas" class="btn small" hidden>Fix all areas</button>
-        </div>
-        <div class="table-responsive" id="tableWrap"></div>
-        <div class="notes-field">
-          <label for="extractNotes" class="muted small">Approval notes (optional)</label>
-          <textarea id="extractNotes" placeholder="Add a note before approving…"></textarea>
-        </div>
-        <div class="extract-footer">
-          <button type="button" id="extractAddRow" class="btn">+ Add Row</button>
-          <button type="button" id="extractGenerateLabels" class="btn generate">Generate Labels →</button>
-        </div>
-        <div id="error" class="alert" hidden></div>
-      </div>
       </div>
 
       <div id="iguWorkspaceModule">
@@ -835,55 +883,126 @@
       </div>
     </section>
 
-    <div class="modal-layer history-drawer-layer" id="historyDrawerLayer" hidden>
-      <div class="modal-card wide history-drawer-card history-detail" id="historyDetailCard">
-        <div class="history-drawer-header">
-          <h2 style="margin:0">Order Detail</h2>
-          <button class="btn small" id="historyDrawerClose">Close</button>
-        </div>
-        <div class="history-detail-header">
-          <div>
-            <div id="historyMeta" class="muted small"></div>
+    <section id="tabOrderDetail" class="tab-panel">
+      <div class="order-detail-page" id="historyDrawerLayer">
+        <div class="history-detail" id="historyDetailCard">
+          <div class="order-detail-topbar">
+            <button class="btn tertiary" id="historyDrawerClose">← Back to Orders</button>
+            <div class="order-detail-identity">
+              <span class="section-eyebrow">Order workspace</span>
+              <div class="order-detail-title-row">
+                <h2 id="orderDetailTitle">Order Detail</h2>
+                <span id="orderDetailStatus"></span>
+              </div>
+              <div id="orderDetailClient" class="muted"></div>
+              <div id="historyMeta" class="muted small"></div>
+            </div>
+            <div class="history-detail-actions">
+              <button class="btn success" id="historyApprove" disabled>Approve & Save</button>
+              <button class="btn small" id="historyProcessing" disabled>Send to Processing</button>
+              <button class="btn small" id="historyPrint" disabled>Print Labels</button>
+              <button class="btn small tertiary" id="historyCsv" disabled>Download CSV</button>
+              <button class="btn small danger" id="historyArchive" disabled>Archive</button>
+            </div>
           </div>
-          <div class="history-detail-actions">
-            <button class="btn success" id="historyApprove" disabled>Approve & Save</button>
-            <button class="btn small" id="historyProcessing" disabled>Send to Processing</button>
-            <button class="btn small" id="historyPrint" disabled>Print Labels</button>
-            <button class="btn small" id="historyCsv" disabled>Download CSV</button>
-            <button class="btn small danger" id="historyArchive" disabled>Archive</button>
+
+          <div id="orderLifecycle" class="order-lifecycle" aria-label="Order lifecycle"></div>
+
+          <div class="order-detail-tabs" role="tablist" aria-label="Order detail views">
+            <button type="button" class="active" data-order-detail-view="summary" role="tab" aria-selected="true">Summary</button>
+            <button type="button" data-order-detail-view="items" role="tab" aria-selected="false">Items</button>
+            <button type="button" data-order-detail-view="files" role="tab" aria-selected="false">Files</button>
+            <button type="button" data-order-detail-view="activity" role="tab" aria-selected="false">Activity</button>
           </div>
+
+          <section class="order-detail-view active" data-order-detail-panel="summary">
+            <div class="order-detail-summary-grid">
+              <div class="card order-detail-summary-card">
+                <h3>Order summary</h3>
+                <div id="historyOrderInfo" class="muted small"></div>
+                <div id="historySummary" class="summary"></div>
+                <div id="historyDeclaredBanner" class="warning-list" hidden></div>
+              </div>
+              <div class="card order-detail-summary-card">
+                <h3>Review status</h3>
+                <div id="historyWarnings" class="warning-list" hidden>
+                  <h4>Warnings</h4>
+                  <ul></ul>
+                </div>
+                <div id="orderDetailReviewSummary" class="order-review-summary"></div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="notes-field">
+                <label for="historyNotes" class="muted small">Approval notes (optional)</label>
+                <textarea id="historyNotes" placeholder="Add a note before approving…"></textarea>
+              </div>
+            </div>
+          </section>
+
+          <section class="order-detail-view" data-order-detail-panel="items" hidden>
+            <div class="card">
+              <div class="history-detail-subheader">
+                <div>
+                  <h3 style="margin:0">Extracted items</h3>
+                  <div class="muted small">Draft and reviewed orders remain editable until approval.</div>
+                </div>
+                <label class="inline-toggle">
+                  <input type="checkbox" data-group-toggle id="historyGroupToggle">
+                  <span>Group identical sizes</span>
+                </label>
+              </div>
+              <div style="margin-bottom:12px"><button type="button" id="historyFixAllAreas" class="btn small" hidden>Fix all areas</button></div>
+              <div class="table-responsive" id="historyTableWrap"></div>
+            </div>
+          </section>
+
+          <section class="order-detail-view" data-order-detail-panel="files" hidden>
+            <div class="order-detail-files-grid">
+              <div class="card order-source-card">
+                <div class="overview-section-header">
+                  <div>
+                    <h3>Original document</h3>
+                    <p class="muted small" id="orderDetailSourceMeta">Saved extraction source</p>
+                  </div>
+                </div>
+                <div id="orderDetailSourceEmpty" class="order-source-empty">No source PDF is stored for this order.</div>
+                <div id="orderDetailSourceFrame" class="order-source-frame source-pdf-viewer" aria-label="Original order PDF" hidden>
+                  <div class="source-pdf-toolbar">
+                    <button type="button" class="btn small tertiary" id="orderSourcePrev" aria-label="Previous source page">←</button>
+                    <span id="orderSourcePageLabel">Page 1 of 1</span>
+                    <button type="button" class="btn small tertiary" id="orderSourceNext" aria-label="Next source page">→</button>
+                  </div>
+                  <div class="source-pdf-canvas-wrap">
+                    <canvas id="orderSourceCanvas"></canvas>
+                  </div>
+                </div>
+                <div id="orderDetailSourceHighlight" class="source-highlight" hidden></div>
+              </div>
+              <div class="card">
+                <h3 style="margin-top:0">Production files</h3>
+                <div id="orderDetailFiles" class="workspace-file-list">
+                  <div class="overview-empty">No production files generated yet.</div>
+                </div>
+                <details class="history-raw-section">
+                  <summary class="muted small">Raw extracted text</summary>
+                  <pre id="historyRawText">No raw extraction text available.</pre>
+                </details>
+              </div>
+            </div>
+          </section>
+
+          <section class="order-detail-view" data-order-detail-panel="activity" hidden>
+            <div class="card">
+              <h3 style="margin-top:0">Status history</h3>
+              <div id="historyStatusTimeline" class="history-status-timeline history-empty">No status history available.</div>
+            </div>
+          </section>
+
+          <div id="historyDetailEmpty" class="history-empty">Select an order from the list to view details.</div>
         </div>
-        <div class="history-detail-subheader">
-          <div class="muted small">Grouping toggle applies to both Extract and History views.</div>
-          <label class="inline-toggle">
-            <input type="checkbox" data-group-toggle id="historyGroupToggle">
-            <span>Group identical sizes</span>
-          </label>
-        </div>
-        <div id="historyOrderInfo" class="muted small"></div>
-        <div id="historyDeclaredBanner" class="warning-list" hidden></div>
-        <div id="historyWarnings" class="warning-list" hidden>
-          <h4>Warnings</h4>
-          <ul></ul>
-        </div>
-        <div id="historySummary" class="summary"></div>
-        <div style="margin-bottom:12px"><button type="button" id="historyFixAllAreas" class="btn small" hidden>Fix all areas</button></div>
-        <div class="table-responsive" id="historyTableWrap"></div>
-        <details class="history-raw-section">
-          <summary class="muted small" style="cursor:pointer;font-weight:600">Raw extracted text</summary>
-          <pre id="historyRawText">No raw extraction text available.</pre>
-        </details>
-        <div>
-          <h4 style="margin:8px 0 6px">Status history</h4>
-          <div id="historyStatusTimeline" class="history-status-timeline history-empty">No status history available.</div>
-        </div>
-        <div class="notes-field">
-          <label for="historyNotes" class="muted small">Approval notes (optional)</label>
-          <textarea id="historyNotes" placeholder="Add a note before approving…"></textarea>
-        </div>
-        <div id="historyDetailEmpty" class="history-empty">Select an order from the list to view details.</div>
       </div>
-    </div>
+    </section>
 
     <section id="tabProcessing" class="tab-panel">
       <div class="processing-layout">

@@ -222,6 +222,12 @@ const appState = {
 };
 
 let lastExtractPdfFile = null;
+let activeReviewIssueIndex = -1;
+let currentExtractReviewIssues = [];
+const sourcePdfState = {
+  extract: { document: null, page: 1, pages: 0, renderToken: 0 },
+  order: { document: null, page: 1, pages: 0, renderToken: 0 },
+};
 
 const processingState = {
   processedRows: [],
@@ -374,6 +380,7 @@ const panels = {
   scanstudio: document.getElementById("tabScanStudio"),
   pdfeditor: document.getElementById("tabPdfEditor"),
   history: document.getElementById("tabHistory"),
+  orderdetail: document.getElementById("tabOrderDetail"),
   processing: document.getElementById("tabProcessing"),
   spacer: document.getElementById("tabSpacer"),
   labels: document.getElementById("tabLabels"),
@@ -412,6 +419,11 @@ const PAGE_META = Object.freeze({
     eyebrow: "Orders",
     title: "Orders",
     subtitle: "Find, review, export, and continue previously extracted orders.",
+  },
+  orderdetail: {
+    eyebrow: "Orders",
+    title: "Order Detail",
+    subtitle: "Review the order lifecycle, extracted items, source document, and production files.",
   },
   processing: {
     eyebrow: "Factory",
@@ -718,6 +730,32 @@ const historyProcessingBtn = document.getElementById("historyProcessing");
 const historyInvoiceBtn = document.getElementById("historyInvoice");
 const historyArchiveBtn = document.getElementById("historyArchive");
 const historyInvoiceAllBtn = document.getElementById("historyInvoiceAll");
+const orderDetailTitle = document.getElementById("orderDetailTitle");
+const orderDetailStatus = document.getElementById("orderDetailStatus");
+const orderDetailClient = document.getElementById("orderDetailClient");
+const orderLifecycleEl = document.getElementById("orderLifecycle");
+const orderDetailReviewSummary = document.getElementById("orderDetailReviewSummary");
+const orderDetailSourceMeta = document.getElementById("orderDetailSourceMeta");
+const orderDetailSourceEmpty = document.getElementById("orderDetailSourceEmpty");
+const orderDetailSourceFrame = document.getElementById("orderDetailSourceFrame");
+const orderDetailSourceHighlight = document.getElementById("orderDetailSourceHighlight");
+const orderDetailFiles = document.getElementById("orderDetailFiles");
+const orderSourceCanvas = document.getElementById("orderSourceCanvas");
+const orderSourcePageLabel = document.getElementById("orderSourcePageLabel");
+const orderSourcePrev = document.getElementById("orderSourcePrev");
+const orderSourceNext = document.getElementById("orderSourceNext");
+const extractSourceMeta = document.getElementById("extractSourceMeta");
+const extractPdfPreviewEmpty = document.getElementById("extractPdfPreviewEmpty");
+const extractPdfPreview = document.getElementById("extractPdfPreview");
+const extractPdfCanvas = document.getElementById("extractPdfCanvas");
+const extractPdfPageLabel = document.getElementById("extractPdfPageLabel");
+const extractPdfPrev = document.getElementById("extractPdfPrev");
+const extractPdfNext = document.getElementById("extractPdfNext");
+const extractSourceHighlight = document.getElementById("extractSourceHighlight");
+const extractIssueCount = document.getElementById("extractIssueCount");
+const extractReviewIssuesEl = document.getElementById("extractReviewIssues");
+const extractPrevIssueBtn = document.getElementById("extractPrevIssue");
+const extractNextIssueBtn = document.getElementById("extractNextIssue");
 const historySearchInput = document.getElementById("historySearch");
 const historyClientFilterInput = document.getElementById("historyClientFilter");
 const historyStatusFilterSelect = document.getElementById("historyStatusFilter");
@@ -917,8 +955,9 @@ function activateTab(name){
 	    updateAppChrome(name);
 	  }
 	  setMobileNavOpen(false);
+	  const primaryTab = name === "orderdetail" ? "history" : name;
 	  tabs.forEach(btn => {
-	    const isTarget = btn.dataset.tab === name;
+	    const isTarget = btn.dataset.tab === primaryTab;
 	    if (isTarget){
 	      btn.classList.add("active");
 	    }else{
@@ -951,9 +990,6 @@ function activateTab(name){
       panel.setAttribute("aria-hidden", "true");
     }
   });
-  if (name !== "history"){
-    closeHistoryDrawer();
-  }
   if (name === "extract"){
     loadOverview();
   }else if (name === "history"){
@@ -8969,6 +9005,16 @@ document.getElementById("historyNotes").addEventListener("input", (event)=>{
 });
 
 document.getElementById("tableWrap").addEventListener("click", (event)=>{
+  const sourceRow = event.target.closest("tr[data-index]");
+  if (sourceRow){
+    const rowIndex = Number(sourceRow.dataset.index);
+    const matchedIssueIndex = currentExtractReviewIssues.findIndex(issue => issue.rowIndex === rowIndex);
+    if (matchedIssueIndex >= 0){
+      setActiveExtractReviewIssue(matchedIssueIndex, { scroll: false });
+    }else{
+      showSourceLocation(extractPdfPreview, extractSourceHighlight, appState.extract.rows[rowIndex], `Row ${rowIndex + 1}`);
+    }
+  }
   const addBtn = event.target.closest("[data-add-row]");
   if (addBtn){
     addRowToGroup("extract", addBtn.dataset.addRow || "");
@@ -8978,6 +9024,36 @@ document.getElementById("tableWrap").addEventListener("click", (event)=>{
   if (fixBtn){
     const idx = Number(fixBtn.dataset.fixArea);
     if (!Number.isNaN(idx)) requestRowDiagnosis("extract", idx);
+  }
+});
+
+extractReviewIssuesEl?.addEventListener("click", event => {
+  const issueButton = event.target.closest("[data-review-issue-index]");
+  if (!issueButton) return;
+  setActiveExtractReviewIssue(Number(issueButton.dataset.reviewIssueIndex), { focus: true });
+});
+
+extractPrevIssueBtn?.addEventListener("click", ()=> {
+  setActiveExtractReviewIssue(activeReviewIssueIndex - 1, { focus: true });
+});
+
+extractNextIssueBtn?.addEventListener("click", ()=> {
+  setActiveExtractReviewIssue(activeReviewIssueIndex + 1, { focus: true });
+});
+
+extractPdfPrev?.addEventListener("click", ()=> setSourcePdfPage("extract", sourcePdfState.extract.page - 1));
+extractPdfNext?.addEventListener("click", ()=> setSourcePdfPage("extract", sourcePdfState.extract.page + 1));
+orderSourcePrev?.addEventListener("click", ()=> setSourcePdfPage("order", sourcePdfState.order.page - 1));
+orderSourceNext?.addEventListener("click", ()=> setSourcePdfPage("order", sourcePdfState.order.page + 1));
+
+document.addEventListener("keydown", event => {
+  if (!event.altKey || !panels.extract?.classList.contains("active") || newOrderWorkspace?.hidden) return;
+  if (event.key === "ArrowUp" && currentExtractReviewIssues.length){
+    event.preventDefault();
+    setActiveExtractReviewIssue(activeReviewIssueIndex - 1, { focus: true });
+  }else if (event.key === "ArrowDown" && currentExtractReviewIssues.length){
+    event.preventDefault();
+    setActiveExtractReviewIssue(activeReviewIssueIndex + 1, { focus: true });
   }
 });
 
@@ -12000,6 +12076,119 @@ function getExtractRowsForView(){
   return rows.filter(row => isLowConfidenceRow(row, warningMap[row._rid]));
 }
 
+function reviewIssueMessage(value, fallback = "Review this extracted value."){
+  if (value && typeof value === "object"){
+    return String(value.message || value.summary || value.reason || value.code || fallback);
+  }
+  const text = String(value || "").trim();
+  return text || fallback;
+}
+
+function collectExtractReviewIssues(){
+  const issues = [];
+  const rows = appState.extract.rows || [];
+  rows.forEach((row, rowIndex) => {
+    missingCriticalFields(row).forEach(field => {
+      issues.push({
+        rowIndex,
+        field,
+        severity: "error",
+        label: `Row ${rowIndex + 1} · Missing ${criticalFieldLabel(field)}`,
+        message: `Enter a valid ${criticalFieldLabel(field)} before approval.`,
+      });
+    });
+    const rowWarnings = appState.extract.rowWarnings?.[row._rid] || [];
+    (Array.isArray(rowWarnings) ? rowWarnings : [rowWarnings]).filter(Boolean).forEach(warning => {
+      issues.push({
+        rowIndex,
+        field: chooseFallbackTargetField(row),
+        severity: "warning",
+        label: `Row ${rowIndex + 1} · Extraction warning`,
+        message: reviewIssueMessage(warning),
+      });
+    });
+    getDiagnosticIssues(row).forEach(issue => {
+      issues.push({
+        rowIndex,
+        field: chooseFallbackTargetField({ ...row, diagnostics: { ...getRowDiagnostics(row), issues: [issue] } }),
+        severity: String(issue?.severity || "warning").toLowerCase(),
+        label: `Row ${rowIndex + 1} · ${String(issue?.code || "Validation").replaceAll("_", " ")}`,
+        message: reviewIssueMessage(issue),
+      });
+    });
+  });
+  (appState.extract.warnings || []).forEach(warning => {
+    issues.push({
+      rowIndex: null,
+      field: "",
+      severity: "warning",
+      label: "Order warning",
+      message: reviewIssueMessage(warning),
+    });
+  });
+  return issues;
+}
+
+function syncExtractReviewIssue(options = {}){
+  const issue = currentExtractReviewIssues[activeReviewIssueIndex];
+  document.querySelectorAll("#tableWrap tr.review-row-active").forEach(row => row.classList.remove("review-row-active"));
+  if (!issue || issue.rowIndex == null){
+    if (extractSourceHighlight && !issue) extractSourceHighlight.hidden = true;
+    return;
+  }
+  const rowElement = document.querySelector(`#tableWrap tr[data-index="${issue.rowIndex}"]`);
+  if (rowElement){
+    rowElement.classList.add("review-row-active");
+    if (options.scroll !== false) rowElement.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (options.focus){
+      rowElement.querySelector(`[data-field="${issue.field}"]`)?.focus({ preventScroll: true });
+    }
+  }
+  showSourceLocation(
+    extractPdfPreview,
+    extractSourceHighlight,
+    appState.extract.rows[issue.rowIndex],
+    `Row ${issue.rowIndex + 1}`,
+  );
+}
+
+function setActiveExtractReviewIssue(index, options = {}){
+  if (!currentExtractReviewIssues.length){
+    activeReviewIssueIndex = -1;
+    syncExtractReviewIssue();
+    return;
+  }
+  const count = currentExtractReviewIssues.length;
+  activeReviewIssueIndex = ((Number(index) || 0) % count + count) % count;
+  document.querySelectorAll("[data-review-issue-index]").forEach(item => {
+    const active = Number(item.dataset.reviewIssueIndex) === activeReviewIssueIndex;
+    item.classList.toggle("active", active);
+    item.setAttribute("aria-current", active ? "true" : "false");
+  });
+  syncExtractReviewIssue(options);
+}
+
+function renderExtractReviewIssues(){
+  currentExtractReviewIssues = collectExtractReviewIssues();
+  if (activeReviewIssueIndex >= currentExtractReviewIssues.length) activeReviewIssueIndex = currentExtractReviewIssues.length - 1;
+  if (extractIssueCount) extractIssueCount.textContent = String(currentExtractReviewIssues.length);
+  if (extractPrevIssueBtn) extractPrevIssueBtn.disabled = currentExtractReviewIssues.length < 2;
+  if (extractNextIssueBtn) extractNextIssueBtn.disabled = currentExtractReviewIssues.length < 2;
+  if (extractReviewIssuesEl){
+    extractReviewIssuesEl.innerHTML = currentExtractReviewIssues.length
+      ? currentExtractReviewIssues.map((issue, index) => `
+        <button type="button" class="review-issue ${issue.severity === "error" ? "error" : ""}${index === activeReviewIssueIndex ? " active" : ""}" data-review-issue-index="${index}">
+          <span class="review-issue-marker" aria-hidden="true">${issue.severity === "error" ? "!" : "•"}</span>
+          <span><strong>${escapeHtml(issue.label)}</strong><small>${escapeHtml(issue.message)}</small></span>
+        </button>
+      `).join("")
+      : `<div class="review-issue-empty ${appState.extract.rows.length ? "success" : ""}">${
+          appState.extract.rows.length ? "No extraction issues detected." : "Issues found during extraction will appear here."
+        }</div>`;
+  }
+  if (activeReviewIssueIndex >= 0) syncExtractReviewIssue({ scroll: false });
+}
+
 function updateExtractUI(){
   withPreservedFocus(() => {
     const groupToggleEl = document.getElementById("groupToggle");
@@ -12040,6 +12229,7 @@ function updateExtractUI(){
     }
   });
   window.__rows = appState.extract.rows;
+  renderExtractReviewIssues();
   updateLabelsUI();
 }
 
@@ -14926,14 +15116,13 @@ function closeHistoryActionMenus(){
 }
 
 function openHistoryDrawer(){
-  if (historyDrawerLayer){
-    historyDrawerLayer.hidden = false;
-  }
+  if (historyDrawerLayer) historyDrawerLayer.hidden = false;
+  activateTab("orderdetail");
 }
 
 function closeHistoryDrawer(){
-  if (historyDrawerLayer){
-    historyDrawerLayer.hidden = true;
+  if (panels.orderdetail?.classList.contains("active")){
+    activateTab("history");
   }
 }
 
@@ -15071,6 +15260,310 @@ function renderHistoryStatusTimeline(events){
   historyStatusTimelineEl.innerHTML = html;
 }
 
+function sourcePdfElements(kind){
+  if (kind === "order"){
+    return {
+      container: orderDetailSourceFrame,
+      canvas: orderSourceCanvas,
+      label: orderSourcePageLabel,
+      previous: orderSourcePrev,
+      next: orderSourceNext,
+    };
+  }
+  return {
+    container: extractPdfPreview,
+    canvas: extractPdfCanvas,
+    label: extractPdfPageLabel,
+    previous: extractPdfPrev,
+    next: extractPdfNext,
+  };
+}
+
+function updateSourcePdfControls(kind){
+  const state = sourcePdfState[kind];
+  const elements = sourcePdfElements(kind);
+  if (elements.label) elements.label.textContent = `Page ${state.page || 1} of ${state.pages || 1}`;
+  if (elements.previous) elements.previous.disabled = !state.document || state.page <= 1;
+  if (elements.next) elements.next.disabled = !state.document || state.page >= state.pages;
+}
+
+async function renderSourcePdfPage(kind, requestedPage){
+  const state = sourcePdfState[kind];
+  const { container, canvas } = sourcePdfElements(kind);
+  if (!state?.document || !container || !canvas || container.hidden || container.clientWidth < 40) return;
+  const pageNumber = Math.max(1, Math.min(Number(requestedPage) || state.page || 1, state.pages));
+  state.page = pageNumber;
+  updateSourcePdfControls(kind);
+  const token = ++state.renderToken;
+  try{
+    const page = await state.document.getPage(pageNumber);
+    const baseViewport = page.getViewport({ scale: 1 });
+    const availableWidth = Math.max(260, container.clientWidth - 20);
+    const scale = Math.max(0.3, Math.min(1.6, availableWidth / baseViewport.width));
+    const viewport = page.getViewport({ scale });
+    const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+    const context = canvas.getContext("2d");
+    canvas.width = Math.ceil(viewport.width * pixelRatio);
+    canvas.height = Math.ceil(viewport.height * pixelRatio);
+    canvas.style.width = `${Math.ceil(viewport.width)}px`;
+    canvas.style.height = `${Math.ceil(viewport.height)}px`;
+    context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+    await page.render({ canvasContext: context, viewport }).promise;
+    if (token !== state.renderToken) return;
+  }catch(error){
+    console.warn(`Unable to render ${kind} PDF page`, error);
+  }
+}
+
+async function loadSourcePdf(kind, source){
+  const state = sourcePdfState[kind];
+  const { container } = sourcePdfElements(kind);
+  if (!state || !container || !source) return;
+  state.renderToken += 1;
+  state.document = null;
+  state.page = 1;
+  state.pages = 0;
+  updateSourcePdfControls(kind);
+  try{
+    const pdfjsLib = await ensurePdfJs();
+    let bytes;
+    if (source instanceof Blob){
+      bytes = new Uint8Array(await source.arrayBuffer());
+    }else{
+      const value = String(source);
+      const prefix = "data:application/pdf;base64,";
+      if (!value.startsWith(prefix)) throw new Error("Unsupported PDF source");
+      bytes = base64ToBytes(value.slice(prefix.length));
+    }
+    const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(bytes), useWorkerFetch: false });
+    const documentRef = await loadingTask.promise;
+    state.document = documentRef;
+    state.pages = documentRef.numPages;
+    state.page = 1;
+    updateSourcePdfControls(kind);
+    await renderSourcePdfPage(kind, 1);
+  }catch(error){
+    console.warn(`Unable to load ${kind} PDF preview`, error);
+  }
+}
+
+function resetSourcePdf(kind){
+  const state = sourcePdfState[kind];
+  if (!state) return;
+  state.renderToken += 1;
+  state.document = null;
+  state.page = 1;
+  state.pages = 0;
+  const { canvas } = sourcePdfElements(kind);
+  const context = canvas?.getContext("2d");
+  if (context && canvas) context.clearRect(0, 0, canvas.width, canvas.height);
+  updateSourcePdfControls(kind);
+}
+
+function setSourcePdfPage(kind, page){
+  const state = sourcePdfState[kind];
+  if (!state?.document) return;
+  renderSourcePdfPage(kind, page);
+}
+
+function selectOrderDetailView(viewName){
+  const target = ["summary", "items", "files", "activity"].includes(viewName) ? viewName : "summary";
+  document.querySelectorAll("[data-order-detail-view]").forEach(button => {
+    const active = button.dataset.orderDetailView === target;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  document.querySelectorAll("[data-order-detail-panel]").forEach(panel => {
+    const active = panel.dataset.orderDetailPanel === target;
+    panel.classList.toggle("active", active);
+    panel.hidden = !active;
+  });
+  if (target === "files") renderSourcePdfPage("order", sourcePdfState.order.page);
+}
+
+function orderLifecycleSteps(status){
+  const normalized = normalizeHistoryStatusValue(status);
+  const steps = [
+    { key: "received", label: "Received" },
+    { key: "extracted", label: "Extracted" },
+    { key: "reviewed", label: "Review" },
+    { key: "approved", label: "Approved" },
+    { key: "in_production", label: "Production" },
+    { key: "completed", label: "Completed" },
+  ];
+  const currentIndexByStatus = {
+    draft: 2,
+    reviewed: 2,
+    approved: 3,
+    in_production: 4,
+    completed: 5,
+    archived: 5,
+  };
+  const currentIndex = currentIndexByStatus[normalized] ?? 2;
+  return steps.map((step, index) => ({
+    ...step,
+    state: index < currentIndex ? "complete" : (index === currentIndex ? "current" : "upcoming"),
+  }));
+}
+
+function getRowSourceLocation(row){
+  if (!row || typeof row !== "object") return null;
+  const location = row.row_location || row.source_location || row.location;
+  return location && typeof location === "object" ? location : null;
+}
+
+function updatePdfFramePage(frame, page){
+  if (!frame || frame.hidden) return;
+  setSourcePdfPage(frame === orderDetailSourceFrame ? "order" : "extract", page);
+}
+
+function showSourceLocation(frame, highlight, row, fallbackLabel = "Source row"){
+  const location = getRowSourceLocation(row);
+  if (!highlight) return;
+  if (!location){
+    highlight.hidden = false;
+    highlight.textContent = `${fallbackLabel} selected · exact page location is unavailable.`;
+    return;
+  }
+  const page = Math.max(1, Number(location.page) || 1);
+  const matchedText = String(location.matched_text || "").trim();
+  highlight.hidden = false;
+  highlight.innerHTML = `<strong>Page ${page}</strong>${matchedText ? ` · ${escapeHtml(matchedText)}` : ""}`;
+  updatePdfFramePage(frame, page);
+}
+
+function renderOrderLifecycle(order){
+  if (!orderLifecycleEl) return;
+  orderLifecycleEl.innerHTML = orderLifecycleSteps(order?.status).map((step, index) => `
+    <div class="order-lifecycle-step ${step.state}">
+      <span class="order-lifecycle-marker">${step.state === "complete" ? "✓" : index + 1}</span>
+      <span>${escapeHtml(step.label)}</span>
+    </div>
+  `).join("");
+}
+
+function countOrderReviewIssues(rows, warningsMap, warnings){
+  let count = Array.isArray(warnings) ? warnings.length : 0;
+  (rows || []).forEach(row => {
+    count += missingCriticalFields(row).length;
+    count += getDiagnosticIssues(row).length;
+    const rowWarnings = warningsMap?.[row._rid] || [];
+    count += Array.isArray(rowWarnings) ? rowWarnings.length : 0;
+  });
+  return count;
+}
+
+function renderOrderReviewSummary(order){
+  if (!orderDetailReviewSummary) return;
+  const issueCount = countOrderReviewIssues(
+    appState.historyDetail.rows,
+    appState.historyDetail.rowWarnings,
+    appState.historyDetail.warnings,
+  );
+  const rowCount = appState.historyDetail.rows.length;
+  const confidence = formatHistoryConfidence(order?.confidence);
+  orderDetailReviewSummary.innerHTML = `
+    <div><span>Items</span><strong>${rowCount}</strong></div>
+    <div><span>Review issues</span><strong class="${issueCount ? "has-issues" : ""}">${issueCount}</strong></div>
+    <div><span>Confidence</span><strong>${escapeHtml(confidence)}</strong></div>
+  `;
+}
+
+function renderOrderSource(order){
+  const extraction = order?.extraction || {};
+  const source = typeof extraction.raw_input === "string" ? extraction.raw_input : "";
+  const isPdf = source.startsWith("data:application/pdf;base64,");
+  if (orderDetailSourceMeta){
+    const method = extraction.extraction_method || order?.extraction_method || order?.source || "Saved extraction";
+    orderDetailSourceMeta.textContent = isPdf ? `${method} · original PDF` : `${method} · text source`;
+  }
+  if (orderDetailSourceFrame){
+    orderDetailSourceFrame.hidden = !isPdf;
+    if (isPdf) loadSourcePdf("order", source);
+    else resetSourcePdf("order");
+  }
+  if (orderDetailSourceEmpty){
+    orderDetailSourceEmpty.hidden = isPdf;
+    orderDetailSourceEmpty.textContent = source
+      ? "This order was created from text. The raw input is available beside the production files."
+      : "No source PDF is stored for this order.";
+  }
+  if (orderDetailSourceHighlight){
+    orderDetailSourceHighlight.hidden = true;
+    orderDetailSourceHighlight.textContent = "";
+  }
+}
+
+function orderFileMatches(item, order){
+  if (!item || !order) return false;
+  if (item.order_id != null && String(item.order_id) === String(order.id)) return true;
+  const orderNumbers = new Set(
+    (Array.isArray(order.order_numbers) ? order.order_numbers : [order.order_number])
+      .filter(Boolean)
+      .map(value => normalizeWorkspaceOrderToken(value)),
+  );
+  return orderNumbers.has(normalizeWorkspaceOrderToken(item.order_number));
+}
+
+function renderOrderFilesList(items){
+  if (!orderDetailFiles) return;
+  if (!items.length){
+    orderDetailFiles.innerHTML = '<div class="overview-empty">No production files generated yet.</div>';
+    return;
+  }
+  orderDetailFiles.innerHTML = items.map(item => {
+    const processingUrl = workspaceFileUrl(item.processing_pdf_url);
+    const labelsUrl = workspaceFileUrl(item.labels_pdf_url);
+    return `<div class="workspace-file-item">
+      <div>
+        <strong>${escapeHtml(item.order_number || "Production batch")}</strong>
+        <div class="workspace-file-meta">${escapeHtml(formatDate(item.generated_at))} · ${escapeHtml(item.batch_status || "ready")}</div>
+      </div>
+      <div class="workspace-file-actions">
+        ${processingUrl ? `<a class="btn small" href="${escapeHtml(processingUrl)}" target="_blank" rel="noopener">Processing PDF</a>` : ""}
+        ${labelsUrl ? `<a class="btn small" href="${escapeHtml(labelsUrl)}" target="_blank" rel="noopener">Labels PDF</a>` : ""}
+      </div>
+    </div>`;
+  }).join("");
+}
+
+async function loadOrderDetailFiles(order){
+  if (!orderDetailFiles || !order) return;
+  orderDetailFiles.innerHTML = '<div class="overview-empty">Loading production files…</div>';
+  try{
+    const cached = [...(workspaceState.moduleFiles || []), ...(workspaceState.recentFiles || [])];
+    let items = cached.filter(item => orderFileMatches(item, order));
+    const payload = await fetchWorkspaceRecentFiles();
+    const recent = Array.isArray(payload?.items) ? payload.items : [];
+    workspaceState.recentFiles = recent;
+    items = [...(workspaceState.moduleFiles || []), ...recent].filter(item => orderFileMatches(item, order));
+    if (String(historyState.selectedOrder?.id) === String(order.id)) renderOrderFilesList(items);
+  }catch{
+    const cached = [...(workspaceState.moduleFiles || []), ...(workspaceState.recentFiles || [])]
+      .filter(item => orderFileMatches(item, order));
+    renderOrderFilesList(cached);
+  }
+}
+
+function renderOrderDetailEnhancements(order){
+  if (!order) return;
+  const label = getOrderLabel(order);
+  const client = getClientName(order);
+  const status = normalizeHistoryStatusValue(order.status);
+  if (orderDetailTitle) orderDetailTitle.textContent = label === "—" ? `Order #${order.id}` : label;
+  if (orderDetailStatus) orderDetailStatus.innerHTML = historyStatusBadgeHtml(status);
+  if (orderDetailClient) orderDetailClient.textContent = client === "—" ? "Client not specified" : client;
+  if (pageTitle) pageTitle.textContent = label === "—" ? "Order Detail" : label;
+  if (pageSubtitle) pageSubtitle.textContent = `${client === "—" ? "Unknown client" : client} · ${historyStatusLabel(status)}`;
+  if (mobilePageTitle) mobilePageTitle.textContent = label === "—" ? "Order Detail" : label;
+  document.title = `${label === "—" ? "Order Detail" : label} — Order Extractor`;
+  renderOrderLifecycle(order);
+  renderOrderReviewSummary(order);
+  renderOrderSource(order);
+  selectOrderDetailView(status === "draft" || status === "reviewed" ? "items" : "summary");
+  loadOrderDetailFiles(order);
+}
+
 function renderOrderDetail(){
   const order = historyState.selectedOrder;
   if (!order){
@@ -15125,6 +15618,7 @@ function renderOrderDetail(){
   }
   renderHistoryStatusTimeline(order.status_history || []);
   updateHistoryDetailUI();
+  renderOrderDetailEnhancements(order);
 }
 
 async function updateOrderStatusRequest(orderId, status, note){
@@ -15379,18 +15873,20 @@ if (historyDrawerClose){
   historyDrawerClose.addEventListener("click", ()=> closeHistoryDrawer());
 }
 
-if (historyDrawerLayer){
-  historyDrawerLayer.addEventListener("click", event=>{
-    if (event.target === historyDrawerLayer){
-      closeHistoryDrawer();
-    }
-  });
-}
+document.querySelectorAll("[data-order-detail-view]").forEach(button => {
+  button.addEventListener("click", ()=> selectOrderDetailView(button.dataset.orderDetailView));
+});
 
 document.addEventListener("keydown", event=>{
-  if (event.key === "Escape" && historyDrawerLayer && !historyDrawerLayer.hidden){
+  if (event.key === "Escape" && panels.orderdetail?.classList.contains("active")){
     closeHistoryDrawer();
   }
+});
+
+document.getElementById("historyTableWrap")?.addEventListener("focusin", event => {
+  const rowElement = event.target.closest("tr[data-index]");
+  const row = appState.historyDetail.rows[Number(rowElement?.dataset.index)];
+  if (row) showSourceLocation(orderDetailSourceFrame, orderDetailSourceHighlight, row, "Order item");
 });
 
 if (processingOrderList){
@@ -16308,6 +16804,13 @@ function applyExtractionResult(data){
   const clientName = getClientName(data);
   appState.extract.client_name = clientName === "—" ? "" : clientName;
   appState.extract.client = clientName;
+  if (extractSourceMeta){
+    const fileName = extractSourceMeta.dataset.fileName || "";
+    const method = appState.extract.extractionMethod
+      ? appState.extract.extractionMethod.replaceAll("_", " ")
+      : "extracted";
+    extractSourceMeta.textContent = fileName ? `${fileName} · ${method}` : `Pasted text · ${method}`;
+  }
   historyState.needsRefresh = true;
   analysisState.allOrdersDirty = true;
   if (data?.saved_order_id){
@@ -16319,11 +16822,40 @@ function applyExtractionResult(data){
   }
 }
 
+function clearExtractPdfPreview(){
+  if (extractPdfPreview){
+    extractPdfPreview.hidden = true;
+  }
+  resetSourcePdf("extract");
+  if (extractPdfPreviewEmpty) extractPdfPreviewEmpty.hidden = false;
+  if (extractSourceHighlight){
+    extractSourceHighlight.hidden = true;
+    extractSourceHighlight.textContent = "";
+  }
+  if (extractSourceMeta){
+    extractSourceMeta.dataset.fileName = "";
+    extractSourceMeta.textContent = "Pasted text";
+  }
+}
+
+function showExtractPdfPreview(file){
+  if (!file || !extractPdfPreview) return;
+  extractPdfPreview.hidden = false;
+  if (extractPdfPreviewEmpty) extractPdfPreviewEmpty.hidden = true;
+  if (extractSourceHighlight) extractSourceHighlight.hidden = true;
+  if (extractSourceMeta){
+    extractSourceMeta.dataset.fileName = file.name || "Uploaded PDF";
+    extractSourceMeta.textContent = `${file.name || "Uploaded PDF"} · ${formatFileSize(file.size)}`;
+  }
+  loadSourcePdf("extract", file);
+}
+
 async function handleTextExtraction(text){
   const value = (text || "").trim();
   if (!value) return;
   try{
     lastExtractPdfFile = null;
+    clearExtractPdfPreview();
     const data = await callAPI(value);
     applyExtractionResult(data);
   }catch(error){
@@ -16336,6 +16868,7 @@ async function handlePdfExtraction(file, options = {}){
   if (!file) return;
   try{
     lastExtractPdfFile = file;
+    showExtractPdfPreview(file);
     const data = await callPdfAPI(file, options);
     applyExtractionResult(data);
   }catch(error){
@@ -16351,6 +16884,10 @@ document.getElementById("extract").addEventListener("click", async ()=>{
 });
 
 document.getElementById("rerun").addEventListener("click", async ()=>{
+  if (lastExtractPdfFile){
+    await handlePdfExtraction(lastExtractPdfFile);
+    return;
+  }
   const text = document.getElementById("input").value.trim();
   if (!text) return;
   await handleTextExtraction(text);

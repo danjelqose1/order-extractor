@@ -792,6 +792,497 @@
         font-size: 20px;
       }
     }
+    .source-pdf-viewer{
+      display:flex;
+      flex-direction:column;
+      overflow:hidden;
+      background:#303846;
+    }
+    .source-pdf-toolbar{
+      min-height:42px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      gap:10px;
+      padding:5px 8px;
+      border-bottom:1px solid var(--border);
+      background:var(--card-bg);
+      color:var(--muted);
+      font-size:12px;
+      font-weight:700;
+    }
+    .source-pdf-toolbar .btn{
+      min-width:34px;
+      padding:4px 8px;
+    }
+    .source-pdf-canvas-wrap{
+      flex:1;
+      min-height:0;
+      padding:10px;
+      overflow:auto;
+      text-align:center;
+    }
+    .source-pdf-canvas-wrap canvas{
+      display:block;
+      max-width:none;
+      margin:0 auto;
+      background:#fff;
+      box-shadow:0 3px 14px rgba(0,0,0,.28);
+    }
+
+    /* Order workspace and source-led extraction review */
+    .extraction-review-layout{
+      display:grid;
+      grid-template-columns:minmax(330px,410px) minmax(0,1fr);
+      gap:16px;
+      align-items:start;
+    }
+    .extraction-source-pane{
+      position:sticky;
+      top:20px;
+      max-height:calc(100vh - 40px);
+      margin:0;
+      overflow:auto;
+    }
+    .extraction-data-pane{
+      min-width:0;
+    }
+    .extraction-pane-header{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:12px;
+    }
+    .extraction-pane-header.compact{
+      align-items:center;
+    }
+    .extraction-pane-header h3{
+      margin:2px 0 0;
+      font-size:17px;
+    }
+    .extraction-pane-header > .small{
+      max-width:55%;
+      text-align:right;
+      overflow-wrap:anywhere;
+    }
+    #tabExtract .extraction-source-pane .dropzone{
+      min-height:88px;
+      margin:14px 0 12px;
+      padding:18px;
+      font-size:14px;
+    }
+    .extract-preview-empty{
+      min-height:390px;
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      justify-content:center;
+      gap:7px;
+      padding:28px;
+      border:1px dashed var(--border);
+      border-radius:12px;
+      background:var(--bg);
+      color:var(--muted);
+      text-align:center;
+    }
+    .extract-preview-empty strong{
+      color:var(--text);
+    }
+    .extract-preview-empty span{
+      max-width:260px;
+      font-size:13px;
+    }
+    .extract-pdf-preview,
+    .order-source-frame{
+      width:100%;
+      height:540px;
+      display:block;
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:#fff;
+    }
+    .extract-pdf-preview[hidden],
+    .order-source-frame[hidden]{
+      display:none;
+    }
+    .source-highlight{
+      margin-top:10px;
+      padding:9px 11px;
+      border:1px solid var(--primary);
+      border-radius:10px;
+      background:var(--primary-soft);
+      color:var(--text);
+      font-size:12px;
+      overflow-wrap:anywhere;
+    }
+    .manual-text-entry{
+      margin:14px 0 0;
+      border:1px solid var(--border);
+      border-radius:10px;
+      background:var(--card-bg);
+    }
+    .manual-text-entry > summary{
+      padding:10px 12px;
+      font-weight:650;
+    }
+    .manual-text-entry .extract-input-card{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      padding:0 12px 12px;
+      border:0 !important;
+      background:transparent !important;
+    }
+    #tabExtract .manual-text-entry textarea{
+      min-height:130px;
+    }
+    .manual-text-entry .btn{
+      align-self:flex-start;
+    }
+    .extract-review-panel{
+      margin-top:16px;
+      padding-top:16px;
+      border-top:1px solid var(--border);
+    }
+    .issue-count{
+      min-width:28px;
+      height:28px;
+      display:grid;
+      place-items:center;
+      border-radius:999px;
+      background:var(--primary-soft);
+      color:var(--primary);
+      font-size:12px;
+      font-weight:800;
+    }
+    .issue-navigation{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:8px;
+      margin:12px 0 10px;
+    }
+    .extract-review-issues{
+      display:flex;
+      flex-direction:column;
+      gap:7px;
+      max-height:300px;
+      overflow:auto;
+    }
+    .review-issue{
+      width:100%;
+      display:grid;
+      grid-template-columns:22px minmax(0,1fr);
+      gap:8px;
+      padding:9px;
+      border:1px solid var(--border);
+      border-radius:10px;
+      background:var(--card-bg);
+      color:var(--text);
+      text-align:left;
+      cursor:pointer;
+    }
+    .review-issue:hover,
+    .review-issue.active{
+      border-color:var(--primary);
+      background:var(--primary-soft);
+    }
+    .review-issue-marker{
+      width:20px;
+      height:20px;
+      display:grid;
+      place-items:center;
+      border-radius:999px;
+      background:var(--warning-soft,#fef3c7);
+      color:var(--warning,#b45309);
+      font-weight:800;
+    }
+    .review-issue.error .review-issue-marker{
+      background:var(--danger-soft,#fee2e2);
+      color:var(--danger,#b91c1c);
+    }
+    .review-issue strong,
+    .review-issue small{
+      display:block;
+    }
+    .review-issue strong{
+      font-size:12px;
+      text-transform:capitalize;
+    }
+    .review-issue small{
+      margin-top:2px;
+      color:var(--muted);
+      font-size:11px;
+      line-height:1.4;
+    }
+    .review-issue-empty{
+      padding:14px;
+      border:1px dashed var(--border);
+      border-radius:10px;
+      color:var(--muted);
+      font-size:12px;
+      text-align:center;
+    }
+    .review-issue-empty.success{
+      border-color:var(--success,#10b981);
+      background:var(--success-soft,#ecfdf5);
+      color:var(--success,#047857);
+    }
+    #tableWrap tr.review-row-active td{
+      background:var(--primary-soft) !important;
+    }
+    #tableWrap tr.review-row-active td:first-child{
+      box-shadow:inset 3px 0 var(--primary);
+    }
+
+    .order-detail-page,
+    .history-detail{
+      width:100%;
+      min-width:0;
+    }
+    .order-detail-topbar{
+      display:grid;
+      grid-template-columns:auto minmax(260px,1fr) minmax(280px,auto);
+      gap:16px;
+      align-items:start;
+      margin-bottom:18px;
+    }
+    .order-detail-identity{
+      min-width:0;
+    }
+    .order-detail-title-row{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+    .order-detail-title-row h2{
+      margin:0;
+      font-size:25px;
+      overflow-wrap:anywhere;
+    }
+    .order-detail-identity > .muted{
+      margin-top:2px;
+      font-weight:650;
+    }
+    .order-detail-identity #historyMeta{
+      margin-top:6px;
+      line-height:1.6;
+    }
+    .order-detail-topbar .history-detail-actions{
+      justify-content:flex-end;
+      flex-wrap:wrap;
+    }
+    .order-lifecycle{
+      display:grid;
+      grid-template-columns:repeat(6,minmax(90px,1fr));
+      margin-bottom:18px;
+      padding:16px;
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--card-bg);
+      box-shadow:var(--shadow-sm,var(--shadow));
+      overflow-x:auto;
+    }
+    .order-lifecycle-step{
+      position:relative;
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      gap:6px;
+      min-width:90px;
+      color:var(--muted);
+      font-size:12px;
+      font-weight:700;
+      text-align:center;
+    }
+    .order-lifecycle-step:not(:last-child)::after{
+      content:"";
+      position:absolute;
+      top:14px;
+      left:calc(50% + 18px);
+      width:calc(100% - 36px);
+      height:2px;
+      background:var(--border);
+    }
+    .order-lifecycle-marker{
+      position:relative;
+      z-index:1;
+      width:30px;
+      height:30px;
+      display:grid;
+      place-items:center;
+      border:2px solid var(--border-dark);
+      border-radius:999px;
+      background:var(--card-bg);
+      color:var(--muted);
+    }
+    .order-lifecycle-step.complete,
+    .order-lifecycle-step.current{
+      color:var(--text);
+    }
+    .order-lifecycle-step.complete .order-lifecycle-marker{
+      border-color:var(--success,#10b981);
+      background:var(--success,#10b981);
+      color:#fff;
+    }
+    .order-lifecycle-step.complete:not(:last-child)::after{
+      background:var(--success,#10b981);
+    }
+    .order-lifecycle-step.current .order-lifecycle-marker{
+      border-color:var(--primary);
+      color:var(--primary);
+      box-shadow:0 0 0 4px var(--primary-soft);
+    }
+    .order-detail-tabs{
+      display:flex;
+      gap:5px;
+      margin-bottom:16px;
+      padding:4px;
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:var(--card-bg);
+      overflow-x:auto;
+    }
+    .order-detail-tabs button{
+      min-width:100px;
+      flex:1;
+      padding:9px 14px;
+      border:0;
+      border-radius:9px;
+      background:transparent;
+      color:var(--muted);
+      font-weight:700;
+      cursor:pointer;
+    }
+    .order-detail-tabs button.active{
+      background:var(--primary-soft);
+      color:var(--primary);
+    }
+    .order-detail-view{
+      min-width:0;
+    }
+    .order-detail-view[hidden]{
+      display:none;
+    }
+    .order-detail-summary-grid,
+    .order-detail-files-grid{
+      display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:16px;
+    }
+    .order-detail-view .card{
+      margin-bottom:16px;
+      box-shadow:var(--shadow-sm,var(--shadow));
+    }
+    .order-detail-summary-card h3{
+      margin-top:0;
+    }
+    .order-review-summary{
+      display:grid;
+      grid-template-columns:repeat(3,minmax(0,1fr));
+      gap:8px;
+      margin-top:12px;
+    }
+    .order-review-summary > div{
+      display:flex;
+      flex-direction:column;
+      gap:3px;
+      padding:12px;
+      border:1px solid var(--border);
+      border-radius:10px;
+      background:var(--bg);
+    }
+    .order-review-summary span{
+      color:var(--muted);
+      font-size:11px;
+      font-weight:700;
+      text-transform:uppercase;
+    }
+    .order-review-summary strong{
+      font-size:20px;
+    }
+    .order-review-summary strong.has-issues{
+      color:var(--warning,#b45309);
+    }
+    .order-source-empty{
+      min-height:360px;
+      display:grid;
+      place-items:center;
+      padding:24px;
+      border:1px dashed var(--border);
+      border-radius:12px;
+      background:var(--bg);
+      color:var(--muted);
+      font-size:13px;
+      text-align:center;
+    }
+    .order-source-empty[hidden]{
+      display:none;
+    }
+    .order-source-frame{
+      height:620px;
+    }
+    .history-raw-section{
+      margin:16px 0 0;
+      border-top:1px solid var(--border);
+      padding-top:12px;
+    }
+
+    @media (max-width:1100px){
+      .extraction-review-layout{
+        grid-template-columns:minmax(300px,350px) minmax(0,1fr);
+      }
+      .order-detail-topbar{
+        grid-template-columns:auto minmax(0,1fr);
+      }
+      .order-detail-topbar .history-detail-actions{
+        grid-column:1 / -1;
+        justify-content:flex-start;
+      }
+    }
+    @media (max-width:900px){
+      .extraction-review-layout{
+        grid-template-columns:1fr;
+      }
+      .extraction-source-pane{
+        position:static;
+        max-height:none;
+      }
+      .extract-preview-empty{
+        min-height:260px;
+      }
+      .extract-pdf-preview{
+        height:480px;
+      }
+      .order-detail-summary-grid,
+      .order-detail-files-grid{
+        grid-template-columns:1fr;
+      }
+    }
+    @media (max-width:680px){
+      .order-detail-topbar{
+        grid-template-columns:1fr;
+      }
+      .order-detail-topbar .history-detail-actions{
+        grid-column:auto;
+        display:grid;
+        grid-template-columns:1fr 1fr;
+      }
+      .order-detail-topbar > .btn,
+      .order-detail-topbar .history-detail-actions .btn{
+        width:100%;
+      }
+      .order-lifecycle{
+        grid-template-columns:repeat(6,100px);
+        justify-content:start;
+      }
+      .order-review-summary{
+        grid-template-columns:1fr;
+      }
+      .order-source-frame{
+        height:480px;
+      }
+    }
 
     /* Dashboard visual refresh (scoped to Extract tab) */
     body{
@@ -5108,4 +5599,24 @@
       .history-pagination{
         color:#c3ccd8;
       }
+    }
+
+    /* Keep split-review sizing authoritative over legacy Extract tab rules. */
+    #tabExtract .extraction-source-pane .dropzone{
+      min-height:88px;
+      margin:14px 0 12px;
+      padding:18px;
+      font-size:14px;
+    }
+    #tabExtract .manual-text-entry .extract-input-card{
+      padding:0 12px 12px;
+      border:0;
+      background:transparent;
+    }
+    #tabExtract .manual-text-entry .extract-input-card textarea{
+      min-height:130px;
+    }
+    #tabExtract #extractPdfPreview.source-pdf-viewer,
+    #tabOrderDetail #orderDetailSourceFrame.source-pdf-viewer{
+      display:flex;
     }
