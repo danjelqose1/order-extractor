@@ -18,7 +18,7 @@ if not API_KEY:
 
 SYSTEM_PROMPT = PROMPTS["extraction"]["system"]
 PDF_VISUAL_SYSTEM_PROMPT = PROMPTS["extraction"]["pdf_visual_system"]
-EXTRACTION_MODEL = os.getenv("EXTRACTION_MODEL", "gpt-5-mini")
+EXTRACTION_MODEL = os.getenv("EXTRACTION_MODEL", "gpt-5.4-nano")
 
 
 def _env_float(name: str, default: float) -> float:
@@ -450,7 +450,7 @@ def ocr_png_with_openai(image_bytes: bytes, model: Optional[str] = None) -> str:
     b64 = base64.b64encode(image_bytes).decode("ascii")
     data_url = f"data:image/png;base64,{b64}"
     system_prompt = "You are a strict OCR engine. Output only the exact text you see. Preserve line breaks; no commentary."
-    model = model or os.getenv("OCR_MODEL", "gpt-5-mini")
+    model = model or os.getenv("OCR_MODEL", "gpt-5.4-mini")
     response = client.chat.completions.create(
         model=model,
         messages=[

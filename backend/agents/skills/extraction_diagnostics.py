@@ -1002,7 +1002,7 @@ def _call_openai_vision_page_ocr(
         raise RuntimeError("No rendered page images were available for OpenAI OCR fallback.")
 
     payload = {
-        "model": os.getenv("OCR_MODEL", os.getenv("EXTRACTION_MODEL", "gpt-5-mini")),
+        "model": os.getenv("OCR_MODEL", "gpt-5.4-mini"),
         "input": [
             {
                 "role": "system",

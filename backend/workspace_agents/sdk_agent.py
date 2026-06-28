@@ -130,7 +130,7 @@ def current_datetime_summary() -> Dict[str, str]:
 
 
 def agent_model() -> str:
-    return os.getenv("OPENAI_AGENT_MODEL") or os.getenv("EXTRACTION_MODEL") or "gpt-5-mini"
+    return os.getenv("OPENAI_AGENT_MODEL") or "gpt-5.4-mini"
 
 
 def _sdk_imports() -> Tuple[Any, Any, Any, Any, Any, Optional[Exception]]:

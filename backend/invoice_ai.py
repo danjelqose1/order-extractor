@@ -124,7 +124,7 @@ def analyze_invoice_line(
         raise ValueError("raw_line is required")
 
     completion = client.chat.completions.create(
-        model=os.getenv("INVOICE_LINE_ANALYSIS_MODEL", "gpt-4.1"),
+        model=os.getenv("INVOICE_LINE_ANALYSIS_MODEL", "gpt-5.4-mini"),
         temperature=0,
         response_format={
             "type": "json_schema",

@@ -436,7 +436,7 @@ def _is_continue_message(message: str) -> bool:
 
 
 def _agent_model() -> str:
-    return os.getenv("OPENAI_AGENT_MODEL") or os.getenv("EXTRACTION_MODEL") or "gpt-5-mini"
+    return os.getenv("OPENAI_AGENT_MODEL") or "gpt-5.4-mini"
 
 
 def _fallback_intent(message: str, selected_order_number: Optional[str], selected_order_id: Optional[str]) -> Dict[str, Any]:

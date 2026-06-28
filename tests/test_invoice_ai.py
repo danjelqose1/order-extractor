@@ -61,7 +61,8 @@ def test_glass_match_rejects_an_invented_key():
     assert result is None
 
 
-def test_invoice_line_analysis_is_validated_and_canonicalized():
+def test_invoice_line_analysis_is_validated_and_canonicalized(monkeypatch):
+    monkeypatch.delenv("INVOICE_LINE_ANALYSIS_MODEL", raising=False)
     payload = {
         "normalizedType": "3 vetri 33.1 LOWE + 12 + 4F",
         "glassKey": "33.1lowe",
@@ -81,6 +82,7 @@ def test_invoice_line_analysis_is_validated_and_canonicalized():
     assert result["glassKey"] == "33.1LowE"
     assert result["spacerMode"] == "thermal"
     assert result["confidence"] == pytest.approx(0.91)
+    assert completions.calls[0]["model"] == "gpt-5.4-mini"
     assert completions.calls[0]["response_format"]["type"] == "json_schema"
 
 

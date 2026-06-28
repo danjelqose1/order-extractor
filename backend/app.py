@@ -105,7 +105,7 @@ INVOICES_PATH = DATA_DIR / "invoices.json"
 
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "*")
 APP_KEY = os.getenv("APP_KEY")  # optional shared secret
-EXTRACTION_MODEL = os.getenv("EXTRACTION_MODEL", "gpt-5-mini")
+EXTRACTION_MODEL = os.getenv("EXTRACTION_MODEL", "gpt-5.4-nano")
 LEGACY_OCR_ENABLED = os.getenv("LEGACY_OCR_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
 TELEGRAM_MAX_FILE_BYTES = 5 * 1024 * 1024
 TELEGRAM_SECRET_HEADER = "X-Telegram-Bot-Api-Secret-Token"

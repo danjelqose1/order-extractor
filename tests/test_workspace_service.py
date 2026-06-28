@@ -1513,6 +1513,21 @@ def test_agents_sdk_engine_available_and_tracing_not_disabled(tmp_path, monkeypa
     assert sdk_agent.should_use_agents_sdk()
 
 
+def test_workspace_models_default_to_gpt_5_4_mini(tmp_path, monkeypatch):
+    _db, _service = _load_modules(tmp_path, monkeypatch)
+    sdk_agent = importlib.import_module("workspace_agents.sdk_agent")
+    smart_chat = importlib.import_module("workspace_agents.smart_chat")
+    workspace_agent = importlib.import_module("workspace_agent")
+
+    monkeypatch.delenv("OPENAI_AGENT_MODEL", raising=False)
+    monkeypatch.delenv("OPENAI_SMART_CHAT_MODEL", raising=False)
+    monkeypatch.setenv("EXTRACTION_MODEL", "legacy-extraction-model")
+
+    assert sdk_agent.agent_model() == "gpt-5.4-mini"
+    assert smart_chat.smart_chat_model() == "gpt-5.4-mini"
+    assert workspace_agent._agent_model() == "gpt-5.4-mini"
+
+
 def test_agent_route_uses_agents_sdk_runner_with_trace_config(tmp_path, monkeypatch):
     db, _service = _load_modules(tmp_path, monkeypatch)
     _insert_order(db)

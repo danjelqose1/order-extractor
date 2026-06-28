@@ -50,7 +50,7 @@ Return JSON only:
 
 
 def smart_chat_model() -> str:
-    return os.getenv("OPENAI_SMART_CHAT_MODEL") or os.getenv("OPENAI_AGENT_MODEL") or "gpt-5-mini"
+    return os.getenv("OPENAI_SMART_CHAT_MODEL") or os.getenv("OPENAI_AGENT_MODEL") or "gpt-5.4-mini"
 
 
 def _debug_log(event: str, **fields: Any) -> None:
