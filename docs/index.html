@@ -76,14 +76,41 @@
         <h1 id="pageTitle">Overview</h1>
         <p id="pageSubtitle" class="muted">Monitor incoming orders, review work, and production readiness.</p>
       </div>
-      <div id="environmentBadge" class="environment-badge" title="Current API connection">
-        <span class="environment-dot" aria-hidden="true"></span>
-        <span>
-          <strong id="environmentLabel">Checking backend…</strong>
-          <small id="environmentDetail"></small>
-        </span>
+      <div class="app-header-actions">
+        <button type="button" id="activityCenterToggle" class="activity-center-toggle" aria-expanded="false" aria-controls="activityCenter">
+          <span class="activity-toggle-icon" aria-hidden="true">↻</span>
+          <span>Activity</span>
+          <span id="activityCenterBadge" class="activity-center-badge" hidden>0</span>
+        </button>
+        <div id="environmentBadge" class="environment-badge" title="Current API connection">
+          <span class="environment-dot" aria-hidden="true"></span>
+          <span>
+            <strong id="environmentLabel">Checking backend…</strong>
+            <small id="environmentDetail"></small>
+          </span>
+        </div>
       </div>
     </header>
+
+    <aside id="activityCenter" class="activity-center" aria-label="Background activity" hidden>
+      <div class="activity-center-header">
+        <div>
+          <span class="section-eyebrow">Background work</span>
+          <h2>Activity center</h2>
+          <p id="activityCenterSummary" class="muted small">No active tasks.</p>
+        </div>
+        <button type="button" class="btn small tertiary" id="activityCenterClose" aria-label="Close activity center">×</button>
+      </div>
+      <div class="activity-center-toolbar">
+        <button type="button" class="btn small tertiary active" data-activity-filter="all">All</button>
+        <button type="button" class="btn small tertiary" data-activity-filter="running">Running</button>
+        <button type="button" class="btn small tertiary" data-activity-filter="failed">Needs attention</button>
+        <button type="button" class="btn small tertiary" id="activityClearCompleted">Clear completed</button>
+      </div>
+      <div id="activityCenterList" class="activity-center-list">
+        <div class="activity-empty">Long-running extraction, OCR, labels, and production work will appear here.</div>
+      </div>
+    </aside>
 
     <div id="saveToast" class="toast" hidden>
       <span id="saveToastMessage"></span>
@@ -820,6 +847,60 @@
     </section>
 
     <section id="tabHistory" class="tab-panel">
+      <section class="card order-work-queue" aria-labelledby="orderWorkQueueTitle">
+        <div class="order-queue-header">
+          <div>
+            <span class="section-eyebrow">Actionable work</span>
+            <h2 id="orderWorkQueueTitle">Work queue</h2>
+            <p class="muted small">Move through incoming orders without changing modules.</p>
+          </div>
+          <div class="order-queue-header-actions">
+            <button type="button" class="btn small tertiary" id="historyQueueAll">View all orders</button>
+            <button type="button" class="btn small tertiary" id="historyQueueRefresh">Refresh queue</button>
+          </div>
+        </div>
+        <div class="order-queue-grid">
+          <button type="button" class="order-queue-card" data-history-queue="new">
+            <span class="order-queue-tone new" aria-hidden="true"></span>
+            <span><strong id="historyQueueNew">—</strong><b>New</b><small>Clean recent drafts</small></span>
+          </button>
+          <button type="button" class="order-queue-card" data-history-queue="needs_review">
+            <span class="order-queue-tone review" aria-hidden="true"></span>
+            <span><strong id="historyQueueNeedsReview">—</strong><b>Needs review</b><small>Warnings or low confidence</small></span>
+          </button>
+          <button type="button" class="order-queue-card" data-history-queue="ready_approval">
+            <span class="order-queue-tone approval" aria-hidden="true"></span>
+            <span><strong id="historyQueueReadyApproval">—</strong><b>Ready for approval</b><small>Reviewed or clean drafts</small></span>
+          </button>
+          <button type="button" class="order-queue-card" data-history-queue="ready_production">
+            <span class="order-queue-tone production" aria-hidden="true"></span>
+            <span><strong id="historyQueueReadyProduction">—</strong><b>Ready for production</b><small>Approved orders</small></span>
+          </button>
+          <button type="button" class="order-queue-card" data-history-queue="failed">
+            <span class="order-queue-tone failed" aria-hidden="true"></span>
+            <span><strong id="historyQueueFailed">—</strong><b>Failed</b><small>Extraction needs attention</small></span>
+          </button>
+          <button type="button" class="order-queue-card" data-history-queue="completed">
+            <span class="order-queue-tone completed" aria-hidden="true"></span>
+            <span><strong id="historyQueueCompleted">—</strong><b>Completed</b><small>Finished or archived</small></span>
+          </button>
+        </div>
+        <div id="historyBatchToolbar" class="history-batch-toolbar">
+          <div>
+            <strong id="historySelectionCount">0 selected</strong>
+            <span id="historyQueueActiveLabel" class="muted small">All orders</span>
+          </div>
+          <div class="history-batch-actions">
+            <button type="button" class="btn small tertiary" id="historySelectVisible">Select visible</button>
+            <button type="button" class="btn small tertiary" id="historyClearSelection" disabled>Clear</button>
+            <button type="button" class="btn small success" id="historyBatchApprove" disabled>Approve selected</button>
+            <button type="button" class="btn small" id="historyBatchProduction" disabled>Generate production files</button>
+            <button type="button" class="btn small danger" id="historyBatchArchive" disabled>Archive selected</button>
+          </div>
+        </div>
+        <div id="historyQueueStatus" class="muted small" aria-live="polite"></div>
+      </section>
+
       <div class="card history-filters">
         <div class="filters-grid">
           <label>

@@ -138,7 +138,13 @@ const historyState = {
   error: "",
   loadedOnce: false,
   loadingPromise: Promise.resolve(),
-  needsRefresh: false
+  needsRefresh: false,
+  queue: "",
+  queueItems: {},
+  queueCounts: {},
+  queueLoading: false,
+  selectedIds: new Set(),
+  selectedOrders: new Map(),
 };
 
 const appState = {
@@ -227,6 +233,12 @@ let currentExtractReviewIssues = [];
 const sourcePdfState = {
   extract: { document: null, page: 1, pages: 0, renderToken: 0 },
   order: { document: null, page: 1, pages: 0, renderToken: 0 },
+};
+const activityState = {
+  items: [],
+  filter: "all",
+  nextId: 1,
+  retryHandlers: new Map(),
 };
 
 const processingState = {
@@ -491,6 +503,13 @@ const overviewCompleted = document.getElementById("overviewCompleted");
 const settingsThemeMode = document.getElementById("settingsThemeMode");
 const settingsEnvironmentMode = document.getElementById("settingsEnvironmentMode");
 const settingsApiEndpoint = document.getElementById("settingsApiEndpoint");
+const activityCenterToggle = document.getElementById("activityCenterToggle");
+const activityCenterBadge = document.getElementById("activityCenterBadge");
+const activityCenter = document.getElementById("activityCenter");
+const activityCenterClose = document.getElementById("activityCenterClose");
+const activityCenterSummary = document.getElementById("activityCenterSummary");
+const activityCenterList = document.getElementById("activityCenterList");
+const activityClearCompleted = document.getElementById("activityClearCompleted");
 
 const iguWorkspaceModule = document.getElementById("iguWorkspaceModule");
 const workspaceMaterialsSlot = document.getElementById("workspaceMaterialsSlot");
@@ -527,6 +546,166 @@ function syncSettingsSummary(){
   if (settingsEnvironmentMode) settingsEnvironmentMode.textContent = environment.label;
   if (settingsApiEndpoint) settingsApiEndpoint.textContent = environment.detail;
 }
+
+function setActivityCenterOpen(open){
+  if (!activityCenter || !activityCenterToggle) return;
+  activityCenter.hidden = !open;
+  activityCenterToggle.setAttribute("aria-expanded", String(open));
+}
+
+function activityTimeLabel(value){
+  const timestamp = new Date(value || 0).getTime();
+  if (!timestamp) return "Just now";
+  const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
+  if (seconds < 60) return "Just now";
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  return `${Math.floor(seconds / 3600)}h ago`;
+}
+
+function renderActivityCenter(){
+  const running = activityState.items.filter(item => item.status === "running").length;
+  const failed = activityState.items.filter(item => item.status === "failed").length;
+  const attention = running + failed;
+  if (activityCenterBadge){
+    activityCenterBadge.hidden = attention === 0;
+    activityCenterBadge.textContent = String(attention);
+  }
+  if (activityCenterSummary){
+    activityCenterSummary.textContent = running
+      ? `${running} running · ${failed} need${failed === 1 ? "s" : ""} attention`
+      : (failed ? `${failed} task${failed === 1 ? "" : "s"} need attention` : "No active tasks.");
+  }
+  document.querySelectorAll("[data-activity-filter]").forEach(button => {
+    button.classList.toggle("active", button.dataset.activityFilter === activityState.filter);
+  });
+  if (!activityCenterList) return;
+  const visible = activityState.items.filter(item => {
+    if (activityState.filter === "running") return item.status === "running";
+    if (activityState.filter === "failed") return item.status === "failed";
+    return true;
+  });
+  if (!visible.length){
+    activityCenterList.innerHTML = '<div class="activity-empty">No tasks in this view.</div>';
+    return;
+  }
+  activityCenterList.innerHTML = visible.map(item => {
+    const progress = Math.max(0, Math.min(100, Number(item.progress || 0)));
+    const statusLabel = item.status === "running"
+      ? `${progress}%`
+      : (item.status === "failed" ? "Needs attention" : "Completed");
+    const downloads = (item.downloads || []).map(download => {
+      const url = workspaceFileUrl(download.url);
+      return url ? `<a class="btn small" href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(download.label || "Download")}</a>` : "";
+    }).join("");
+    return `<article class="activity-item ${escapeHtml(item.status)}" data-activity-id="${escapeHtml(item.id)}">
+      <div class="activity-item-status" aria-hidden="true">${item.status === "completed" ? "✓" : (item.status === "failed" ? "!" : "↻")}</div>
+      <div class="activity-item-content">
+        <div class="activity-item-heading">
+          <strong>${escapeHtml(item.title)}</strong>
+          <span>${escapeHtml(statusLabel)}</span>
+        </div>
+        <p>${escapeHtml(item.error || item.detail || "")}</p>
+        ${item.status === "running" ? `<div class="activity-progress"><span style="width:${progress}%"></span></div>` : ""}
+        <div class="activity-item-footer">
+          <small>${escapeHtml(activityTimeLabel(item.updatedAt || item.createdAt))}</small>
+          <div class="activity-item-actions">
+            ${downloads}
+            ${item.openTab ? `<button type="button" class="btn small tertiary" data-activity-open="${escapeHtml(item.openTab)}">Open</button>` : ""}
+            ${item.status === "failed" && activityState.retryHandlers.has(item.id) ? '<button type="button" class="btn small" data-activity-retry>Retry</button>' : ""}
+            ${item.status !== "running" ? '<button type="button" class="btn small tertiary" data-activity-dismiss aria-label="Dismiss activity">Dismiss</button>' : ""}
+          </div>
+        </div>
+      </div>
+    </article>`;
+  }).join("");
+}
+
+function startBackgroundActivity(title, options = {}){
+  const id = options.id || `activity-${Date.now()}-${activityState.nextId++}`;
+  const existingIndex = activityState.items.findIndex(item => item.id === id);
+  const item = {
+    id,
+    type: options.type || "task",
+    title,
+    detail: options.detail || "Starting…",
+    status: "running",
+    progress: Number(options.progress ?? 5),
+    createdAt: options.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    downloads: [],
+    openTab: options.openTab || "",
+    error: "",
+  };
+  if (existingIndex >= 0) activityState.items.splice(existingIndex, 1);
+  activityState.items.unshift(item);
+  activityState.items = activityState.items.slice(0, 50);
+  if (typeof options.retry === "function") activityState.retryHandlers.set(id, options.retry);
+  renderActivityCenter();
+  return id;
+}
+
+function updateBackgroundActivity(id, patch = {}){
+  const item = activityState.items.find(entry => entry.id === id);
+  if (!item) return;
+  Object.assign(item, patch, { updatedAt: new Date().toISOString() });
+  renderActivityCenter();
+}
+
+function completeBackgroundActivity(id, patch = {}){
+  updateBackgroundActivity(id, { ...patch, status: "completed", progress: 100, error: "" });
+}
+
+function failBackgroundActivity(id, error, patch = {}){
+  updateBackgroundActivity(id, {
+    ...patch,
+    status: "failed",
+    progress: 100,
+    error: error?.message || String(error || "Task failed."),
+  });
+  setActivityCenterOpen(true);
+}
+
+activityCenterToggle?.addEventListener("click", ()=> {
+  setActivityCenterOpen(activityCenter.hidden);
+});
+activityCenterClose?.addEventListener("click", ()=> setActivityCenterOpen(false));
+activityClearCompleted?.addEventListener("click", ()=> {
+  activityState.items = activityState.items.filter(item => item.status !== "completed");
+  renderActivityCenter();
+});
+document.querySelectorAll("[data-activity-filter]").forEach(button => {
+  button.addEventListener("click", ()=> {
+    activityState.filter = button.dataset.activityFilter || "all";
+    renderActivityCenter();
+  });
+});
+activityCenterList?.addEventListener("click", async event => {
+  const itemElement = event.target.closest("[data-activity-id]");
+  const id = itemElement?.dataset.activityId;
+  if (!id) return;
+  if (event.target.closest("[data-activity-dismiss]")){
+    activityState.items = activityState.items.filter(item => item.id !== id);
+    activityState.retryHandlers.delete(id);
+    renderActivityCenter();
+    return;
+  }
+  const openButton = event.target.closest("[data-activity-open]");
+  if (openButton){
+    activateTab(openButton.dataset.activityOpen);
+    setActivityCenterOpen(false);
+    return;
+  }
+  if (event.target.closest("[data-activity-retry]")){
+    const retry = activityState.retryHandlers.get(id);
+    if (!retry) return;
+    updateBackgroundActivity(id, { status: "running", progress: 5, detail: "Retrying…", error: "" });
+    try{
+      await retry(id);
+    }catch(error){
+      failBackgroundActivity(id, error);
+    }
+  }
+});
 
 function updateAppChrome(name){
   const meta = PAGE_META[name] || PAGE_META.extract;
@@ -762,6 +941,14 @@ const historyStatusFilterSelect = document.getElementById("historyStatusFilter")
 const historyDateFromInput = document.getElementById("historyDateFrom");
 const historyDateToInput = document.getElementById("historyDateTo");
 const historyApprovedOnlyToggle = document.getElementById("historyApprovedOnly");
+const historyQueueStatus = document.getElementById("historyQueueStatus");
+const historyQueueActiveLabel = document.getElementById("historyQueueActiveLabel");
+const historySelectionCount = document.getElementById("historySelectionCount");
+const historySelectVisible = document.getElementById("historySelectVisible");
+const historyClearSelection = document.getElementById("historyClearSelection");
+const historyBatchApprove = document.getElementById("historyBatchApprove");
+const historyBatchProduction = document.getElementById("historyBatchProduction");
+const historyBatchArchive = document.getElementById("historyBatchArchive");
 const processingOrderList = document.getElementById("processingOrderList");
 const processingMetaEl = document.getElementById("processingMeta");
 const processingPreviewEl = document.getElementById("processingPreview");
@@ -994,6 +1181,7 @@ function activateTab(name){
     loadOverview();
   }else if (name === "history"){
     ensureHistoryLoaded();
+    loadHistoryWorkQueue();
   }else if (name === "workspace"){
     loadWorkspace();
   }else if (name === "awa"){
@@ -7998,23 +8186,36 @@ async function buildProcessingPdfBlob(){
   return new Blob([pdfBytes], { type: "application/pdf" });
 }
 
-async function exportProcessingPdf(){
-  let blob;
+async function exportProcessingPdf(options = {}){
+  const activityId = options.activityId || startBackgroundActivity("Production PDF", {
+    type: "production",
+    detail: "Building Mother Sheet PDF…",
+    openTab: "processing",
+    retry: retryId => exportProcessingPdf({ activityId: retryId }),
+  });
   try{
-    blob = await buildProcessingPdfBlob();
+    updateBackgroundActivity(activityId, { detail: "Laying out production rows…", progress: 35 });
+    const blob = await buildProcessingPdfBlob();
+    updateBackgroundActivity(activityId, { detail: "Preparing download…", progress: 88 });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "mother-sheet.pdf";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setStatusMessage("Mother Sheet PDF exported.");
+    completeBackgroundActivity(activityId, {
+      detail: "Mother Sheet is ready.",
+      downloads: [{ label: "Mother Sheet PDF", url }],
+      openTab: "processing",
+    });
+    return { blob, url };
   }catch(error){
     setStatusMessage(error.message || "Nothing to export.");
-    return;
+    failBackgroundActivity(activityId, error, { openTab: "processing" });
+    throw error;
   }
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "mother-sheet.pdf";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-  setStatusMessage("Mother Sheet PDF exported.");
 }
 
 function exportProcessingCsv(){
@@ -14932,6 +15133,11 @@ async function fetchAllApprovedOrdersForInvoicing(){
 }
 
 async function loadHistory(opts={}){
+  if (historyState.queue && !opts.ignoreQueue){
+    if (!Object.keys(historyState.queueItems || {}).length) await loadHistoryWorkQueue();
+    applyHistoryQueue(historyState.queue);
+    return;
+  }
   const resetOffset = !!opts.resetOffset;
   if (resetOffset) historyState.offset = 0;
   historyState.loading = true;
@@ -15126,6 +15332,184 @@ function closeHistoryDrawer(){
   }
 }
 
+const HISTORY_QUEUE_LABELS = {
+  new: "New",
+  needs_review: "Needs review",
+  ready_approval: "Ready for approval",
+  ready_production: "Ready for production",
+  failed: "Failed",
+  completed: "Completed",
+};
+
+function normalizeQueueOrder(item){
+  return {
+    ...item,
+    id: item.id ?? item.order_id,
+    order_numbers: Array.isArray(item.order_numbers) && item.order_numbers.length
+      ? item.order_numbers
+      : (item.order_number ? [item.order_number] : []),
+    units_total: Number(item.units_total ?? item.total_pieces ?? 0),
+    area_total: Number(item.area_total ?? item.total_area_m2 ?? 0),
+    warnings_count: Number(item.warnings_count || 0),
+  };
+}
+
+function queueDraftBucket(item){
+  const status = normalizeHistoryStatusValue(item.status);
+  if (status === "reviewed") return "ready_approval";
+  const warnings = Number(item.warnings_count || 0);
+  if (warnings > 0) return "needs_review";
+  const created = new Date(item.created_at || 0).getTime();
+  const ageHours = created ? (Date.now() - created) / 3_600_000 : Infinity;
+  return ageHours <= 48 ? "new" : "ready_approval";
+}
+
+function renderHistoryQueue(){
+  const idByQueue = {
+    new: "historyQueueNew",
+    needs_review: "historyQueueNeedsReview",
+    ready_approval: "historyQueueReadyApproval",
+    ready_production: "historyQueueReadyProduction",
+    failed: "historyQueueFailed",
+    completed: "historyQueueCompleted",
+  };
+  Object.entries(idByQueue).forEach(([queue, id]) => {
+    const element = document.getElementById(id);
+    if (element) element.textContent = historyState.queueLoading ? "…" : String(historyState.queueCounts[queue] ?? 0);
+  });
+  document.querySelectorAll("[data-history-queue]").forEach(button => {
+    button.classList.toggle("active", button.dataset.historyQueue === historyState.queue);
+  });
+  if (historyQueueActiveLabel){
+    historyQueueActiveLabel.textContent = historyState.queue
+      ? HISTORY_QUEUE_LABELS[historyState.queue] || "Queue"
+      : "All orders";
+  }
+}
+
+function filterHistoryQueueItems(items){
+  let filtered = (items || []).slice();
+  if (historyState.query){
+    const term = historyState.query.toLowerCase();
+    filtered = filtered.filter(item => {
+      const orderText = (item.order_numbers || []).join(", ").toLowerCase();
+      return orderText.includes(term) || getClientName(item, "").toLowerCase().includes(term);
+    });
+  }
+  if (historyState.client){
+    const term = historyState.client.toLowerCase();
+    filtered = filtered.filter(item => getClientName(item, "").toLowerCase().includes(term));
+  }
+  if (historyState.status){
+    filtered = filtered.filter(item => normalizeHistoryStatusValue(item.status) === normalizeHistoryStatusValue(historyState.status));
+  }
+  if (historyState.approvedOnly){
+    filtered = filtered.filter(item => normalizeHistoryStatusValue(item.status) === "approved");
+  }
+  if (historyState.dateFrom){
+    const from = new Date(`${historyState.dateFrom}T00:00:00`).getTime();
+    filtered = filtered.filter(item => new Date(item.created_at || 0).getTime() >= from);
+  }
+  if (historyState.dateTo){
+    const to = new Date(`${historyState.dateTo}T23:59:59`).getTime();
+    filtered = filtered.filter(item => new Date(item.created_at || 0).getTime() <= to);
+  }
+  return filtered;
+}
+
+function applyHistoryQueue(queue){
+  if (!queue) return;
+  historyState.queue = queue;
+  historyState.items = filterHistoryQueueItems(historyState.queueItems[queue] || []);
+  historyState.offset = 0;
+  historyState.hasMore = false;
+  historyState.error = "";
+  historyState.loading = false;
+  historyPageEl.textContent = "1";
+  renderHistoryQueue();
+  renderOrdersList();
+  updateHistoryControls();
+  setHistoryStatus(historyState.items.length ? "" : `No orders in ${HISTORY_QUEUE_LABELS[queue] || "this queue"}.`);
+}
+
+async function loadHistoryWorkQueue(options = {}){
+  if (historyState.queueLoading) return;
+  historyState.queueLoading = true;
+  if (historyQueueStatus) historyQueueStatus.textContent = "Refreshing work queue…";
+  renderHistoryQueue();
+  try{
+    const [queueResult, telegramResult] = await Promise.allSettled([
+      fetchWorkspaceQueue(),
+      fetchTelegramFiles(),
+    ]);
+    if (queueResult.status !== "fulfilled") throw queueResult.reason;
+    const groups = queueResult.value?.groups || {};
+    const reviewCandidates = (groups.needs_review || []).map(normalizeQueueOrder);
+    const queueItems = {
+      new: reviewCandidates.filter(item => queueDraftBucket(item) === "new"),
+      needs_review: reviewCandidates.filter(item => queueDraftBucket(item) === "needs_review"),
+      ready_approval: reviewCandidates.filter(item => queueDraftBucket(item) === "ready_approval"),
+      ready_production: (groups.approved_ready || []).map(normalizeQueueOrder),
+      failed: [],
+      completed: (groups.finished || []).map(normalizeQueueOrder),
+    };
+    if (telegramResult.status === "fulfilled") applyTelegramCounts(telegramResult.value);
+    historyState.queueItems = queueItems;
+    historyState.queueCounts = Object.fromEntries(
+      Object.entries(queueItems).map(([key, items]) => [key, items.length]),
+    );
+    historyState.queueCounts.failed = Number(telegramFilesState.failedCount || 0);
+    workspaceState.queue = queueResult.value;
+    if (historyQueueStatus){
+      historyQueueStatus.textContent = `Updated ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+    }
+  }catch(error){
+    if (historyQueueStatus) historyQueueStatus.textContent = "Work queue is temporarily unavailable.";
+    console.warn("Work queue refresh failed", error);
+  }finally{
+    historyState.queueLoading = false;
+    renderHistoryQueue();
+    if (historyState.queue && historyState.queue !== "failed") applyHistoryQueue(historyState.queue);
+  }
+}
+
+function selectedHistoryOrders(){
+  return Array.from(historyState.selectedIds)
+    .map(id => historyState.selectedOrders.get(String(id)))
+    .filter(Boolean);
+}
+
+function updateHistorySelectionUI(){
+  const selected = selectedHistoryOrders();
+  const count = selected.length;
+  if (historySelectionCount) historySelectionCount.textContent = `${count} selected`;
+  if (historyClearSelection) historyClearSelection.disabled = count === 0;
+  if (historyBatchApprove){
+    historyBatchApprove.disabled = !count || !selected.every(order => canApproveStatus(order.status));
+  }
+  if (historyBatchProduction){
+    historyBatchProduction.disabled = !count || !selected.every(order => normalizeHistoryStatusValue(order.status) === "approved");
+  }
+  if (historyBatchArchive){
+    historyBatchArchive.disabled = !count || !selected.every(order => canArchiveStatus(order.status));
+  }
+  document.querySelectorAll("#historyListWrap [data-history-select]").forEach(input => {
+    input.checked = historyState.selectedIds.has(String(input.dataset.historySelect));
+  });
+  const selectAll = document.getElementById("historySelectAllVisible");
+  if (selectAll){
+    const visibleIds = historyState.items.map(item => String(item.id ?? item.order_id)).filter(Boolean);
+    selectAll.checked = !!visibleIds.length && visibleIds.every(id => historyState.selectedIds.has(id));
+    selectAll.indeterminate = visibleIds.some(id => historyState.selectedIds.has(id)) && !selectAll.checked;
+  }
+}
+
+function clearHistorySelection(){
+  historyState.selectedIds.clear();
+  historyState.selectedOrders.clear();
+  updateHistorySelectionUI();
+}
+
 	function formatHistoryConfidence(value){
 	  if (value === null || value === undefined || value === "") return "—";
 	  const number = Number(value);
@@ -15149,6 +15533,7 @@ function renderOrdersList(){
     return;
   }
   const rows = historyState.items.map(order=>{
+    const orderId = String(order.id ?? order.order_id ?? "");
     const normalizedStatus = normalizeHistoryStatusValue(order.status);
     const orderNumbers = (order.order_numbers || []).join(", ") || "—";
     const client = getClientName(order);
@@ -15170,7 +15555,8 @@ function renderOrdersList(){
         </div>
       </details>
     `;
-    return `<tr data-id="${order.id}">
+    return `<tr data-id="${escapeHtml(orderId)}" class="${historyState.selectedIds.has(orderId) ? "selected" : ""}">
+      <td class="history-select-cell" data-label="Select"><input type="checkbox" data-history-select="${escapeHtml(orderId)}" aria-label="Select order ${escapeHtml(orderNumbers)}" ${historyState.selectedIds.has(orderId) ? "checked" : ""}></td>
       <td class="mono" data-label="Order number">${escapeHtml(orderNumbers)}</td>
       <td data-col="client" data-label="Client">${escapeHtml(client)}</td>
       <td data-label="Date">${escapeHtml(created)}</td>
@@ -15185,6 +15571,7 @@ function renderOrdersList(){
   container.innerHTML = `<table class="history-list-table">
     <thead>
       <tr>
+        <th class="history-select-cell"><input type="checkbox" id="historySelectAllVisible" aria-label="Select all visible orders"></th>
         <th>Order number</th>
         <th>Client</th>
         <th>Date</th>
@@ -15198,6 +15585,7 @@ function renderOrdersList(){
     </thead>
     <tbody>${rows}</tbody>
   </table>`;
+  updateHistorySelectionUI();
 }
 
 async function openOrderFromList(id){
@@ -15656,6 +16044,88 @@ async function approveHistoryOrderById(orderId, note = ""){
   return approveDraft(orderId, rowsPayload, note || detail.notes || "", detail);
 }
 
+async function refreshHistoryAfterBatch(){
+  historyState.needsRefresh = true;
+  analysisState.allOrdersDirty = true;
+  clearHistorySelection();
+  await loadHistoryWorkQueue({ force: true });
+  if (!historyState.queue) await loadHistory({ resetOffset: true, ignoreQueue: true });
+}
+
+async function runBatchApprove(orderIds, activityId){
+  updateBackgroundActivity(activityId, { detail: `Approving ${orderIds.length} orders…`, progress: 10 });
+  const failures = [];
+  let approved = 0;
+  for (let index = 0; index < orderIds.length; index += 1){
+    const id = orderIds[index];
+    try{
+      const detail = await fetchOrder(id);
+      if (canApproveStatus(detail.status)){
+        await approveHistoryOrderById(id);
+        approved += 1;
+      }else if (normalizeHistoryStatusValue(detail.status) !== "approved"){
+        failures.push(`#${id}: ${historyStatusLabel(detail.status)}`);
+      }
+    }catch(error){
+      failures.push(`#${id}: ${error.message || error}`);
+    }
+    updateBackgroundActivity(activityId, {
+      progress: 10 + Math.round(((index + 1) / orderIds.length) * 80),
+      detail: `${index + 1} of ${orderIds.length} checked`,
+    });
+  }
+  await refreshHistoryAfterBatch();
+  if (failures.length) throw new Error(`${failures.length} order${failures.length === 1 ? "" : "s"} could not be approved. ${failures.slice(0, 2).join(" · ")}`);
+  completeBackgroundActivity(activityId, {
+    detail: `${approved} order${approved === 1 ? "" : "s"} approved.`,
+    openTab: "history",
+  });
+}
+
+async function runBatchProduction(orderIds, activityId){
+  updateBackgroundActivity(activityId, { detail: "Loading approved orders…", progress: 12 });
+  const orders = await Promise.all(orderIds.map(id => fetchOrder(id)));
+  validateWorkspaceOrdersForProcessing(orders);
+  updateBackgroundActivity(activityId, { detail: "Building processing sheet…", progress: 40 });
+  const result = await processValidatedOrdersViaExistingModules(orders, orders.length > 1 ? "combined" : "single", {
+    mergeAcrossOrders: false,
+  });
+  updateBackgroundActivity(activityId, { detail: "Preparing production downloads…", progress: 85 });
+  const downloads = [
+    result.files?.processing_pdf_url ? { label: "Processing PDF", url: result.files.processing_pdf_url } : null,
+    result.files?.labels_pdf_url ? { label: "Labels PDF", url: result.files.labels_pdf_url } : null,
+  ].filter(Boolean);
+  completeBackgroundActivity(activityId, {
+    detail: `Production files ready for ${orders.length} order${orders.length === 1 ? "" : "s"}.`,
+    downloads,
+    openTab: "workspace",
+  });
+  clearHistorySelection();
+}
+
+async function runBatchArchive(orderIds, activityId){
+  updateBackgroundActivity(activityId, { detail: `Archiving ${orderIds.length} orders…`, progress: 10 });
+  const failures = [];
+  for (let index = 0; index < orderIds.length; index += 1){
+    try{
+      const detail = await fetchOrder(orderIds[index]);
+      if (canArchiveStatus(detail.status)) await updateOrderStatusRequest(orderIds[index], "archived");
+    }catch(error){
+      failures.push(`#${orderIds[index]}: ${error.message || error}`);
+    }
+    updateBackgroundActivity(activityId, {
+      progress: 10 + Math.round(((index + 1) / orderIds.length) * 80),
+      detail: `${index + 1} of ${orderIds.length} checked`,
+    });
+  }
+  await refreshHistoryAfterBatch();
+  if (failures.length) throw new Error(`${failures.length} order${failures.length === 1 ? "" : "s"} could not be archived.`);
+  completeBackgroundActivity(activityId, {
+    detail: `${orderIds.length} order${orderIds.length === 1 ? "" : "s"} archived.`,
+    openTab: "history",
+  });
+}
+
 document.getElementById("historyListWrap").addEventListener("click", async (event)=>{
   const btn = event.target.closest("button[data-action]");
   if (!btn) return;
@@ -15748,6 +16218,120 @@ document.getElementById("historyListWrap").addEventListener("click", async (even
     }catch(error){
       setHistoryStatus("Delete failed: " + (error.message || error));
     }
+  }
+});
+
+document.getElementById("historyListWrap").addEventListener("change", event => {
+  const selectAll = event.target.closest("#historySelectAllVisible");
+  if (selectAll){
+    historyState.items.forEach(order => {
+      const id = String(order.id ?? order.order_id ?? "");
+      if (!id) return;
+      if (selectAll.checked){
+        historyState.selectedIds.add(id);
+        historyState.selectedOrders.set(id, order);
+      }else{
+        historyState.selectedIds.delete(id);
+        historyState.selectedOrders.delete(id);
+      }
+    });
+    renderOrdersList();
+    return;
+  }
+  const checkbox = event.target.closest("[data-history-select]");
+  if (!checkbox) return;
+  const id = String(checkbox.dataset.historySelect || "");
+  const order = historyState.items.find(item => String(item.id ?? item.order_id) === id);
+  if (checkbox.checked && order){
+    historyState.selectedIds.add(id);
+    historyState.selectedOrders.set(id, order);
+  }else{
+    historyState.selectedIds.delete(id);
+    historyState.selectedOrders.delete(id);
+  }
+  renderOrdersList();
+});
+
+document.querySelectorAll("[data-history-queue]").forEach(button => {
+  button.addEventListener("click", ()=> {
+    const queue = button.dataset.historyQueue;
+    clearHistorySelection();
+    if (queue === "failed"){
+      historyState.queue = "failed";
+      renderHistoryQueue();
+      telegramFilesState.status = "failed";
+      if (telegramFilesStatusFilter) telegramFilesStatusFilter.value = "failed";
+      activateTab("telegram");
+      loadTelegramFiles();
+      return;
+    }
+    applyHistoryQueue(queue);
+  });
+});
+
+document.getElementById("historyQueueAll")?.addEventListener("click", ()=> {
+  historyState.queue = "";
+  clearHistorySelection();
+  renderHistoryQueue();
+  loadHistory({ resetOffset: true, ignoreQueue: true });
+});
+document.getElementById("historyQueueRefresh")?.addEventListener("click", ()=> loadHistoryWorkQueue({ force: true }));
+historySelectVisible?.addEventListener("click", ()=> {
+  historyState.items.forEach(order => {
+    const id = String(order.id ?? order.order_id ?? "");
+    if (!id) return;
+    historyState.selectedIds.add(id);
+    historyState.selectedOrders.set(id, order);
+  });
+  renderOrdersList();
+});
+historyClearSelection?.addEventListener("click", clearHistorySelection);
+historyBatchApprove?.addEventListener("click", async ()=> {
+  const ids = Array.from(historyState.selectedIds);
+  if (!ids.length || !confirm(`Approve ${ids.length} selected order${ids.length === 1 ? "" : "s"}?`)) return;
+  const activityId = startBackgroundActivity("Batch approval", {
+    type: "approval",
+    detail: `Preparing ${ids.length} orders…`,
+    openTab: "history",
+    retry: retryId => runBatchApprove(ids, retryId),
+  });
+  setActivityCenterOpen(true);
+  try{
+    await runBatchApprove(ids, activityId);
+  }catch(error){
+    failBackgroundActivity(activityId, error);
+  }
+});
+historyBatchProduction?.addEventListener("click", async ()=> {
+  const ids = Array.from(historyState.selectedIds);
+  if (!ids.length || !confirm(`Generate combined production and label files for ${ids.length} selected order${ids.length === 1 ? "" : "s"}?`)) return;
+  const activityId = startBackgroundActivity("Production file generation", {
+    type: "production",
+    detail: `Preparing ${ids.length} orders…`,
+    openTab: "workspace",
+    retry: retryId => runBatchProduction(ids, retryId),
+  });
+  setActivityCenterOpen(true);
+  try{
+    await runBatchProduction(ids, activityId);
+  }catch(error){
+    failBackgroundActivity(activityId, error);
+  }
+});
+historyBatchArchive?.addEventListener("click", async ()=> {
+  const ids = Array.from(historyState.selectedIds);
+  if (!ids.length || !confirm(`Archive ${ids.length} selected order${ids.length === 1 ? "" : "s"}?`)) return;
+  const activityId = startBackgroundActivity("Batch archive", {
+    type: "archive",
+    detail: `Preparing ${ids.length} orders…`,
+    openTab: "history",
+    retry: retryId => runBatchArchive(ids, retryId),
+  });
+  setActivityCenterOpen(true);
+  try{
+    await runBatchArchive(ids, activityId);
+  }catch(error){
+    failBackgroundActivity(activityId, error);
   }
 });
 
@@ -16850,30 +17434,60 @@ function showExtractPdfPreview(file){
   loadSourcePdf("extract", file);
 }
 
-async function handleTextExtraction(text){
+async function handleTextExtraction(text, options = {}){
   const value = (text || "").trim();
   if (!value) return;
+  const activityId = options.activityId || startBackgroundActivity("Text extraction", {
+    type: "extraction",
+    detail: "Sending pasted order text…",
+    openTab: "extract",
+    retry: retryId => handleTextExtraction(value, { activityId: retryId }),
+  });
   try{
     lastExtractPdfFile = null;
     clearExtractPdfPreview();
+    updateBackgroundActivity(activityId, { detail: "Extracting order fields…", progress: 30 });
     const data = await callAPI(value);
+    updateBackgroundActivity(activityId, { detail: "Validating extracted rows…", progress: 82 });
     applyExtractionResult(data);
+    completeBackgroundActivity(activityId, {
+      detail: `${appState.extract.rows.length} row${appState.extract.rows.length === 1 ? "" : "s"} extracted and ready for review.`,
+      openTab: "extract",
+    });
   }catch(error){
     setStatusMessage("");
     setErrorMessage("Error: " + (error.message || error));
+    failBackgroundActivity(activityId, error, { openTab: "extract" });
   }
 }
 
 async function handlePdfExtraction(file, options = {}){
   if (!file) return;
+  const forceOcr = !!options.forceOcr;
+  const activityId = options.activityId || startBackgroundActivity(forceOcr ? "OCR extraction" : "PDF extraction", {
+    type: forceOcr ? "ocr" : "extraction",
+    detail: `${file.name || "Order PDF"} · preparing pages`,
+    openTab: "extract",
+    retry: retryId => handlePdfExtraction(file, { ...options, activityId: retryId }),
+  });
   try{
     lastExtractPdfFile = file;
     showExtractPdfPreview(file);
+    updateBackgroundActivity(activityId, {
+      detail: forceOcr ? "Running OCR across PDF pages…" : "Reading PDF pages…",
+      progress: 25,
+    });
     const data = await callPdfAPI(file, options);
+    updateBackgroundActivity(activityId, { detail: "Validating extracted rows…", progress: 84 });
     applyExtractionResult(data);
+    completeBackgroundActivity(activityId, {
+      detail: `${file.name || "PDF"} · ${appState.extract.rows.length} row${appState.extract.rows.length === 1 ? "" : "s"} ready for review.`,
+      openTab: "extract",
+    });
   }catch(error){
     setStatusMessage("");
     setErrorMessage("Error: " + (error.message || error));
+    failBackgroundActivity(activityId, error, { openTab: "extract" });
   }
 }
 
@@ -16986,19 +17600,37 @@ document.getElementById("downloadCsv").addEventListener("click", ()=>{
   URL.revokeObjectURL(url);
 });
 
-async function handlePrint(rows){
+async function handlePrint(rows, options = {}){
   if (!rows || !rows.length){
     throw new Error("No rows to print.");
   }
-  const blob = await buildLabelsPdfBlob(rows);
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "labels.pdf";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  const activityId = options.activityId || startBackgroundActivity("Label generation", {
+    type: "labels",
+    detail: `Preparing labels from ${rows.length} row${rows.length === 1 ? "" : "s"}…`,
+    openTab: "labels",
+    retry: retryId => handlePrint(rows, { activityId: retryId }),
+  });
+  try{
+    updateBackgroundActivity(activityId, { detail: "Building label pages…", progress: 30 });
+    const blob = await buildLabelsPdfBlob(rows);
+    updateBackgroundActivity(activityId, { detail: "Preparing label download…", progress: 88 });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "labels.pdf";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    completeBackgroundActivity(activityId, {
+      detail: "Labels are ready to download again when needed.",
+      downloads: [{ label: "Labels PDF", url }],
+      openTab: "labels",
+    });
+    return { blob, url };
+  }catch(error){
+    failBackgroundActivity(activityId, error, { openTab: "labels" });
+    throw error;
+  }
 }
 
 async function buildLabelsPdfBlob(rows){
