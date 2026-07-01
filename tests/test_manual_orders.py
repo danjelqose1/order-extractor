@@ -235,3 +235,19 @@ def test_manual_orders_frontend_exposes_isolated_factory_workflow():
     assert 'data-manual-action="labels"' in js
     assert 'data-manual-action="invoice"' in js
     assert "manualInvoicePricingIssues" in js
+
+
+def test_manual_order_rows_support_spreadsheet_keyboard_entry():
+    html = INDEX_HTML.read_text(encoding="utf-8")
+    js = APP_JS.read_text(encoding="utf-8")
+
+    assert "Tab across fields" in html
+    assert "function incrementManualPosition" in js
+    assert "function nextManualRowDefaults" in js
+    assert "function appendManualRow" in js
+    assert 'event.key === "ArrowDown" || event.key === "Enter"' in js
+    assert 'event.key === "ArrowUp"' in js
+    assert 'event.key === "Tab"' in js
+    assert 'glass_type: previous?.glass_type || ""' in js
+    assert 'newManualRow({ position: "1" })' in js
+    assert 'readonly tabindex="-1"' in js

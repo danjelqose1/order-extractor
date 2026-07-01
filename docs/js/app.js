@@ -20487,6 +20487,58 @@ function newManualRow(source = {}){
   };
 }
 
+const MANUAL_ROW_FIELD_ORDER = [
+  "position",
+  "glass_type",
+  "width_mm",
+  "height_mm",
+  "quantity",
+  "area_override_m2",
+  "notes",
+];
+
+function incrementManualPosition(value, fallback){
+  const text = String(value ?? "").trim();
+  const match = text.match(/^(.*?)(\d+)$/);
+  if (!match) return String(fallback);
+  const digits = match[2];
+  const incremented = String(Number(digits) + 1);
+  const nextDigits = digits.length > 1 && digits.startsWith("0")
+    ? incremented.padStart(digits.length, "0")
+    : incremented;
+  return `${match[1]}${nextDigits}`;
+}
+
+function nextManualRowDefaults(){
+  const previous = manualOrdersState.rows[manualOrdersState.rows.length - 1] || null;
+  const nextPosition = previous
+    ? incrementManualPosition(previous.position, manualOrdersState.rows.length + 1)
+    : "1";
+  return newManualRow({
+    position: nextPosition,
+    glass_type: previous?.glass_type || "",
+    quantity: 1,
+  });
+}
+
+function focusManualRowField(rowIndex, field){
+  const row = manualOrdersState.rows[rowIndex];
+  if (!row || !MANUAL_ROW_FIELD_ORDER.includes(field)) return;
+  const tr = manualOrderRows?.querySelector(`[data-manual-row="${CSS.escape(row.uid)}"]`);
+  const input = tr?.querySelector(`[data-manual-field="${field}"]`);
+  if (!input) return;
+  input.focus();
+  if (typeof input.select === "function") input.select();
+}
+
+function appendManualRow({ focusField = "position" } = {}){
+  const row = nextManualRowDefaults();
+  manualOrdersState.rows.push(row);
+  renderManualRows();
+  focusManualRowField(manualOrdersState.rows.length - 1, focusField);
+  return row;
+}
+
 function manualCalculatedArea(row){
   const width = Number(row?.width_mm);
   const height = Number(row?.height_mm);
@@ -20561,7 +20613,7 @@ function setManualFormMode(viewOnly){
 
 function resetManualOrderForm(){
   manualOrdersState.editingId = null;
-  manualOrdersState.rows = [newManualRow()];
+  manualOrdersState.rows = [newManualRow({ position: "1" })];
   manualOrdersState.saveStatus = "draft";
   if (manualClientName) manualClientName.value = "";
   if (manualOrderNumber) manualOrderNumber.value = "";
@@ -20588,11 +20640,11 @@ function renderManualRows(){
       <td><input type="number" min="0.001" step="any" data-manual-field="width_mm" value="${escapeHtml(row.width_mm)}" ${disabled}><span class="manual-row-error" data-manual-error="width_mm"></span></td>
       <td><input type="number" min="0.001" step="any" data-manual-field="height_mm" value="${escapeHtml(row.height_mm)}" ${disabled}><span class="manual-row-error" data-manual-error="height_mm"></span></td>
       <td><input type="number" min="1" step="1" data-manual-field="quantity" value="${escapeHtml(row.quantity)}" ${disabled}><span class="manual-row-error" data-manual-error="quantity"></span></td>
-      <td><input type="text" data-manual-calculated value="${calculated.toFixed(3)}" readonly></td>
+      <td><input type="text" data-manual-calculated value="${calculated.toFixed(3)}" readonly tabindex="-1"></td>
       <td><input type="number" min="0" step="0.001" data-manual-field="area_override_m2" value="${escapeHtml(row.area_override_m2)}" ${disabled}></td>
-      <td><input type="text" data-manual-final value="${finalArea.toFixed(3)}" readonly></td>
+      <td><input type="text" data-manual-final value="${finalArea.toFixed(3)}" readonly tabindex="-1"></td>
       <td><input type="text" data-manual-field="notes" value="${escapeHtml(row.notes)}" ${disabled}></td>
-      <td>${manualOrdersState.viewOnly ? "" : `<button type="button" class="btn small danger" data-manual-remove-row="${escapeHtml(row.uid)}" aria-label="Remove row">×</button>`}</td>
+      <td>${manualOrdersState.viewOnly ? "" : `<button type="button" class="btn small danger" data-manual-remove-row="${escapeHtml(row.uid)}" aria-label="Remove row" tabindex="-1">×</button>`}</td>
     </tr>`;
   }).join("");
   updateManualFormSummary();
@@ -20827,7 +20879,7 @@ async function openManualOrder(orderId, viewOnly){
     const order = await manualApi(`/manual-orders/${orderId}`);
     manualOrdersState.editingId = order.id;
     manualOrdersState.rows = (order.rows || []).map(newManualRow);
-    if (!manualOrdersState.rows.length) manualOrdersState.rows = [newManualRow()];
+    if (!manualOrdersState.rows.length) manualOrdersState.rows = [newManualRow({ position: "1" })];
     manualClientName.value = order.client_name || "";
     manualOrderNumber.value = order.order_number || "";
     manualOrderDate.value = order.order_date || manualToday();
@@ -21028,7 +21080,7 @@ function initManualOrders(){
     const removeButton = event.target.closest("[data-manual-remove-row]");
     if (!removeButton) return;
     manualOrdersState.rows = manualOrdersState.rows.filter(row => row.uid !== removeButton.dataset.manualRemoveRow);
-    if (!manualOrdersState.rows.length) manualOrdersState.rows.push(newManualRow());
+    if (!manualOrdersState.rows.length) manualOrdersState.rows.push(newManualRow({ position: "1" }));
     renderManualRows();
   });
   manualOrderRows?.addEventListener("input", event => {
@@ -21043,11 +21095,52 @@ function initManualOrders(){
     if (error) error.textContent = "";
     updateManualRowComputed(tr, row);
   });
-  manualOrderAddRow?.addEventListener("click", () => {
-    manualOrdersState.rows.push(newManualRow({ quantity: 1 }));
-    renderManualRows();
-    manualOrderRows?.querySelector("tr:last-child input")?.focus();
+  manualOrderRows?.addEventListener("keydown", event => {
+    if (manualOrdersState.viewOnly || event.isComposing) return;
+    const input = event.target.closest("[data-manual-field]");
+    const tr = input?.closest("[data-manual-row]");
+    const field = input?.dataset.manualField;
+    if (!input || !tr || !MANUAL_ROW_FIELD_ORDER.includes(field)) return;
+    const rowIndex = manualOrdersState.rows.findIndex(row => row.uid === tr.dataset.manualRow);
+    if (rowIndex < 0) return;
+
+    if (event.key === "Tab"){
+      const fieldIndex = MANUAL_ROW_FIELD_ORDER.indexOf(field);
+      if (event.shiftKey){
+        if (fieldIndex > 0){
+          event.preventDefault();
+          focusManualRowField(rowIndex, MANUAL_ROW_FIELD_ORDER[fieldIndex - 1]);
+        }else if (rowIndex > 0){
+          event.preventDefault();
+          focusManualRowField(rowIndex - 1, MANUAL_ROW_FIELD_ORDER[MANUAL_ROW_FIELD_ORDER.length - 1]);
+        }
+      }else{
+        event.preventDefault();
+        if (fieldIndex < MANUAL_ROW_FIELD_ORDER.length - 1){
+          focusManualRowField(rowIndex, MANUAL_ROW_FIELD_ORDER[fieldIndex + 1]);
+        }else if (rowIndex === manualOrdersState.rows.length - 1){
+          appendManualRow({ focusField: "position" });
+        }else{
+          focusManualRowField(rowIndex + 1, "position");
+        }
+      }
+      return;
+    }
+
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    if (event.key === "ArrowDown" || event.key === "Enter"){
+      event.preventDefault();
+      if (rowIndex === manualOrdersState.rows.length - 1){
+        appendManualRow({ focusField: field });
+      }else{
+        focusManualRowField(rowIndex + 1, field);
+      }
+    }else if (event.key === "ArrowUp" && rowIndex > 0){
+      event.preventDefault();
+      focusManualRowField(rowIndex - 1, field);
+    }
   });
+  manualOrderAddRow?.addEventListener("click", () => appendManualRow());
   document.getElementById("manualOrderNew")?.addEventListener("click", resetManualOrderForm);
   manualOrderCancelEdit?.addEventListener("click", resetManualOrderForm);
   manualOrderNumber?.addEventListener("blur", checkManualOrderDuplicate);
