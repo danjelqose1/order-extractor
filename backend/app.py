@@ -3673,6 +3673,16 @@ def check_manual_order_number(
     }
 
 
+@app.get("/manual-orders/glass-types")
+def get_manual_glass_types(
+    query: Optional[str] = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=250),
+) -> Dict[str, Any]:
+    return {
+        "items": db_module.list_manual_glass_types(query=query, limit=limit)
+    }
+
+
 @app.post("/manual-orders", status_code=201)
 def add_manual_order(payload: ManualOrderPayload) -> Dict[str, Any]:
     try:

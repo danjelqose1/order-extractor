@@ -287,6 +287,22 @@ class ManualOrderRow(Base):
     manual_order: Mapped[ManualOrder] = relationship(back_populates="rows")
 
 
+class ManualGlassType(Base):
+    __tablename__ = "manual_glass_types"
+    __table_args__ = (UniqueConstraint("normalized_name", name="uq_manual_glass_types_normalized_name"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    normalized_name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
+    usage_count: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
 class ProcessingBatch(Base):
     __tablename__ = "processing_batches"
 
@@ -625,6 +641,8 @@ def init_db() -> None:
     _ensure_schema()
     backfilled = backfill_telegram_file_hashes()
     print(f"[db] Backfilled SHA-256 for {backfilled} Telegram file(s).")
+    backfilled_glass_types = backfill_manual_glass_types()
+    print(f"[db] Backfilled {backfilled_glass_types} manual glass type(s).")
 
 
 @contextmanager
@@ -1409,6 +1427,81 @@ def _manual_area(width_mm: Any, height_mm: Any, quantity: Any) -> float:
     return round(float(width_mm) * float(height_mm) * int(quantity) / 1_000_000, 3)
 
 
+def _normalize_manual_glass_type(value: Any) -> str:
+    return " ".join(str(value or "").strip().lower().split())
+
+
+def _remember_manual_glass_type(session: Session, glass_type: str) -> None:
+    normalized = _normalize_manual_glass_type(glass_type)
+    if not normalized:
+        return
+    now = datetime.now(timezone.utc)
+    statement = sqlite_insert(ManualGlassType).values(
+        name=glass_type.strip(),
+        normalized_name=normalized,
+        usage_count=1,
+        created_at=now,
+        updated_at=now,
+    )
+    statement = statement.on_conflict_do_update(
+        index_elements=[ManualGlassType.normalized_name],
+        set_={
+            "name": glass_type.strip(),
+            "usage_count": ManualGlassType.usage_count + 1,
+            "updated_at": now,
+        },
+    )
+    session.execute(statement)
+
+
+def backfill_manual_glass_types() -> int:
+    with get_session() as session:
+        existing = set(
+            session.execute(select(ManualGlassType.normalized_name)).scalars().all()
+        )
+        values = session.execute(
+            select(ManualOrderRow.glass_type)
+            .where(func.trim(ManualOrderRow.glass_type) != "")
+            .order_by(ManualOrderRow.id.asc())
+        ).scalars().all()
+        added = 0
+        for value in values:
+            name = str(value or "").strip()
+            normalized = _normalize_manual_glass_type(name)
+            if not normalized or normalized in existing:
+                continue
+            session.add(
+                ManualGlassType(
+                    name=name,
+                    normalized_name=normalized,
+                    usage_count=1,
+                )
+            )
+            existing.add(normalized)
+            added += 1
+        return added
+
+
+def list_manual_glass_types(
+    *,
+    query: Optional[str] = None,
+    limit: int = 100,
+) -> List[str]:
+    safe_limit = max(1, min(int(limit or 100), 250))
+    with SessionLocal() as session:
+        statement = select(ManualGlassType).order_by(
+            ManualGlassType.updated_at.desc(),
+            ManualGlassType.usage_count.desc(),
+            ManualGlassType.name.asc(),
+        ).limit(safe_limit)
+        if query:
+            statement = statement.where(
+                func.lower(ManualGlassType.name).like(f"%{str(query).strip().lower()}%")
+            )
+        items = session.execute(statement).scalars().all()
+        return [item.name for item in items]
+
+
 def _serialize_manual_order(order: ManualOrder, *, include_rows: bool = True) -> Dict[str, Any]:
     rows = list(order.rows or [])
     total_quantity = sum(int(row.quantity or 0) for row in rows)
@@ -1459,6 +1552,7 @@ def _replace_manual_order_rows(session: Session, order: ManualOrder, rows: Seque
         glass_type = str(row.get("glass_type") or "").strip()
         if not glass_type:
             raise ValueError("Glass type is required for every row.")
+        _remember_manual_glass_type(session, glass_type)
         calculated_area = _manual_area(width_mm, height_mm, quantity)
         override_raw = row.get("area_override_m2")
         area_override = None if override_raw in (None, "") else round(float(override_raw), 3)
@@ -2551,4 +2645,6 @@ __all__ = [
     "delete_manual_order",
     "manual_order_number_exists",
     "send_manual_order_to_processing",
+    "backfill_manual_glass_types",
+    "list_manual_glass_types",
 ]

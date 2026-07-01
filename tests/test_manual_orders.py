@@ -221,6 +221,45 @@ def test_manual_order_validation_rejects_empty_and_invalid_rows(tmp_path, monkey
         )
 
 
+def test_saved_manual_glass_types_remain_available_for_autocomplete(tmp_path, monkeypatch):
+    db = _load_db(tmp_path, monkeypatch)
+    first = db.create_manual_order(_manual_payload())
+    db.create_manual_order(
+        _manual_payload(
+            order_number="M-2026-002",
+            rows=[
+                {
+                    "position": "1",
+                    "glass_type": "Tr+12+Tr",
+                    "width_mm": 600,
+                    "height_mm": 900,
+                    "quantity": 1,
+                }
+            ],
+        )
+    )
+    db.create_manual_order(
+        _manual_payload(
+            order_number="M-2026-003",
+            rows=[
+                {
+                    "position": "1",
+                    "glass_type": "  tr+12+tr  ",
+                    "width_mm": 500,
+                    "height_mm": 500,
+                    "quantity": 1,
+                }
+            ],
+        )
+    )
+
+    assert db.list_manual_glass_types()[:2] == ["tr+12+tr", "4F"]
+    assert db.list_manual_glass_types(query="12") == ["tr+12+tr"]
+
+    db.delete_manual_order(first["id"])
+    assert "4F" in db.list_manual_glass_types()
+
+
 def test_manual_orders_frontend_exposes_isolated_factory_workflow():
     html = INDEX_HTML.read_text(encoding="utf-8")
     js = APP_JS.read_text(encoding="utf-8")
@@ -228,6 +267,7 @@ def test_manual_orders_frontend_exposes_isolated_factory_workflow():
     assert 'data-tab="manual"' in html
     assert 'id="tabManualOrders"' in html
     assert 'id="manualOrderRows"' in html
+    assert 'id="manualGlassTypeOptions"' in html
     assert "function manualCalculatedArea" in js
     assert "width * height * quantity / 1_000_000" in js
     assert 'source: "manual"' in js
@@ -235,13 +275,16 @@ def test_manual_orders_frontend_exposes_isolated_factory_workflow():
     assert 'data-manual-action="labels"' in js
     assert 'data-manual-action="invoice"' in js
     assert "manualInvoicePricingIssues" in js
+    assert 'list="manualGlassTypeOptions"' in js
+    assert 'manualApi("/manual-orders/glass-types?limit=250")' in js
 
 
 def test_manual_order_rows_support_spreadsheet_keyboard_entry():
     html = INDEX_HTML.read_text(encoding="utf-8")
     js = APP_JS.read_text(encoding="utf-8")
 
-    assert "Tab across fields" in html
+    assert "Start typing a saved glass type" in html
+    assert "Tab across" in html
     assert "function incrementManualPosition" in js
     assert "function nextManualRowDefaults" in js
     assert "function appendManualRow" in js

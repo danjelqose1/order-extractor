@@ -161,6 +161,8 @@ const manualOrdersState = {
   saveStatus: "draft",
   duplicateCheckToken: 0,
   nextRowId: 1,
+  glassTypes: [],
+  glassTypesLoaded: false,
 };
 
 const appState = {
@@ -20467,6 +20469,7 @@ const manualOrdersList = document.getElementById("manualOrdersList");
 const manualOrdersListStatus = document.getElementById("manualOrdersListStatus");
 const manualOrderSearch = document.getElementById("manualOrderSearch");
 const manualOrderStatusFilter = document.getElementById("manualOrderStatusFilter");
+const manualGlassTypeOptions = document.getElementById("manualGlassTypeOptions");
 
 function manualToday(){
   const now = new Date();
@@ -20584,6 +20587,43 @@ async function manualApi(path, options = {}){
   return data;
 }
 
+function renderManualGlassTypeOptions(){
+  if (!manualGlassTypeOptions) return;
+  manualGlassTypeOptions.innerHTML = manualOrdersState.glassTypes
+    .map(value => `<option value="${escapeHtml(value)}"></option>`)
+    .join("");
+}
+
+async function loadManualGlassTypes({ force = false } = {}){
+  if (manualOrdersState.glassTypesLoaded && !force){
+    renderManualGlassTypeOptions();
+    return manualOrdersState.glassTypes;
+  }
+  try{
+    const data = await manualApi("/manual-orders/glass-types?limit=250");
+    manualOrdersState.glassTypes = Array.isArray(data?.items)
+      ? data.items.map(value => String(value || "").trim()).filter(Boolean)
+      : [];
+    manualOrdersState.glassTypesLoaded = true;
+    renderManualGlassTypeOptions();
+  }catch(error){
+    console.warn("Unable to load saved manual glass types", error);
+  }
+  return manualOrdersState.glassTypes;
+}
+
+function hasPendingManualGlassTypeSuggestion(value){
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return false;
+  const exact = manualOrdersState.glassTypes.some(
+    glassType => glassType.toLowerCase() === normalized,
+  );
+  if (exact) return false;
+  return manualOrdersState.glassTypes.some(
+    glassType => glassType.toLowerCase().startsWith(normalized),
+  );
+}
+
 function setManualFormError(message){
   if (!manualOrderError) return;
   manualOrderError.hidden = !message;
@@ -20636,7 +20676,7 @@ function renderManualRows(){
     const finalArea = manualFinalArea(row);
     return `<tr data-manual-row="${escapeHtml(row.uid)}">
       <td><input type="text" data-manual-field="position" value="${escapeHtml(row.position)}" ${disabled}></td>
-      <td><input type="text" data-manual-field="glass_type" value="${escapeHtml(row.glass_type)}" ${disabled}><span class="manual-row-error" data-manual-error="glass_type"></span></td>
+      <td><input type="text" data-manual-field="glass_type" list="manualGlassTypeOptions" autocomplete="off" value="${escapeHtml(row.glass_type)}" ${disabled}><span class="manual-row-error" data-manual-error="glass_type"></span></td>
       <td><input type="number" min="0.001" step="any" data-manual-field="width_mm" value="${escapeHtml(row.width_mm)}" ${disabled}><span class="manual-row-error" data-manual-error="width_mm"></span></td>
       <td><input type="number" min="0.001" step="any" data-manual-field="height_mm" value="${escapeHtml(row.height_mm)}" ${disabled}><span class="manual-row-error" data-manual-error="height_mm"></span></td>
       <td><input type="number" min="1" step="1" data-manual-field="quantity" value="${escapeHtml(row.quantity)}" ${disabled}><span class="manual-row-error" data-manual-error="quantity"></span></td>
@@ -20789,6 +20829,7 @@ async function saveManualOrder(status){
     if (manualOrdersListStatus){
       manualOrdersListStatus.textContent = `${saved.order_number} saved as ${saved.status}.`;
     }
+    await loadManualGlassTypes({ force: true });
     await loadManualOrders();
     await openManualOrder(saved.id, false);
   }catch(error){
@@ -21059,6 +21100,7 @@ async function handleManualOrderAction(action, orderId){
 
 function ensureManualOrdersReady(){
   if (!manualOrdersState.rows.length) resetManualOrderForm();
+  loadManualGlassTypes();
   if (!manualOrdersState.loaded) loadManualOrders();
   else renderManualOrdersList();
 }
@@ -21128,6 +21170,13 @@ function initManualOrders(){
     }
 
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    if (
+      field === "glass_type"
+      && event.key === "ArrowDown"
+      && hasPendingManualGlassTypeSuggestion(input.value)
+    ){
+      return;
+    }
     if (event.key === "ArrowDown" || event.key === "Enter"){
       event.preventDefault();
       if (rowIndex === manualOrdersState.rows.length - 1){
