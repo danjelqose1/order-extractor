@@ -17,6 +17,7 @@
     <symbol id="icon-sparkles" viewBox="0 0 24 24"><path d="m12 2 1.5 4.5L18 8l-4.5 1.5L12 14l-1.5-4.5L6 8l4.5-1.5L12 2Zm7 11 .9 2.1L22 16l-2.1.9L19 19l-.9-2.1L16 16l2.1-.9L19 13ZM5 14l1.2 2.8L9 18l-2.8 1.2L5 22l-1.2-2.8L1 18l2.8-1.2L5 14Z"/></symbol>
     <symbol id="icon-send" viewBox="0 0 24 24"><path d="M21.6 3.1 2.8 10.4c-1.3.5-1.2 1.2-.2 1.5l4.8 1.5 1.8 5.5c.2.7.1 1 .8 1 .5 0 .8-.2 1-.5l2.3-2.2 4.8 3.5c.9.5 1.5.3 1.8-.8L23 4.7c.4-1.4-.5-2.1-1.4-1.6ZM9.3 13l9.4-5.9c.5-.3.9-.1.6.2l-7.8 7.1-.3 3.2L9.3 13Z"/></symbol>
     <symbol id="icon-history" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 1-8.5 6H1l3.5-4L8 9H5.6A7 7 0 1 0 12 5V3Zm-1 4h2v5.2l3.4 2-1 1.7-4.4-2.6V7Z"/></symbol>
+    <symbol id="icon-manual" viewBox="0 0 24 24"><path d="M5 3h10l4 4v14H5V3Zm2 2v14h10V8h-3V5H7Zm2 6h6v2H9v-2Zm0 4h6v2H9v-2Z"/></symbol>
     <symbol id="icon-processing" viewBox="0 0 24 24"><path d="M5 3h5v5H5V3Zm9 0h5v5h-5V3ZM5 16h5v5H5v-5Zm11.5-5a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Zm0 2a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5ZM7 9h1v4h3v2H6V9h1Zm5-2h2v3h-2V7Z"/></symbol>
     <symbol id="icon-label" viewBox="0 0 24 24"><path d="M3 4h9.2l8.5 8.5a2 2 0 0 1 0 2.8l-5.4 5.4a2 2 0 0 1-2.8 0L4 12.2A3.4 3.4 0 0 1 3 9.8V4Zm2 2v3.8c0 .4.1.7.4 1l8.5 8.5 5.4-5.4L11.4 6H5Zm3 1a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3Z"/></symbol>
     <symbol id="icon-analysis" viewBox="0 0 24 24"><path d="M4 19h17v2H2V3h2v16Zm3-2H5v-6h2v6Zm4 0H9V7h2v10Zm4 0h-2V9h2v8Zm4 0h-2V4h2v13Z"/></symbol>
@@ -48,6 +49,7 @@
     <nav id="primaryNav" class="tab-bar sidebar-nav">
       <button class="tab active" data-tab="extract"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-dashboard"></use></svg></span><span>Overview</span></button>
       <button class="tab" data-tab="history"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-history"></use></svg></span><span>Orders</span></button>
+      <button class="tab" data-tab="manual"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-manual"></use></svg></span><span>Manual Orders</span></button>
       <div class="sidebar-section-label">Workflow</div>
       <button class="tab" data-tab="workspace" data-nav-section="production"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-workspace"></use></svg></span><span>Production</span></button>
       <div class="sidebar-subnav" aria-label="Production tools">
@@ -962,6 +964,113 @@
           <button class="btn small" id="historyNext">Next</button>
         </div>
       </div>
+    </section>
+
+    <section id="tabManualOrders" class="tab-panel">
+      <section class="card manual-order-editor" aria-labelledby="manualOrderFormTitle">
+        <div class="manual-order-header">
+          <div>
+            <span class="section-eyebrow">Direct entry</span>
+            <h2 id="manualOrderFormTitle">Create manual order</h2>
+            <p class="muted small">Enter factory-ready rows without uploading a PDF.</p>
+          </div>
+          <button type="button" class="btn tertiary" id="manualOrderNew">New manual order</button>
+        </div>
+
+        <form id="manualOrderForm" novalidate>
+          <div class="manual-order-fields">
+            <label>
+              <span>Client name *</span>
+              <input type="text" id="manualClientName" autocomplete="organization" required />
+            </label>
+            <label>
+              <span>Order number *</span>
+              <input type="text" id="manualOrderNumber" autocomplete="off" required />
+            </label>
+            <label>
+              <span>Order date *</span>
+              <input type="date" id="manualOrderDate" required />
+            </label>
+            <label>
+              <span>Status</span>
+              <select id="manualOrderStatus">
+                <option value="draft">Draft</option>
+                <option value="approved">Approved</option>
+                <option value="processing">Processing</option>
+                <option value="finished">Finished</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+            </label>
+            <label class="manual-order-notes-field">
+              <span>Reference / notes</span>
+              <input type="text" id="manualOrderNotes" autocomplete="off" />
+            </label>
+          </div>
+
+          <div id="manualOrderDuplicateWarning" class="manual-inline-warning" hidden></div>
+          <div id="manualOrderError" class="alert" hidden></div>
+
+          <div class="manual-row-toolbar">
+            <div>
+              <strong>Order rows</strong>
+              <span class="muted small">Dimensions are millimeters. Areas are shown to 3 decimals.</span>
+            </div>
+            <button type="button" class="btn small" id="manualOrderAddRow">+ Add row</button>
+          </div>
+
+          <div class="table-responsive manual-row-table-wrap">
+            <table class="manual-row-table">
+              <thead>
+                <tr>
+                  <th>Position</th>
+                  <th>Glass type *</th>
+                  <th>Width mm *</th>
+                  <th>Height mm *</th>
+                  <th>Qty *</th>
+                  <th>Calculated m²</th>
+                  <th>Override m²</th>
+                  <th>Final m²</th>
+                  <th>Row notes</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="manualOrderRows"></tbody>
+            </table>
+          </div>
+
+          <div class="manual-order-form-footer">
+            <div id="manualOrderFormSummary" class="muted small">0 rows · 0 pieces · 0.000 m²</div>
+            <div class="manual-order-form-actions">
+              <button type="button" class="btn tertiary" id="manualOrderCancelEdit">Reset</button>
+              <button type="submit" class="btn" id="manualOrderSaveDraft" data-manual-save-status="draft">Save Draft</button>
+              <button type="submit" class="btn success" id="manualOrderApprove" data-manual-save-status="approved">Approve</button>
+            </div>
+          </div>
+        </form>
+      </section>
+
+      <section class="card manual-orders-list-card">
+        <div class="manual-order-header">
+          <div>
+            <h2>Manual Orders</h2>
+            <p class="muted small">Only orders entered in this module appear here.</p>
+          </div>
+          <div class="manual-list-controls">
+            <input type="search" id="manualOrderSearch" placeholder="Search client or order no." />
+            <select id="manualOrderStatusFilter" aria-label="Filter manual orders by status">
+              <option value="">All statuses</option>
+              <option value="draft">Draft</option>
+              <option value="approved">Approved</option>
+              <option value="processing">Processing</option>
+              <option value="finished">Finished</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+            <button type="button" class="btn small tertiary" id="manualOrdersRefresh">Refresh</button>
+          </div>
+        </div>
+        <div id="manualOrdersListStatus" class="muted small" aria-live="polite"></div>
+        <div id="manualOrdersList" class="table-responsive"></div>
+      </section>
     </section>
 
     <section id="tabOrderDetail" class="tab-panel">

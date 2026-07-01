@@ -4,11 +4,11 @@ import base64, csv, hashlib, json, os, re, sys
 from collections import deque
 from contextvars import ContextVar
 from copy import deepcopy
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from io import StringIO
 from pathlib import Path
-from typing import Any, Deque, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Deque, Dict, List, Literal, Optional, Set, Tuple, Union
 import uuid
 import threading
 import time
@@ -25,7 +25,7 @@ if PROJECT_ROOT not in sys.path:
 from fastapi import FastAPI, HTTPException, Header, UploadFile, File, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response, StreamingResponse
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 from schema import ExtractionResult, Row
 from llm import (
     call_llm_for_extraction,
@@ -77,6 +77,7 @@ from db import (
     list_unfinished_telegram_file_ids,
     get_telegram_file,
 )
+import db as db_module
 from validators import validate_rows
 from dimension_repair import apply_dimension_repair
 from area_dimension_validator import apply_area_dimension_validation
@@ -471,6 +472,25 @@ class InvoiceAiGlassMatchPayload(BaseModel):
 class InvoiceAiLineAnalysisPayload(BaseModel):
     raw_line: str
     known_glass_types: List[str]
+
+
+class ManualOrderRowPayload(BaseModel):
+    position: str = ""
+    glass_type: str = Field(min_length=1)
+    width_mm: float = Field(gt=0)
+    height_mm: float = Field(gt=0)
+    quantity: int = Field(gt=0)
+    area_override_m2: Optional[float] = Field(default=None, ge=0)
+    notes: str = ""
+
+
+class ManualOrderPayload(BaseModel):
+    client_name: str = Field(min_length=1)
+    order_number: str = Field(min_length=1)
+    order_date: date
+    notes: str = ""
+    status: Literal["draft", "approved", "processing", "finished", "cancelled"] = "draft"
+    rows: List[ManualOrderRowPayload] = Field(min_length=1)
 
 
 def _debug_log_rows(rows):
@@ -3613,6 +3633,102 @@ def download_telegram_file(file_id: int):
         media_type=record.get("mime_type") or "application/pdf",
         filename=_safe_download_filename(record.get("original_filename")),
     )
+
+
+@app.get("/manual-orders")
+def get_manual_orders(
+    query: Optional[str] = Query(default=None),
+    status: Optional[str] = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> Dict[str, Any]:
+    try:
+        items = db_module.list_manual_orders(
+            query=query,
+            status=status,
+            limit=limit,
+            offset=offset,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "items": items,
+        "count": len(items),
+        "limit": limit,
+        "offset": offset,
+        "has_more": len(items) == limit,
+    }
+
+
+@app.get("/manual-orders/check-number")
+def check_manual_order_number(
+    order_number: str = Query(min_length=1),
+    exclude_id: Optional[int] = Query(default=None, ge=1),
+) -> Dict[str, Any]:
+    return {
+        "exists": db_module.manual_order_number_exists(
+            order_number,
+            exclude_id=exclude_id,
+        )
+    }
+
+
+@app.post("/manual-orders", status_code=201)
+def add_manual_order(payload: ManualOrderPayload) -> Dict[str, Any]:
+    try:
+        return db_module.create_manual_order(payload.model_dump(mode="json"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/manual-orders/{order_id}")
+def get_manual_order_detail(order_id: int) -> Dict[str, Any]:
+    order = db_module.get_manual_order(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Manual order not found")
+    return order
+
+
+@app.put("/manual-orders/{order_id}")
+def replace_manual_order(order_id: int, payload: ManualOrderPayload) -> Dict[str, Any]:
+    try:
+        return db_module.update_manual_order(
+            order_id,
+            payload.model_dump(mode="json"),
+        )
+    except ValueError as exc:
+        message = str(exc)
+        raise HTTPException(
+            status_code=404 if "not found" in message.lower() else 400,
+            detail=message,
+        )
+
+
+@app.post("/manual-orders/{order_id}/duplicate", status_code=201)
+def copy_manual_order(order_id: int) -> Dict[str, Any]:
+    try:
+        return db_module.duplicate_manual_order(order_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@app.post("/manual-orders/{order_id}/processing")
+def process_manual_order(order_id: int) -> Dict[str, Any]:
+    try:
+        return db_module.send_manual_order_to_processing(order_id)
+    except ValueError as exc:
+        message = str(exc)
+        raise HTTPException(
+            status_code=404 if "not found" in message.lower() else 400,
+            detail=message,
+        )
+
+
+@app.delete("/manual-orders/{order_id}")
+def remove_manual_order(order_id: int) -> Dict[str, bool]:
+    if not db_module.delete_manual_order(order_id):
+        raise HTTPException(status_code=404, detail="Manual order not found")
+    return {"ok": True}
 
 
 @app.get("/orders")

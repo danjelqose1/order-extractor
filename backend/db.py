@@ -75,6 +75,7 @@ ORDER_STATUS_ALIASES = {
 REEXTRACT_PROTECTED_STATUSES = {"reviewed", "approved", "in_production", "completed", "archived"}
 APPROVABLE_STATUSES = {"draft", "reviewed"}
 PROCESSING_ELIGIBLE_STATUSES = {"approved", "in_production", "completed"}
+MANUAL_ORDER_STATUSES = ("draft", "approved", "processing", "finished", "cancelled")
 
 
 def normalize_order_status(status: Optional[str], default: str = "draft") -> str:
@@ -232,6 +233,58 @@ class OrderStatusEvent(Base):
     changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     order: Mapped[Order] = relationship(back_populates="status_events")
+
+
+class ManualOrder(Base):
+    __tablename__ = "manual_orders"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    client_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    order_number: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    order_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="draft", index=True)
+    source: Mapped[str] = mapped_column(String(20), default="manual", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    rows: Mapped[List["ManualOrderRow"]] = relationship(
+        back_populates="manual_order",
+        cascade="all, delete-orphan",
+        order_by="ManualOrderRow.id",
+    )
+
+
+class ManualOrderRow(Base):
+    __tablename__ = "manual_order_rows"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    manual_order_id: Mapped[int] = mapped_column(
+        ForeignKey("manual_orders.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    position: Mapped[str] = mapped_column(String(80), default="")
+    glass_type: Mapped[str] = mapped_column(String(255), nullable=False)
+    width_mm: Mapped[float] = mapped_column(Float, nullable=False)
+    height_mm: Mapped[float] = mapped_column(Float, nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    calculated_area_m2: Mapped[float] = mapped_column(Float, nullable=False)
+    area_override_m2: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    final_area_m2: Mapped[float] = mapped_column(Float, nullable=False)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    manual_order: Mapped[ManualOrder] = relationship(back_populates="rows")
 
 
 class ProcessingBatch(Base):
@@ -1347,6 +1400,285 @@ def update_order_rows(
         return _serialize_order(order, include_rows=True)
 
 
+def _normalize_manual_status(status: Any, default: str = "draft") -> str:
+    normalized = str(status or "").strip().lower()
+    return normalized if normalized in MANUAL_ORDER_STATUSES else default
+
+
+def _manual_area(width_mm: Any, height_mm: Any, quantity: Any) -> float:
+    return round(float(width_mm) * float(height_mm) * int(quantity) / 1_000_000, 3)
+
+
+def _serialize_manual_order(order: ManualOrder, *, include_rows: bool = True) -> Dict[str, Any]:
+    rows = list(order.rows or [])
+    total_quantity = sum(int(row.quantity or 0) for row in rows)
+    total_area_m2 = round(sum(float(row.final_area_m2 or 0.0) for row in rows), 3)
+    data: Dict[str, Any] = {
+        "id": order.id,
+        "client_name": order.client_name,
+        "order_number": order.order_number,
+        "order_date": order.order_date,
+        "notes": order.notes or "",
+        "status": _normalize_manual_status(order.status),
+        "source": "manual",
+        "created_at": order.created_at.isoformat(),
+        "updated_at": (order.updated_at or order.created_at).isoformat(),
+        "row_count": len(rows),
+        "total_quantity": total_quantity,
+        "total_area_m2": total_area_m2,
+    }
+    if include_rows:
+        data["rows"] = [
+            {
+                "id": row.id,
+                "manual_order_id": row.manual_order_id,
+                "position": row.position or "",
+                "glass_type": row.glass_type,
+                "width_mm": row.width_mm,
+                "height_mm": row.height_mm,
+                "quantity": row.quantity,
+                "calculated_area_m2": row.calculated_area_m2,
+                "area_override_m2": row.area_override_m2,
+                "final_area_m2": row.final_area_m2,
+                "notes": row.notes or "",
+            }
+            for row in rows
+        ]
+    return data
+
+
+def _replace_manual_order_rows(session: Session, order: ManualOrder, rows: Sequence[Dict[str, Any]]) -> None:
+    order.rows.clear()
+    session.flush()
+    for row in rows:
+        width_mm = float(row.get("width_mm"))
+        height_mm = float(row.get("height_mm"))
+        quantity = int(row.get("quantity"))
+        if width_mm <= 0 or height_mm <= 0 or quantity <= 0:
+            raise ValueError("Width, height, and quantity must be greater than zero.")
+        glass_type = str(row.get("glass_type") or "").strip()
+        if not glass_type:
+            raise ValueError("Glass type is required for every row.")
+        calculated_area = _manual_area(width_mm, height_mm, quantity)
+        override_raw = row.get("area_override_m2")
+        area_override = None if override_raw in (None, "") else round(float(override_raw), 3)
+        if area_override is not None and area_override < 0:
+            raise ValueError("Area override cannot be negative.")
+        order.rows.append(
+            ManualOrderRow(
+                position=str(row.get("position") or "").strip(),
+                glass_type=glass_type,
+                width_mm=width_mm,
+                height_mm=height_mm,
+                quantity=quantity,
+                calculated_area_m2=calculated_area,
+                area_override_m2=area_override,
+                final_area_m2=area_override if area_override is not None else calculated_area,
+                notes=str(row.get("notes") or "").strip() or None,
+            )
+        )
+
+
+def manual_order_number_exists(order_number: str, *, exclude_id: Optional[int] = None) -> bool:
+    normalized = str(order_number or "").strip().lower()
+    if not normalized:
+        return False
+    with SessionLocal() as session:
+        statement = select(func.count()).select_from(ManualOrder).where(
+            func.lower(func.trim(ManualOrder.order_number)) == normalized
+        )
+        if exclude_id is not None:
+            statement = statement.where(ManualOrder.id != int(exclude_id))
+        return bool(session.scalar(statement) or 0)
+
+
+def create_manual_order(payload: Dict[str, Any]) -> Dict[str, Any]:
+    rows = list(payload.get("rows") or [])
+    if not rows:
+        raise ValueError("At least one manual order row is required.")
+    client_name = str(payload.get("client_name") or "").strip()
+    order_number = str(payload.get("order_number") or "").strip()
+    order_date = str(payload.get("order_date") or "").strip()
+    if not client_name or not order_number or not order_date:
+        raise ValueError("Client name, order number, and order date are required.")
+    duplicate_warning = manual_order_number_exists(order_number)
+    with get_session() as session:
+        order = ManualOrder(
+            client_name=client_name,
+            order_number=order_number,
+            order_date=order_date,
+            notes=str(payload.get("notes") or "").strip() or None,
+            status=_normalize_manual_status(payload.get("status")),
+            source="manual",
+        )
+        session.add(order)
+        _replace_manual_order_rows(session, order, rows)
+        session.flush()
+        data = _serialize_manual_order(order)
+        data["duplicate_warning"] = duplicate_warning
+        return data
+
+
+def list_manual_orders(
+    *,
+    query: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> List[Dict[str, Any]]:
+    safe_limit = max(1, min(int(limit or 100), 200))
+    safe_offset = max(0, int(offset or 0))
+    with SessionLocal() as session:
+        statement = (
+            select(ManualOrder)
+            .options(selectinload(ManualOrder.rows))
+            .order_by(ManualOrder.updated_at.desc(), ManualOrder.id.desc())
+            .offset(safe_offset)
+            .limit(safe_limit)
+        )
+        if query:
+            term = f"%{str(query).strip().lower()}%"
+            statement = statement.where(
+                func.lower(ManualOrder.order_number).like(term)
+                | func.lower(ManualOrder.client_name).like(term)
+            )
+        if status:
+            normalized_status = _normalize_manual_status(status, default="")
+            if not normalized_status:
+                raise ValueError(
+                    f"Invalid manual order status '{status}'. Allowed: {', '.join(MANUAL_ORDER_STATUSES)}"
+                )
+            statement = statement.where(func.lower(ManualOrder.status) == normalized_status)
+        orders = session.execute(statement).scalars().all()
+        return [_serialize_manual_order(order, include_rows=False) for order in orders]
+
+
+def get_manual_order(order_id: int) -> Optional[Dict[str, Any]]:
+    with SessionLocal() as session:
+        statement = (
+            select(ManualOrder)
+            .where(ManualOrder.id == int(order_id))
+            .options(selectinload(ManualOrder.rows))
+        )
+        order = session.execute(statement).scalar_one_or_none()
+        return _serialize_manual_order(order) if order else None
+
+
+def update_manual_order(order_id: int, payload: Dict[str, Any]) -> Dict[str, Any]:
+    rows = list(payload.get("rows") or [])
+    if not rows:
+        raise ValueError("At least one manual order row is required.")
+    client_name = str(payload.get("client_name") or "").strip()
+    order_number = str(payload.get("order_number") or "").strip()
+    order_date = str(payload.get("order_date") or "").strip()
+    if not client_name or not order_number or not order_date:
+        raise ValueError("Client name, order number, and order date are required.")
+    duplicate_warning = manual_order_number_exists(order_number, exclude_id=order_id)
+    with get_session() as session:
+        order = session.get(ManualOrder, int(order_id))
+        if not order:
+            raise ValueError(f"Manual order {order_id} not found")
+        order.client_name = client_name
+        order.order_number = order_number
+        order.order_date = order_date
+        order.notes = str(payload.get("notes") or "").strip() or None
+        order.status = _normalize_manual_status(payload.get("status"), default=order.status)
+        order.source = "manual"
+        order.updated_at = datetime.now(timezone.utc)
+        _replace_manual_order_rows(session, order, rows)
+        session.flush()
+        data = _serialize_manual_order(order)
+        data["duplicate_warning"] = duplicate_warning
+        return data
+
+
+def duplicate_manual_order(order_id: int) -> Dict[str, Any]:
+    original = get_manual_order(order_id)
+    if not original:
+        raise ValueError(f"Manual order {order_id} not found")
+    base_number = f"{original['order_number']}-COPY"
+    copy_number = base_number
+    suffix = 2
+    while manual_order_number_exists(copy_number):
+        copy_number = f"{base_number}-{suffix}"
+        suffix += 1
+    return create_manual_order(
+        {
+            "client_name": original["client_name"],
+            "order_number": copy_number,
+            "order_date": original["order_date"],
+            "notes": original.get("notes") or "",
+            "status": "draft",
+            "rows": [
+                {
+                    "position": row.get("position") or "",
+                    "glass_type": row.get("glass_type") or "",
+                    "width_mm": row.get("width_mm"),
+                    "height_mm": row.get("height_mm"),
+                    "quantity": row.get("quantity"),
+                    "area_override_m2": row.get("area_override_m2"),
+                    "notes": row.get("notes") or "",
+                }
+                for row in original.get("rows") or []
+            ],
+        }
+    )
+
+
+def delete_manual_order(order_id: int) -> bool:
+    with get_session() as session:
+        order = session.get(ManualOrder, int(order_id))
+        if not order:
+            return False
+        session.delete(order)
+        return True
+
+
+def send_manual_order_to_processing(order_id: int) -> Dict[str, Any]:
+    with get_session() as session:
+        statement = (
+            select(ManualOrder)
+            .where(ManualOrder.id == int(order_id))
+            .options(selectinload(ManualOrder.rows))
+        )
+        order = session.execute(statement).scalar_one_or_none()
+        if not order:
+            raise ValueError(f"Manual order {order_id} not found")
+        current_status = _normalize_manual_status(order.status)
+        if current_status not in {"approved", "processing"}:
+            raise ValueError("Only approved manual orders can be sent to Processing.")
+        if current_status != "processing":
+            order.status = "processing"
+            order.updated_at = datetime.now(timezone.utc)
+        session.flush()
+        return {
+            "manual_order_id": order.id,
+            "client_name": order.client_name,
+            "order_number": order.order_number,
+            "order_date": order.order_date,
+            "status": "processing",
+            "source": "manual",
+            "rows": [
+                {
+                    "position": row.position or "",
+                    "glass_type": row.glass_type,
+                    "type": row.glass_type,
+                    "width_mm": row.width_mm,
+                    "height_mm": row.height_mm,
+                    "dimension": f"{row.width_mm:g}x{row.height_mm:g}",
+                    "quantity": row.quantity,
+                    "calculated_area_m2": row.calculated_area_m2,
+                    "area_override_m2": row.area_override_m2,
+                    "final_area_m2": row.final_area_m2,
+                    "area": row.final_area_m2,
+                    "notes": row.notes or "",
+                    "source": "manual",
+                }
+                for row in order.rows
+            ],
+        }
+
+
 def get_orders(
     query: Optional[str] = None,
     status: Optional[str] = None,
@@ -2210,4 +2542,13 @@ __all__ = [
     "delete_correction",
     "bump_correction_hit",
     "record_workspace_action",
+    "MANUAL_ORDER_STATUSES",
+    "create_manual_order",
+    "list_manual_orders",
+    "get_manual_order",
+    "update_manual_order",
+    "duplicate_manual_order",
+    "delete_manual_order",
+    "manual_order_number_exists",
+    "send_manual_order_to_processing",
 ]

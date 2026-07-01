@@ -149,6 +149,20 @@ const historyState = {
   selectedOrders: new Map(),
 };
 
+const manualOrdersState = {
+  items: [],
+  rows: [],
+  editingId: null,
+  viewOnly: false,
+  loaded: false,
+  loading: false,
+  search: "",
+  status: "",
+  saveStatus: "draft",
+  duplicateCheckToken: 0,
+  nextRowId: 1,
+};
+
 const appState = {
   extract: {
     rows: [],
@@ -396,6 +410,7 @@ const panels = {
   scanstudio: document.getElementById("tabScanStudio"),
   pdfeditor: document.getElementById("tabPdfEditor"),
   history: document.getElementById("tabHistory"),
+  manual: document.getElementById("tabManualOrders"),
   orderdetail: document.getElementById("tabOrderDetail"),
   processing: document.getElementById("tabProcessing"),
   spacer: document.getElementById("tabSpacer"),
@@ -435,6 +450,11 @@ const PAGE_META = Object.freeze({
     eyebrow: "Orders",
     title: "Orders",
     subtitle: "Find, review, export, and continue previously extracted orders.",
+  },
+  manual: {
+    eyebrow: "Orders",
+    title: "Manual Orders",
+    subtitle: "Create and manage orders entered without a source PDF.",
   },
   orderdetail: {
     eyebrow: "Orders",
@@ -1188,6 +1208,8 @@ function activateTab(name){
   }else if (name === "history"){
     ensureHistoryLoaded();
     loadHistoryWorkQueue();
+  }else if (name === "manual"){
+    ensureManualOrdersReady();
   }else if (name === "workspace"){
     loadWorkspace();
   }else if (name === "awa"){
@@ -6145,13 +6167,19 @@ function generateMotherSheet(rows, options){
 
 function convertOrderToProcessingEntry(order){
   const id = Number(order.id) || order.id;
+  const orderSource = String(order.source || "pdf").toLowerCase();
   const orderLabel = (Array.isArray(order.order_numbers) && order.order_numbers.length)
     ? order.order_numbers.join(", ")
     : (order.order_number || `#${order.id}`);
-  const client = order.client || order.client_hint || "—";
+  const client = order.client_name || order.clientName || order.client || order.client_hint || "—";
   const rows = (order.rows || []).map((row, idx) => {
-    const parsed = parseDimensionTokens(row.dimension || "");
-    const areaRaw = row.area_display ?? row.area ?? row.area_m2 ?? row.areaM2 ?? null;
+    const dimension = row.dimension || (
+      row.width_mm != null && row.height_mm != null
+        ? `${row.width_mm}x${row.height_mm}`
+        : ""
+    );
+    const parsed = parseDimensionTokens(dimension);
+    const areaRaw = row.final_area_m2 ?? row.area_display ?? row.area ?? row.area_m2 ?? row.areaM2 ?? null;
     const areaValue = toNumericArea(areaRaw);
     const areaDisplay = areaRaw != null ? String(areaRaw) : (areaValue != null ? areaValue.toFixed(3) : null);
     const positionValue = [
@@ -6163,7 +6191,7 @@ function convertOrderToProcessingEntry(order){
     ].map(value => (value == null ? "" : String(value).trim())).find(value => value.length) || "";
     return {
       key: row.id || `${order.id}-${idx}`,
-      composition_raw: (row.type || "").trim() || "(Header not set)",
+      composition_raw: (row.type || row.glass_type || "").trim() || "(Header not set)",
       width: parsed.width,
       height: parsed.height,
       widthDisplay: parsed.widthDisplay,
@@ -6175,8 +6203,9 @@ function convertOrderToProcessingEntry(order){
       invalidDimension: parsed.invalid,
       area: areaValue != null ? areaValue : null,
       areaDisplay,
-      areaSource: areaRaw != null ? "pdf" : null,
+      areaSource: areaRaw != null ? orderSource : null,
       areaRaw: areaRaw != null ? String(areaRaw) : null,
+      source: orderSource,
     };
   });
   return {
@@ -10620,6 +10649,7 @@ function buildInvoiceJobFromOrder(order){
   return {
     id: order?.id ? `inv-${order.id}` : `inv-${Date.now()}`,
     key: normalizedKey,
+    source: String(order?.source || "").toLowerCase() === "manual" ? "manual" : "pdf",
     orderNumbers,
     client: clientName || "—",
     clients: [clientName || "—"],
@@ -10650,6 +10680,8 @@ async function addInvoiceJobFromOrder(order){
   }
   const lookupNumbers = new Set(job.orderNumbers.map(n => n.toLowerCase()));
   const existingIndex = appState.invoices.jobs.findIndex(item => {
+    const itemSource = String(item?.source || "pdf").toLowerCase() === "manual" ? "manual" : "pdf";
+    if (itemSource !== job.source) return false;
     const numbers = Array.isArray(item.orderNumbers) ? item.orderNumbers : [];
     return numbers.some(num => lookupNumbers.has(String(num || "").toLowerCase()));
   });
@@ -20415,6 +20447,629 @@ function initIguCalculator(){
   updateIguSelectionStatus();
   loadIguOrderList();
 }
+
+const manualOrderForm = document.getElementById("manualOrderForm");
+const manualOrderFormTitle = document.getElementById("manualOrderFormTitle");
+const manualClientName = document.getElementById("manualClientName");
+const manualOrderNumber = document.getElementById("manualOrderNumber");
+const manualOrderDate = document.getElementById("manualOrderDate");
+const manualOrderStatus = document.getElementById("manualOrderStatus");
+const manualOrderNotes = document.getElementById("manualOrderNotes");
+const manualOrderRows = document.getElementById("manualOrderRows");
+const manualOrderError = document.getElementById("manualOrderError");
+const manualOrderDuplicateWarning = document.getElementById("manualOrderDuplicateWarning");
+const manualOrderFormSummary = document.getElementById("manualOrderFormSummary");
+const manualOrderAddRow = document.getElementById("manualOrderAddRow");
+const manualOrderSaveDraft = document.getElementById("manualOrderSaveDraft");
+const manualOrderApprove = document.getElementById("manualOrderApprove");
+const manualOrderCancelEdit = document.getElementById("manualOrderCancelEdit");
+const manualOrdersList = document.getElementById("manualOrdersList");
+const manualOrdersListStatus = document.getElementById("manualOrdersListStatus");
+const manualOrderSearch = document.getElementById("manualOrderSearch");
+const manualOrderStatusFilter = document.getElementById("manualOrderStatusFilter");
+
+function manualToday(){
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+
+function newManualRow(source = {}){
+  return {
+    uid: `manual-row-${manualOrdersState.nextRowId++}`,
+    id: source.id || null,
+    position: source.position == null ? "" : String(source.position),
+    glass_type: source.glass_type == null ? "" : String(source.glass_type),
+    width_mm: source.width_mm == null ? "" : String(source.width_mm),
+    height_mm: source.height_mm == null ? "" : String(source.height_mm),
+    quantity: source.quantity == null ? "1" : String(source.quantity),
+    area_override_m2: source.area_override_m2 == null ? "" : String(source.area_override_m2),
+    notes: source.notes == null ? "" : String(source.notes),
+  };
+}
+
+function manualCalculatedArea(row){
+  const width = Number(row?.width_mm);
+  const height = Number(row?.height_mm);
+  const quantity = Number(row?.quantity);
+  if (!(width > 0) || !(height > 0) || !Number.isInteger(quantity) || quantity <= 0) return 0;
+  return Math.round((width * height * quantity / 1_000_000) * 1000) / 1000;
+}
+
+function manualFinalArea(row){
+  const overrideText = String(row?.area_override_m2 ?? "").trim();
+  if (overrideText !== ""){
+    const override = Number(overrideText);
+    if (Number.isFinite(override) && override >= 0) return Math.round(override * 1000) / 1000;
+  }
+  return manualCalculatedArea(row);
+}
+
+function manualErrorMessage(detail, fallback){
+  if (Array.isArray(detail)){
+    return detail.map(item => item?.msg || String(item)).join(" ");
+  }
+  if (typeof detail === "string" && detail.trim()) return detail;
+  return fallback;
+}
+
+async function manualApi(path, options = {}){
+  const response = await fetch(API_BASE + path, {
+    ...options,
+    headers: {
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(options.headers || {}),
+    },
+  });
+  let data = null;
+  try{
+    data = await response.json();
+  }catch{
+    data = null;
+  }
+  if (!response.ok){
+    throw new Error(manualErrorMessage(data?.detail, `Request failed (${response.status}).`));
+  }
+  return data;
+}
+
+function setManualFormError(message){
+  if (!manualOrderError) return;
+  manualOrderError.hidden = !message;
+  manualOrderError.textContent = message || "";
+}
+
+function setManualDuplicateWarning(message){
+  if (!manualOrderDuplicateWarning) return;
+  manualOrderDuplicateWarning.hidden = !message;
+  manualOrderDuplicateWarning.textContent = message || "";
+}
+
+function setManualFormMode(viewOnly){
+  manualOrdersState.viewOnly = !!viewOnly;
+  const editor = document.querySelector(".manual-order-editor");
+  editor?.classList.toggle("manual-view-mode", manualOrdersState.viewOnly);
+  [manualClientName, manualOrderNumber, manualOrderDate, manualOrderStatus, manualOrderNotes].forEach(input => {
+    if (input) input.disabled = manualOrdersState.viewOnly;
+  });
+  if (manualOrderAddRow) manualOrderAddRow.hidden = manualOrdersState.viewOnly;
+  if (manualOrderSaveDraft) manualOrderSaveDraft.hidden = manualOrdersState.viewOnly;
+  if (manualOrderApprove) manualOrderApprove.hidden = manualOrdersState.viewOnly;
+  if (manualOrderCancelEdit){
+    manualOrderCancelEdit.textContent = manualOrdersState.viewOnly ? "Close view" : "Reset";
+  }
+}
+
+function resetManualOrderForm(){
+  manualOrdersState.editingId = null;
+  manualOrdersState.rows = [newManualRow()];
+  manualOrdersState.saveStatus = "draft";
+  if (manualClientName) manualClientName.value = "";
+  if (manualOrderNumber) manualOrderNumber.value = "";
+  if (manualOrderDate) manualOrderDate.value = manualToday();
+  if (manualOrderStatus) manualOrderStatus.value = "draft";
+  if (manualOrderNotes) manualOrderNotes.value = "";
+  if (manualOrderFormTitle) manualOrderFormTitle.textContent = "Create manual order";
+  if (manualOrderSaveDraft) manualOrderSaveDraft.textContent = "Save Draft";
+  setManualFormMode(false);
+  setManualFormError("");
+  setManualDuplicateWarning("");
+  renderManualRows();
+}
+
+function renderManualRows(){
+  if (!manualOrderRows) return;
+  const disabled = manualOrdersState.viewOnly ? "disabled" : "";
+  manualOrderRows.innerHTML = manualOrdersState.rows.map(row => {
+    const calculated = manualCalculatedArea(row);
+    const finalArea = manualFinalArea(row);
+    return `<tr data-manual-row="${escapeHtml(row.uid)}">
+      <td><input type="text" data-manual-field="position" value="${escapeHtml(row.position)}" ${disabled}></td>
+      <td><input type="text" data-manual-field="glass_type" value="${escapeHtml(row.glass_type)}" ${disabled}><span class="manual-row-error" data-manual-error="glass_type"></span></td>
+      <td><input type="number" min="0.001" step="any" data-manual-field="width_mm" value="${escapeHtml(row.width_mm)}" ${disabled}><span class="manual-row-error" data-manual-error="width_mm"></span></td>
+      <td><input type="number" min="0.001" step="any" data-manual-field="height_mm" value="${escapeHtml(row.height_mm)}" ${disabled}><span class="manual-row-error" data-manual-error="height_mm"></span></td>
+      <td><input type="number" min="1" step="1" data-manual-field="quantity" value="${escapeHtml(row.quantity)}" ${disabled}><span class="manual-row-error" data-manual-error="quantity"></span></td>
+      <td><input type="text" data-manual-calculated value="${calculated.toFixed(3)}" readonly></td>
+      <td><input type="number" min="0" step="0.001" data-manual-field="area_override_m2" value="${escapeHtml(row.area_override_m2)}" ${disabled}></td>
+      <td><input type="text" data-manual-final value="${finalArea.toFixed(3)}" readonly></td>
+      <td><input type="text" data-manual-field="notes" value="${escapeHtml(row.notes)}" ${disabled}></td>
+      <td>${manualOrdersState.viewOnly ? "" : `<button type="button" class="btn small danger" data-manual-remove-row="${escapeHtml(row.uid)}" aria-label="Remove row">×</button>`}</td>
+    </tr>`;
+  }).join("");
+  updateManualFormSummary();
+}
+
+function updateManualRowComputed(tr, row){
+  const calculated = manualCalculatedArea(row);
+  const finalArea = manualFinalArea(row);
+  const calculatedInput = tr?.querySelector("[data-manual-calculated]");
+  const finalInput = tr?.querySelector("[data-manual-final]");
+  if (calculatedInput) calculatedInput.value = calculated.toFixed(3);
+  if (finalInput) finalInput.value = finalArea.toFixed(3);
+  updateManualFormSummary();
+}
+
+function updateManualFormSummary(){
+  if (!manualOrderFormSummary) return;
+  const quantity = manualOrdersState.rows.reduce((sum, row) => {
+    const value = Number(row.quantity);
+    return sum + (Number.isInteger(value) && value > 0 ? value : 0);
+  }, 0);
+  const area = manualOrdersState.rows.reduce((sum, row) => sum + manualFinalArea(row), 0);
+  manualOrderFormSummary.textContent = `${manualOrdersState.rows.length} row${manualOrdersState.rows.length === 1 ? "" : "s"} · ${quantity} piece${quantity === 1 ? "" : "s"} · ${area.toFixed(3)} m²`;
+}
+
+function clearManualValidation(){
+  manualOrderForm?.querySelectorAll(".manual-input-error").forEach(input => input.classList.remove("manual-input-error"));
+  manualOrderForm?.querySelectorAll("[data-manual-error]").forEach(el => { el.textContent = ""; });
+}
+
+function markManualFieldError(input, message){
+  input?.classList.add("manual-input-error");
+  const cellError = input?.closest("td")?.querySelector(`[data-manual-error="${input.dataset.manualField}"]`);
+  if (cellError) cellError.textContent = message;
+}
+
+function validateManualOrderForm(){
+  clearManualValidation();
+  const errors = [];
+  if (!manualClientName?.value.trim()){
+    manualClientName?.classList.add("manual-input-error");
+    errors.push("Client name is required.");
+  }
+  if (!manualOrderNumber?.value.trim()){
+    manualOrderNumber?.classList.add("manual-input-error");
+    errors.push("Order number is required.");
+  }
+  if (!manualOrderDate?.value){
+    manualOrderDate?.classList.add("manual-input-error");
+    errors.push("Order date is required.");
+  }
+  if (!manualOrdersState.rows.length) errors.push("At least one row is required.");
+  manualOrdersState.rows.forEach((row, index) => {
+    const tr = manualOrderRows?.querySelector(`[data-manual-row="${CSS.escape(row.uid)}"]`);
+    const glassInput = tr?.querySelector('[data-manual-field="glass_type"]');
+    const widthInput = tr?.querySelector('[data-manual-field="width_mm"]');
+    const heightInput = tr?.querySelector('[data-manual-field="height_mm"]');
+    const quantityInput = tr?.querySelector('[data-manual-field="quantity"]');
+    if (!row.glass_type.trim()){
+      markManualFieldError(glassInput, "Required");
+      errors.push(`Row ${index + 1}: glass type is required.`);
+    }
+    if (!(Number(row.width_mm) > 0)){
+      markManualFieldError(widthInput, "Must be > 0");
+      errors.push(`Row ${index + 1}: width must be greater than zero.`);
+    }
+    if (!(Number(row.height_mm) > 0)){
+      markManualFieldError(heightInput, "Must be > 0");
+      errors.push(`Row ${index + 1}: height must be greater than zero.`);
+    }
+    const quantity = Number(row.quantity);
+    if (!Number.isInteger(quantity) || quantity <= 0){
+      markManualFieldError(quantityInput, "Positive whole number");
+      errors.push(`Row ${index + 1}: quantity must be a positive integer.`);
+    }
+    const override = String(row.area_override_m2).trim();
+    if (override !== "" && (!(Number(override) >= 0) || !Number.isFinite(Number(override)))){
+      tr?.querySelector('[data-manual-field="area_override_m2"]')?.classList.add("manual-input-error");
+      errors.push(`Row ${index + 1}: area override must be zero or greater.`);
+    }
+  });
+  setManualFormError(errors[0] || "");
+  return errors.length === 0;
+}
+
+function buildManualOrderPayload(status){
+  return {
+    client_name: manualClientName.value.trim(),
+    order_number: manualOrderNumber.value.trim(),
+    order_date: manualOrderDate.value,
+    notes: manualOrderNotes.value.trim(),
+    status,
+    rows: manualOrdersState.rows.map(row => ({
+      position: row.position.trim(),
+      glass_type: row.glass_type.trim(),
+      width_mm: Number(row.width_mm),
+      height_mm: Number(row.height_mm),
+      quantity: Number(row.quantity),
+      area_override_m2: String(row.area_override_m2).trim() === "" ? null : Number(row.area_override_m2),
+      notes: row.notes.trim(),
+    })),
+  };
+}
+
+async function checkManualOrderDuplicate(){
+  const orderNumber = manualOrderNumber?.value.trim();
+  const token = ++manualOrdersState.duplicateCheckToken;
+  if (!orderNumber){
+    setManualDuplicateWarning("");
+    return false;
+  }
+  const params = new URLSearchParams({ order_number: orderNumber });
+  if (manualOrdersState.editingId) params.set("exclude_id", String(manualOrdersState.editingId));
+  try{
+    const result = await manualApi(`/manual-orders/check-number?${params.toString()}`);
+    if (token !== manualOrdersState.duplicateCheckToken) return false;
+    setManualDuplicateWarning(result.exists ? `Warning: order number "${orderNumber}" already exists in Manual Orders.` : "");
+    return !!result.exists;
+  }catch{
+    return false;
+  }
+}
+
+async function saveManualOrder(status){
+  if (manualOrdersState.viewOnly || !validateManualOrderForm()) return;
+  const payload = buildManualOrderPayload(status);
+  const editingId = manualOrdersState.editingId;
+  setManualFormError("");
+  if (manualOrderSaveDraft) manualOrderSaveDraft.disabled = true;
+  if (manualOrderApprove) manualOrderApprove.disabled = true;
+  try{
+    const saved = await manualApi(
+      editingId ? `/manual-orders/${editingId}` : "/manual-orders",
+      {
+        method: editingId ? "PUT" : "POST",
+        body: JSON.stringify(payload),
+      },
+    );
+    if (saved.duplicate_warning){
+      setManualDuplicateWarning(`Warning: order number "${saved.order_number}" also exists in Manual Orders.`);
+    }
+    if (manualOrdersListStatus){
+      manualOrdersListStatus.textContent = `${saved.order_number} saved as ${saved.status}.`;
+    }
+    await loadManualOrders();
+    await openManualOrder(saved.id, false);
+  }catch(error){
+    setManualFormError(error.message || String(error));
+  }finally{
+    if (manualOrderSaveDraft) manualOrderSaveDraft.disabled = false;
+    if (manualOrderApprove) manualOrderApprove.disabled = false;
+  }
+}
+
+function manualStatusBadge(status){
+  const normalized = String(status || "draft").toLowerCase();
+  const labels = {
+    draft: "Draft",
+    approved: "Approved",
+    processing: "Processing",
+    finished: "Finished",
+    cancelled: "Cancelled",
+  };
+  return `<span class="history-status-badge ${escapeHtml(normalized)}">${escapeHtml(labels[normalized] || "Draft")}</span>`;
+}
+
+function renderManualOrdersList(){
+  if (!manualOrdersList) return;
+  if (manualOrdersState.loading){
+    manualOrdersList.innerHTML = '<div class="history-list-loading"><span class="spinner"></span><span>Loading manual orders…</span></div>';
+    return;
+  }
+  if (!manualOrdersState.items.length){
+    manualOrdersList.innerHTML = '<div class="empty-state">No manual orders found.</div>';
+    return;
+  }
+  const body = manualOrdersState.items.map(order => {
+    const canProduce = ["approved", "processing"].includes(order.status);
+    const canOutput = ["approved", "processing", "finished"].includes(order.status);
+    return `<tr>
+      <td class="mono">${escapeHtml(order.order_number)}</td>
+      <td data-col="client">${escapeHtml(order.client_name)}</td>
+      <td>${escapeHtml(order.order_date)}</td>
+      <td>${Number(order.row_count || 0)}</td>
+      <td>${Number(order.total_quantity || 0)}</td>
+      <td>${Number(order.total_area_m2 || 0).toFixed(3)}</td>
+      <td>${manualStatusBadge(order.status)}</td>
+      <td data-col="actions"><div class="manual-order-actions">
+        <button type="button" class="btn small tertiary" data-manual-action="open" data-id="${order.id}">Open</button>
+        <button type="button" class="btn small" data-manual-action="edit" data-id="${order.id}">Edit</button>
+        <button type="button" class="btn small tertiary" data-manual-action="duplicate" data-id="${order.id}">Duplicate</button>
+        <button type="button" class="btn small" data-manual-action="processing" data-id="${order.id}" ${canProduce ? "" : "disabled"}>Processing</button>
+        <button type="button" class="btn small" data-manual-action="labels" data-id="${order.id}" ${canOutput ? "" : "disabled"}>Labels</button>
+        <button type="button" class="btn small" data-manual-action="invoice" data-id="${order.id}" ${canOutput ? "" : "disabled"}>Invoice</button>
+        <button type="button" class="btn small danger" data-manual-action="delete" data-id="${order.id}">Delete</button>
+      </div></td>
+    </tr>`;
+  }).join("");
+  manualOrdersList.innerHTML = `<table class="manual-orders-table">
+    <thead><tr>
+      <th>Order No.</th><th>Client</th><th>Date</th><th>Rows</th><th>Total quantity</th>
+      <th>Total m²</th><th>Status</th><th>Actions</th>
+    </tr></thead>
+    <tbody>${body}</tbody>
+  </table>`;
+}
+
+async function loadManualOrders(){
+  manualOrdersState.loading = true;
+  renderManualOrdersList();
+  const params = new URLSearchParams({ limit: "200" });
+  if (manualOrdersState.search) params.set("query", manualOrdersState.search);
+  if (manualOrdersState.status) params.set("status", manualOrdersState.status);
+  try{
+    const data = await manualApi(`/manual-orders?${params.toString()}`);
+    manualOrdersState.items = Array.isArray(data.items) ? data.items : [];
+    manualOrdersState.loaded = true;
+    if (manualOrdersListStatus){
+      manualOrdersListStatus.textContent = `${manualOrdersState.items.length} manual order${manualOrdersState.items.length === 1 ? "" : "s"}`;
+    }
+  }catch(error){
+    manualOrdersState.items = [];
+    if (manualOrdersListStatus) manualOrdersListStatus.textContent = error.message || String(error);
+  }finally{
+    manualOrdersState.loading = false;
+    renderManualOrdersList();
+  }
+}
+
+async function openManualOrder(orderId, viewOnly){
+  try{
+    const order = await manualApi(`/manual-orders/${orderId}`);
+    manualOrdersState.editingId = order.id;
+    manualOrdersState.rows = (order.rows || []).map(newManualRow);
+    if (!manualOrdersState.rows.length) manualOrdersState.rows = [newManualRow()];
+    manualClientName.value = order.client_name || "";
+    manualOrderNumber.value = order.order_number || "";
+    manualOrderDate.value = order.order_date || manualToday();
+    manualOrderStatus.value = order.status || "draft";
+    manualOrderNotes.value = order.notes || "";
+    manualOrderFormTitle.textContent = viewOnly ? `View ${order.order_number}` : `Edit ${order.order_number}`;
+    if (manualOrderSaveDraft) manualOrderSaveDraft.textContent = "Save Changes";
+    setManualFormMode(viewOnly);
+    setManualFormError("");
+    setManualDuplicateWarning("");
+    renderManualRows();
+    document.querySelector(".manual-order-editor")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    return order;
+  }catch(error){
+    if (manualOrdersListStatus) manualOrdersListStatus.textContent = error.message || String(error);
+    return null;
+  }
+}
+
+function manualOrderToShared(order, { perUnitArea = false } = {}){
+  const statusMap = {
+    draft: "draft",
+    approved: "approved",
+    processing: "in_production",
+    finished: "completed",
+    cancelled: "archived",
+  };
+  return {
+    id: `manual-${order.id ?? order.manual_order_id}`,
+    source: "manual",
+    client_name: order.client_name,
+    client: order.client_name,
+    order_number: order.order_number,
+    order_numbers: [order.order_number],
+    order_date: order.order_date,
+    created_at: order.created_at || order.order_date,
+    status: statusMap[order.status] || "draft",
+    units_total: order.total_quantity || (order.rows || []).reduce((sum, row) => sum + Number(row.quantity || 0), 0),
+    area_total: order.total_area_m2 || (order.rows || []).reduce((sum, row) => sum + Number(row.final_area_m2 || 0), 0),
+    rows: (order.rows || []).map(row => {
+      const quantity = Number(row.quantity || 0);
+      const finalArea = Number(row.final_area_m2 ?? row.area ?? 0);
+      return {
+        id: row.id,
+        order_number: order.order_number,
+        position: row.position || "",
+        type: row.glass_type || row.type || "",
+        glass_type: row.glass_type || row.type || "",
+        width_mm: Number(row.width_mm),
+        height_mm: Number(row.height_mm),
+        dimension: row.dimension || `${Number(row.width_mm)}x${Number(row.height_mm)}`,
+        quantity,
+        area: perUnitArea && quantity > 0 ? finalArea / quantity : finalArea,
+        final_area_m2: finalArea,
+        source: "manual",
+        notes: row.notes || "",
+      };
+    }),
+  };
+}
+
+function manualInvoicePricingIssues(order){
+  const glassPrices = appState.invoices.priceLists.glass || {};
+  const spacerPrices = appState.invoices.priceLists.spacer || {};
+  const issues = new Set();
+  (order.rows || []).forEach(row => {
+    const composition = parseInvoiceComposition(row.type || "");
+    if (!composition.panes.length){
+      issues.add(`unrecognized glass "${row.type || "unknown"}"`);
+    }
+    composition.panes.forEach(pane => {
+      const key = normalizeGlassKey(pane);
+      if (!key || !Object.prototype.hasOwnProperty.call(glassPrices, key) || !Number.isFinite(Number(glassPrices[key]))){
+        issues.add(`glass "${pane}"`);
+      }
+    });
+    composition.spacerThicknesses.forEach(thickness => {
+      const kind = composition.spacerKind === "thermal" ? "thermal" : "normal";
+      const price = spacerPrices[thickness]?.[kind];
+      if (!Number.isFinite(Number(price))) issues.add(`${kind} spacer ${thickness} mm`);
+    });
+  });
+  return Array.from(issues);
+}
+
+async function handleManualOrderAction(action, orderId){
+  if (!action || !orderId) return;
+  if (action === "open"){
+    await openManualOrder(orderId, true);
+    return;
+  }
+  if (action === "edit"){
+    await openManualOrder(orderId, false);
+    return;
+  }
+  if (action === "duplicate"){
+    try{
+      const copy = await manualApi(`/manual-orders/${orderId}/duplicate`, { method: "POST" });
+      await loadManualOrders();
+      await openManualOrder(copy.id, false);
+      if (manualOrdersListStatus) manualOrdersListStatus.textContent = `Created draft ${copy.order_number}.`;
+    }catch(error){
+      if (manualOrdersListStatus) manualOrdersListStatus.textContent = error.message || String(error);
+    }
+    return;
+  }
+  if (action === "delete"){
+    const summary = manualOrdersState.items.find(item => String(item.id) === String(orderId));
+    if (!confirm(`Delete manual order ${summary?.order_number || orderId}?`)) return;
+    try{
+      await manualApi(`/manual-orders/${orderId}`, { method: "DELETE" });
+      if (String(manualOrdersState.editingId) === String(orderId)) resetManualOrderForm();
+      await loadManualOrders();
+    }catch(error){
+      if (manualOrdersListStatus) manualOrdersListStatus.textContent = error.message || String(error);
+    }
+    return;
+  }
+  if (action === "processing"){
+    try{
+      const normalized = await manualApi(`/manual-orders/${orderId}/processing`, { method: "POST" });
+      const shared = manualOrderToShared({
+        ...normalized,
+        id: normalized.manual_order_id,
+        total_quantity: (normalized.rows || []).reduce((sum, row) => sum + Number(row.quantity || 0), 0),
+        total_area_m2: (normalized.rows || []).reduce((sum, row) => sum + Number(row.final_area_m2 || 0), 0),
+      });
+      addOrderToProcessing(shared);
+      showProcessingToast(`${normalized.order_number} added to Processing`);
+      if (String(manualOrdersState.editingId) === String(normalized.manual_order_id) && manualOrderStatus){
+        manualOrderStatus.value = "processing";
+      }
+      await loadManualOrders();
+      activateTab("processing");
+    }catch(error){
+      if (manualOrdersListStatus) manualOrdersListStatus.textContent = error.message || String(error);
+    }
+    return;
+  }
+  const order = await manualApi(`/manual-orders/${orderId}`);
+  if (action === "labels"){
+    const shared = manualOrderToShared(order);
+    const job = addLabelsJob("Manual Order", shared.rows, {
+      primaryOrderId: order.order_number,
+      clientOverride: order.client_name,
+      sourceKind: "manual",
+      sourceLabel: "Manual Order",
+      sourceDetail: `manual-${order.id}`,
+      successMessage: `Added quantity-based labels for ${order.order_number}.`,
+    });
+    if (job){
+      activateTab("labels");
+    }
+    return;
+  }
+  if (action === "invoice"){
+    try{
+      ensureInvoicesLoaded();
+      await syncInvoiceConfigFromServer({ silent: true });
+      const shared = manualOrderToShared(order, { perUnitArea: true });
+      const issues = manualInvoicePricingIssues(shared);
+      if (issues.length){
+        if (manualOrdersListStatus){
+          manualOrdersListStatus.textContent = `Invoice not generated. Configure prices for: ${issues.join(", ")}.`;
+        }
+        return;
+      }
+      const job = await createInvoiceJobFromOrder(shared);
+      if (job && manualOrdersListStatus){
+        manualOrdersListStatus.textContent = `Invoice job generated for ${order.order_number}.`;
+      }
+    }catch(error){
+      if (manualOrdersListStatus) manualOrdersListStatus.textContent = error.message || String(error);
+    }
+  }
+}
+
+function ensureManualOrdersReady(){
+  if (!manualOrdersState.rows.length) resetManualOrderForm();
+  if (!manualOrdersState.loaded) loadManualOrders();
+  else renderManualOrdersList();
+}
+
+function initManualOrders(){
+  if (!manualOrderForm) return;
+  resetManualOrderForm();
+  manualOrderForm.addEventListener("submit", event => {
+    event.preventDefault();
+    const requested = event.submitter?.dataset?.manualSaveStatus || manualOrdersState.saveStatus;
+    const status = requested === "approved"
+      ? "approved"
+      : (manualOrdersState.editingId ? manualOrderStatus.value : "draft");
+    saveManualOrder(status);
+  });
+  manualOrderForm.addEventListener("click", event => {
+    const saveButton = event.target.closest("[data-manual-save-status]");
+    if (saveButton) manualOrdersState.saveStatus = saveButton.dataset.manualSaveStatus;
+    const removeButton = event.target.closest("[data-manual-remove-row]");
+    if (!removeButton) return;
+    manualOrdersState.rows = manualOrdersState.rows.filter(row => row.uid !== removeButton.dataset.manualRemoveRow);
+    if (!manualOrdersState.rows.length) manualOrdersState.rows.push(newManualRow());
+    renderManualRows();
+  });
+  manualOrderRows?.addEventListener("input", event => {
+    const input = event.target.closest("[data-manual-field]");
+    const tr = input?.closest("[data-manual-row]");
+    if (!input || !tr) return;
+    const row = manualOrdersState.rows.find(item => item.uid === tr.dataset.manualRow);
+    if (!row) return;
+    row[input.dataset.manualField] = input.value;
+    input.classList.remove("manual-input-error");
+    const error = input.closest("td")?.querySelector(`[data-manual-error="${input.dataset.manualField}"]`);
+    if (error) error.textContent = "";
+    updateManualRowComputed(tr, row);
+  });
+  manualOrderAddRow?.addEventListener("click", () => {
+    manualOrdersState.rows.push(newManualRow({ quantity: 1 }));
+    renderManualRows();
+    manualOrderRows?.querySelector("tr:last-child input")?.focus();
+  });
+  document.getElementById("manualOrderNew")?.addEventListener("click", resetManualOrderForm);
+  manualOrderCancelEdit?.addEventListener("click", resetManualOrderForm);
+  manualOrderNumber?.addEventListener("blur", checkManualOrderDuplicate);
+  document.getElementById("manualOrdersRefresh")?.addEventListener("click", loadManualOrders);
+  manualOrderStatusFilter?.addEventListener("change", () => {
+    manualOrdersState.status = manualOrderStatusFilter.value;
+    loadManualOrders();
+  });
+  let manualSearchTimer = null;
+  manualOrderSearch?.addEventListener("input", () => {
+    manualOrdersState.search = manualOrderSearch.value.trim();
+    clearTimeout(manualSearchTimer);
+    manualSearchTimer = setTimeout(loadManualOrders, 250);
+  });
+  manualOrdersList?.addEventListener("click", event => {
+    const button = event.target.closest("[data-manual-action]");
+    if (!button || button.disabled) return;
+    handleManualOrderAction(button.dataset.manualAction, button.dataset.id);
+  });
+}
+
+initManualOrders();
 
 	initScanStudio().catch(error => {
 	  console.error("Scan Studio init failed", error);
