@@ -74,6 +74,9 @@ def validate_rows(
     last_type_for_order: Dict[str, str] = {}
     split_candidates: List[Tuple[int, Dict[str, Any]]] = []
     split_flag = False
+    preserve_order_prefixed_positions = bool(
+        (context or {}).get("preserve_order_prefixed_positions")
+    )
 
     for idx, row in enumerate(rows or []):
         working = dict(row)
@@ -86,10 +89,11 @@ def validate_rows(
             per_row.append("auto_fix: order_number_normalized")
 
         # Position normalization
-        normalized_position = normalize_position(working.get("position", ""))
-        if normalized_position != working.get("position", ""):
-            working["position"] = normalized_position
-            per_row.append("auto_fix: position_normalized")
+        if not preserve_order_prefixed_positions:
+            normalized_position = normalize_position(working.get("position", ""))
+            if normalized_position != working.get("position", ""):
+                working["position"] = normalized_position
+                per_row.append("auto_fix: position_normalized")
 
         # Dimension normalization
         dimension, dims = clean_dimension(working.get("dimension", ""))

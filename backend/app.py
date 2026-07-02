@@ -91,7 +91,7 @@ from backend.agents.skills.extraction_diagnostics import (
 )
 from backend.agents.skills.family_pattern import attach_family_pattern_diagnostic
 from backend.agents.repair_orchestrator import repair_suspicious_row
-from extraction_normalizer import normalize_extracted_rows
+from extraction_normalizer import normalize_extracted_rows, normalize_order_metadata
 from utils_text import build_order_total_diagnostics, clean_dimension, parse_declared_totals
 from prompts import PROMPTS
 from analysis_signals import generate_analysis_signals
@@ -560,6 +560,29 @@ def _normalize_client_name_payload(*values: Any) -> str:
         if text_value and text_value not in {"-", "\u2014"}:
             return text_value
     return ""
+
+
+def _vendor_format_hint(metadata: Optional[Dict[str, Any]]) -> str:
+    if not isinstance(metadata, dict):
+        return ""
+    for key in ("vendor_format", "document_format", "vendor", "supplier"):
+        value = str(metadata.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _normalized_order_metadata(
+    payload: Dict[str, Any],
+    source_text: str,
+    *,
+    source_metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    return normalize_order_metadata(
+        payload,
+        source_text,
+        vendor_format=_vendor_format_hint(source_metadata),
+    )
 
 
 def _pdf_data_url(pdf_bytes: bytes) -> str:
@@ -1883,14 +1906,26 @@ def extract(inb: PasteIn, x_app_key: Optional[str] = Header(default=None)) -> Di
         bundle = call_llm_for_extraction(inb.text)
         raw_payload = bundle.get("raw") or {}
         result_raw = ExtractionResult(**raw_payload)
-        result_data = ExtractionResult(**(bundle.get("data") or raw_payload))
+        base_data_payload = bundle.get("data") or raw_payload
+        data_payload = _normalized_order_metadata(
+            base_data_payload,
+            inb.text,
+        )
+        order_metadata_was_normalized = data_payload != base_data_payload
+        result_data = ExtractionResult(**data_payload)
 
         _debug_log_rows(result_data.rows)
 
         rows_dict = _rows_to_dicts(result_data.rows)
         repaired_rows = apply_dimension_repair(inb.text, rows_dict)
         extracted_rows, normalization_warnings = normalize_extracted_rows(repaired_rows)
-        validation = validate_rows(extracted_rows, context={"prepared_text": bundle.get("prepared_text")})
+        validation = validate_rows(
+            extracted_rows,
+            context={
+                "prepared_text": bundle.get("prepared_text"),
+                "preserve_order_prefixed_positions": order_metadata_was_normalized,
+            },
+        )
         normalized_rows = validation.get("rows", extracted_rows)
         final_rows = apply_area_dimension_validation(normalized_rows)
         row_warnings = validation.get("row_warnings", {})
@@ -1909,7 +1944,6 @@ def extract(inb: PasteIn, x_app_key: Optional[str] = Header(default=None)) -> Di
             combined_warnings.append(f"auto_corrections_applied:{','.join(str(i) for i in applied)}")
 
         prepared_text = bundle.get("prepared_text") or inb.text.strip()
-        data_payload = bundle.get("data") or {}
         client_name = _normalize_client_name_payload(
             data_payload.get("client_name"),
             data_payload.get("clientName"),
@@ -1921,7 +1955,14 @@ def extract(inb: PasteIn, x_app_key: Optional[str] = Header(default=None)) -> Di
             extract_client_name(prepared_text),
         )
         hash_value = _compute_hash(prepared_text or inb.text)
-        llm_output_json = json.dumps(raw_payload, ensure_ascii=False)
+        if order_metadata_was_normalized:
+            llm_output_payload = (
+                dict(raw_payload) if isinstance(raw_payload, dict) else {"raw_payload": raw_payload}
+            )
+            llm_output_payload["_meta"] = {"normalized_result": data_payload}
+            llm_output_json = json.dumps(llm_output_payload, ensure_ascii=False)
+        else:
+            llm_output_json = json.dumps(raw_payload, ensure_ascii=False)
         declared_units, declared_area = _declared_totals_from_sources(
             bundle,
             prepared_text,
@@ -1942,15 +1983,21 @@ def extract(inb: PasteIn, x_app_key: Optional[str] = Header(default=None)) -> Di
             llm_output_json=llm_output_json,
             model_used=bundle.get("model_used"),
             hash_value=hash_value,
-            confidence=(bundle.get("data") or {}).get("confidence"),
+            confidence=data_payload.get("confidence"),
             client_name=client_name,
+            source_metadata={
+                "supplier_document_number": data_payload["supplier_document_number"],
+                "document_format": "KELI",
+            }
+            if data_payload.get("supplier_document_number")
+            else None,
         )
         draft_order_id = insert_result["order_id"]
         status = insert_result.get("status", "draft")
         saved_order_id = draft_order_id if status == "approved" else None
 
         payload = {
-            "order_number": (bundle.get("data") or {}).get("order_number") or _primary_order_number(final_rows),
+            "order_number": data_payload.get("order_number") or _primary_order_number(final_rows),
             "rows": response_rows,
             "warnings": combined_warnings,
             "row_warnings": row_warnings,
@@ -1972,6 +2019,8 @@ def extract(inb: PasteIn, x_app_key: Optional[str] = Header(default=None)) -> Di
             "clientName": client_name,
             "client": client_name or "—",
         }
+        if data_payload.get("supplier_document_number"):
+            payload["supplier_document_number"] = data_payload["supplier_document_number"]
         return payload
     except ValidationError as ve:
         raise HTTPException(status_code=422, detail=f"Validation error: {ve.errors()}")
@@ -2080,6 +2129,7 @@ def _extract_order_file_bytes(
     prepared_text = ""
     fallback_warning: Optional[str] = None
     pdf_text_layer_text = extract_pdf_text_layer_text(raw_bytes) if is_pdf else ""
+    order_metadata_text = pdf_text_layer_text
     scanned_image_only = bool(is_pdf and not (pdf_text_layer_text or "").strip())
 
     try:
@@ -2090,6 +2140,7 @@ def _extract_order_file_bytes(
                     bundle = legacy_result["bundle"]
                     client_name = legacy_result.get("client_name") or ""
                     prepared_text = bundle.get("prepared_text") or legacy_result.get("raw_joined") or ""
+                    order_metadata_text = legacy_result.get("raw_joined") or prepared_text
                     extraction_method = "forced_ocr"
                     fallback_warning = "forced_ocr_extraction_used"
                 except Exception as ocr_exc:
@@ -2111,6 +2162,7 @@ def _extract_order_file_bytes(
                         bundle = legacy_result["bundle"]
                         client_name = legacy_result.get("client_name") or ""
                         prepared_text = bundle.get("prepared_text") or legacy_result.get("raw_joined") or ""
+                        order_metadata_text = legacy_result.get("raw_joined") or prepared_text
                         extraction_method = "legacy_ocr"
                         fallback_warning = f"legacy_ocr_fallback_used: {visual_exc}"
                     except Exception as legacy_exc:
@@ -2127,16 +2179,29 @@ def _extract_order_file_bytes(
 
         raw_payload = bundle.get("raw") or {}
         _ = ExtractionResult(**raw_payload)
-        result_data = ExtractionResult(**(bundle.get("data") or raw_payload))
+        prepared_text = prepared_text or bundle.get("prepared_text") or pdf_text_layer_text or ""
+        base_data_payload = bundle.get("data") or raw_payload
+        data_payload = _normalized_order_metadata(
+            base_data_payload,
+            order_metadata_text or prepared_text,
+            source_metadata=source_metadata,
+        )
+        order_metadata_was_normalized = data_payload != base_data_payload
+        result_data = ExtractionResult(**data_payload)
 
         _debug_log_rows(result_data.rows)
 
         rows_dict = _rows_to_dicts(result_data.rows)
-        prepared_text = prepared_text or bundle.get("prepared_text") or pdf_text_layer_text or ""
         repair_context = prepared_text or (bundle.get("output_text") or "")
         repaired_rows = apply_dimension_repair(repair_context, rows_dict)
         extracted_rows, normalization_warnings = normalize_extracted_rows(repaired_rows)
-        validation = validate_rows(extracted_rows, context={"prepared_text": prepared_text})
+        validation = validate_rows(
+            extracted_rows,
+            context={
+                "prepared_text": prepared_text,
+                "preserve_order_prefixed_positions": order_metadata_was_normalized,
+            },
+        )
         normalized_rows = validation.get("rows", extracted_rows)
         final_rows = apply_area_dimension_validation(normalized_rows)
         localized_response_rows = attach_pdf_row_locations(final_rows, raw_bytes) if is_pdf else final_rows
@@ -2147,7 +2212,7 @@ def _extract_order_file_bytes(
             rows_dict,
             pdf_bytes=raw_bytes if is_pdf else None,
             pdf_id=hash_value if is_pdf else None,
-            order_number=(bundle.get("data") or {}).get("order_number") or _primary_order_number(final_rows),
+            order_number=data_payload.get("order_number") or _primary_order_number(final_rows),
             enabled=bool(is_pdf and extraction_method == "base64_pdf_visual"),
         )
         localized_response_rows = targeted_ocr["rows"]
@@ -2173,6 +2238,9 @@ def _extract_order_file_bytes(
         metadata = dict(source_metadata or {})
         metadata.setdefault("source", source)
         metadata.setdefault("original_filename", normalized_filename)
+        if data_payload.get("supplier_document_number"):
+            metadata.setdefault("supplier_document_number", data_payload["supplier_document_number"])
+            metadata.setdefault("document_format", "KELI")
         declared_units, declared_area = _declared_totals_from_sources(
             bundle,
             prepared_text,
@@ -2201,8 +2269,9 @@ def _extract_order_file_bytes(
             "scanned_image_only": scanned_image_only,
             "force_ocr": bool(force_ocr),
         }
+        if order_metadata_was_normalized:
+            llm_output_payload["_meta"]["normalized_result"] = data_payload
         llm_output_json = json.dumps(llm_output_payload, ensure_ascii=False)
-        data_payload = bundle.get("data") or {}
         client_name = _normalize_client_name_payload(
             client_name,
             data_payload.get("client_name"),
@@ -2224,7 +2293,7 @@ def _extract_order_file_bytes(
         telegram_file_record_id = metadata.get("telegram_file_record_id")
         if source == "telegram" and telegram_file_record_id:
             possible_duplicate = find_possible_duplicate_order(
-                order_number=(bundle.get("data") or {}).get("order_number") or _primary_order_number(final_rows),
+                order_number=data_payload.get("order_number") or _primary_order_number(final_rows),
                 client_name=client_name,
                 total_units=totals["units"],
                 total_area=totals["area"],
@@ -2245,7 +2314,7 @@ def _extract_order_file_bytes(
             llm_output_json=llm_output_json,
             model_used=bundle.get("model_used") or EXTRACTION_MODEL,
             hash_value=hash_value,
-            confidence=(bundle.get("data") or {}).get("confidence"),
+            confidence=data_payload.get("confidence"),
             client_name=client_name,
             source_metadata=metadata,
         )
@@ -2264,7 +2333,7 @@ def _extract_order_file_bytes(
             )
 
         response = {
-            "order_number": (bundle.get("data") or {}).get("order_number") or _primary_order_number(final_rows),
+            "order_number": data_payload.get("order_number") or _primary_order_number(final_rows),
             "rows": response_rows,
             "warnings": combined_warnings,
             "row_warnings": row_warnings,
@@ -2283,11 +2352,13 @@ def _extract_order_file_bytes(
             "parsed_area": totals["area"],
             "order_total_diagnostics": order_total_diagnostics,
             "extraction_method": extraction_method,
-            "confidence": (bundle.get("data") or {}).get("confidence"),
+            "confidence": data_payload.get("confidence"),
             "client_name": client_name,
             "clientName": client_name,
             "client": client_name or "—",
         }
+        if data_payload.get("supplier_document_number"):
+            response["supplier_document_number"] = data_payload["supplier_document_number"]
         if possible_duplicate:
             response.update(
                 {

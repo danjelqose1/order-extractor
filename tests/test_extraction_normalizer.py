@@ -1,4 +1,8 @@
-from backend.extraction_normalizer import DIMENSION_IN_TYPE_WARNING, normalizeExtractedRow
+from backend.extraction_normalizer import (
+    DIMENSION_IN_TYPE_WARNING,
+    normalizeExtractedRow,
+    normalize_order_metadata,
+)
 
 
 def _row(type_value: str, dimension: str = "522x1262"):
@@ -49,3 +53,57 @@ def test_does_not_remove_spacers_or_thickness_values():
     assert "+14" in cleaned["type"]
     assert "28mm" in cleaned["type"]
     assert "_normalization_warnings" not in cleaned
+
+
+def test_keli_correlated_document_is_primary_order_number():
+    source_text = (
+        "ORDINE DI VETRO 26-0075\n"
+        "DOCUMENTO CORRELATO R - 26-0488\n"
+    )
+    raw_payload = {
+        "order_number": "26-0075",
+        "rows": [
+            {
+                "order_number": "26-0075",
+                "position": "R-26-0488/1-1",
+            }
+        ],
+    }
+
+    normalized = normalize_order_metadata(
+        raw_payload,
+        source_text,
+        vendor_format="KELI",
+    )
+
+    assert normalized["order_number"] == "R-26-0488"
+    assert normalized["supplier_document_number"] == "26-0075"
+    assert normalized["rows"][0]["order_number"] == "R-26-0488"
+    assert normalized["rows"][0]["position"] == "R-26-0488/1-1"
+    assert raw_payload["order_number"] == "26-0075"
+    assert "supplier_document_number" not in raw_payload
+
+
+def test_keli_correlated_document_spacing_variants_are_normalized():
+    for correlated_value in ("R - 26-0488", "R -26-0488", "R- 26-0488"):
+        normalized = normalize_order_metadata(
+            {"order_number": "26-0075", "rows": []},
+            f"DOCUMENTO CORRELATO {correlated_value}",
+            vendor_format="KELI",
+        )
+
+        assert normalized["order_number"] == "R-26-0488"
+
+
+def test_non_keli_order_metadata_is_not_changed():
+    payload = {
+        "order_number": "26-0075",
+        "rows": [{"order_number": "26-0075", "position": "R-26-0488/1-1"}],
+    }
+
+    normalized = normalize_order_metadata(
+        payload,
+        "DOCUMENTO CORRELATO R - 26-0488",
+    )
+
+    assert normalized == payload

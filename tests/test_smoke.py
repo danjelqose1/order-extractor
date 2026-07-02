@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import json
 import sys
 import threading
 import types
@@ -312,6 +313,51 @@ def test_text_pdf_extracts_rows(monkeypatch):
     assert stored["raw_input"].startswith("data:application/pdf;base64,")
     assert stored["model_used"] == "gpt-5-mini"
     assert stored["client_name"] == "Client A"
+
+
+def test_keli_pdf_uses_correlated_document_as_order_number(monkeypatch):
+    app_module, calls = _load_app(monkeypatch, legacy_enabled="false")
+    source_text = (
+        "*** KELI ALBANIA ***\n"
+        "ORDINE DI VETRO 26-0075\n"
+        "DOCUMENTO CORRELATO R - 26-0488\n"
+    )
+    app_module.extract_pdf_text_layer_text = lambda _pdf_bytes: source_text
+    app_module.call_llm_for_pdf_base64_visual = lambda pdf_bytes, filename: _bundle(
+        [
+            {
+                "order_number": "26-0075",
+                "type": "2 VETRI 33.1F + 14 + 33.1 LOWE C.CALDO 28mm",
+                "dimension": "520x1168",
+                "position": "R-26-0488/1-1",
+                "quantity": 1,
+                "area": 0.607,
+            }
+        ]
+    )
+
+    client = TestClient(app_module.app)
+    response = client.post(
+        "/extract_pdf",
+        files={"file": ("keli-order.pdf", b"%PDF-1.7\nkeli", "application/pdf")},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["order_number"] == "R-26-0488"
+    assert data["supplier_document_number"] == "26-0075"
+    assert data["rows"][0]["order_number"] == "R-26-0488"
+    assert data["rows"][0]["position"] == "R-26-0488/1-1"
+
+    stored = calls["insert_extraction_with_rows"][0]
+    assert stored["rows"][0]["order_number"] == "R-26-0488"
+    assert stored["rows"][0]["position"] == "R-26-0488/1-1"
+    assert stored["source_metadata"]["supplier_document_number"] == "26-0075"
+    assert stored["prepared_text"] == source_text
+    stored_llm_output = json.loads(stored["llm_output_json"])
+    assert stored_llm_output["order_number"] == "26-0075"
+    assert stored_llm_output["_meta"]["parsed_result"]["order_number"] == "26-0075"
+    assert stored_llm_output["_meta"]["normalized_result"]["order_number"] == "R-26-0488"
 
 
 def test_invoice_ai_glass_match_route_keeps_api_key_on_backend(monkeypatch):

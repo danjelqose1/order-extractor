@@ -6,6 +6,74 @@ from typing import Any, Dict, Iterable, List, Tuple
 
 DIMENSION_IN_TYPE_WARNING = "Dimension-like text was removed from type field"
 _DIMENSION_TOKEN_RE = re.compile(r"(?<!\d)(\d{2,5})\s*[xX×]\s*(\d{2,5})(?!\d)")
+_KELI_MARKER_RE = re.compile(r"\bKELI(?:\s+ALBANIA)?\b", re.IGNORECASE)
+_KELI_CORRELATED_DOCUMENT_RE = re.compile(
+    r"\bDOCUMENTO\s+CORRELATO\b\s*[:\-]?\s*"
+    r"(?P<order>R\s*-\s*\d{2}\s*-\s*\d{4})\b",
+    re.IGNORECASE,
+)
+_KELI_GLASS_ORDER_RE = re.compile(
+    r"\bORDINE\s+DI\s+VETRO\b\s*[:#\-]?\s*"
+    r"(?P<document>\d{2}\s*-\s*\d{4})\b",
+    re.IGNORECASE,
+)
+
+
+def _is_keli_format(source_text: str, vendor_format: str = "") -> bool:
+    explicit_format = re.sub(r"[^A-Z0-9]+", "", str(vendor_format or "").upper())
+    return explicit_format in {"KELI", "KELIALBANIA"} or bool(
+        _KELI_MARKER_RE.search(source_text or "")
+    )
+
+
+def _normalize_keli_order_number(value: str) -> str:
+    compact = re.sub(r"\s+", "", str(value or "").upper())
+    match = re.fullmatch(r"R-(\d{2})-(\d{4})", compact)
+    return f"R-{match.group(1)}-{match.group(2)}" if match else ""
+
+
+def _normalize_keli_supplier_document_number(value: str) -> str:
+    compact = re.sub(r"\s+", "", str(value or ""))
+    match = re.fullmatch(r"(\d{2})-(\d{4})", compact)
+    return f"{match.group(1)}-{match.group(2)}" if match else ""
+
+
+def normalize_order_metadata(
+    payload: Dict[str, Any],
+    source_text: str,
+    *,
+    vendor_format: str = "",
+) -> Dict[str, Any]:
+    """Apply deterministic, format-specific order metadata without mutating inputs."""
+    normalized = dict(payload or {})
+    rows = [dict(row) if isinstance(row, dict) else row for row in normalized.get("rows") or []]
+    normalized["rows"] = rows
+
+    if not _is_keli_format(source_text, vendor_format):
+        return normalized
+
+    correlated_match = _KELI_CORRELATED_DOCUMENT_RE.search(source_text or "")
+    if not correlated_match:
+        return normalized
+
+    order_number = _normalize_keli_order_number(correlated_match.group("order"))
+    if not order_number:
+        return normalized
+
+    normalized["order_number"] = order_number
+    for row in rows:
+        if isinstance(row, dict):
+            row["order_number"] = order_number
+
+    supplier_match = _KELI_GLASS_ORDER_RE.search(source_text or "")
+    if supplier_match:
+        supplier_document_number = _normalize_keli_supplier_document_number(
+            supplier_match.group("document")
+        )
+        if supplier_document_number:
+            normalized["supplier_document_number"] = supplier_document_number
+
+    return normalized
 
 
 def _dimension_key_from_parts(width: str, height: str) -> str:
@@ -94,4 +162,9 @@ def normalize_extracted_rows(rows: Iterable[Dict[str, Any]]) -> Tuple[List[Dict[
     return normalized_rows, warnings
 
 
-__all__ = ["DIMENSION_IN_TYPE_WARNING", "normalizeExtractedRow", "normalize_extracted_rows"]
+__all__ = [
+    "DIMENSION_IN_TYPE_WARNING",
+    "normalizeExtractedRow",
+    "normalize_extracted_rows",
+    "normalize_order_metadata",
+]
