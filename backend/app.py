@@ -1967,7 +1967,6 @@ def extract(inb: PasteIn, x_app_key: Optional[str] = Header(default=None)) -> Di
             bundle,
             prepared_text,
             inb.text,
-            bundle.get("output_text"),
         )
         totals = _summarize_totals(final_rows)
         order_total_diagnostics = _order_total_diagnostics_from_totals(declared_units, declared_area, totals)
@@ -2245,7 +2244,6 @@ def _extract_order_file_bytes(
             bundle,
             prepared_text,
             pdf_text_layer_text,
-            bundle.get("output_text"),
         )
 
         llm_output_payload = dict(raw_payload) if isinstance(raw_payload, dict) else {"raw_payload": raw_payload}
@@ -3994,6 +3992,14 @@ def get_order_detail(order_id: int) -> Dict[str, Any]:
 
 @app.delete("/orders/{order_id}")
 def remove_order(order_id: int) -> Dict[str, bool]:
+    order = get_order_with_extraction(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if normalize_order_status(order.get("status")) != "draft":
+        raise HTTPException(
+            status_code=409,
+            detail="Only draft orders can be permanently deleted. Archive this order instead.",
+        )
     deleted = delete_order(order_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Order not found")

@@ -52,3 +52,27 @@ def test_parse_declared_totals_supports_plain_totale_row():
 
     assert units == 344
     assert area == 192.0
+
+
+def test_parse_declared_totals_supports_split_pdf_text_layer():
+    text = """
+    14
+    7,060
+    Totale
+    14
+    7,060
+    """
+
+    units, area = parse_declared_totals(text)
+
+    assert units == 14
+    assert area == 7.06
+
+
+def test_parse_declared_totals_ignores_json_prose():
+    text = '{"order_number":"R-25-0401","confidence":0.95,"warnings":["page shows a total line"]}'
+
+    units, area = parse_declared_totals(text)
+
+    assert units is None
+    assert area is None

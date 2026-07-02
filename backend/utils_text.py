@@ -135,7 +135,31 @@ def parse_declared_totals(text: Optional[str]) -> Tuple[Optional[int], Optional[
         return None, None
     declared_units = None
     declared_area = None
-    for line in text.splitlines()[::-1]:
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+
+    # Some PDF text layers place the "Totale" marker on its own line and put
+    # the units and area on adjacent lines. Prefer this explicit structure over
+    # interpreting unrelated numbers from model output or prose.
+    numeric_units_re = re.compile(r"^\d+$")
+    numeric_area_re = re.compile(r"^\d+(?:[.,]\d+)?$")
+    for index, line in enumerate(lines):
+        if line.casefold().rstrip(":") not in {"total", "totale", "totali"}:
+            continue
+        adjacent_pairs = (
+            lines[index + 1:index + 3],
+            lines[max(0, index - 2):index],
+        )
+        for pair in adjacent_pairs:
+            if len(pair) != 2:
+                continue
+            units_token, area_token = pair
+            if not numeric_units_re.fullmatch(units_token):
+                continue
+            if not numeric_area_re.fullmatch(area_token):
+                continue
+            return int(units_token), _parse_decimal_number(area_token)
+
+    for line in lines[::-1]:
         stripped = line.strip()
         if not stripped:
             continue
@@ -146,12 +170,12 @@ def parse_declared_totals(text: Optional[str]) -> Tuple[Optional[int], Optional[
             except Exception:
                 declared_units = None
             try:
-                declared_area = float(match.group(2).replace(".", "").replace(",", "."))
+                declared_area = _parse_decimal_number(match.group(2))
             except Exception:
                 declared_area = None
             if declared_units or declared_area:
                 break
-        if not TOTAL_KEYWORD_RE.search(stripped):
+        if not re.match(r"^(?:totale|total|totali)\b", stripped, flags=re.IGNORECASE):
             continue
         units, area = _parse_total_line(stripped)
         if units is not None or area is not None:

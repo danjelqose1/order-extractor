@@ -1752,3 +1752,37 @@ def test_legacy_ocr_not_called_when_disabled(monkeypatch):
     assert "Base64 PDF extraction failed" in response.json()["detail"]
     assert legacy_calls["count"] == 0
     assert calls["insert_extraction_with_rows"] == []
+
+
+def test_order_delete_rejects_non_draft(monkeypatch):
+    app_module, _ = _load_app(monkeypatch)
+    delete_calls = []
+    app_module.get_order_with_extraction = lambda order_id: {
+        "id": order_id,
+        "status": "approved",
+    }
+    app_module.delete_order = lambda order_id: delete_calls.append(order_id) or True
+    client = TestClient(app_module.app)
+
+    response = client.delete("/orders/12")
+
+    assert response.status_code == 409
+    assert "Archive this order instead" in response.json()["detail"]
+    assert delete_calls == []
+
+
+def test_order_delete_allows_draft(monkeypatch):
+    app_module, _ = _load_app(monkeypatch)
+    delete_calls = []
+    app_module.get_order_with_extraction = lambda order_id: {
+        "id": order_id,
+        "status": "draft",
+    }
+    app_module.delete_order = lambda order_id: delete_calls.append(order_id) or True
+    client = TestClient(app_module.app)
+
+    response = client.delete("/orders/12")
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert delete_calls == [12]

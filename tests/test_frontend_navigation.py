@@ -25,3 +25,10 @@ def test_overview_gates_the_new_order_workspace():
     assert 'id="newOrderWorkspace" class="new-order-workspace" hidden' in html
     assert "function setNewOrderWorkspaceOpen" in js
     assert "function loadOverview" in js
+
+
+def test_history_only_enables_hard_delete_for_drafts():
+    js = APP_JS.read_text(encoding="utf-8")
+
+    assert 'normalizedStatus === "draft"' in js
+    assert "Only draft orders can be deleted; archive this order instead." in js

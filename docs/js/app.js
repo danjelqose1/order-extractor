@@ -15792,7 +15792,7 @@ function renderOrdersList(){
           <button data-action="processing" data-id="${order.id}" ${canProcessingStatus(normalizedStatus) ? "" : "disabled"}>Send to Processing</button>
           <button data-action="labels" data-id="${order.id}">Generate Labels</button>
           <button data-action="archive" data-id="${order.id}" class="warn" ${canArchiveStatus(normalizedStatus) ? "" : "disabled"}>Archive</button>
-          <button data-action="delete" data-id="${order.id}" class="warn">Delete order</button>
+          <button data-action="delete" data-id="${order.id}" class="warn" ${normalizedStatus === "draft" ? "" : 'disabled title="Only draft orders can be deleted; archive this order instead."'}>Delete order</button>
         </div>
       </details>
     `;

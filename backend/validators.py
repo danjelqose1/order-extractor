@@ -138,8 +138,7 @@ def validate_rows(
         if working.get("quantity", 0) > 6 and dims:
             width, height = dims
             if width * height < 400_000:  # roughly <0.4 m²
-                working["quantity"] = max(1, min(3, working["quantity"]))
-                per_row.append("warning: unusually_high_quantity_adjusted")
+                per_row.append("warning: unusually_high_quantity")
 
         # Type propagation
         order_key = working.get("order_number") or "__default__"
