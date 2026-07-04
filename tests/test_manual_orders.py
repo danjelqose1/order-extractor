@@ -5,6 +5,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
+import fitz
 import pytest
 
 
@@ -274,6 +275,11 @@ def test_manual_orders_frontend_exposes_isolated_factory_workflow():
     assert 'data-manual-action="processing"' in js
     assert 'data-manual-action="labels"' in js
     assert 'data-manual-action="invoice"' in js
+    assert "function downloadManualOrderDocument" in js
+    assert '"processing-sheet.pdf"' in js
+    assert '"labels.pdf"' in js
+    assert 'activateTab("processing")' not in js[js.index('async function handleManualOrderAction'):js.index('function ensureManualOrdersReady')]
+    assert 'activateTab("labels")' not in js[js.index('async function handleManualOrderAction'):js.index('function ensureManualOrdersReady')]
     assert "manualInvoicePricingIssues" in js
     assert 'list="manualGlassTypeOptions"' in js
     assert 'manualApi("/manual-orders/glass-types?limit=250")' in js
@@ -295,3 +301,76 @@ def test_manual_order_rows_support_spreadsheet_keyboard_entry():
     assert 'glass_type: previous?.glass_type || ""' in js
     assert 'newManualRow({ position: "1" })' in js
     assert 'readonly tabindex="-1"' in js
+
+
+def test_manual_processing_sheet_matches_compact_workshop_format():
+    if str(BACKEND_DIR) not in sys.path:
+        sys.path.insert(0, str(BACKEND_DIR))
+    documents = importlib.import_module("manual_documents")
+    order = _manual_payload(
+        status="approved",
+        rows=[
+            {
+                "position": "1",
+                "glass_type": "Tr+12+Tr",
+                "width_mm": 615,
+                "height_mm": 1252,
+                "quantity": 2,
+                "notes": "",
+            },
+            {
+                "position": "2",
+                "glass_type": "Tr+12+Tr",
+                "width_mm": 615,
+                "height_mm": 1030,
+                "quantity": 2,
+                "notes": "",
+            },
+        ],
+    )
+
+    pdf_bytes = documents.build_manual_processing_pdf(order)
+    pdf = fitz.open(stream=pdf_bytes, filetype="pdf")
+
+    assert len(pdf) == 1
+    assert pdf[0].rect.width == pytest.approx(100 * 72 / 25.4, abs=0.2)
+    assert pdf[0].rect.height == pytest.approx(210 * 72 / 25.4, abs=0.2)
+    text = pdf[0].get_text()
+    assert "MANUAL PROCESSING" in text
+    assert "Tr+12+Tr" in text
+    assert "61.5 x 125.2" in text
+    assert "61.5 x 103" in text
+    assert "x 2" in text
+
+
+def test_manual_labels_are_dedicated_100x40_quantity_labels():
+    if str(BACKEND_DIR) not in sys.path:
+        sys.path.insert(0, str(BACKEND_DIR))
+    documents = importlib.import_module("manual_documents")
+    order = _manual_payload(
+        status="approved",
+        rows=[
+            {
+                "position": "7",
+                "glass_type": "4F",
+                "width_mm": 1000,
+                "height_mm": 500,
+                "quantity": 2,
+                "notes": "",
+            }
+        ],
+    )
+
+    pdf_bytes = documents.build_manual_labels_pdf(order)
+    pdf = fitz.open(stream=pdf_bytes, filetype="pdf")
+
+    assert len(pdf) == 2
+    for index, page in enumerate(pdf, start=1):
+        assert page.rect.width == pytest.approx(100 * 72 / 25.4, abs=0.2)
+        assert page.rect.height == pytest.approx(40 * 72 / 25.4, abs=0.2)
+        text = page.get_text()
+        assert "M-2026-001" in text
+        assert "Manual Client" in text
+        assert "1000 x 500 mm" in text
+        assert "4F" in text
+        assert f"POS 7  {index}/2" in text

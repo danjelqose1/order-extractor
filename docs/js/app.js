@@ -20587,6 +20587,28 @@ async function manualApi(path, options = {}){
   return data;
 }
 
+async function downloadManualOrderDocument(orderId, documentPath, filename){
+  const response = await fetch(API_BASE + `/manual-orders/${orderId}/${documentPath}`);
+  if (!response.ok){
+    let detail = null;
+    try{
+      detail = (await response.json())?.detail;
+    }catch{
+      detail = null;
+    }
+    throw new Error(manualErrorMessage(detail, `Document request failed (${response.status}).`));
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 function renderManualGlassTypeOptions(){
   if (!manualGlassTypeOptions) return;
   manualGlassTypeOptions.innerHTML = manualOrdersState.glassTypes
@@ -20877,8 +20899,8 @@ function renderManualOrdersList(){
         <button type="button" class="btn small tertiary" data-manual-action="open" data-id="${order.id}">Open</button>
         <button type="button" class="btn small" data-manual-action="edit" data-id="${order.id}">Edit</button>
         <button type="button" class="btn small tertiary" data-manual-action="duplicate" data-id="${order.id}">Duplicate</button>
-        <button type="button" class="btn small" data-manual-action="processing" data-id="${order.id}" ${canProduce ? "" : "disabled"}>Processing</button>
-        <button type="button" class="btn small" data-manual-action="labels" data-id="${order.id}" ${canOutput ? "" : "disabled"}>Labels</button>
+        <button type="button" class="btn small" data-manual-action="processing" data-id="${order.id}" ${canProduce ? "" : "disabled"}>Processing sheet</button>
+        <button type="button" class="btn small" data-manual-action="labels" data-id="${order.id}" ${canOutput ? "" : "disabled"}>Labels 100×40</button>
         <button type="button" class="btn small" data-manual-action="invoice" data-id="${order.id}" ${canOutput ? "" : "disabled"}>Invoice</button>
         <button type="button" class="btn small danger" data-manual-action="delete" data-id="${order.id}">Delete</button>
       </div></td>
@@ -21042,19 +21064,18 @@ async function handleManualOrderAction(action, orderId){
   if (action === "processing"){
     try{
       const normalized = await manualApi(`/manual-orders/${orderId}/processing`, { method: "POST" });
-      const shared = manualOrderToShared({
-        ...normalized,
-        id: normalized.manual_order_id,
-        total_quantity: (normalized.rows || []).reduce((sum, row) => sum + Number(row.quantity || 0), 0),
-        total_area_m2: (normalized.rows || []).reduce((sum, row) => sum + Number(row.final_area_m2 || 0), 0),
-      });
-      addOrderToProcessing(shared);
-      showProcessingToast(`${normalized.order_number} added to Processing`);
+      await downloadManualOrderDocument(
+        orderId,
+        "processing-sheet.pdf",
+        `${normalized.order_number}-processing-sheet.pdf`,
+      );
       if (String(manualOrdersState.editingId) === String(normalized.manual_order_id) && manualOrderStatus){
         manualOrderStatus.value = "processing";
       }
       await loadManualOrders();
-      activateTab("processing");
+      if (manualOrdersListStatus){
+        manualOrdersListStatus.textContent = `Manual processing sheet downloaded for ${normalized.order_number}.`;
+      }
     }catch(error){
       if (manualOrdersListStatus) manualOrdersListStatus.textContent = error.message || String(error);
     }
@@ -21062,17 +21083,19 @@ async function handleManualOrderAction(action, orderId){
   }
   const order = await manualApi(`/manual-orders/${orderId}`);
   if (action === "labels"){
-    const shared = manualOrderToShared(order);
-    const job = addLabelsJob("Manual Order", shared.rows, {
-      primaryOrderId: order.order_number,
-      clientOverride: order.client_name,
-      sourceKind: "manual",
-      sourceLabel: "Manual Order",
-      sourceDetail: `manual-${order.id}`,
-      successMessage: `Added quantity-based labels for ${order.order_number}.`,
-    });
-    if (job){
-      activateTab("labels");
+    try{
+      await downloadManualOrderDocument(
+        orderId,
+        "labels.pdf",
+        `${order.order_number}-labels-100x40.pdf`,
+      );
+      if (manualOrdersListStatus){
+        manualOrdersListStatus.textContent = `Manual 100×40 labels downloaded for ${order.order_number}.`;
+      }
+    }catch(error){
+      if (manualOrdersListStatus){
+        manualOrdersListStatus.textContent = error.message || String(error);
+      }
     }
     return;
   }

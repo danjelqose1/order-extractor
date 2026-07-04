@@ -78,6 +78,7 @@ from db import (
     get_telegram_file,
 )
 import db as db_module
+from manual_documents import build_manual_labels_pdf, build_manual_processing_pdf
 from validators import validate_rows
 from dimension_repair import apply_dimension_repair
 from area_dimension_validator import apply_area_dimension_validation
@@ -3801,6 +3802,40 @@ def process_manual_order(order_id: int) -> Dict[str, Any]:
             status_code=404 if "not found" in message.lower() else 400,
             detail=message,
         )
+
+
+def _manual_pdf_response(order_id: int, document: str) -> Response:
+    order = db_module.get_manual_order(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Manual order not found")
+    if order.get("status") not in {"approved", "processing", "finished"}:
+        raise HTTPException(status_code=400, detail="Approve the manual order before generating factory documents.")
+    try:
+        if document == "processing-sheet":
+            content = build_manual_processing_pdf(order)
+            suffix = "processing-sheet"
+        else:
+            content = build_manual_labels_pdf(order)
+            suffix = "labels-100x40"
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    safe_order_number = re.sub(r"[^A-Za-z0-9._-]+", "-", str(order.get("order_number") or order_id)).strip("-")
+    filename = f"{safe_order_number or order_id}-{suffix}.pdf"
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/manual-orders/{order_id}/processing-sheet.pdf")
+def download_manual_processing_sheet(order_id: int) -> Response:
+    return _manual_pdf_response(order_id, "processing-sheet")
+
+
+@app.get("/manual-orders/{order_id}/labels.pdf")
+def download_manual_labels(order_id: int) -> Response:
+    return _manual_pdf_response(order_id, "labels")
 
 
 @app.delete("/manual-orders/{order_id}")
