@@ -21179,10 +21179,11 @@ function initManualOrders(){
     }
     if (event.key === "ArrowDown" || event.key === "Enter"){
       event.preventDefault();
+      const nextField = event.key === "ArrowDown" ? "width_mm" : field;
       if (rowIndex === manualOrdersState.rows.length - 1){
-        appendManualRow({ focusField: field });
+        appendManualRow({ focusField: nextField });
       }else{
-        focusManualRowField(rowIndex + 1, field);
+        focusManualRowField(rowIndex + 1, nextField);
       }
     }else if (event.key === "ArrowUp" && rowIndex > 0){
       event.preventDefault();

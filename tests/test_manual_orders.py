@@ -291,6 +291,7 @@ def test_manual_order_rows_support_spreadsheet_keyboard_entry():
     assert 'event.key === "ArrowDown" || event.key === "Enter"' in js
     assert 'event.key === "ArrowUp"' in js
     assert 'event.key === "Tab"' in js
+    assert 'const nextField = event.key === "ArrowDown" ? "width_mm" : field;' in js
     assert 'glass_type: previous?.glass_type || ""' in js
     assert 'newManualRow({ position: "1" })' in js
     assert 'readonly tabindex="-1"' in js
