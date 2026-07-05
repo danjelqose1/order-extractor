@@ -981,7 +981,8 @@
           <div class="manual-order-fields">
             <label>
               <span>Client name *</span>
-              <input type="text" id="manualClientName" autocomplete="organization" required />
+              <input type="text" id="manualClientName" list="manualClientOptions" autocomplete="off" required />
+              <datalist id="manualClientOptions"></datalist>
             </label>
             <label>
               <span>Order number *</span>

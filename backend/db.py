@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
@@ -290,6 +291,22 @@ class ManualOrderRow(Base):
 class ManualGlassType(Base):
     __tablename__ = "manual_glass_types"
     __table_args__ = (UniqueConstraint("normalized_name", name="uq_manual_glass_types_normalized_name"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    normalized_name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
+    usage_count: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
+class ManualClient(Base):
+    __tablename__ = "manual_clients"
+    __table_args__ = (UniqueConstraint("normalized_name", name="uq_manual_clients_normalized_name"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -643,6 +660,8 @@ def init_db() -> None:
     print(f"[db] Backfilled SHA-256 for {backfilled} Telegram file(s).")
     backfilled_glass_types = backfill_manual_glass_types()
     print(f"[db] Backfilled {backfilled_glass_types} manual glass type(s).")
+    backfilled_clients = backfill_manual_clients()
+    print(f"[db] Backfilled {backfilled_clients} manual client(s).")
 
 
 @contextmanager
@@ -1502,6 +1521,111 @@ def list_manual_glass_types(
         return [item.name for item in items]
 
 
+def _normalize_manual_client(value: Any) -> str:
+    return " ".join(str(value or "").strip().lower().split())
+
+
+def _remember_manual_client(session: Session, client_name: str) -> None:
+    normalized = _normalize_manual_client(client_name)
+    if not normalized:
+        return
+    now = datetime.now(timezone.utc)
+    statement = sqlite_insert(ManualClient).values(
+        name=client_name.strip(),
+        normalized_name=normalized,
+        usage_count=1,
+        created_at=now,
+        updated_at=now,
+    )
+    statement = statement.on_conflict_do_update(
+        index_elements=[ManualClient.normalized_name],
+        set_={
+            "name": client_name.strip(),
+            "usage_count": ManualClient.usage_count + 1,
+            "updated_at": now,
+        },
+    )
+    session.execute(statement)
+
+
+def backfill_manual_clients() -> int:
+    with get_session() as session:
+        existing = set(
+            session.execute(select(ManualClient.normalized_name)).scalars().all()
+        )
+        values = session.execute(
+            select(ManualOrder.client_name)
+            .where(func.trim(ManualOrder.client_name) != "")
+            .order_by(ManualOrder.id.asc())
+        ).scalars().all()
+        added = 0
+        for value in values:
+            name = str(value or "").strip()
+            normalized = _normalize_manual_client(name)
+            if not normalized or normalized in existing:
+                continue
+            session.add(
+                ManualClient(
+                    name=name,
+                    normalized_name=normalized,
+                    usage_count=1,
+                )
+            )
+            existing.add(normalized)
+            added += 1
+        return added
+
+
+def list_manual_clients(
+    *,
+    query: Optional[str] = None,
+    limit: int = 100,
+) -> List[str]:
+    safe_limit = max(1, min(int(limit or 100), 250))
+    with SessionLocal() as session:
+        statement = select(ManualClient).order_by(
+            ManualClient.updated_at.desc(),
+            ManualClient.usage_count.desc(),
+            ManualClient.name.asc(),
+        ).limit(safe_limit)
+        if query:
+            statement = statement.where(
+                func.lower(ManualClient.name).like(f"%{str(query).strip().lower()}%")
+            )
+        items = session.execute(statement).scalars().all()
+        return [item.name for item in items]
+
+
+def next_manual_order_number(order_date: str) -> str:
+    text_value = str(order_date or "").strip()
+    try:
+        parsed_date = datetime.strptime(text_value, "%Y-%m-%d")
+    except ValueError as exc:
+        raise ValueError("Order date must use YYYY-MM-DD format.") from exc
+    prefix = parsed_date.strftime("%d%m%Y")
+    with SessionLocal() as session:
+        existing = set(
+            str(value or "").strip()
+            for value in session.execute(
+                select(ManualOrder.order_number).where(
+                    ManualOrder.order_number.like(f"{prefix}%")
+                )
+            ).scalars().all()
+        )
+    if prefix not in existing:
+        return prefix
+    suffixes = [1]
+    pattern = re.compile(rf"^{re.escape(prefix)}-(\d+)$")
+    for value in existing:
+        match = pattern.match(value)
+        if match:
+            suffixes.append(int(match.group(1)))
+    candidate = max(suffixes) + 1
+    while f"{prefix}-{candidate:02d}" in existing:
+        candidate += 1
+    return f"{prefix}-{candidate:02d}"
+
+
 def _serialize_manual_order(order: ManualOrder, *, include_rows: bool = True) -> Dict[str, Any]:
     rows = list(order.rows or [])
     total_quantity = sum(int(row.quantity or 0) for row in rows)
@@ -1606,6 +1730,7 @@ def create_manual_order(payload: Dict[str, Any]) -> Dict[str, Any]:
             source="manual",
         )
         session.add(order)
+        _remember_manual_client(session, client_name)
         _replace_manual_order_rows(session, order, rows)
         session.flush()
         data = _serialize_manual_order(order)
@@ -1679,6 +1804,7 @@ def update_manual_order(order_id: int, payload: Dict[str, Any]) -> Dict[str, Any
         order.status = _normalize_manual_status(payload.get("status"), default=order.status)
         order.source = "manual"
         order.updated_at = datetime.now(timezone.utc)
+        _remember_manual_client(session, client_name)
         _replace_manual_order_rows(session, order, rows)
         session.flush()
         data = _serialize_manual_order(order)
@@ -2647,4 +2773,7 @@ __all__ = [
     "send_manual_order_to_processing",
     "backfill_manual_glass_types",
     "list_manual_glass_types",
+    "backfill_manual_clients",
+    "list_manual_clients",
+    "next_manual_order_number",
 ]

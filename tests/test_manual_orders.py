@@ -261,6 +261,32 @@ def test_saved_manual_glass_types_remain_available_for_autocomplete(tmp_path, mo
     assert "4F" in db.list_manual_glass_types()
 
 
+def test_saved_manual_clients_and_date_based_order_number(tmp_path, monkeypatch):
+    db = _load_db(tmp_path, monkeypatch)
+    first = db.create_manual_order(
+        _manual_payload(
+            client_name="Qamili",
+            order_number="05072026",
+            order_date="2026-07-05",
+        )
+    )
+    db.create_manual_order(
+        _manual_payload(
+            client_name="  qamili  ",
+            order_number="05072026-02",
+            order_date="2026-07-05",
+        )
+    )
+
+    assert db.list_manual_clients() == ["qamili"]
+    assert db.list_manual_clients(query="mil") == ["qamili"]
+    assert db.next_manual_order_number("2026-07-05") == "05072026-03"
+    assert db.next_manual_order_number("2026-07-06") == "06072026"
+
+    db.delete_manual_order(first["id"])
+    assert db.list_manual_clients() == ["qamili"]
+
+
 def test_manual_orders_frontend_exposes_isolated_factory_workflow():
     html = INDEX_HTML.read_text(encoding="utf-8")
     js = APP_JS.read_text(encoding="utf-8")
@@ -269,6 +295,7 @@ def test_manual_orders_frontend_exposes_isolated_factory_workflow():
     assert 'id="tabManualOrders"' in html
     assert 'id="manualOrderRows"' in html
     assert 'id="manualGlassTypeOptions"' in html
+    assert 'id="manualClientOptions"' in html
     assert "function manualCalculatedArea" in js
     assert "width * height * quantity / 1_000_000" in js
     assert 'source: "manual"' in js
@@ -283,6 +310,9 @@ def test_manual_orders_frontend_exposes_isolated_factory_workflow():
     assert "manualInvoicePricingIssues" in js
     assert 'list="manualGlassTypeOptions"' in js
     assert 'manualApi("/manual-orders/glass-types?limit=250")' in js
+    assert 'manualApi("/manual-orders/clients?limit=250")' in js
+    assert "/manual-orders/next-number?" in js
+    assert "function fillNextManualOrderNumber" in js
 
 
 def test_manual_order_rows_support_spreadsheet_keyboard_entry():

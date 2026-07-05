@@ -163,6 +163,11 @@ const manualOrdersState = {
   nextRowId: 1,
   glassTypes: [],
   glassTypesLoaded: false,
+  clients: [],
+  clientsLoaded: false,
+  autoOrderNumber: true,
+  lastAutoOrderNumber: "",
+  numberRequestToken: 0,
 };
 
 const appState = {
@@ -20470,6 +20475,7 @@ const manualOrdersListStatus = document.getElementById("manualOrdersListStatus")
 const manualOrderSearch = document.getElementById("manualOrderSearch");
 const manualOrderStatusFilter = document.getElementById("manualOrderStatusFilter");
 const manualGlassTypeOptions = document.getElementById("manualGlassTypeOptions");
+const manualClientOptions = document.getElementById("manualClientOptions");
 
 function manualToday(){
   const now = new Date();
@@ -20634,6 +20640,64 @@ async function loadManualGlassTypes({ force = false } = {}){
   return manualOrdersState.glassTypes;
 }
 
+function renderManualClientOptions(){
+  if (!manualClientOptions) return;
+  manualClientOptions.innerHTML = manualOrdersState.clients
+    .map(value => `<option value="${escapeHtml(value)}"></option>`)
+    .join("");
+}
+
+async function loadManualClients({ force = false } = {}){
+  if (manualOrdersState.clientsLoaded && !force){
+    renderManualClientOptions();
+    return manualOrdersState.clients;
+  }
+  try{
+    const data = await manualApi("/manual-orders/clients?limit=250");
+    manualOrdersState.clients = Array.isArray(data?.items)
+      ? data.items.map(value => String(value || "").trim()).filter(Boolean)
+      : [];
+    manualOrdersState.clientsLoaded = true;
+    renderManualClientOptions();
+  }catch(error){
+    console.warn("Unable to load saved manual clients", error);
+  }
+  return manualOrdersState.clients;
+}
+
+async function fillNextManualOrderNumber(){
+  if (
+    manualOrdersState.editingId
+    || manualOrdersState.viewOnly
+    || !manualOrdersState.autoOrderNumber
+    || !manualClientName?.value.trim()
+    || !manualOrderDate?.value
+  ){
+    return "";
+  }
+  const token = ++manualOrdersState.numberRequestToken;
+  const params = new URLSearchParams({ order_date: manualOrderDate.value });
+  try{
+    const data = await manualApi(`/manual-orders/next-number?${params.toString()}`);
+    if (
+      token !== manualOrdersState.numberRequestToken
+      || !manualOrdersState.autoOrderNumber
+      || manualOrdersState.editingId
+    ){
+      return "";
+    }
+    const orderNumber = String(data?.order_number || "").trim();
+    if (!orderNumber) return "";
+    manualOrderNumber.value = orderNumber;
+    manualOrdersState.lastAutoOrderNumber = orderNumber;
+    setManualDuplicateWarning("");
+    return orderNumber;
+  }catch(error){
+    console.warn("Unable to generate the next manual order number", error);
+    return "";
+  }
+}
+
 function hasPendingManualGlassTypeSuggestion(value){
   const normalized = String(value || "").trim().toLowerCase();
   if (!normalized) return false;
@@ -20677,6 +20741,9 @@ function resetManualOrderForm(){
   manualOrdersState.editingId = null;
   manualOrdersState.rows = [newManualRow({ position: "1" })];
   manualOrdersState.saveStatus = "draft";
+  manualOrdersState.autoOrderNumber = true;
+  manualOrdersState.lastAutoOrderNumber = "";
+  manualOrdersState.numberRequestToken += 1;
   if (manualClientName) manualClientName.value = "";
   if (manualOrderNumber) manualOrderNumber.value = "";
   if (manualOrderDate) manualOrderDate.value = manualToday();
@@ -20852,6 +20919,7 @@ async function saveManualOrder(status){
       manualOrdersListStatus.textContent = `${saved.order_number} saved as ${saved.status}.`;
     }
     await loadManualGlassTypes({ force: true });
+    await loadManualClients({ force: true });
     await loadManualOrders();
     await openManualOrder(saved.id, false);
   }catch(error){
@@ -20948,6 +21016,9 @@ async function openManualOrder(orderId, viewOnly){
     manualOrderDate.value = order.order_date || manualToday();
     manualOrderStatus.value = order.status || "draft";
     manualOrderNotes.value = order.notes || "";
+    manualOrdersState.autoOrderNumber = false;
+    manualOrdersState.lastAutoOrderNumber = "";
+    manualOrdersState.numberRequestToken += 1;
     manualOrderFormTitle.textContent = viewOnly ? `View ${order.order_number}` : `Edit ${order.order_number}`;
     if (manualOrderSaveDraft) manualOrderSaveDraft.textContent = "Save Changes";
     setManualFormMode(viewOnly);
@@ -21124,6 +21195,7 @@ async function handleManualOrderAction(action, orderId){
 function ensureManualOrdersReady(){
   if (!manualOrdersState.rows.length) resetManualOrderForm();
   loadManualGlassTypes();
+  loadManualClients();
   if (!manualOrdersState.loaded) loadManualOrders();
   else renderManualOrdersList();
 }
@@ -21216,6 +21288,26 @@ function initManualOrders(){
   manualOrderAddRow?.addEventListener("click", () => appendManualRow());
   document.getElementById("manualOrderNew")?.addEventListener("click", resetManualOrderForm);
   manualOrderCancelEdit?.addEventListener("click", resetManualOrderForm);
+  let manualClientNumberTimer = null;
+  manualClientName?.addEventListener("input", () => {
+    if (manualOrdersState.editingId || manualOrdersState.viewOnly) return;
+    clearTimeout(manualClientNumberTimer);
+    manualClientNumberTimer = setTimeout(fillNextManualOrderNumber, 250);
+  });
+  const fillNumberAfterClientSelection = () => {
+    clearTimeout(manualClientNumberTimer);
+    fillNextManualOrderNumber();
+  };
+  manualClientName?.addEventListener("change", fillNumberAfterClientSelection);
+  manualClientName?.addEventListener("blur", fillNumberAfterClientSelection);
+  manualOrderDate?.addEventListener("change", () => {
+    if (manualOrdersState.autoOrderNumber) fillNextManualOrderNumber();
+  });
+  manualOrderNumber?.addEventListener("input", () => {
+    const value = manualOrderNumber.value.trim();
+    manualOrdersState.autoOrderNumber = !value || value === manualOrdersState.lastAutoOrderNumber;
+    if (!value) fillNextManualOrderNumber();
+  });
   manualOrderNumber?.addEventListener("blur", checkManualOrderDuplicate);
   document.getElementById("manualOrdersRefresh")?.addEventListener("click", loadManualOrders);
   manualOrderStatusFilter?.addEventListener("change", () => {

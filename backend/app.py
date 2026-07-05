@@ -3753,6 +3753,28 @@ def get_manual_glass_types(
     }
 
 
+@app.get("/manual-orders/clients")
+def get_manual_clients(
+    query: Optional[str] = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=250),
+) -> Dict[str, Any]:
+    return {
+        "items": db_module.list_manual_clients(query=query, limit=limit)
+    }
+
+
+@app.get("/manual-orders/next-number")
+def get_next_manual_order_number(
+    order_date: str = Query(min_length=10, max_length=10),
+) -> Dict[str, str]:
+    try:
+        return {
+            "order_number": db_module.next_manual_order_number(order_date)
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @app.post("/manual-orders", status_code=201)
 def add_manual_order(payload: ManualOrderPayload) -> Dict[str, Any]:
     try:
