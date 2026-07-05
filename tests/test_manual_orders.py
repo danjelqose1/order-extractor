@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import importlib
 import sqlite3
 import sys
@@ -293,6 +294,8 @@ def test_manual_print_settings_are_persisted_separately(tmp_path, monkeypatch):
         "label_font_family": "Courier",
         "label_client_size": 14,
         "processing_dimension_unit": "mm",
+        "processing_print_layout": "a4_landscape_2up",
+        "processing_show_cut_guide": False,
     }
 
     assert db.get_manual_print_settings() == {}
@@ -322,6 +325,11 @@ def test_manual_orders_frontend_exposes_isolated_factory_workflow():
     assert 'data-manual-print-setting="label_font_family"' in html
     assert 'data-manual-print-setting="processing_font_family"' in html
     assert 'data-manual-print-setting="processing_dimension_unit"' in html
+    assert 'data-manual-print-setting="processing_print_layout"' in html
+    assert 'data-manual-print-setting="processing_show_cut_guide"' in html
+    assert 'data-manual-print-setting="processing_client_bold"' in html
+    assert "A4 landscape — 2 copies" in html
+    assert "function syncManualProcessingPrintLayout" in js
     assert "function manualCalculatedArea" in js
     assert "width * height * quantity / 1_000_000" in js
     assert 'source: "manual"' in js
@@ -403,6 +411,16 @@ def test_manual_processing_sheet_matches_compact_workshop_format():
     assert "61.5 x 125.2" in text
     assert "61.5 x 103" in text
     assert "x 2" in text
+    client_spans = [
+        span
+        for block in pdf[0].get_text("dict")["blocks"]
+        for line in block.get("lines", [])
+        for span in line.get("spans", [])
+        if span["text"] == "Manual Client"
+    ]
+    assert len(client_spans) == 1
+    assert "Bold" in client_spans[0]["font"]
+    assert client_spans[0]["size"] >= 14
 
 
 def test_manual_processing_sheet_keeps_multiple_glass_types_on_one_page():
@@ -451,6 +469,44 @@ def test_manual_processing_sheet_keeps_multiple_glass_types_on_one_page():
     assert "GLASS TYPE" not in text
     assert "3)" in text
     assert "130 x 100" in text
+
+
+def test_manual_processing_a4_landscape_renders_two_visual_copies_without_mutation():
+    if str(BACKEND_DIR) not in sys.path:
+        sys.path.insert(0, str(BACKEND_DIR))
+    documents = importlib.import_module("manual_documents")
+    order = _manual_payload(status="processing")
+    original_order = deepcopy(order)
+    settings = documents.normalize_manual_print_settings(
+        {
+            "processing_print_layout": "a4_landscape_2up",
+            "processing_show_cut_guide": True,
+            "processing_page_width_mm": 110,
+            "processing_page_height_mm": 180,
+        }
+    )
+
+    pdf_bytes = documents.build_manual_processing_pdf(order, settings)
+    pdf = fitz.open(stream=pdf_bytes, filetype="pdf")
+
+    assert len(pdf) == 1
+    page = pdf[0]
+    assert page.rect.width == pytest.approx(297 * 72 / 25.4, abs=0.2)
+    assert page.rect.height == pytest.approx(210 * 72 / 25.4, abs=0.2)
+    assert page.get_text().count("M-2026-001") == 2
+    order_spans = [
+        span
+        for block in page.get_text("dict")["blocks"]
+        for line in block.get("lines", [])
+        for span in line.get("spans", [])
+        if span["text"] == "M-2026-001"
+    ]
+    assert len(order_spans) == 2
+    assert order_spans[1]["bbox"][0] - order_spans[0]["bbox"][0] == pytest.approx(
+        108 * 72 / 25.4,
+        abs=1,
+    )
+    assert order == original_order
 
 
 def test_manual_labels_are_dedicated_100x40_quantity_labels():

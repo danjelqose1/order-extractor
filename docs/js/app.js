@@ -20488,6 +20488,11 @@ const manualPrintSettingsForm = document.getElementById("manualPrintSettingsForm
 const manualPrintSettingsStatus = document.getElementById("manualPrintSettingsStatus");
 const manualPrintSettingsReset = document.getElementById("manualPrintSettingsReset");
 const manualPrintSettingsSave = document.getElementById("manualPrintSettingsSave");
+const manualProcessingPrintLayout = document.getElementById("manualProcessingPrintLayout");
+const manualProcessingPrintLayoutHint = document.getElementById("manualProcessingPrintLayoutHint");
+const manualProcessingPageWidth = document.getElementById("manualProcessingPageWidth");
+const manualProcessingPageHeight = document.getElementById("manualProcessingPageHeight");
+const manualProcessingCutGuide = document.getElementById("manualProcessingCutGuide");
 
 function manualToday(){
   const now = new Date();
@@ -20647,6 +20652,18 @@ function closeManualPrintSettings(){
   manualPrintSettingsOpen?.focus();
 }
 
+function syncManualProcessingPrintLayout(){
+  const isA4TwoUp = manualProcessingPrintLayout?.value === "a4_landscape_2up";
+  if (manualProcessingPageWidth) manualProcessingPageWidth.disabled = isA4TwoUp;
+  if (manualProcessingPageHeight) manualProcessingPageHeight.disabled = isA4TwoUp;
+  if (manualProcessingCutGuide) manualProcessingCutGuide.disabled = !isA4TwoUp;
+  if (manualProcessingPrintLayoutHint){
+    manualProcessingPrintLayoutHint.textContent = isA4TwoUp
+      ? "Exports two identical 100 × 210 mm slips on one A4 landscape page. Order data remains single."
+      : "Exports one processing slip per PDF page.";
+  }
+}
+
 function renderManualPrintSettings(settings){
   if (!manualPrintSettingsForm || !settings) return;
   manualPrintSettingsForm.querySelectorAll("[data-manual-print-setting]").forEach(input => {
@@ -20658,6 +20675,7 @@ function renderManualPrintSettings(settings){
       input.value = String(settings[key]);
     }
   });
+  syncManualProcessingPrintLayout();
 }
 
 function collectManualPrintSettings(){
@@ -21349,6 +21367,7 @@ function initManualOrders(){
       "Manual print settings reset to defaults.",
     );
   });
+  manualProcessingPrintLayout?.addEventListener("change", syncManualProcessingPrintLayout);
   manualOrderForm.addEventListener("submit", event => {
     event.preventDefault();
     const requested = event.submitter?.dataset?.manualSaveStatus || manualOrdersState.saveStatus;

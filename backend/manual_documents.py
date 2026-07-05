@@ -12,6 +12,9 @@ from reportlab.pdfgen import canvas
 
 MANUAL_PROCESSING_PAGE_SIZE = (100 * mm, 210 * mm)
 MANUAL_LABEL_PAGE_SIZE = (100 * mm, 40 * mm)
+A4_LANDSCAPE_PAGE_SIZE = (297 * mm, 210 * mm)
+PROCESSING_PRINT_LAYOUT_SLIP = "slip"
+PROCESSING_PRINT_LAYOUT_A4_2UP = "a4_landscape_2up"
 
 DEFAULT_MANUAL_PRINT_SETTINGS: Dict[str, Any] = {
     "label_font_family": "Helvetica",
@@ -27,12 +30,15 @@ DEFAULT_MANUAL_PRINT_SETTINGS: Dict[str, Any] = {
     "label_show_manual_marker": True,
     "label_show_divider": True,
     "processing_font_family": "Helvetica",
+    "processing_print_layout": PROCESSING_PRINT_LAYOUT_SLIP,
+    "processing_show_cut_guide": True,
     "processing_page_width_mm": 100.0,
     "processing_page_height_mm": 210.0,
     "processing_margin_mm": 7.0,
     "processing_header_size": 7.5,
     "processing_order_size": 12.0,
-    "processing_client_size": 9.0,
+    "processing_client_size": 14.0,
+    "processing_client_bold": True,
     "processing_glass_size": 14.0,
     "processing_row_size": 12.0,
     "processing_dimension_unit": "cm",
@@ -115,6 +121,12 @@ def normalize_manual_print_settings(values: Optional[Dict[str, Any]] = None) -> 
             normalized[key] = round(max(minimum, min(maximum, number)), 2)
         elif key.endswith("_font_family"):
             normalized[key] = value if value in _FONT_FAMILIES else fallback
+        elif key == "processing_print_layout":
+            normalized[key] = (
+                PROCESSING_PRINT_LAYOUT_A4_2UP
+                if value == PROCESSING_PRINT_LAYOUT_A4_2UP
+                else PROCESSING_PRINT_LAYOUT_SLIP
+            )
         elif key == "processing_dimension_unit":
             normalized[key] = "mm" if str(value).lower() == "mm" else "cm"
 
@@ -129,6 +141,11 @@ def normalize_manual_print_settings(values: Optional[Dict[str, Any]] = None) -> 
         normalized["processing_margin_mm"],
         round(max_processing_margin, 2),
     )
+    if (
+        "processing_client_bold" not in source
+        and source.get("processing_client_size") == 9
+    ):
+        normalized["processing_client_size"] = 14.0
     return normalized
 
 
@@ -239,10 +256,13 @@ def build_manual_processing_pdf(
         raise ValueError("Manual order has no rows")
 
     config = normalize_manual_print_settings(settings)
-    page_width = config["processing_page_width_mm"] * mm
-    page_height = config["processing_page_height_mm"] * mm
+    is_a4_two_up = config["processing_print_layout"] == PROCESSING_PRINT_LAYOUT_A4_2UP
+    processing_width_mm = 100.0 if is_a4_two_up else config["processing_page_width_mm"]
+    processing_height_mm = 210.0 if is_a4_two_up else config["processing_page_height_mm"]
+    page_width = processing_width_mm * mm
+    page_height = processing_height_mm * mm
     margin = config["processing_margin_mm"] * mm
-    page_size = (page_width, page_height)
+    output_page_size = A4_LANDSCAPE_PAGE_SIZE if is_a4_two_up else (page_width, page_height)
     row_step_mm = max(8.5, config["processing_row_size"] * 0.55)
     groups = _group_rows(rows)
 
@@ -258,7 +278,7 @@ def build_manual_processing_pdf(
     bottom_guard_mm = max(config["processing_margin_mm"], 10.0)
     page_content_mm = max(
         section_header_mm + row_step_mm,
-        config["processing_page_height_mm"]
+        processing_height_mm
         - config["processing_margin_mm"]
         - 16.5
         - bottom_guard_mm,
@@ -310,18 +330,23 @@ def build_manual_processing_pdf(
         page_specs.append(current_page)
 
     output = BytesIO()
-    pdf = canvas.Canvas(output, pagesize=page_size, pageCompression=1)
+    pdf = canvas.Canvas(output, pagesize=output_page_size, pageCompression=1)
     usable_width = page_width - (margin * 2)
     regular_font = _font(config, "processing", "regular")
     bold_font = _font(config, "processing", "bold")
     italic_font = _font(config, "processing", "italic")
     glass_font = bold_font if config["processing_glass_bold"] else regular_font
     row_font = bold_font if config["processing_rows_bold"] else regular_font
+    client_font = bold_font if config["processing_client_bold"] else regular_font
     order_number = _pdf_text(order.get("order_number"), "Manual order")
     client_name = _pdf_text(order.get("client_name"), "-")
     order_date = _display_date(order.get("order_date"))
 
     for page_index, page_sections in enumerate(page_specs, start=1):
+        form_name = f"manual_processing_slip_{page_index}"
+        if is_a4_two_up:
+            pdf.beginForm(form_name, 0, 0, page_width, page_height)
+
         pdf.setFillColor(colors.HexColor("#FFFFFF"))
         pdf.rect(0, 0, page_width, page_height, fill=1, stroke=0)
 
@@ -349,14 +374,14 @@ def build_manual_processing_pdf(
         y -= 5.5 * mm
         if config["processing_show_client"]:
             pdf.setFillColor(colors.HexColor("#344054"))
-            pdf.setFont(regular_font, config["processing_client_size"])
+            pdf.setFont(client_font, config["processing_client_size"])
             _draw_fitted_text(
                 pdf,
                 client_name,
                 x=margin,
                 y=y,
                 max_width=usable_width,
-                font=regular_font,
+                font=client_font,
                 size=config["processing_client_size"],
             )
 
@@ -469,6 +494,28 @@ def build_manual_processing_pdf(
             footer_y = max(3 * mm, margin * 0.7)
             pdf.drawString(margin, footer_y, "Manual Orders")
             pdf.drawRightString(page_width - margin, footer_y, f"{page_index}/{len(page_specs)}")
+
+        if is_a4_two_up:
+            pdf.endForm()
+            output_width, output_height = A4_LANDSCAPE_PAGE_SIZE
+            copies_gap = 8 * mm
+            copies_width = (page_width * 2) + copies_gap
+            first_copy_x = (output_width - copies_width) / 2
+            second_copy_x = first_copy_x + page_width + copies_gap
+            for copy_x in (first_copy_x, second_copy_x):
+                pdf.saveState()
+                pdf.translate(copy_x, 0)
+                pdf.doForm(form_name)
+                pdf.restoreState()
+
+            if config["processing_show_cut_guide"]:
+                pdf.saveState()
+                pdf.setStrokeColor(colors.HexColor("#999999"))
+                pdf.setLineWidth(0.2 * mm)
+                pdf.setDash(2 * mm, 2 * mm)
+                cut_x = output_width / 2
+                pdf.line(cut_x, 3 * mm, cut_x, output_height - (3 * mm))
+                pdf.restoreState()
         pdf.showPage()
 
     pdf.save()
