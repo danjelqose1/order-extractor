@@ -274,40 +274,46 @@ def build_manual_labels_pdf(order: Dict[str, Any]) -> bytes:
 
             top_y = page_height - margin - 1.5 * mm
             pdf.setFillColor(colors.HexColor("#101828"))
-            pdf.setFont("Helvetica-Bold", 10)
+            pdf.setFont("Helvetica-Bold", 9.5)
             _draw_fitted_text(
                 pdf,
                 order_number,
                 x=margin,
                 y=top_y,
-                max_width=51 * mm,
+                max_width=26 * mm,
                 font="Helvetica-Bold",
-                size=10,
+                size=9.5,
                 min_size=7,
             )
-            pdf.setFillColor(colors.HexColor("#475467"))
-            pdf.setFont("Helvetica", 7)
-            pdf.drawRightString(page_width - margin, top_y + 0.5, order_date)
-
-            second_y = top_y - 4.5 * mm
-            pdf.setFont("Helvetica", 8)
+            pdf.setFont("Helvetica-Bold", 12.5)
             _draw_fitted_text(
                 pdf,
                 client_name,
-                x=margin,
-                y=second_y,
-                max_width=57 * mm,
-                font="Helvetica",
-                size=8,
-                min_size=6,
+                x=page_width / 2,
+                y=top_y,
+                max_width=36 * mm,
+                font="Helvetica-Bold",
+                size=12.5,
+                min_size=8,
+                align="center",
             )
-            pdf.setFillColor(colors.HexColor("#101828"))
             pdf.setFont("Helvetica-Bold", 10.5)
-            pdf.drawRightString(
-                page_width - margin,
-                second_y,
+            _draw_fitted_text(
+                pdf,
                 f"POS {position}",
+                x=page_width - margin,
+                y=top_y,
+                max_width=22 * mm,
+                font="Helvetica-Bold",
+                size=10.5,
+                min_size=8,
+                align="right",
             )
+
+            second_y = top_y - 4.5 * mm
+            pdf.setFillColor(colors.HexColor("#475467"))
+            pdf.setFont("Helvetica", 7)
+            pdf.drawString(margin, second_y, order_date)
 
             rule_y = second_y - 2.2 * mm
             pdf.setStrokeColor(colors.HexColor("#98A2B3"))

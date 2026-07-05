@@ -412,3 +412,16 @@ def test_manual_labels_are_dedicated_100x40_quantity_labels():
         assert "POS 7" in text
         assert "1/2" not in text
         assert "2/2" not in text
+        spans = [
+            span
+            for block in page.get_text("dict")["blocks"]
+            for line in block.get("lines", [])
+            for span in line.get("spans", [])
+            if span["text"] == "Manual Client"
+        ]
+        assert len(spans) == 1
+        client_span = spans[0]
+        assert "Bold" in client_span["font"]
+        assert client_span["size"] >= 11
+        client_center = (client_span["bbox"][0] + client_span["bbox"][2]) / 2
+        assert client_center == pytest.approx(page.rect.width / 2, abs=2)
