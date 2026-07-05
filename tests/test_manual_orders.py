@@ -296,6 +296,9 @@ def test_manual_orders_frontend_exposes_isolated_factory_workflow():
     assert 'id="manualOrderRows"' in html
     assert 'id="manualGlassTypeOptions"' in html
     assert 'id="manualClientOptions"' in html
+    assert 'id="manualDimensionUnit"' in html
+    assert 'id="manualWidthUnitLabel"' in html
+    assert 'id="manualHeightUnitLabel"' in html
     assert "function manualCalculatedArea" in js
     assert "width * height * quantity / 1_000_000" in js
     assert 'source: "manual"' in js
@@ -313,6 +316,9 @@ def test_manual_orders_frontend_exposes_isolated_factory_workflow():
     assert 'manualApi("/manual-orders/clients?limit=250")' in js
     assert "/manual-orders/next-number?" in js
     assert "function fillNextManualOrderNumber" in js
+    assert "function manualDimensionInputValue" in js
+    assert "function manualDimensionValueInMm" in js
+    assert 'localStorage.setItem("manual_dimension_unit"' in js
 
 
 def test_manual_order_rows_support_spreadsheet_keyboard_entry():

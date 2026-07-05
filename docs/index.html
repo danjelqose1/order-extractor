@@ -1017,7 +1017,16 @@
               <strong>Order rows</strong>
               <span class="muted small">Start typing a saved glass type · Tab across · ↓ new row at Width · Enter same column · ↑ previous row.</span>
             </div>
-            <button type="button" class="btn small" id="manualOrderAddRow">+ Add row</button>
+            <div class="manual-row-toolbar-actions">
+              <label class="manual-dimension-unit-control">
+                <span>Dimensions</span>
+                <select id="manualDimensionUnit" aria-label="Manual order dimension unit">
+                  <option value="mm">Millimeters (mm)</option>
+                  <option value="cm">Centimeters (cm)</option>
+                </select>
+              </label>
+              <button type="button" class="btn small" id="manualOrderAddRow">+ Add row</button>
+            </div>
           </div>
 
           <div class="table-responsive manual-row-table-wrap">
@@ -1026,8 +1035,8 @@
                 <tr>
                   <th>Position</th>
                   <th>Glass type *</th>
-                  <th>Width mm *</th>
-                  <th>Height mm *</th>
+                  <th id="manualWidthUnitLabel">Width mm *</th>
+                  <th id="manualHeightUnitLabel">Height mm *</th>
                   <th>Qty *</th>
                   <th>Calculated m²</th>
                   <th>Override m²</th>

@@ -168,6 +168,7 @@ const manualOrdersState = {
   autoOrderNumber: true,
   lastAutoOrderNumber: "",
   numberRequestToken: 0,
+  dimensionUnit: localStorage.getItem("manual_dimension_unit") === "cm" ? "cm" : "mm",
 };
 
 const appState = {
@@ -20467,6 +20468,9 @@ const manualOrderError = document.getElementById("manualOrderError");
 const manualOrderDuplicateWarning = document.getElementById("manualOrderDuplicateWarning");
 const manualOrderFormSummary = document.getElementById("manualOrderFormSummary");
 const manualOrderAddRow = document.getElementById("manualOrderAddRow");
+const manualDimensionUnit = document.getElementById("manualDimensionUnit");
+const manualWidthUnitLabel = document.getElementById("manualWidthUnitLabel");
+const manualHeightUnitLabel = document.getElementById("manualHeightUnitLabel");
 const manualOrderSaveDraft = document.getElementById("manualOrderSaveDraft");
 const manualOrderApprove = document.getElementById("manualOrderApprove");
 const manualOrderCancelEdit = document.getElementById("manualOrderCancelEdit");
@@ -20480,6 +20484,29 @@ const manualClientOptions = document.getElementById("manualClientOptions");
 function manualToday(){
   const now = new Date();
   return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+
+function manualDimensionInputValue(value){
+  const text = String(value ?? "").trim();
+  if (!text || manualOrdersState.dimensionUnit === "mm") return text;
+  const millimeters = Number(text);
+  if (!Number.isFinite(millimeters)) return text;
+  return String(Math.round((millimeters / 10) * 1000) / 1000);
+}
+
+function manualDimensionValueInMm(value){
+  const text = String(value ?? "").trim();
+  if (!text || manualOrdersState.dimensionUnit === "mm") return text;
+  const centimeters = Number(text);
+  if (!Number.isFinite(centimeters)) return text;
+  return String(Math.round((centimeters * 10) * 1000) / 1000);
+}
+
+function syncManualDimensionUnit(){
+  const unit = manualOrdersState.dimensionUnit === "cm" ? "cm" : "mm";
+  if (manualDimensionUnit) manualDimensionUnit.value = unit;
+  if (manualWidthUnitLabel) manualWidthUnitLabel.textContent = `Width ${unit} *`;
+  if (manualHeightUnitLabel) manualHeightUnitLabel.textContent = `Height ${unit} *`;
 }
 
 function newManualRow(source = {}){
@@ -20759,6 +20786,7 @@ function resetManualOrderForm(){
 
 function renderManualRows(){
   if (!manualOrderRows) return;
+  syncManualDimensionUnit();
   const disabled = manualOrdersState.viewOnly ? "disabled" : "";
   manualOrderRows.innerHTML = manualOrdersState.rows.map(row => {
     const calculated = manualCalculatedArea(row);
@@ -20766,8 +20794,8 @@ function renderManualRows(){
     return `<tr data-manual-row="${escapeHtml(row.uid)}">
       <td><input type="text" data-manual-field="position" value="${escapeHtml(row.position)}" ${disabled}></td>
       <td><input type="text" data-manual-field="glass_type" list="manualGlassTypeOptions" autocomplete="off" value="${escapeHtml(row.glass_type)}" ${disabled}><span class="manual-row-error" data-manual-error="glass_type"></span></td>
-      <td><input type="number" min="0.001" step="any" data-manual-field="width_mm" value="${escapeHtml(row.width_mm)}" ${disabled}><span class="manual-row-error" data-manual-error="width_mm"></span></td>
-      <td><input type="number" min="0.001" step="any" data-manual-field="height_mm" value="${escapeHtml(row.height_mm)}" ${disabled}><span class="manual-row-error" data-manual-error="height_mm"></span></td>
+      <td><input type="number" min="0.001" step="any" data-manual-field="width_mm" value="${escapeHtml(manualDimensionInputValue(row.width_mm))}" ${disabled}><span class="manual-row-error" data-manual-error="width_mm"></span></td>
+      <td><input type="number" min="0.001" step="any" data-manual-field="height_mm" value="${escapeHtml(manualDimensionInputValue(row.height_mm))}" ${disabled}><span class="manual-row-error" data-manual-error="height_mm"></span></td>
       <td><input type="number" min="1" step="1" data-manual-field="quantity" value="${escapeHtml(row.quantity)}" ${disabled}><span class="manual-row-error" data-manual-error="quantity"></span></td>
       <td><input type="text" data-manual-calculated value="${calculated.toFixed(3)}" readonly tabindex="-1"></td>
       <td><input type="number" min="0" step="0.001" data-manual-field="area_override_m2" value="${escapeHtml(row.area_override_m2)}" ${disabled}></td>
@@ -21226,7 +21254,10 @@ function initManualOrders(){
     if (!input || !tr) return;
     const row = manualOrdersState.rows.find(item => item.uid === tr.dataset.manualRow);
     if (!row) return;
-    row[input.dataset.manualField] = input.value;
+    const field = input.dataset.manualField;
+    row[field] = field === "width_mm" || field === "height_mm"
+      ? manualDimensionValueInMm(input.value)
+      : input.value;
     input.classList.remove("manual-input-error");
     const error = input.closest("td")?.querySelector(`[data-manual-error="${input.dataset.manualField}"]`);
     if (error) error.textContent = "";
@@ -21286,6 +21317,11 @@ function initManualOrders(){
     }
   });
   manualOrderAddRow?.addEventListener("click", () => appendManualRow());
+  manualDimensionUnit?.addEventListener("change", () => {
+    manualOrdersState.dimensionUnit = manualDimensionUnit.value === "cm" ? "cm" : "mm";
+    localStorage.setItem("manual_dimension_unit", manualOrdersState.dimensionUnit);
+    renderManualRows();
+  });
   document.getElementById("manualOrderNew")?.addEventListener("click", resetManualOrderForm);
   manualOrderCancelEdit?.addEventListener("click", resetManualOrderForm);
   let manualClientNumberTimer = null;
