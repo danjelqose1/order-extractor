@@ -446,6 +446,8 @@ def test_manual_processing_sheet_keeps_multiple_glass_types_on_one_page():
     text = pdf[0].get_text()
     assert "TR+12+TR" in text
     assert "TR+12+SATINE" in text
+    assert "3.552 m²" in text
+    assert "1.300 m²" in text
     assert "3)" in text
     assert "130 x 100" in text
 

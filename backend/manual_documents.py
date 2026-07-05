@@ -164,6 +164,29 @@ def _format_cm(value: Any) -> str:
     return f"{number:.1f}".rstrip("0").rstrip(".")
 
 
+def _row_final_area_m2(row: Dict[str, Any]) -> float:
+    for key in ("final_area_m2", "area_override_m2"):
+        value = row.get(key)
+        if value is None or str(value).strip() == "":
+            continue
+        try:
+            return max(0.0, float(value))
+        except (TypeError, ValueError):
+            continue
+    try:
+        width_mm = float(row.get("width_mm") or 0)
+        height_mm = float(row.get("height_mm") or 0)
+        quantity = max(1, int(row.get("quantity") or 1))
+    except (TypeError, ValueError):
+        return 0.0
+    return max(0.0, width_mm * height_mm * quantity / 1_000_000)
+
+
+def _format_area_m2(rows: Iterable[Dict[str, Any]]) -> str:
+    total = sum(_row_final_area_m2(row) for row in rows)
+    return f"{total:.3f} m²"
+
+
 def _draw_fitted_text(
     pdf: canvas.Canvas,
     text: str,
@@ -347,19 +370,34 @@ def build_manual_processing_pdf(
             pdf.setFillColor(colors.HexColor("#667085"))
             pdf.setFont(bold_font, config["processing_header_size"])
             pdf.drawString(margin, y, "GLASS TYPE")
+            pdf.drawRightString(page_width - margin, y, "AREA")
 
             y -= 6.5 * mm
             pdf.setFillColor(colors.HexColor("#101828"))
             pdf.setFont(glass_font, config["processing_glass_size"])
+            area_width = usable_width * 0.30
             _draw_fitted_text(
                 pdf,
                 glass_type,
                 x=margin,
                 y=y,
-                max_width=usable_width,
+                max_width=usable_width - area_width - (3 * mm),
                 font=glass_font,
                 size=config["processing_glass_size"],
                 min_size=8,
+            )
+            area_size = max(9.0, config["processing_glass_size"] - 2)
+            pdf.setFont(bold_font, area_size)
+            _draw_fitted_text(
+                pdf,
+                _format_area_m2(page_rows),
+                x=page_width - margin,
+                y=y,
+                max_width=area_width,
+                font=bold_font,
+                size=area_size,
+                min_size=8,
+                align="right",
             )
 
             y -= 6 * mm
