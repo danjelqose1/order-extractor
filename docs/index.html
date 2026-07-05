@@ -1060,6 +1060,91 @@
         </form>
       </section>
 
+      <details class="card manual-print-settings-card" id="manualPrintSettingsCard">
+        <summary>
+          <span>
+            <strong>Manual print settings</strong>
+            <small>Customize Manual Orders labels and processing sheets.</small>
+          </span>
+          <span class="manual-settings-summary-action">Configure</span>
+        </summary>
+        <form id="manualPrintSettingsForm">
+          <div class="manual-print-settings-grid">
+            <fieldset>
+              <legend>Labels · 100 × 40 mm</legend>
+              <div class="manual-settings-fields">
+                <label>
+                  <span>Font family</span>
+                  <select data-manual-print-setting="label_font_family">
+                    <option value="Helvetica">Helvetica</option>
+                    <option value="Times">Times</option>
+                    <option value="Courier">Courier</option>
+                  </select>
+                </label>
+                <label><span>Margin (mm)</span><input type="number" min="3" max="8" step="0.5" data-manual-print-setting="label_margin_mm"></label>
+                <label><span>Order size</span><input type="number" min="7" max="13" step="0.5" data-manual-print-setting="label_order_size"></label>
+                <label><span>Client size</span><input type="number" min="8" max="16" step="0.5" data-manual-print-setting="label_client_size"></label>
+                <label><span>Position size</span><input type="number" min="8" max="14" step="0.5" data-manual-print-setting="label_position_size"></label>
+                <label><span>Dimension size</span><input type="number" min="11" max="21" step="0.5" data-manual-print-setting="label_dimension_size"></label>
+                <label><span>Glass type size</span><input type="number" min="7" max="13" step="0.5" data-manual-print-setting="label_glass_size"></label>
+              </div>
+              <div class="manual-settings-toggles">
+                <label class="inline-toggle"><input type="checkbox" data-manual-print-setting="label_client_bold"><span>Bold client</span></label>
+                <label class="inline-toggle"><input type="checkbox" data-manual-print-setting="label_dimension_bold"><span>Bold dimensions</span></label>
+                <label class="inline-toggle"><input type="checkbox" data-manual-print-setting="label_show_date"><span>Show date</span></label>
+                <label class="inline-toggle"><input type="checkbox" data-manual-print-setting="label_show_manual_marker"><span>Show MANUAL</span></label>
+                <label class="inline-toggle"><input type="checkbox" data-manual-print-setting="label_show_divider"><span>Show divider</span></label>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>Processing sheet</legend>
+              <div class="manual-settings-fields">
+                <label>
+                  <span>Font family</span>
+                  <select data-manual-print-setting="processing_font_family">
+                    <option value="Helvetica">Helvetica</option>
+                    <option value="Times">Times</option>
+                    <option value="Courier">Courier</option>
+                  </select>
+                </label>
+                <label><span>Width (mm)</span><input type="number" min="70" max="140" step="1" data-manual-print-setting="processing_page_width_mm"></label>
+                <label><span>Height (mm)</span><input type="number" min="100" max="297" step="1" data-manual-print-setting="processing_page_height_mm"></label>
+                <label><span>Margin (mm)</span><input type="number" min="4" max="15" step="0.5" data-manual-print-setting="processing_margin_mm"></label>
+                <label>
+                  <span>Dimension unit</span>
+                  <select data-manual-print-setting="processing_dimension_unit">
+                    <option value="cm">Centimeters</option>
+                    <option value="mm">Millimeters</option>
+                  </select>
+                </label>
+                <label><span>Header size</span><input type="number" min="6" max="11" step="0.5" data-manual-print-setting="processing_header_size"></label>
+                <label><span>Order size</span><input type="number" min="8" max="18" step="0.5" data-manual-print-setting="processing_order_size"></label>
+                <label><span>Client size</span><input type="number" min="7" max="15" step="0.5" data-manual-print-setting="processing_client_size"></label>
+                <label><span>Glass type size</span><input type="number" min="9" max="20" step="0.5" data-manual-print-setting="processing_glass_size"></label>
+                <label><span>Row size</span><input type="number" min="9" max="18" step="0.5" data-manual-print-setting="processing_row_size"></label>
+              </div>
+              <div class="manual-settings-toggles">
+                <label class="inline-toggle"><input type="checkbox" data-manual-print-setting="processing_glass_bold"><span>Bold glass type</span></label>
+                <label class="inline-toggle"><input type="checkbox" data-manual-print-setting="processing_rows_bold"><span>Bold rows</span></label>
+                <label class="inline-toggle"><input type="checkbox" data-manual-print-setting="processing_show_date"><span>Show date</span></label>
+                <label class="inline-toggle"><input type="checkbox" data-manual-print-setting="processing_show_client"><span>Show client</span></label>
+                <label class="inline-toggle"><input type="checkbox" data-manual-print-setting="processing_show_notes"><span>Show row notes</span></label>
+                <label class="inline-toggle"><input type="checkbox" data-manual-print-setting="processing_row_separators"><span>Row separators</span></label>
+                <label class="inline-toggle"><input type="checkbox" data-manual-print-setting="processing_show_footer"><span>Show footer</span></label>
+              </div>
+            </fieldset>
+          </div>
+          <div class="manual-settings-footer">
+            <span id="manualPrintSettingsStatus" class="muted small">Settings apply to the next download.</span>
+            <div>
+              <button type="button" class="btn tertiary" id="manualPrintSettingsReset">Reset defaults</button>
+              <button type="submit" class="btn" id="manualPrintSettingsSave">Save print settings</button>
+            </div>
+          </div>
+        </form>
+      </details>
+
       <section class="card manual-orders-list-card">
         <div class="manual-order-header">
           <div>

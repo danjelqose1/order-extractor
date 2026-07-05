@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from io import BytesIO
-from typing import Any, Dict, Iterable, List, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from reportlab.lib import colors
 from reportlab.lib.units import mm
@@ -12,6 +12,129 @@ from reportlab.pdfgen import canvas
 
 MANUAL_PROCESSING_PAGE_SIZE = (100 * mm, 210 * mm)
 MANUAL_LABEL_PAGE_SIZE = (100 * mm, 40 * mm)
+
+DEFAULT_MANUAL_PRINT_SETTINGS: Dict[str, Any] = {
+    "label_font_family": "Helvetica",
+    "label_margin_mm": 5.5,
+    "label_order_size": 9.5,
+    "label_client_size": 12.5,
+    "label_position_size": 10.5,
+    "label_dimension_size": 16.0,
+    "label_glass_size": 9.0,
+    "label_client_bold": True,
+    "label_dimension_bold": True,
+    "label_show_date": True,
+    "label_show_manual_marker": True,
+    "label_show_divider": True,
+    "processing_font_family": "Helvetica",
+    "processing_page_width_mm": 100.0,
+    "processing_page_height_mm": 210.0,
+    "processing_margin_mm": 7.0,
+    "processing_header_size": 7.5,
+    "processing_order_size": 12.0,
+    "processing_client_size": 9.0,
+    "processing_glass_size": 14.0,
+    "processing_row_size": 12.0,
+    "processing_dimension_unit": "cm",
+    "processing_glass_bold": True,
+    "processing_rows_bold": True,
+    "processing_show_date": True,
+    "processing_show_client": True,
+    "processing_show_notes": True,
+    "processing_row_separators": True,
+    "processing_show_footer": True,
+}
+
+_FONT_FAMILIES = {
+    "Helvetica": {
+        "regular": "Helvetica",
+        "bold": "Helvetica-Bold",
+        "italic": "Helvetica-Oblique",
+    },
+    "Times": {
+        "regular": "Times-Roman",
+        "bold": "Times-Bold",
+        "italic": "Times-Italic",
+    },
+    "Courier": {
+        "regular": "Courier",
+        "bold": "Courier-Bold",
+        "italic": "Courier-Oblique",
+    },
+}
+
+_NUMBER_LIMITS = {
+    "label_margin_mm": (3.0, 8.0),
+    "label_order_size": (7.0, 13.0),
+    "label_client_size": (8.0, 16.0),
+    "label_position_size": (8.0, 14.0),
+    "label_dimension_size": (11.0, 21.0),
+    "label_glass_size": (7.0, 13.0),
+    "processing_page_width_mm": (70.0, 140.0),
+    "processing_page_height_mm": (100.0, 297.0),
+    "processing_margin_mm": (4.0, 15.0),
+    "processing_header_size": (6.0, 11.0),
+    "processing_order_size": (8.0, 18.0),
+    "processing_client_size": (7.0, 15.0),
+    "processing_glass_size": (9.0, 20.0),
+    "processing_row_size": (9.0, 18.0),
+}
+
+_BOOLEAN_KEYS = {
+    key for key, value in DEFAULT_MANUAL_PRINT_SETTINGS.items() if isinstance(value, bool)
+}
+
+
+def _as_bool(value: Any, fallback: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+    return fallback
+
+
+def normalize_manual_print_settings(values: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    source = values if isinstance(values, dict) else {}
+    normalized = dict(DEFAULT_MANUAL_PRINT_SETTINGS)
+    for key, fallback in DEFAULT_MANUAL_PRINT_SETTINGS.items():
+        if key not in source:
+            continue
+        value = source[key]
+        if key in _BOOLEAN_KEYS:
+            normalized[key] = _as_bool(value, fallback)
+        elif key in _NUMBER_LIMITS:
+            minimum, maximum = _NUMBER_LIMITS[key]
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                number = float(fallback)
+            normalized[key] = round(max(minimum, min(maximum, number)), 2)
+        elif key.endswith("_font_family"):
+            normalized[key] = value if value in _FONT_FAMILIES else fallback
+        elif key == "processing_dimension_unit":
+            normalized[key] = "mm" if str(value).lower() == "mm" else "cm"
+
+    max_processing_margin = max(
+        4.0,
+        min(
+            normalized["processing_page_width_mm"] / 4,
+            normalized["processing_page_height_mm"] / 6,
+        ),
+    )
+    normalized["processing_margin_mm"] = min(
+        normalized["processing_margin_mm"],
+        round(max_processing_margin, 2),
+    )
+    return normalized
+
+
+def _font(settings: Dict[str, Any], document: str, style: str = "regular") -> str:
+    family = settings.get(f"{document}_font_family", "Helvetica")
+    return _FONT_FAMILIES.get(family, _FONT_FAMILIES["Helvetica"])[style]
 
 
 def _pdf_text(value: Any, fallback: str = "") -> str:
@@ -78,10 +201,13 @@ def _group_rows(rows: Iterable[Dict[str, Any]]) -> List[tuple[str, List[Dict[str
     return list(grouped.items())
 
 
-def build_manual_processing_pdf(order: Dict[str, Any]) -> bytes:
+def build_manual_processing_pdf(
+    order: Dict[str, Any],
+    settings: Optional[Dict[str, Any]] = None,
+) -> bytes:
     """Build the Manual Orders-only workshop slip.
 
-    Dimensions are shown in centimetres to match the handwritten factory format.
+    Dimensions use the configured workshop unit (centimetres by default).
     Each glass type starts on its own 100 x 210 mm slip.
     """
 
@@ -89,8 +215,24 @@ def build_manual_processing_pdf(order: Dict[str, Any]) -> bytes:
     if not rows:
         raise ValueError("Manual order has no rows")
 
+    config = normalize_manual_print_settings(settings)
+    page_width = config["processing_page_width_mm"] * mm
+    page_height = config["processing_page_height_mm"] * mm
+    margin = config["processing_margin_mm"] * mm
+    page_size = (page_width, page_height)
+    row_step_mm = max(8.5, config["processing_row_size"] * 0.55)
+    notes_extra_mm = (
+        3.5
+        if config["processing_show_notes"] and any(_pdf_text(row.get("notes")) for row in rows)
+        else 0
+    )
+    pagination_step_mm = row_step_mm + notes_extra_mm
+    available_rows_mm = max(
+        pagination_step_mm,
+        config["processing_page_height_mm"] - (config["processing_margin_mm"] * 2) - 55,
+    )
+    rows_per_page = max(1, int(available_rows_mm // pagination_step_mm))
     groups = _group_rows(rows)
-    rows_per_page = 15
     page_specs: List[tuple[str, Sequence[Dict[str, Any]], int, int]] = []
     for glass_type, glass_rows in groups:
         chunks = [
@@ -101,10 +243,13 @@ def build_manual_processing_pdf(order: Dict[str, Any]) -> bytes:
             page_specs.append((glass_type, chunk, chunk_index, len(chunks)))
 
     output = BytesIO()
-    pdf = canvas.Canvas(output, pagesize=MANUAL_PROCESSING_PAGE_SIZE, pageCompression=1)
-    page_width, page_height = MANUAL_PROCESSING_PAGE_SIZE
-    margin = 7 * mm
+    pdf = canvas.Canvas(output, pagesize=page_size, pageCompression=1)
     usable_width = page_width - (margin * 2)
+    regular_font = _font(config, "processing", "regular")
+    bold_font = _font(config, "processing", "bold")
+    italic_font = _font(config, "processing", "italic")
+    glass_font = bold_font if config["processing_glass_bold"] else regular_font
+    row_font = bold_font if config["processing_rows_bold"] else regular_font
     order_number = _pdf_text(order.get("order_number"), "Manual order")
     client_name = _pdf_text(order.get("client_name"), "-")
     order_date = _display_date(order.get("order_date"))
@@ -115,36 +260,38 @@ def build_manual_processing_pdf(order: Dict[str, Any]) -> bytes:
 
         y = page_height - margin
         pdf.setFillColor(colors.HexColor("#667085"))
-        pdf.setFont("Helvetica-Bold", 7.5)
+        pdf.setFont(bold_font, config["processing_header_size"])
         pdf.drawString(margin, y, "MANUAL PROCESSING")
-        pdf.setFont("Helvetica", 7.5)
-        pdf.drawRightString(page_width - margin, y, order_date)
+        if config["processing_show_date"]:
+            pdf.setFont(regular_font, config["processing_header_size"])
+            pdf.drawRightString(page_width - margin, y, order_date)
 
         y -= 7 * mm
         pdf.setFillColor(colors.HexColor("#101828"))
-        pdf.setFont("Helvetica-Bold", 12)
+        pdf.setFont(bold_font, config["processing_order_size"])
         _draw_fitted_text(
             pdf,
             order_number,
             x=margin,
             y=y,
             max_width=usable_width,
-            font="Helvetica-Bold",
-            size=12,
+            font=bold_font,
+            size=config["processing_order_size"],
         )
 
         y -= 5.5 * mm
-        pdf.setFillColor(colors.HexColor("#344054"))
-        pdf.setFont("Helvetica", 9)
-        _draw_fitted_text(
-            pdf,
-            client_name,
-            x=margin,
-            y=y,
-            max_width=usable_width,
-            font="Helvetica",
-            size=9,
-        )
+        if config["processing_show_client"]:
+            pdf.setFillColor(colors.HexColor("#344054"))
+            pdf.setFont(regular_font, config["processing_client_size"])
+            _draw_fitted_text(
+                pdf,
+                client_name,
+                x=margin,
+                y=y,
+                max_width=usable_width,
+                font=regular_font,
+                size=config["processing_client_size"],
+            )
 
         y -= 4 * mm
         pdf.setStrokeColor(colors.HexColor("#101828"))
@@ -153,30 +300,32 @@ def build_manual_processing_pdf(order: Dict[str, Any]) -> bytes:
 
         y -= 6 * mm
         pdf.setFillColor(colors.HexColor("#667085"))
-        pdf.setFont("Helvetica-Bold", 7)
+        pdf.setFont(bold_font, config["processing_header_size"])
         pdf.drawString(margin, y, "GLASS TYPE")
         if group_pages > 1:
             pdf.drawRightString(page_width - margin, y, f"{group_page}/{group_pages}")
 
         y -= 6.5 * mm
         pdf.setFillColor(colors.HexColor("#101828"))
-        pdf.setFont("Helvetica-Bold", 14)
+        pdf.setFont(glass_font, config["processing_glass_size"])
         _draw_fitted_text(
             pdf,
             glass_type,
             x=margin,
             y=y,
             max_width=usable_width,
-            font="Helvetica-Bold",
-            size=14,
+            font=glass_font,
+            size=config["processing_glass_size"],
             min_size=8,
         )
 
         y -= 6 * mm
         pdf.setFillColor(colors.HexColor("#667085"))
-        pdf.setFont("Helvetica-Bold", 7)
+        pdf.setFont(bold_font, config["processing_header_size"])
         pdf.drawString(margin, y, "POSITION")
-        pdf.drawString(margin + 21 * mm, y, "DIMENSIONS (CM)")
+        dimension_unit = config["processing_dimension_unit"].upper()
+        dimension_x = margin + (usable_width * 0.24)
+        pdf.drawString(dimension_x, y, f"DIMENSIONS ({dimension_unit})")
         pdf.drawRightString(page_width - margin, y, "QTY")
 
         y -= 4 * mm
@@ -185,79 +334,92 @@ def build_manual_processing_pdf(order: Dict[str, Any]) -> bytes:
         pdf.line(margin, y, page_width - margin, y)
 
         for row in page_rows:
-            y -= 8.5 * mm
+            y -= row_step_mm * mm
             position = _pdf_text(row.get("position"), "-")
-            dimensions = f"{_format_cm(row.get('width_mm'))} x {_format_cm(row.get('height_mm'))}"
+            formatter = _format_mm if config["processing_dimension_unit"] == "mm" else _format_cm
+            dimensions = f"{formatter(row.get('width_mm'))} x {formatter(row.get('height_mm'))}"
             quantity = max(1, int(row.get("quantity") or 1))
 
             pdf.setFillColor(colors.HexColor("#101828"))
-            pdf.setFont("Helvetica-Bold", 11)
+            position_size = max(8.0, config["processing_row_size"] - 1)
+            pdf.setFont(row_font, position_size)
             _draw_fitted_text(
                 pdf,
                 f"{position})",
                 x=margin,
                 y=y,
-                max_width=18 * mm,
-                font="Helvetica-Bold",
-                size=11,
+                max_width=usable_width * 0.20,
+                font=row_font,
+                size=position_size,
                 min_size=8,
             )
-            pdf.setFont("Courier-Bold", 12)
+            pdf.setFont(row_font, config["processing_row_size"])
             _draw_fitted_text(
                 pdf,
                 dimensions,
-                x=margin + 21 * mm,
+                x=dimension_x,
                 y=y,
-                max_width=50 * mm,
-                font="Courier-Bold",
-                size=12,
+                max_width=usable_width * 0.57,
+                font=row_font,
+                size=config["processing_row_size"],
                 min_size=9,
             )
-            pdf.setFont("Helvetica-Bold", 12)
+            pdf.setFont(row_font, config["processing_row_size"])
             pdf.drawRightString(page_width - margin, y, f"x {quantity}")
 
             notes = _pdf_text(row.get("notes"))
-            if notes:
+            if notes and config["processing_show_notes"]:
                 y -= 3.5 * mm
                 pdf.setFillColor(colors.HexColor("#667085"))
-                pdf.setFont("Helvetica-Oblique", 7)
+                note_size = max(6.0, config["processing_header_size"])
+                pdf.setFont(italic_font, note_size)
                 _draw_fitted_text(
                     pdf,
                     notes,
-                    x=margin + 21 * mm,
+                    x=dimension_x,
                     y=y,
-                    max_width=usable_width - 21 * mm,
-                    font="Helvetica-Oblique",
-                    size=7,
+                    max_width=(page_width - margin) - dimension_x,
+                    font=italic_font,
+                    size=note_size,
                 )
-                y += 3.5 * mm
 
-            pdf.setStrokeColor(colors.HexColor("#EAECF0"))
-            pdf.setLineWidth(0.35)
-            pdf.line(margin, y - 2.5 * mm, page_width - margin, y - 2.5 * mm)
+            if config["processing_row_separators"]:
+                pdf.setStrokeColor(colors.HexColor("#EAECF0"))
+                pdf.setLineWidth(0.35)
+                pdf.line(margin, y - 2.5 * mm, page_width - margin, y - 2.5 * mm)
 
-        pdf.setFillColor(colors.HexColor("#98A2B3"))
-        pdf.setFont("Helvetica", 6.5)
-        pdf.drawString(margin, 5 * mm, "Manual Orders")
-        pdf.drawRightString(page_width - margin, 5 * mm, f"{page_index}/{len(page_specs)}")
+        if config["processing_show_footer"]:
+            pdf.setFillColor(colors.HexColor("#98A2B3"))
+            pdf.setFont(regular_font, 6.5)
+            footer_y = max(3 * mm, margin * 0.7)
+            pdf.drawString(margin, footer_y, "Manual Orders")
+            pdf.drawRightString(page_width - margin, footer_y, f"{page_index}/{len(page_specs)}")
         pdf.showPage()
 
     pdf.save()
     return output.getvalue()
 
 
-def build_manual_labels_pdf(order: Dict[str, Any]) -> bytes:
+def build_manual_labels_pdf(
+    order: Dict[str, Any],
+    settings: Optional[Dict[str, Any]] = None,
+) -> bytes:
     """Build one dedicated 100 x 40 mm label per manual-order piece."""
 
     rows = list(order.get("rows") or [])
     if not rows:
         raise ValueError("Manual order has no rows")
 
+    config = normalize_manual_print_settings(settings)
     output = BytesIO()
     pdf = canvas.Canvas(output, pagesize=MANUAL_LABEL_PAGE_SIZE, pageCompression=1)
     page_width, page_height = MANUAL_LABEL_PAGE_SIZE
-    margin = 5.5 * mm
+    margin = config["label_margin_mm"] * mm
     usable_width = page_width - (margin * 2)
+    regular_font = _font(config, "label", "regular")
+    bold_font = _font(config, "label", "bold")
+    client_font = bold_font if config["label_client_bold"] else regular_font
+    dimension_font = bold_font if config["label_dimension_bold"] else regular_font
     order_number = _pdf_text(order.get("order_number"), "Manual order")
     client_name = _pdf_text(order.get("client_name"), "-")
     order_date = _display_date(order.get("order_date"))
@@ -274,82 +436,85 @@ def build_manual_labels_pdf(order: Dict[str, Any]) -> bytes:
 
             top_y = page_height - margin - 1.5 * mm
             pdf.setFillColor(colors.HexColor("#101828"))
-            pdf.setFont("Helvetica-Bold", 9.5)
+            pdf.setFont(bold_font, config["label_order_size"])
             _draw_fitted_text(
                 pdf,
                 order_number,
                 x=margin,
                 y=top_y,
                 max_width=26 * mm,
-                font="Helvetica-Bold",
-                size=9.5,
+                font=bold_font,
+                size=config["label_order_size"],
                 min_size=7,
             )
-            pdf.setFont("Helvetica-Bold", 12.5)
+            pdf.setFont(client_font, config["label_client_size"])
             _draw_fitted_text(
                 pdf,
                 client_name,
                 x=page_width / 2,
                 y=top_y,
                 max_width=36 * mm,
-                font="Helvetica-Bold",
-                size=12.5,
+                font=client_font,
+                size=config["label_client_size"],
                 min_size=8,
                 align="center",
             )
-            pdf.setFont("Helvetica-Bold", 10.5)
+            pdf.setFont(bold_font, config["label_position_size"])
             _draw_fitted_text(
                 pdf,
                 f"POS {position}",
                 x=page_width - margin,
                 y=top_y,
                 max_width=22 * mm,
-                font="Helvetica-Bold",
-                size=10.5,
+                font=bold_font,
+                size=config["label_position_size"],
                 min_size=8,
                 align="right",
             )
 
             second_y = top_y - 4.5 * mm
-            pdf.setFillColor(colors.HexColor("#475467"))
-            pdf.setFont("Helvetica", 7)
-            pdf.drawString(margin, second_y, order_date)
+            if config["label_show_date"]:
+                pdf.setFillColor(colors.HexColor("#475467"))
+                pdf.setFont(regular_font, 7)
+                pdf.drawString(margin, second_y, order_date)
 
             rule_y = second_y - 2.2 * mm
-            pdf.setStrokeColor(colors.HexColor("#98A2B3"))
-            pdf.setLineWidth(0.55)
-            pdf.line(margin, rule_y, page_width - margin, rule_y)
+            if config["label_show_divider"]:
+                pdf.setStrokeColor(colors.HexColor("#98A2B3"))
+                pdf.setLineWidth(0.55)
+                pdf.line(margin, rule_y, page_width - margin, rule_y)
 
             dimension_y = 14.5 * mm
             pdf.setFillColor(colors.HexColor("#101828"))
-            pdf.setFont("Helvetica-Bold", 16)
+            pdf.setFont(dimension_font, config["label_dimension_size"])
             _draw_fitted_text(
                 pdf,
                 dimensions,
                 x=page_width / 2,
                 y=dimension_y,
                 max_width=usable_width,
-                font="Helvetica-Bold",
-                size=16,
+                font=dimension_font,
+                size=config["label_dimension_size"],
                 min_size=11,
                 align="center",
             )
 
             pdf.setFillColor(colors.HexColor("#101828"))
-            pdf.setFont("Helvetica-Bold", 9)
+            pdf.setFont(bold_font, config["label_glass_size"])
             _draw_fitted_text(
                 pdf,
                 glass_type,
                 x=margin,
                 y=margin - 0.5 * mm,
                 max_width=70 * mm,
-                font="Helvetica-Bold",
-                size=9,
+                font=bold_font,
+                size=config["label_glass_size"],
                 min_size=7,
             )
-            pdf.setFillColor(colors.HexColor("#667085"))
-            pdf.setFont("Helvetica-Bold", 6.5)
-            pdf.drawRightString(page_width - margin, margin - 0.3 * mm, "MANUAL")
+            if config["label_show_manual_marker"]:
+                pdf.setFillColor(colors.HexColor("#667085"))
+                pdf.setFont(bold_font, 6.5)
+                pdf.drawRightString(page_width - margin, margin - 0.3 * mm, "MANUAL")
             pdf.showPage()
 
     pdf.save()
@@ -359,6 +524,8 @@ def build_manual_labels_pdf(order: Dict[str, Any]) -> bytes:
 __all__ = [
     "MANUAL_LABEL_PAGE_SIZE",
     "MANUAL_PROCESSING_PAGE_SIZE",
+    "DEFAULT_MANUAL_PRINT_SETTINGS",
     "build_manual_labels_pdf",
     "build_manual_processing_pdf",
+    "normalize_manual_print_settings",
 ]

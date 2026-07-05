@@ -320,6 +320,18 @@ class ManualClient(Base):
     )
 
 
+class ManualPrintSetting(Base):
+    __tablename__ = "manual_print_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    config_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
 class ProcessingBatch(Base):
     __tablename__ = "processing_batches"
 
@@ -1626,6 +1638,31 @@ def next_manual_order_number(order_date: str) -> str:
     return f"{prefix}-{candidate:02d}"
 
 
+def get_manual_print_settings() -> Dict[str, Any]:
+    with SessionLocal() as session:
+        record = session.get(ManualPrintSetting, 1)
+        if not record or not record.config_json:
+            return {}
+        try:
+            settings = json.loads(record.config_json)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return {}
+        return settings if isinstance(settings, dict) else {}
+
+
+def save_manual_print_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
+    payload = dict(settings or {})
+    with get_session() as session:
+        record = session.get(ManualPrintSetting, 1)
+        if not record:
+            record = ManualPrintSetting(id=1)
+            session.add(record)
+        record.config_json = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        record.updated_at = datetime.now(timezone.utc)
+        session.flush()
+    return payload
+
+
 def _serialize_manual_order(order: ManualOrder, *, include_rows: bool = True) -> Dict[str, Any]:
     rows = list(order.rows or [])
     total_quantity = sum(int(row.quantity or 0) for row in rows)
@@ -2776,4 +2813,6 @@ __all__ = [
     "backfill_manual_clients",
     "list_manual_clients",
     "next_manual_order_number",
+    "get_manual_print_settings",
+    "save_manual_print_settings",
 ]

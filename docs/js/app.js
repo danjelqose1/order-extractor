@@ -169,6 +169,7 @@ const manualOrdersState = {
   lastAutoOrderNumber: "",
   numberRequestToken: 0,
   dimensionUnit: localStorage.getItem("manual_dimension_unit") === "cm" ? "cm" : "mm",
+  printSettingsLoaded: false,
 };
 
 const appState = {
@@ -20480,6 +20481,10 @@ const manualOrderSearch = document.getElementById("manualOrderSearch");
 const manualOrderStatusFilter = document.getElementById("manualOrderStatusFilter");
 const manualGlassTypeOptions = document.getElementById("manualGlassTypeOptions");
 const manualClientOptions = document.getElementById("manualClientOptions");
+const manualPrintSettingsForm = document.getElementById("manualPrintSettingsForm");
+const manualPrintSettingsStatus = document.getElementById("manualPrintSettingsStatus");
+const manualPrintSettingsReset = document.getElementById("manualPrintSettingsReset");
+const manualPrintSettingsSave = document.getElementById("manualPrintSettingsSave");
 
 function manualToday(){
   const now = new Date();
@@ -20618,6 +20623,75 @@ async function manualApi(path, options = {}){
     throw new Error(manualErrorMessage(data?.detail, `Request failed (${response.status}).`));
   }
   return data;
+}
+
+function setManualPrintSettingsStatus(message, isError = false){
+  if (!manualPrintSettingsStatus) return;
+  manualPrintSettingsStatus.textContent = message || "";
+  manualPrintSettingsStatus.classList.toggle("error", !!isError);
+}
+
+function renderManualPrintSettings(settings){
+  if (!manualPrintSettingsForm || !settings) return;
+  manualPrintSettingsForm.querySelectorAll("[data-manual-print-setting]").forEach(input => {
+    const key = input.dataset.manualPrintSetting;
+    if (!Object.prototype.hasOwnProperty.call(settings, key)) return;
+    if (input.type === "checkbox"){
+      input.checked = !!settings[key];
+    }else{
+      input.value = String(settings[key]);
+    }
+  });
+}
+
+function collectManualPrintSettings(){
+  const settings = {};
+  manualPrintSettingsForm?.querySelectorAll("[data-manual-print-setting]").forEach(input => {
+    const key = input.dataset.manualPrintSetting;
+    if (!key) return;
+    if (input.type === "checkbox"){
+      settings[key] = !!input.checked;
+    }else if (input.type === "number"){
+      settings[key] = Number(input.value);
+    }else{
+      settings[key] = input.value;
+    }
+  });
+  return settings;
+}
+
+async function loadManualPrintSettings({ force = false } = {}){
+  if (manualOrdersState.printSettingsLoaded && !force) return;
+  try{
+    const settings = await manualApi("/manual-orders/print-settings");
+    renderManualPrintSettings(settings);
+    manualOrdersState.printSettingsLoaded = true;
+    setManualPrintSettingsStatus("Settings apply to the next Manual Orders download.");
+  }catch(error){
+    setManualPrintSettingsStatus(error.message || String(error), true);
+  }
+}
+
+async function saveManualPrintSettings(settings, successMessage){
+  if (manualPrintSettingsSave) manualPrintSettingsSave.disabled = true;
+  if (manualPrintSettingsReset) manualPrintSettingsReset.disabled = true;
+  setManualPrintSettingsStatus("Saving…");
+  try{
+    const saved = await manualApi("/manual-orders/print-settings", {
+      method: "PUT",
+      body: JSON.stringify(settings),
+    });
+    renderManualPrintSettings(saved);
+    manualOrdersState.printSettingsLoaded = true;
+    setManualPrintSettingsStatus(successMessage || "Manual print settings saved.");
+    return saved;
+  }catch(error){
+    setManualPrintSettingsStatus(error.message || String(error), true);
+    return null;
+  }finally{
+    if (manualPrintSettingsSave) manualPrintSettingsSave.disabled = false;
+    if (manualPrintSettingsReset) manualPrintSettingsReset.disabled = false;
+  }
 }
 
 async function downloadManualOrderDocument(orderId, documentPath, filename){
@@ -21224,6 +21298,7 @@ function ensureManualOrdersReady(){
   if (!manualOrdersState.rows.length) resetManualOrderForm();
   loadManualGlassTypes();
   loadManualClients();
+  loadManualPrintSettings();
   if (!manualOrdersState.loaded) loadManualOrders();
   else renderManualOrdersList();
 }
@@ -21231,6 +21306,19 @@ function ensureManualOrdersReady(){
 function initManualOrders(){
   if (!manualOrderForm) return;
   resetManualOrderForm();
+  manualPrintSettingsForm?.addEventListener("submit", event => {
+    event.preventDefault();
+    saveManualPrintSettings(
+      collectManualPrintSettings(),
+      "Manual print settings saved. New downloads will use them.",
+    );
+  });
+  manualPrintSettingsReset?.addEventListener("click", () => {
+    saveManualPrintSettings(
+      {},
+      "Manual print settings reset to defaults.",
+    );
+  });
   manualOrderForm.addEventListener("submit", event => {
     event.preventDefault();
     const requested = event.submitter?.dataset?.manualSaveStatus || manualOrdersState.saveStatus;

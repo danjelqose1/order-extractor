@@ -78,7 +78,11 @@ from db import (
     get_telegram_file,
 )
 import db as db_module
-from manual_documents import build_manual_labels_pdf, build_manual_processing_pdf
+from manual_documents import (
+    build_manual_labels_pdf,
+    build_manual_processing_pdf,
+    normalize_manual_print_settings,
+)
 from validators import validate_rows
 from dimension_repair import apply_dimension_repair
 from area_dimension_validator import apply_area_dimension_validation
@@ -3775,6 +3779,17 @@ def get_next_manual_order_number(
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@app.get("/manual-orders/print-settings")
+def get_manual_print_settings() -> Dict[str, Any]:
+    return normalize_manual_print_settings(db_module.get_manual_print_settings())
+
+
+@app.put("/manual-orders/print-settings")
+def update_manual_print_settings(payload: Dict[str, Any]) -> Dict[str, Any]:
+    settings = normalize_manual_print_settings(payload)
+    return db_module.save_manual_print_settings(settings)
+
+
 @app.post("/manual-orders", status_code=201)
 def add_manual_order(payload: ManualOrderPayload) -> Dict[str, Any]:
     try:
@@ -3832,12 +3847,13 @@ def _manual_pdf_response(order_id: int, document: str) -> Response:
         raise HTTPException(status_code=404, detail="Manual order not found")
     if order.get("status") not in {"approved", "processing", "finished"}:
         raise HTTPException(status_code=400, detail="Approve the manual order before generating factory documents.")
+    settings = normalize_manual_print_settings(db_module.get_manual_print_settings())
     try:
         if document == "processing-sheet":
-            content = build_manual_processing_pdf(order)
+            content = build_manual_processing_pdf(order, settings)
             suffix = "processing-sheet"
         else:
-            content = build_manual_labels_pdf(order)
+            content = build_manual_labels_pdf(order, settings)
             suffix = "labels-100x40"
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

@@ -287,6 +287,19 @@ def test_saved_manual_clients_and_date_based_order_number(tmp_path, monkeypatch)
     assert db.list_manual_clients() == ["qamili"]
 
 
+def test_manual_print_settings_are_persisted_separately(tmp_path, monkeypatch):
+    db = _load_db(tmp_path, monkeypatch)
+    settings = {
+        "label_font_family": "Courier",
+        "label_client_size": 14,
+        "processing_dimension_unit": "mm",
+    }
+
+    assert db.get_manual_print_settings() == {}
+    assert db.save_manual_print_settings(settings) == settings
+    assert db.get_manual_print_settings() == settings
+
+
 def test_manual_orders_frontend_exposes_isolated_factory_workflow():
     html = INDEX_HTML.read_text(encoding="utf-8")
     js = APP_JS.read_text(encoding="utf-8")
@@ -299,6 +312,10 @@ def test_manual_orders_frontend_exposes_isolated_factory_workflow():
     assert 'id="manualDimensionUnit"' in html
     assert 'id="manualWidthUnitLabel"' in html
     assert 'id="manualHeightUnitLabel"' in html
+    assert 'id="manualPrintSettingsForm"' in html
+    assert 'data-manual-print-setting="label_font_family"' in html
+    assert 'data-manual-print-setting="processing_font_family"' in html
+    assert 'data-manual-print-setting="processing_dimension_unit"' in html
     assert "function manualCalculatedArea" in js
     assert "width * height * quantity / 1_000_000" in js
     assert 'source: "manual"' in js
@@ -319,6 +336,9 @@ def test_manual_orders_frontend_exposes_isolated_factory_workflow():
     assert "function manualDimensionInputValue" in js
     assert "function manualDimensionValueInMm" in js
     assert 'localStorage.setItem("manual_dimension_unit"' in js
+    assert 'manualApi("/manual-orders/print-settings")' in js
+    assert "function collectManualPrintSettings" in js
+    assert "function saveManualPrintSettings" in js
 
 
 def test_manual_order_rows_support_spreadsheet_keyboard_entry():
@@ -425,3 +445,69 @@ def test_manual_labels_are_dedicated_100x40_quantity_labels():
         assert client_span["size"] >= 11
         client_center = (client_span["bbox"][0] + client_span["bbox"][2]) / 2
         assert client_center == pytest.approx(page.rect.width / 2, abs=2)
+
+
+def test_manual_document_settings_change_fonts_visibility_and_processing_layout():
+    if str(BACKEND_DIR) not in sys.path:
+        sys.path.insert(0, str(BACKEND_DIR))
+    documents = importlib.import_module("manual_documents")
+    order = _manual_payload(
+        status="approved",
+        rows=[
+            {
+                "position": "1",
+                "glass_type": "Tr+12+Tr",
+                "width_mm": 615,
+                "height_mm": 1252,
+                "quantity": 1,
+                "notes": "Priority",
+            }
+        ],
+    )
+    settings = documents.normalize_manual_print_settings(
+        {
+            "label_font_family": "Courier",
+            "label_client_size": 15,
+            "label_show_date": False,
+            "label_show_manual_marker": False,
+            "processing_font_family": "Times",
+            "processing_page_width_mm": 110,
+            "processing_page_height_mm": 180,
+            "processing_dimension_unit": "mm",
+            "processing_row_size": 14,
+            "processing_show_notes": False,
+        }
+    )
+
+    label_pdf = fitz.open(
+        stream=documents.build_manual_labels_pdf(order, settings),
+        filetype="pdf",
+    )
+    label_text = label_pdf[0].get_text()
+    assert "01.07.2026" not in label_text
+    assert "MANUAL" not in label_text
+    label_fonts = {
+        span["font"]
+        for block in label_pdf[0].get_text("dict")["blocks"]
+        for line in block.get("lines", [])
+        for span in line.get("spans", [])
+    }
+    assert any("Courier" in font for font in label_fonts)
+
+    processing_pdf = fitz.open(
+        stream=documents.build_manual_processing_pdf(order, settings),
+        filetype="pdf",
+    )
+    assert processing_pdf[0].rect.width == pytest.approx(110 * 72 / 25.4, abs=0.2)
+    assert processing_pdf[0].rect.height == pytest.approx(180 * 72 / 25.4, abs=0.2)
+    processing_text = processing_pdf[0].get_text()
+    assert "615 x 1252" in processing_text
+    assert "DIMENSIONS (MM)" in processing_text
+    assert "Priority" not in processing_text
+    processing_fonts = {
+        span["font"]
+        for block in processing_pdf[0].get_text("dict")["blocks"]
+        for line in block.get("lines", [])
+        for span in line.get("spans", [])
+    }
+    assert any("Times" in font for font in processing_fonts)
