@@ -268,7 +268,7 @@ def build_manual_labels_pdf(order: Dict[str, Any]) -> bytes:
         glass_type = _pdf_text(row.get("glass_type") or row.get("type"), "-")
         dimensions = f"{_format_mm(row.get('width_mm'))} x {_format_mm(row.get('height_mm'))} mm"
 
-        for piece_index in range(1, quantity + 1):
+        for _piece_index in range(1, quantity + 1):
             pdf.setFillColor(colors.white)
             pdf.rect(0, 0, page_width, page_height, fill=1, stroke=0)
 
@@ -302,11 +302,11 @@ def build_manual_labels_pdf(order: Dict[str, Any]) -> bytes:
                 min_size=6,
             )
             pdf.setFillColor(colors.HexColor("#101828"))
-            pdf.setFont("Helvetica-Bold", 8)
+            pdf.setFont("Helvetica-Bold", 10.5)
             pdf.drawRightString(
                 page_width - margin,
                 second_y,
-                f"POS {position}  {piece_index}/{quantity}",
+                f"POS {position}",
             )
 
             rule_y = second_y - 2.2 * mm

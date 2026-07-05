@@ -365,7 +365,7 @@ def test_manual_labels_are_dedicated_100x40_quantity_labels():
     pdf = fitz.open(stream=pdf_bytes, filetype="pdf")
 
     assert len(pdf) == 2
-    for index, page in enumerate(pdf, start=1):
+    for page in pdf:
         assert page.rect.width == pytest.approx(100 * 72 / 25.4, abs=0.2)
         assert page.rect.height == pytest.approx(40 * 72 / 25.4, abs=0.2)
         text = page.get_text()
@@ -373,4 +373,6 @@ def test_manual_labels_are_dedicated_100x40_quantity_labels():
         assert "Manual Client" in text
         assert "1000 x 500 mm" in text
         assert "4F" in text
-        assert f"POS 7  {index}/2" in text
+        assert "POS 7" in text
+        assert "1/2" not in text
+        assert "2/2" not in text
