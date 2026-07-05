@@ -14,6 +14,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 BACKEND_DIR = ROOT_DIR / "backend"
 INDEX_HTML = ROOT_DIR / "docs" / "index.html"
 APP_JS = ROOT_DIR / "docs" / "js" / "app.js"
+APP_PY = ROOT_DIR / "backend" / "app.py"
 
 
 def _load_db(tmp_path, monkeypatch):
@@ -306,6 +307,7 @@ def test_manual_print_settings_are_persisted_separately(tmp_path, monkeypatch):
 def test_manual_orders_frontend_exposes_isolated_factory_workflow():
     html = INDEX_HTML.read_text(encoding="utf-8")
     js = APP_JS.read_text(encoding="utf-8")
+    app_py = APP_PY.read_text(encoding="utf-8")
 
     assert 'data-tab="manual"' in html
     assert 'id="tabManualOrders"' in html
@@ -333,11 +335,18 @@ def test_manual_orders_frontend_exposes_isolated_factory_workflow():
     assert "function manualCalculatedArea" in js
     assert "width * height * quantity / 1_000_000" in js
     assert 'source: "manual"' in js
-    assert 'data-manual-action="processing"' in js
+    assert 'data-manual-action="processing-choice"' in js
+    assert 'id="manualProcessingLayoutModal"' in html
+    assert 'data-manual-processing-download-layout="slip"' in html
+    assert 'data-manual-processing-download-layout="a4_landscape_2up"' in html
+    assert "Portrait — 1 copy" in html
+    assert "A4 landscape — 2 copies" in html
+    assert "function openManualProcessingLayoutChoice" in js
+    assert 'processing-sheet.pdf?layout=${encodeURIComponent(processingLayout)}' in js
+    assert "processing_layout=layout" in app_py
     assert 'data-manual-action="labels"' in js
     assert 'data-manual-action="invoice"' in js
     assert "function downloadManualOrderDocument" in js
-    assert '"processing-sheet.pdf"' in js
     assert '"labels.pdf"' in js
     assert 'activateTab("processing")' not in js[js.index('async function handleManualOrderAction'):js.index('function ensureManualOrdersReady')]
     assert 'activateTab("labels")' not in js[js.index('async function handleManualOrderAction'):js.index('function ensureManualOrdersReady')]

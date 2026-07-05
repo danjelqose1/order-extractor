@@ -3841,13 +3841,22 @@ def process_manual_order(order_id: int) -> Dict[str, Any]:
         )
 
 
-def _manual_pdf_response(order_id: int, document: str) -> Response:
+def _manual_pdf_response(
+    order_id: int,
+    document: str,
+    *,
+    processing_layout: Optional[str] = None,
+) -> Response:
     order = db_module.get_manual_order(order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Manual order not found")
     if order.get("status") not in {"approved", "processing", "finished"}:
         raise HTTPException(status_code=400, detail="Approve the manual order before generating factory documents.")
     settings = normalize_manual_print_settings(db_module.get_manual_print_settings())
+    if document == "processing-sheet" and processing_layout is not None:
+        if processing_layout not in {"slip", "a4_landscape_2up"}:
+            raise HTTPException(status_code=400, detail="Unsupported processing-sheet layout.")
+        settings["processing_print_layout"] = processing_layout
     try:
         if document == "processing-sheet":
             content = build_manual_processing_pdf(order, settings)
@@ -3867,8 +3876,15 @@ def _manual_pdf_response(order_id: int, document: str) -> Response:
 
 
 @app.get("/manual-orders/{order_id}/processing-sheet.pdf")
-def download_manual_processing_sheet(order_id: int) -> Response:
-    return _manual_pdf_response(order_id, "processing-sheet")
+def download_manual_processing_sheet(
+    order_id: int,
+    layout: Optional[str] = Query(default=None),
+) -> Response:
+    return _manual_pdf_response(
+        order_id,
+        "processing-sheet",
+        processing_layout=layout,
+    )
 
 
 @app.get("/manual-orders/{order_id}/labels.pdf")

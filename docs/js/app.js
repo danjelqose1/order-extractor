@@ -20493,6 +20493,10 @@ const manualProcessingPrintLayoutHint = document.getElementById("manualProcessin
 const manualProcessingPageWidth = document.getElementById("manualProcessingPageWidth");
 const manualProcessingPageHeight = document.getElementById("manualProcessingPageHeight");
 const manualProcessingCutGuide = document.getElementById("manualProcessingCutGuide");
+const manualProcessingLayoutModal = document.getElementById("manualProcessingLayoutModal");
+const manualProcessingLayoutOrder = document.getElementById("manualProcessingLayoutOrder");
+const manualProcessingLayoutClose = document.getElementById("manualProcessingLayoutClose");
+let manualProcessingLayoutOrderId = null;
 
 function manualToday(){
   const now = new Date();
@@ -20650,6 +20654,23 @@ function closeManualPrintSettings(){
   if (!manualPrintSettingsModal) return;
   manualPrintSettingsModal.hidden = true;
   manualPrintSettingsOpen?.focus();
+}
+
+function openManualProcessingLayoutChoice(orderId){
+  if (!manualProcessingLayoutModal) return;
+  const order = manualOrdersState.items.find(item => String(item.id) === String(orderId));
+  manualProcessingLayoutOrderId = orderId;
+  if (manualProcessingLayoutOrder){
+    manualProcessingLayoutOrder.textContent = order?.order_number || String(orderId);
+  }
+  manualProcessingLayoutModal.hidden = false;
+  manualProcessingLayoutClose?.focus();
+}
+
+function closeManualProcessingLayoutChoice(){
+  if (!manualProcessingLayoutModal) return;
+  manualProcessingLayoutModal.hidden = true;
+  manualProcessingLayoutOrderId = null;
 }
 
 function syncManualProcessingPrintLayout(){
@@ -21103,7 +21124,7 @@ function renderManualOrdersList(){
         <button type="button" class="btn small tertiary" data-manual-action="open" data-id="${order.id}">Open</button>
         <button type="button" class="btn small" data-manual-action="edit" data-id="${order.id}">Edit</button>
         <button type="button" class="btn small tertiary" data-manual-action="duplicate" data-id="${order.id}">Duplicate</button>
-        <button type="button" class="btn small" data-manual-action="processing" data-id="${order.id}" ${canProduce ? "" : "disabled"}>Processing sheet</button>
+        <button type="button" class="btn small" data-manual-action="processing-choice" data-id="${order.id}" ${canProduce ? "" : "disabled"}>Processing sheet ▾</button>
         <button type="button" class="btn small" data-manual-action="labels" data-id="${order.id}" ${canOutput ? "" : "disabled"}>Labels 100×40</button>
         <button type="button" class="btn small" data-manual-action="invoice" data-id="${order.id}" ${canOutput ? "" : "disabled"}>Invoice</button>
         <button type="button" class="btn small danger" data-manual-action="delete" data-id="${order.id}">Delete</button>
@@ -21235,7 +21256,7 @@ function manualInvoicePricingIssues(order){
   return Array.from(issues);
 }
 
-async function handleManualOrderAction(action, orderId){
+async function handleManualOrderAction(action, orderId, options = {}){
   if (!action || !orderId) return;
   if (action === "open"){
     await openManualOrder(orderId, true);
@@ -21256,6 +21277,10 @@ async function handleManualOrderAction(action, orderId){
     }
     return;
   }
+  if (action === "processing-choice"){
+    openManualProcessingLayoutChoice(orderId);
+    return;
+  }
   if (action === "delete"){
     const summary = manualOrdersState.items.find(item => String(item.id) === String(orderId));
     if (!confirm(`Delete manual order ${summary?.order_number || orderId}?`)) return;
@@ -21271,17 +21296,25 @@ async function handleManualOrderAction(action, orderId){
   if (action === "processing"){
     try{
       const normalized = await manualApi(`/manual-orders/${orderId}/processing`, { method: "POST" });
+      const processingLayout = options.layout === "a4_landscape_2up"
+        ? "a4_landscape_2up"
+        : "slip";
+      const processingLabel = processingLayout === "a4_landscape_2up"
+        ? "A4 landscape — 2 copies"
+        : "portrait — 1 copy";
       await downloadManualOrderDocument(
         orderId,
-        "processing-sheet.pdf",
-        `${normalized.order_number}-processing-sheet.pdf`,
+        `processing-sheet.pdf?layout=${encodeURIComponent(processingLayout)}`,
+        processingLayout === "a4_landscape_2up"
+          ? `${normalized.order_number}-processing-sheet-a4-2-copies.pdf`
+          : `${normalized.order_number}-processing-sheet-portrait.pdf`,
       );
       if (String(manualOrdersState.editingId) === String(normalized.manual_order_id) && manualOrderStatus){
         manualOrderStatus.value = "processing";
       }
       await loadManualOrders();
       if (manualOrdersListStatus){
-        manualOrdersListStatus.textContent = `Manual processing sheet downloaded for ${normalized.order_number}.`;
+        manualOrdersListStatus.textContent = `Manual processing sheet (${processingLabel}) downloaded for ${normalized.order_number}.`;
       }
     }catch(error){
       if (manualOrdersListStatus) manualOrdersListStatus.textContent = error.message || String(error);
@@ -21345,6 +21378,19 @@ function initManualOrders(){
   manualPrintSettingsModal?.addEventListener("click", event => {
     if (event.target === manualPrintSettingsModal) closeManualPrintSettings();
   });
+  manualProcessingLayoutClose?.addEventListener("click", closeManualProcessingLayoutChoice);
+  manualProcessingLayoutModal?.addEventListener("click", event => {
+    if (event.target === manualProcessingLayoutModal){
+      closeManualProcessingLayoutChoice();
+      return;
+    }
+    const choice = event.target.closest("[data-manual-processing-download-layout]");
+    if (!choice || !manualProcessingLayoutOrderId) return;
+    const orderId = manualProcessingLayoutOrderId;
+    const layout = choice.dataset.manualProcessingDownloadLayout;
+    closeManualProcessingLayoutChoice();
+    handleManualOrderAction("processing", orderId, { layout });
+  });
   document.addEventListener("keydown", event => {
     if (
       event.key === "Escape"
@@ -21352,6 +21398,13 @@ function initManualOrders(){
       && !manualPrintSettingsModal.hidden
     ){
       closeManualPrintSettings();
+    }
+    if (
+      event.key === "Escape"
+      && manualProcessingLayoutModal
+      && !manualProcessingLayoutModal.hidden
+    ){
+      closeManualProcessingLayoutChoice();
     }
   });
   manualPrintSettingsForm?.addEventListener("submit", event => {
