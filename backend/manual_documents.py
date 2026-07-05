@@ -254,7 +254,7 @@ def build_manual_processing_pdf(
         )
         return row_step_mm + notes_height
 
-    section_header_mm = 22.5
+    section_header_mm = 21.0
     bottom_guard_mm = max(config["processing_margin_mm"], 10.0)
     page_content_mm = max(
         section_header_mm + row_step_mm,
@@ -366,13 +366,7 @@ def build_manual_processing_pdf(
         pdf.line(margin, y, page_width - margin, y)
 
         for glass_type, page_rows in page_sections:
-            y -= 6 * mm
-            pdf.setFillColor(colors.HexColor("#667085"))
-            pdf.setFont(bold_font, config["processing_header_size"])
-            pdf.drawString(margin, y, "GLASS TYPE")
-            pdf.drawRightString(page_width - margin, y, "AREA")
-
-            y -= 6.5 * mm
+            y -= 11 * mm
             pdf.setFillColor(colors.HexColor("#101828"))
             pdf.setFont(glass_font, config["processing_glass_size"])
             area_width = usable_width * 0.30
