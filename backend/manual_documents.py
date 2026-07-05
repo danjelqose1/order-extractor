@@ -208,7 +208,7 @@ def build_manual_processing_pdf(
     """Build the Manual Orders-only workshop slip.
 
     Dimensions use the configured workshop unit (centimetres by default).
-    Each glass type starts on its own 100 x 210 mm slip.
+    Glass-type sections share a slip whenever they fit.
     """
 
     rows = list(order.get("rows") or [])
@@ -221,26 +221,70 @@ def build_manual_processing_pdf(
     margin = config["processing_margin_mm"] * mm
     page_size = (page_width, page_height)
     row_step_mm = max(8.5, config["processing_row_size"] * 0.55)
-    notes_extra_mm = (
-        3.5
-        if config["processing_show_notes"] and any(_pdf_text(row.get("notes")) for row in rows)
-        else 0
-    )
-    pagination_step_mm = row_step_mm + notes_extra_mm
-    available_rows_mm = max(
-        pagination_step_mm,
-        config["processing_page_height_mm"] - (config["processing_margin_mm"] * 2) - 55,
-    )
-    rows_per_page = max(1, int(available_rows_mm // pagination_step_mm))
     groups = _group_rows(rows)
-    page_specs: List[tuple[str, Sequence[Dict[str, Any]], int, int]] = []
+
+    def row_height_mm(row: Dict[str, Any]) -> float:
+        notes_height = (
+            3.5
+            if config["processing_show_notes"] and _pdf_text(row.get("notes"))
+            else 0
+        )
+        return row_step_mm + notes_height
+
+    section_header_mm = 22.5
+    bottom_guard_mm = max(config["processing_margin_mm"], 10.0)
+    page_content_mm = max(
+        section_header_mm + row_step_mm,
+        config["processing_page_height_mm"]
+        - config["processing_margin_mm"]
+        - 16.5
+        - bottom_guard_mm,
+    )
+    page_specs: List[List[tuple[str, Sequence[Dict[str, Any]]]]] = []
+    current_page: List[tuple[str, Sequence[Dict[str, Any]]]] = []
+    remaining_mm = page_content_mm
+
     for glass_type, glass_rows in groups:
-        chunks = [
-            glass_rows[index : index + rows_per_page]
-            for index in range(0, len(glass_rows), rows_per_page)
-        ]
-        for chunk_index, chunk in enumerate(chunks, start=1):
-            page_specs.append((glass_type, chunk, chunk_index, len(chunks)))
+        row_index = 0
+        while row_index < len(glass_rows):
+            minimum_section_mm = section_header_mm + row_height_mm(glass_rows[row_index])
+            if current_page and remaining_mm < minimum_section_mm:
+                page_specs.append(current_page)
+                current_page = []
+                remaining_mm = page_content_mm
+
+            chunk: List[Dict[str, Any]] = []
+            chunk_height_mm = section_header_mm
+            while row_index < len(glass_rows):
+                next_row_height_mm = row_height_mm(glass_rows[row_index])
+                if chunk and chunk_height_mm + next_row_height_mm > remaining_mm:
+                    break
+                if not chunk and chunk_height_mm + next_row_height_mm > remaining_mm:
+                    break
+                chunk.append(glass_rows[row_index])
+                chunk_height_mm += next_row_height_mm
+                row_index += 1
+
+            if not chunk:
+                if current_page:
+                    page_specs.append(current_page)
+                    current_page = []
+                    remaining_mm = page_content_mm
+                    continue
+                chunk.append(glass_rows[row_index])
+                chunk_height_mm += row_height_mm(glass_rows[row_index])
+                row_index += 1
+
+            current_page.append((glass_type, chunk))
+            remaining_mm -= chunk_height_mm
+
+            if row_index < len(glass_rows):
+                page_specs.append(current_page)
+                current_page = []
+                remaining_mm = page_content_mm
+
+    if current_page:
+        page_specs.append(current_page)
 
     output = BytesIO()
     pdf = canvas.Canvas(output, pagesize=page_size, pageCompression=1)
@@ -254,7 +298,7 @@ def build_manual_processing_pdf(
     client_name = _pdf_text(order.get("client_name"), "-")
     order_date = _display_date(order.get("order_date"))
 
-    for page_index, (glass_type, page_rows, group_page, group_pages) in enumerate(page_specs, start=1):
+    for page_index, page_sections in enumerate(page_specs, start=1):
         pdf.setFillColor(colors.HexColor("#FFFFFF"))
         pdf.rect(0, 0, page_width, page_height, fill=1, stroke=0)
 
@@ -298,95 +342,94 @@ def build_manual_processing_pdf(
         pdf.setLineWidth(0.8)
         pdf.line(margin, y, page_width - margin, y)
 
-        y -= 6 * mm
-        pdf.setFillColor(colors.HexColor("#667085"))
-        pdf.setFont(bold_font, config["processing_header_size"])
-        pdf.drawString(margin, y, "GLASS TYPE")
-        if group_pages > 1:
-            pdf.drawRightString(page_width - margin, y, f"{group_page}/{group_pages}")
+        for glass_type, page_rows in page_sections:
+            y -= 6 * mm
+            pdf.setFillColor(colors.HexColor("#667085"))
+            pdf.setFont(bold_font, config["processing_header_size"])
+            pdf.drawString(margin, y, "GLASS TYPE")
 
-        y -= 6.5 * mm
-        pdf.setFillColor(colors.HexColor("#101828"))
-        pdf.setFont(glass_font, config["processing_glass_size"])
-        _draw_fitted_text(
-            pdf,
-            glass_type,
-            x=margin,
-            y=y,
-            max_width=usable_width,
-            font=glass_font,
-            size=config["processing_glass_size"],
-            min_size=8,
-        )
-
-        y -= 6 * mm
-        pdf.setFillColor(colors.HexColor("#667085"))
-        pdf.setFont(bold_font, config["processing_header_size"])
-        pdf.drawString(margin, y, "POSITION")
-        dimension_unit = config["processing_dimension_unit"].upper()
-        dimension_x = margin + (usable_width * 0.24)
-        pdf.drawString(dimension_x, y, f"DIMENSIONS ({dimension_unit})")
-        pdf.drawRightString(page_width - margin, y, "QTY")
-
-        y -= 4 * mm
-        pdf.setStrokeColor(colors.HexColor("#D0D5DD"))
-        pdf.setLineWidth(0.5)
-        pdf.line(margin, y, page_width - margin, y)
-
-        for row in page_rows:
-            y -= row_step_mm * mm
-            position = _pdf_text(row.get("position"), "-")
-            formatter = _format_mm if config["processing_dimension_unit"] == "mm" else _format_cm
-            dimensions = f"{formatter(row.get('width_mm'))} x {formatter(row.get('height_mm'))}"
-            quantity = max(1, int(row.get("quantity") or 1))
-
+            y -= 6.5 * mm
             pdf.setFillColor(colors.HexColor("#101828"))
-            position_size = max(8.0, config["processing_row_size"] - 1)
-            pdf.setFont(row_font, position_size)
+            pdf.setFont(glass_font, config["processing_glass_size"])
             _draw_fitted_text(
                 pdf,
-                f"{position})",
+                glass_type,
                 x=margin,
                 y=y,
-                max_width=usable_width * 0.20,
-                font=row_font,
-                size=position_size,
+                max_width=usable_width,
+                font=glass_font,
+                size=config["processing_glass_size"],
                 min_size=8,
             )
-            pdf.setFont(row_font, config["processing_row_size"])
-            _draw_fitted_text(
-                pdf,
-                dimensions,
-                x=dimension_x,
-                y=y,
-                max_width=usable_width * 0.57,
-                font=row_font,
-                size=config["processing_row_size"],
-                min_size=9,
-            )
-            pdf.setFont(row_font, config["processing_row_size"])
-            pdf.drawRightString(page_width - margin, y, f"x {quantity}")
 
-            notes = _pdf_text(row.get("notes"))
-            if notes and config["processing_show_notes"]:
-                y -= 3.5 * mm
-                pdf.setFillColor(colors.HexColor("#667085"))
-                note_size = max(6.0, config["processing_header_size"])
-                pdf.setFont(italic_font, note_size)
+            y -= 6 * mm
+            pdf.setFillColor(colors.HexColor("#667085"))
+            pdf.setFont(bold_font, config["processing_header_size"])
+            pdf.drawString(margin, y, "POSITION")
+            dimension_unit = config["processing_dimension_unit"].upper()
+            dimension_x = margin + (usable_width * 0.24)
+            pdf.drawString(dimension_x, y, f"DIMENSIONS ({dimension_unit})")
+            pdf.drawRightString(page_width - margin, y, "QTY")
+
+            y -= 4 * mm
+            pdf.setStrokeColor(colors.HexColor("#D0D5DD"))
+            pdf.setLineWidth(0.5)
+            pdf.line(margin, y, page_width - margin, y)
+
+            for row in page_rows:
+                y -= row_step_mm * mm
+                position = _pdf_text(row.get("position"), "-")
+                formatter = _format_mm if config["processing_dimension_unit"] == "mm" else _format_cm
+                dimensions = f"{formatter(row.get('width_mm'))} x {formatter(row.get('height_mm'))}"
+                quantity = max(1, int(row.get("quantity") or 1))
+
+                pdf.setFillColor(colors.HexColor("#101828"))
+                position_size = max(8.0, config["processing_row_size"] - 1)
+                pdf.setFont(row_font, position_size)
                 _draw_fitted_text(
                     pdf,
-                    notes,
+                    f"{position})",
+                    x=margin,
+                    y=y,
+                    max_width=usable_width * 0.20,
+                    font=row_font,
+                    size=position_size,
+                    min_size=8,
+                )
+                pdf.setFont(row_font, config["processing_row_size"])
+                _draw_fitted_text(
+                    pdf,
+                    dimensions,
                     x=dimension_x,
                     y=y,
-                    max_width=(page_width - margin) - dimension_x,
-                    font=italic_font,
-                    size=note_size,
+                    max_width=usable_width * 0.57,
+                    font=row_font,
+                    size=config["processing_row_size"],
+                    min_size=9,
                 )
+                pdf.setFont(row_font, config["processing_row_size"])
+                pdf.drawRightString(page_width - margin, y, f"x {quantity}")
 
-            if config["processing_row_separators"]:
-                pdf.setStrokeColor(colors.HexColor("#EAECF0"))
-                pdf.setLineWidth(0.35)
-                pdf.line(margin, y - 2.5 * mm, page_width - margin, y - 2.5 * mm)
+                notes = _pdf_text(row.get("notes"))
+                if notes and config["processing_show_notes"]:
+                    y -= 3.5 * mm
+                    pdf.setFillColor(colors.HexColor("#667085"))
+                    note_size = max(6.0, config["processing_header_size"])
+                    pdf.setFont(italic_font, note_size)
+                    _draw_fitted_text(
+                        pdf,
+                        notes,
+                        x=dimension_x,
+                        y=y,
+                        max_width=(page_width - margin) - dimension_x,
+                        font=italic_font,
+                        size=note_size,
+                    )
+
+                if config["processing_row_separators"]:
+                    pdf.setStrokeColor(colors.HexColor("#EAECF0"))
+                    pdf.setLineWidth(0.35)
+                    pdf.line(margin, y - 2.5 * mm, page_width - margin, y - 2.5 * mm)
 
         if config["processing_show_footer"]:
             pdf.setFillColor(colors.HexColor("#98A2B3"))

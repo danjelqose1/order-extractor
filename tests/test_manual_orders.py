@@ -405,6 +405,51 @@ def test_manual_processing_sheet_matches_compact_workshop_format():
     assert "x 2" in text
 
 
+def test_manual_processing_sheet_keeps_multiple_glass_types_on_one_page():
+    if str(BACKEND_DIR) not in sys.path:
+        sys.path.insert(0, str(BACKEND_DIR))
+    documents = importlib.import_module("manual_documents")
+    order = _manual_payload(
+        status="processing",
+        rows=[
+            {
+                "position": "1",
+                "glass_type": "TR+12+TR",
+                "width_mm": 1200,
+                "height_mm": 980,
+                "quantity": 2,
+                "notes": "",
+            },
+            {
+                "position": "2",
+                "glass_type": "TR+12+TR",
+                "width_mm": 1200,
+                "height_mm": 1000,
+                "quantity": 1,
+                "notes": "",
+            },
+            {
+                "position": "3",
+                "glass_type": "TR+12+SATINE",
+                "width_mm": 1300,
+                "height_mm": 1000,
+                "quantity": 1,
+                "notes": "",
+            },
+        ],
+    )
+
+    pdf_bytes = documents.build_manual_processing_pdf(order)
+    pdf = fitz.open(stream=pdf_bytes, filetype="pdf")
+
+    assert len(pdf) == 1
+    text = pdf[0].get_text()
+    assert "TR+12+TR" in text
+    assert "TR+12+SATINE" in text
+    assert "3)" in text
+    assert "130 x 100" in text
+
+
 def test_manual_labels_are_dedicated_100x40_quantity_labels():
     if str(BACKEND_DIR) not in sys.path:
         sys.path.insert(0, str(BACKEND_DIR))
