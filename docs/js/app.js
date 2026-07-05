@@ -20481,6 +20481,9 @@ const manualOrderSearch = document.getElementById("manualOrderSearch");
 const manualOrderStatusFilter = document.getElementById("manualOrderStatusFilter");
 const manualGlassTypeOptions = document.getElementById("manualGlassTypeOptions");
 const manualClientOptions = document.getElementById("manualClientOptions");
+const manualPrintSettingsModal = document.getElementById("manualPrintSettingsModal");
+const manualPrintSettingsOpen = document.getElementById("manualPrintSettingsOpen");
+const manualPrintSettingsClose = document.getElementById("manualPrintSettingsClose");
 const manualPrintSettingsForm = document.getElementById("manualPrintSettingsForm");
 const manualPrintSettingsStatus = document.getElementById("manualPrintSettingsStatus");
 const manualPrintSettingsReset = document.getElementById("manualPrintSettingsReset");
@@ -20629,6 +20632,19 @@ function setManualPrintSettingsStatus(message, isError = false){
   if (!manualPrintSettingsStatus) return;
   manualPrintSettingsStatus.textContent = message || "";
   manualPrintSettingsStatus.classList.toggle("error", !!isError);
+}
+
+function openManualPrintSettings(){
+  if (!manualPrintSettingsModal) return;
+  manualPrintSettingsModal.hidden = false;
+  loadManualPrintSettings();
+  manualPrintSettingsClose?.focus();
+}
+
+function closeManualPrintSettings(){
+  if (!manualPrintSettingsModal) return;
+  manualPrintSettingsModal.hidden = true;
+  manualPrintSettingsOpen?.focus();
 }
 
 function renderManualPrintSettings(settings){
@@ -21306,6 +21322,20 @@ function ensureManualOrdersReady(){
 function initManualOrders(){
   if (!manualOrderForm) return;
   resetManualOrderForm();
+  manualPrintSettingsOpen?.addEventListener("click", openManualPrintSettings);
+  manualPrintSettingsClose?.addEventListener("click", closeManualPrintSettings);
+  manualPrintSettingsModal?.addEventListener("click", event => {
+    if (event.target === manualPrintSettingsModal) closeManualPrintSettings();
+  });
+  document.addEventListener("keydown", event => {
+    if (
+      event.key === "Escape"
+      && manualPrintSettingsModal
+      && !manualPrintSettingsModal.hidden
+    ){
+      closeManualPrintSettings();
+    }
+  });
   manualPrintSettingsForm?.addEventListener("submit", event => {
     event.preventDefault();
     saveManualPrintSettings(

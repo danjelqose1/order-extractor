@@ -6224,42 +6224,62 @@
       padding:6px 30px 6px 9px;
       font-size:12px;
     }
-    .manual-print-settings-card{
+    .manual-order-header-actions{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      flex-wrap:wrap;
+    }
+    .manual-settings-icon-btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      width:40px;
+      min-width:40px;
+      height:40px;
+      padding:0;
+    }
+    .manual-settings-icon-btn svg{
+      width:19px;
+      height:19px;
+      fill:none;
+      stroke:currentColor;
+      stroke-width:1.8;
+      stroke-linecap:round;
+      stroke-linejoin:round;
+    }
+    .manual-print-settings-modal .modal-card{
+      width:min(1000px,calc(100vw - 28px));
+      max-width:1000px;
+      max-height:min(900px,calc(100vh - 28px));
       padding:0;
       overflow:hidden;
     }
-    .manual-print-settings-card > summary{
+    .manual-settings-modal-header{
       display:flex;
-      align-items:center;
+      align-items:flex-start;
       justify-content:space-between;
       gap:16px;
-      padding:17px 20px;
-      cursor:pointer;
-      list-style:none;
+      padding:18px 20px;
+      border-bottom:1px solid var(--border);
     }
-    .manual-print-settings-card > summary::-webkit-details-marker{
-      display:none;
+    .manual-settings-modal-header h3{
+      margin:0 0 4px;
     }
-    .manual-print-settings-card > summary span:first-child{
-      display:flex;
-      flex-direction:column;
-      gap:3px;
+    .manual-settings-modal-header p{
+      margin:0;
     }
-    .manual-print-settings-card > summary small{
-      color:var(--muted);
-      font-weight:400;
-    }
-    .manual-settings-summary-action{
-      color:var(--primary);
-      font-size:12px;
-      font-weight:700;
-    }
-    .manual-print-settings-card[open] .manual-settings-summary-action::after{
-      content:" open";
+    .manual-settings-close-btn{
+      width:38px;
+      min-width:38px;
+      height:38px;
+      padding:0;
+      font-size:22px;
+      line-height:1;
     }
     #manualPrintSettingsForm{
       padding:0 20px 20px;
-      border-top:1px solid var(--border);
+      overflow:auto;
     }
     .manual-print-settings-grid{
       display:grid;

@@ -974,7 +974,12 @@
             <h2 id="manualOrderFormTitle">Create manual order</h2>
             <p class="muted small">Enter factory-ready rows without uploading a PDF.</p>
           </div>
-          <button type="button" class="btn tertiary" id="manualOrderNew">New manual order</button>
+          <div class="manual-order-header-actions">
+            <button type="button" class="btn tertiary manual-settings-icon-btn" id="manualPrintSettingsOpen" aria-label="Manual print settings" title="Manual print settings">
+              <svg aria-hidden="true"><use href="#icon-settings"></use></svg>
+            </button>
+            <button type="button" class="btn tertiary" id="manualOrderNew">New manual order</button>
+          </div>
         </div>
 
         <form id="manualOrderForm" novalidate>
@@ -1060,15 +1065,16 @@
         </form>
       </section>
 
-      <details class="card manual-print-settings-card" id="manualPrintSettingsCard">
-        <summary>
-          <span>
-            <strong>Manual print settings</strong>
-            <small>Customize Manual Orders labels and processing sheets.</small>
-          </span>
-          <span class="manual-settings-summary-action">Configure</span>
-        </summary>
-        <form id="manualPrintSettingsForm">
+      <div id="manualPrintSettingsModal" class="modal-layer manual-print-settings-modal" hidden>
+        <div class="modal-card wide" role="dialog" aria-modal="true" aria-labelledby="manualPrintSettingsTitle">
+          <div class="manual-settings-modal-header">
+            <div>
+              <h3 id="manualPrintSettingsTitle">Manual print settings</h3>
+              <p>Customize Manual Orders labels and processing sheets.</p>
+            </div>
+            <button type="button" class="btn tertiary manual-settings-close-btn" id="manualPrintSettingsClose" aria-label="Close print settings">×</button>
+          </div>
+          <form id="manualPrintSettingsForm">
           <div class="manual-print-settings-grid">
             <fieldset>
               <legend>Labels · 100 × 40 mm</legend>
@@ -1142,8 +1148,9 @@
               <button type="submit" class="btn" id="manualPrintSettingsSave">Save print settings</button>
             </div>
           </div>
-        </form>
-      </details>
+          </form>
+        </div>
+      </div>
 
       <section class="card manual-orders-list-card">
         <div class="manual-order-header">

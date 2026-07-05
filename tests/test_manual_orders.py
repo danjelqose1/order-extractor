@@ -313,6 +313,12 @@ def test_manual_orders_frontend_exposes_isolated_factory_workflow():
     assert 'id="manualWidthUnitLabel"' in html
     assert 'id="manualHeightUnitLabel"' in html
     assert 'id="manualPrintSettingsForm"' in html
+    assert 'id="manualPrintSettingsOpen"' in html
+    assert 'id="manualPrintSettingsModal"' in html
+    assert 'id="manualPrintSettingsClose"' in html
+    assert "function openManualPrintSettings" in js
+    assert "function closeManualPrintSettings" in js
+    assert 'class="card manual-print-settings-card"' not in html
     assert 'data-manual-print-setting="label_font_family"' in html
     assert 'data-manual-print-setting="processing_font_family"' in html
     assert 'data-manual-print-setting="processing_dimension_unit"' in html
