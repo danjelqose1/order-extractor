@@ -241,6 +241,257 @@ def _group_rows(rows: Iterable[Dict[str, Any]]) -> List[tuple[str, List[Dict[str
     return list(grouped.items())
 
 
+def _draw_mixed_position(
+    pdf: canvas.Canvas,
+    *,
+    client_position: Any,
+    index_number: Any,
+    x: float,
+    y: float,
+    max_width: float,
+    font: str,
+    size: float,
+    min_size: float = 7.0,
+    prefix: str = "",
+    align: str = "left",
+) -> float:
+    client = _pdf_text(client_position)
+    index = _pdf_text(index_number, "-")
+    black_text = f"{prefix}{client}{' ' if client else ''}"
+    fitted = size
+    while (
+        fitted > min_size
+        and stringWidth(black_text, font, fitted) + stringWidth(index, font, fitted) > max_width
+    ):
+        fitted -= 0.5
+    total_width = stringWidth(black_text, font, fitted) + stringWidth(index, font, fitted)
+    start_x = x - total_width if align == "right" else x
+    pdf.setFont(font, fitted)
+    pdf.setFillColor(colors.HexColor("#101828"))
+    if black_text:
+        pdf.drawString(start_x, y, black_text)
+    pdf.setFillColor(colors.HexColor("#DC2626"))
+    pdf.drawString(start_x + stringWidth(black_text, font, fitted), y, index)
+    return fitted
+
+
+def _build_red_index_processing_pdf(
+    order: Dict[str, Any],
+    config: Dict[str, Any],
+) -> bytes:
+    rows = list(order.get("rows") or [])
+    is_a4_two_up = config["processing_print_layout"] == PROCESSING_PRINT_LAYOUT_A4_2UP
+    processing_width_mm = 100.0 if is_a4_two_up else config["processing_page_width_mm"]
+    processing_height_mm = 210.0 if is_a4_two_up else config["processing_page_height_mm"]
+    page_width = processing_width_mm * mm
+    page_height = processing_height_mm * mm
+    margin = config["processing_margin_mm"] * mm
+    output_page_size = A4_LANDSCAPE_PAGE_SIZE if is_a4_two_up else (page_width, page_height)
+    bottom_guard_mm = max(config["processing_margin_mm"], 10.0)
+    content_budget_mm = max(
+        24.0,
+        processing_height_mm
+        - config["processing_margin_mm"]
+        - 26.5
+        - bottom_guard_mm,
+    )
+    section_height_mm = 7.0
+    row_height_mm = 10.5
+
+    page_specs: List[List[tuple[Dict[str, Any], bool]]] = []
+    current_page: List[tuple[Dict[str, Any], bool]] = []
+    used_mm = 0.0
+    current_section: Optional[str] = None
+    for row in rows:
+        section = _pdf_text(row.get("section"))
+        show_section = bool(section and section != current_section)
+        required_mm = row_height_mm + (section_height_mm if show_section else 0)
+        if current_page and used_mm + required_mm > content_budget_mm:
+            page_specs.append(current_page)
+            current_page = []
+            used_mm = 0.0
+            current_section = None
+            show_section = bool(section)
+            required_mm = row_height_mm + (section_height_mm if show_section else 0)
+        current_page.append((row, show_section))
+        used_mm += required_mm
+        current_section = section or current_section
+    if current_page:
+        page_specs.append(current_page)
+
+    output = BytesIO()
+    pdf = canvas.Canvas(output, pagesize=output_page_size, pageCompression=1)
+    usable_width = page_width - (margin * 2)
+    regular_font = _font(config, "processing", "regular")
+    bold_font = _font(config, "processing", "bold")
+    italic_font = _font(config, "processing", "italic")
+    row_font = bold_font if config["processing_rows_bold"] else regular_font
+    client_font = bold_font if config["processing_client_bold"] else regular_font
+    order_number = _pdf_text(order.get("order_number"), "Manual order")
+    client_name = _pdf_text(order.get("client_name"), "-")
+    order_date = _display_date(order.get("order_date"))
+    dimension_unit = config["processing_dimension_unit"].upper()
+    dimension_x = margin + (usable_width * 0.38)
+
+    for page_index, page_rows in enumerate(page_specs, start=1):
+        form_name = f"manual_red_index_slip_{page_index}"
+        if is_a4_two_up:
+            pdf.beginForm(form_name, 0, 0, page_width, page_height)
+
+        pdf.setFillColor(colors.white)
+        pdf.rect(0, 0, page_width, page_height, fill=1, stroke=0)
+        y = page_height - margin
+        pdf.setFillColor(colors.HexColor("#667085"))
+        pdf.setFont(bold_font, config["processing_header_size"])
+        pdf.drawString(margin, y, "MANUAL PROCESSING")
+        if config["processing_show_date"]:
+            pdf.setFont(regular_font, config["processing_header_size"])
+            pdf.drawRightString(page_width - margin, y, order_date)
+
+        y -= 7 * mm
+        pdf.setFillColor(colors.HexColor("#101828"))
+        pdf.setFont(bold_font, config["processing_order_size"])
+        _draw_fitted_text(
+            pdf,
+            order_number,
+            x=margin,
+            y=y,
+            max_width=usable_width,
+            font=bold_font,
+            size=config["processing_order_size"],
+        )
+
+        y -= 5.5 * mm
+        if config["processing_show_client"]:
+            pdf.setFont(client_font, config["processing_client_size"])
+            _draw_fitted_text(
+                pdf,
+                client_name,
+                x=margin,
+                y=y,
+                max_width=usable_width,
+                font=client_font,
+                size=config["processing_client_size"],
+            )
+
+        y -= 4 * mm
+        pdf.setStrokeColor(colors.HexColor("#101828"))
+        pdf.setLineWidth(0.8)
+        pdf.line(margin, y, page_width - margin, y)
+
+        y -= 6 * mm
+        pdf.setFillColor(colors.HexColor("#667085"))
+        pdf.setFont(bold_font, config["processing_header_size"])
+        pdf.drawString(margin, y, "POSITION")
+        pdf.drawString(dimension_x, y, f"DIMENSIONS ({dimension_unit})")
+        pdf.drawRightString(page_width - margin, y, "QTY")
+        y -= 4 * mm
+        pdf.setStrokeColor(colors.HexColor("#D0D5DD"))
+        pdf.setLineWidth(0.5)
+        pdf.line(margin, y, page_width - margin, y)
+
+        for row, show_section in page_rows:
+            if show_section:
+                y -= section_height_mm * mm
+                pdf.setFillColor(colors.HexColor("#101828"))
+                section_size = max(8.0, config["processing_header_size"] + 1.5)
+                pdf.setFont(bold_font, section_size)
+                _draw_fitted_text(
+                    pdf,
+                    _pdf_text(row.get("section")),
+                    x=margin,
+                    y=y,
+                    max_width=usable_width,
+                    font=bold_font,
+                    size=section_size,
+                    min_size=8,
+                )
+
+            y -= 7 * mm
+            position_size = max(8.0, config["processing_row_size"] - 1)
+            _draw_mixed_position(
+                pdf,
+                client_position=row.get("client_position"),
+                index_number=row.get("index_number"),
+                x=margin,
+                y=y,
+                max_width=usable_width * 0.34,
+                font=row_font,
+                size=position_size,
+                min_size=8,
+            )
+            formatter = _format_mm if config["processing_dimension_unit"] == "mm" else _format_cm
+            dimensions = f"{formatter(row.get('width_mm'))} x {formatter(row.get('height_mm'))}"
+            pdf.setFillColor(colors.HexColor("#101828"))
+            pdf.setFont(row_font, config["processing_row_size"])
+            _draw_fitted_text(
+                pdf,
+                dimensions,
+                x=dimension_x,
+                y=y,
+                max_width=usable_width * 0.48,
+                font=row_font,
+                size=config["processing_row_size"],
+                min_size=9,
+            )
+            quantity = max(1, int(row.get("quantity") or 1))
+            pdf.drawRightString(page_width - margin, y, f"x {quantity}")
+
+            y -= 3.5 * mm
+            detail = _pdf_text(row.get("glass_type") or row.get("type"), "-")
+            notes = _pdf_text(row.get("notes"))
+            if notes and config["processing_show_notes"]:
+                detail = f"{detail} - {notes}"
+            detail_size = max(6.5, config["processing_header_size"])
+            pdf.setFillColor(colors.HexColor("#667085"))
+            pdf.setFont(italic_font, detail_size)
+            _draw_fitted_text(
+                pdf,
+                detail,
+                x=margin,
+                y=y,
+                max_width=usable_width,
+                font=italic_font,
+                size=detail_size,
+            )
+            if config["processing_row_separators"]:
+                pdf.setStrokeColor(colors.HexColor("#EAECF0"))
+                pdf.setLineWidth(0.35)
+                pdf.line(margin, y - 2 * mm, page_width - margin, y - 2 * mm)
+
+        if config["processing_show_footer"]:
+            pdf.setFillColor(colors.HexColor("#98A2B3"))
+            pdf.setFont(regular_font, 6.5)
+            footer_y = max(3 * mm, margin * 0.7)
+            pdf.drawString(margin, footer_y, "Manual Orders")
+            pdf.drawRightString(page_width - margin, footer_y, f"{page_index}/{len(page_specs)}")
+
+        if is_a4_two_up:
+            pdf.endForm()
+            output_width, output_height = A4_LANDSCAPE_PAGE_SIZE
+            copies_gap = 8 * mm
+            copies_width = (page_width * 2) + copies_gap
+            first_copy_x = (output_width - copies_width) / 2
+            second_copy_x = first_copy_x + page_width + copies_gap
+            for copy_x in (first_copy_x, second_copy_x):
+                pdf.saveState()
+                pdf.translate(copy_x, 0)
+                pdf.doForm(form_name)
+                pdf.restoreState()
+            if config["processing_show_cut_guide"]:
+                pdf.saveState()
+                pdf.setStrokeColor(colors.HexColor("#999999"))
+                pdf.setLineWidth(0.2 * mm)
+                pdf.setDash(2 * mm, 2 * mm)
+                cut_x = output_width / 2
+                pdf.line(cut_x, 3 * mm, cut_x, output_height - (3 * mm))
+                pdf.restoreState()
+        pdf.showPage()
+
+    pdf.save()
+    return output.getvalue()
+
+
 def build_manual_processing_pdf(
     order: Dict[str, Any],
     settings: Optional[Dict[str, Any]] = None,
@@ -256,6 +507,8 @@ def build_manual_processing_pdf(
         raise ValueError("Manual order has no rows")
 
     config = normalize_manual_print_settings(settings)
+    if order.get("manual_format") == "client_positions_red_index":
+        return _build_red_index_processing_pdf(order, config)
     is_a4_two_up = config["processing_print_layout"] == PROCESSING_PRINT_LAYOUT_A4_2UP
     processing_width_mm = 100.0 if is_a4_two_up else config["processing_page_width_mm"]
     processing_height_mm = 210.0 if is_a4_two_up else config["processing_page_height_mm"]
@@ -545,6 +798,7 @@ def build_manual_labels_pdf(
     order_number = _pdf_text(order.get("order_number"), "Manual order")
     client_name = _pdf_text(order.get("client_name"), "-")
     order_date = _display_date(order.get("order_date"))
+    red_index_format = order.get("manual_format") == "client_positions_red_index"
 
     for row in rows:
         quantity = max(1, int(row.get("quantity") or 1))
@@ -581,24 +835,54 @@ def build_manual_labels_pdf(
                 min_size=8,
                 align="center",
             )
-            pdf.setFont(bold_font, config["label_position_size"])
-            _draw_fitted_text(
-                pdf,
-                f"POS {position}",
-                x=page_width - margin,
-                y=top_y,
-                max_width=22 * mm,
-                font=bold_font,
-                size=config["label_position_size"],
-                min_size=8,
-                align="right",
-            )
+            if red_index_format:
+                _draw_mixed_position(
+                    pdf,
+                    client_position=row.get("client_position"),
+                    index_number=row.get("index_number"),
+                    x=page_width - margin,
+                    y=top_y,
+                    max_width=28 * mm,
+                    font=bold_font,
+                    size=config["label_position_size"],
+                    min_size=7,
+                    prefix="POS ",
+                    align="right",
+                )
+            else:
+                pdf.setFont(bold_font, config["label_position_size"])
+                _draw_fitted_text(
+                    pdf,
+                    f"POS {position}",
+                    x=page_width - margin,
+                    y=top_y,
+                    max_width=22 * mm,
+                    font=bold_font,
+                    size=config["label_position_size"],
+                    min_size=8,
+                    align="right",
+                )
 
             second_y = top_y - 4.5 * mm
             if config["label_show_date"]:
                 pdf.setFillColor(colors.HexColor("#475467"))
                 pdf.setFont(regular_font, 7)
                 pdf.drawString(margin, second_y, order_date)
+            section = _pdf_text(row.get("section"))
+            if red_index_format and section:
+                pdf.setFillColor(colors.HexColor("#475467"))
+                pdf.setFont(bold_font, 6.5)
+                _draw_fitted_text(
+                    pdf,
+                    section,
+                    x=page_width - margin,
+                    y=second_y,
+                    max_width=35 * mm,
+                    font=bold_font,
+                    size=6.5,
+                    min_size=6,
+                    align="right",
+                )
 
             rule_y = second_y - 2.2 * mm
             if config["label_show_divider"]:

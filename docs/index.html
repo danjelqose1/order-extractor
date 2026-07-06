@@ -8,7 +8,7 @@
   <meta name="theme-color" content="#0b1018" media="(prefers-color-scheme: dark)" />
   <link rel="icon" href="data:," />
   <title>Overview — Order Extractor</title>
-  <link rel="stylesheet" href="./css/styles.css?v=20260705">
+  <link rel="stylesheet" href="./css/styles.css?v=20260706">
 </head>
 <body>
   <svg class="icon-sprite" aria-hidden="true">
@@ -1007,6 +1007,13 @@
                 <option value="cancelled">Cancelled</option>
               </select>
             </label>
+            <label>
+              <span>Manual order mode</span>
+              <select id="manualOrderFormat">
+                <option value="standard">Standard manual order</option>
+                <option value="client_positions_red_index">Client Positions + Red Index</option>
+              </select>
+            </label>
             <label class="manual-order-notes-field">
               <span>Reference / notes</span>
               <input type="text" id="manualOrderNotes" autocomplete="off" />
@@ -1014,15 +1021,24 @@
           </div>
 
           <div id="manualOrderDuplicateWarning" class="manual-inline-warning" hidden></div>
+          <div id="manualIndexDuplicateWarning" class="manual-inline-warning" hidden></div>
           <div id="manualOrderError" class="alert" hidden></div>
           <datalist id="manualGlassTypeOptions"></datalist>
 
           <div class="manual-row-toolbar">
             <div>
               <strong>Order rows</strong>
-              <span class="muted small">Start typing a saved glass type · Tab across · ↓ new row at Width · Enter same column · ↑ previous row.</span>
+              <span class="muted small" id="manualRowEntryHint">Start typing a saved glass type · Tab across · ↓ new row at Width · Enter same column · ↑ previous row.</span>
             </div>
             <div class="manual-row-toolbar-actions">
+              <div id="manualRedIndexRowControls" class="manual-red-index-row-controls" hidden>
+                <button type="button" class="btn small tertiary" id="manualOrderAddSection">+ Add section</button>
+                <label class="manual-auto-number-control">
+                  <span>Auto-number from</span>
+                  <input type="number" id="manualAutoNumberFrom" min="1" step="1" value="1" />
+                </label>
+                <button type="button" class="btn small tertiary" id="manualOrderRenumber">Renumber rows</button>
+              </div>
               <label class="manual-dimension-unit-control">
                 <span>Dimensions</span>
                 <select id="manualDimensionUnit" aria-label="Manual order dimension unit">
@@ -1037,18 +1053,7 @@
           <div class="table-responsive manual-row-table-wrap">
             <table class="manual-row-table">
               <thead>
-                <tr>
-                  <th>Position</th>
-                  <th>Glass type *</th>
-                  <th id="manualWidthUnitLabel">Width mm *</th>
-                  <th id="manualHeightUnitLabel">Height mm *</th>
-                  <th>Qty *</th>
-                  <th>Calculated m²</th>
-                  <th>Override m²</th>
-                  <th>Final m²</th>
-                  <th>Row notes</th>
-                  <th></th>
-                </tr>
+                <tr id="manualRowHeader"></tr>
               </thead>
               <tbody id="manualOrderRows"></tbody>
             </table>
@@ -1057,6 +1062,11 @@
           <div class="manual-order-form-footer">
             <div id="manualOrderFormSummary" class="muted small">0 rows · 0 pieces · 0.000 m²</div>
             <div class="manual-order-form-actions">
+              <div id="manualRedIndexOutputActions" class="manual-red-index-output-actions" hidden>
+                <button type="button" class="btn tertiary" id="manualRedIndexPrint">Print</button>
+                <button type="button" class="btn tertiary" id="manualRedIndexSendProcessing">Send to Processing</button>
+                <button type="button" class="btn tertiary" id="manualRedIndexLabels">Generate Labels</button>
+              </div>
               <button type="button" class="btn tertiary" id="manualOrderCancelEdit">Reset</button>
               <button type="submit" class="btn" id="manualOrderSaveDraft" data-manual-save-status="draft">Save Draft</button>
               <button type="submit" class="btn success" id="manualOrderApprove" data-manual-save-status="approved">Approve</button>
@@ -1727,6 +1737,6 @@
   <input type="file" id="pdfEditorImageInput" accept="image/png,image/jpeg,image/webp" hidden />
   <input type="file" id="scanFileInput" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple hidden />
 
-<script src="./js/app.js?v=20260705" defer></script>
+<script src="./js/app.js?v=20260706" defer></script>
 </body>
 </html>

@@ -315,8 +315,8 @@ def test_manual_orders_frontend_exposes_isolated_factory_workflow():
     assert 'id="manualGlassTypeOptions"' in html
     assert 'id="manualClientOptions"' in html
     assert 'id="manualDimensionUnit"' in html
-    assert 'id="manualWidthUnitLabel"' in html
-    assert 'id="manualHeightUnitLabel"' in html
+    assert 'id="manualWidthUnitLabel"' in js
+    assert 'id="manualHeightUnitLabel"' in js
     assert 'id="manualPrintSettingsForm"' in html
     assert 'id="manualPrintSettingsOpen"' in html
     assert 'id="manualPrintSettingsModal"' in html
@@ -362,6 +362,17 @@ def test_manual_orders_frontend_exposes_isolated_factory_workflow():
     assert 'manualApi("/manual-orders/print-settings")' in js
     assert "function collectManualPrintSettings" in js
     assert "function saveManualPrintSettings" in js
+    assert 'id="manualOrderFormat"' in html
+    assert "Client Positions + Red Index" in html
+    assert 'id="manualOrderAddSection"' in html
+    assert 'id="manualAutoNumberFrom"' in html
+    assert 'id="manualOrderRenumber"' in html
+    assert 'id="manualRedIndexPrint"' in html
+    assert 'id="manualRedIndexSendProcessing"' in html
+    assert 'id="manualRedIndexLabels"' in html
+    assert "function renumberManualRows" in js
+    assert "function duplicateManualIndexNumbers" in js
+    assert 'manual_format: manualOrdersState.manualFormat' in js
 
 
 def test_manual_order_rows_support_spreadsheet_keyboard_entry():
@@ -516,6 +527,191 @@ def test_manual_processing_a4_landscape_renders_two_visual_copies_without_mutati
         abs=1,
     )
     assert order == original_order
+
+
+def test_red_index_manual_order_preserves_metadata_and_processing_fields(tmp_path, monkeypatch):
+    db = _load_db(tmp_path, monkeypatch)
+    payload = _manual_payload(
+        status="approved",
+        manual_format="client_positions_red_index",
+        rows=[
+            {
+                "section": "Villa 1",
+                "client_position": "K1-",
+                "index_number": 12,
+                "glass_type": "4F",
+                "width_mm": 1695,
+                "height_mm": 2330,
+                "quantity": 1,
+                "area_override_m2": None,
+                "notes": "",
+            },
+            {
+                "section": "Villa 1",
+                "client_position": "",
+                "index_number": 12,
+                "glass_type": "4F",
+                "width_mm": 965,
+                "height_mm": 2230,
+                "quantity": 1,
+                "area_override_m2": None,
+                "notes": "Second piece",
+            },
+        ],
+    )
+
+    saved = db.create_manual_order(payload)
+
+    assert saved["manual_format"] == "client_positions_red_index"
+    assert saved["duplicate_index_numbers"] == [12]
+    assert saved["rows"][0]["section"] == "Villa 1"
+    assert saved["rows"][0]["client_position"] == "K1-"
+    assert saved["rows"][0]["index_number"] == 12
+    assert saved["rows"][0]["position"] == "K1- 12"
+    assert saved["rows"][1]["position"] == "12"
+    assert db.get_orders(year="all") == []
+
+    processing = db.send_manual_order_to_processing(saved["id"])
+
+    assert processing["manual_format"] == "client_positions_red_index"
+    assert processing["rows"][0]["client_position"] == "K1-"
+    assert processing["rows"][0]["index_number"] == 12
+    assert processing["rows"][0]["section"] == "Villa 1"
+    assert processing["rows"][0]["position"] == "K1- 12"
+    assert processing["rows"][0]["manual_format"] == "client_positions_red_index"
+
+
+def test_standard_manual_orders_load_with_backward_compatible_defaults(tmp_path, monkeypatch):
+    db = _load_db(tmp_path, monkeypatch)
+    saved = db.create_manual_order(_manual_payload())
+
+    assert saved["manual_format"] == "standard"
+    assert saved["rows"][0]["section"] == ""
+    assert saved["rows"][0]["client_position"] == ""
+    assert saved["rows"][0]["index_number"] is None
+
+
+def test_manual_schema_upgrade_adds_red_index_fields_to_existing_database(tmp_path, monkeypatch):
+    database_path = tmp_path / "orders.db"
+    with sqlite3.connect(database_path) as conn:
+        conn.executescript(
+            """
+            CREATE TABLE manual_orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_name VARCHAR(255) NOT NULL,
+                order_number VARCHAR(120) NOT NULL,
+                order_date VARCHAR(10) NOT NULL,
+                notes TEXT,
+                status VARCHAR(20),
+                source VARCHAR(20) NOT NULL,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL
+            );
+            CREATE TABLE manual_order_rows (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                manual_order_id INTEGER NOT NULL,
+                position VARCHAR(80),
+                glass_type VARCHAR(255) NOT NULL,
+                width_mm FLOAT NOT NULL,
+                height_mm FLOAT NOT NULL,
+                quantity INTEGER NOT NULL,
+                calculated_area_m2 FLOAT NOT NULL,
+                area_override_m2 FLOAT,
+                final_area_m2 FLOAT NOT NULL,
+                notes TEXT,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL
+            );
+            INSERT INTO manual_orders (
+                client_name, order_number, order_date, notes, status, source,
+                created_at, updated_at
+            ) VALUES (
+                'Legacy Client', 'LEGACY-1', '2026-07-01', '', 'draft', 'manual',
+                '2026-07-01 10:00:00', '2026-07-01 10:00:00'
+            );
+            INSERT INTO manual_order_rows (
+                manual_order_id, position, glass_type, width_mm, height_mm,
+                quantity, calculated_area_m2, area_override_m2, final_area_m2,
+                notes, created_at, updated_at
+            ) VALUES (
+                1, '1', '4F', 1000, 500, 1, 0.5, NULL, 0.5, '',
+                '2026-07-01 10:00:00', '2026-07-01 10:00:00'
+            );
+            """
+        )
+
+    db = _load_db(tmp_path, monkeypatch)
+    loaded = db.get_manual_order(1)
+
+    assert loaded["manual_format"] == "standard"
+    assert loaded["rows"][0]["section"] == ""
+    assert loaded["rows"][0]["client_position"] == ""
+    assert loaded["rows"][0]["index_number"] is None
+
+
+def test_red_index_processing_and_labels_render_black_client_position_and_red_index():
+    if str(BACKEND_DIR) not in sys.path:
+        sys.path.insert(0, str(BACKEND_DIR))
+    documents = importlib.import_module("manual_documents")
+    order = _manual_payload(
+        status="approved",
+        manual_format="client_positions_red_index",
+        rows=[
+            {
+                "position": "K1- 12",
+                "section": "Villa 3",
+                "client_position": "K1-",
+                "index_number": 12,
+                "glass_type": "4F + 16 + LowE",
+                "width_mm": 1695,
+                "height_mm": 2330,
+                "quantity": 1,
+                "notes": "",
+            }
+        ],
+    )
+
+    processing = fitz.open(
+        stream=documents.build_manual_processing_pdf(order),
+        filetype="pdf",
+    )
+    processing_text = processing[0].get_text()
+    assert "Villa 3" in processing_text
+    assert "K1-" in processing_text
+    assert "12" in processing_text
+    assert "169.5 x 233" in processing_text
+    processing_spans = [
+        span
+        for block in processing[0].get_text("dict")["blocks"]
+        for line in block.get("lines", [])
+        for span in line.get("spans", [])
+    ]
+    processing_client = next(span for span in processing_spans if "K1-" in span["text"])
+    processing_index = next(span for span in processing_spans if span["text"] == "12")
+    assert processing_client["color"] != processing_index["color"]
+    assert (processing_index["color"] >> 16) & 0xFF > 200
+    assert (processing_index["color"] >> 8) & 0xFF < 80
+
+    labels = fitz.open(
+        stream=documents.build_manual_labels_pdf(order),
+        filetype="pdf",
+    )
+    assert len(labels) == 1
+    label_text = labels[0].get_text()
+    assert "K1-" in label_text
+    assert "12" in label_text
+    assert "Villa 3" in label_text
+    label_spans = [
+        span
+        for block in labels[0].get_text("dict")["blocks"]
+        for line in block.get("lines", [])
+        for span in line.get("spans", [])
+    ]
+    label_client = next(span for span in label_spans if "K1-" in span["text"])
+    label_index = next(span for span in label_spans if span["text"] == "12")
+    assert label_client["color"] != label_index["color"]
+    assert (label_index["color"] >> 16) & 0xFF > 200
+    assert (label_index["color"] >> 8) & 0xFF < 80
 
 
 def test_manual_labels_are_dedicated_100x40_quantity_labels():

@@ -481,6 +481,9 @@ class InvoiceAiLineAnalysisPayload(BaseModel):
 
 class ManualOrderRowPayload(BaseModel):
     position: str = ""
+    section: str = ""
+    client_position: str = ""
+    index_number: Optional[int] = Field(default=None, ge=1)
     glass_type: str = Field(min_length=1)
     width_mm: float = Field(gt=0)
     height_mm: float = Field(gt=0)
@@ -495,6 +498,7 @@ class ManualOrderPayload(BaseModel):
     order_date: date
     notes: str = ""
     status: Literal["draft", "approved", "processing", "finished", "cancelled"] = "draft"
+    manual_format: Literal["standard", "client_positions_red_index"] = "standard"
     rows: List[ManualOrderRowPayload] = Field(min_length=1)
 
 

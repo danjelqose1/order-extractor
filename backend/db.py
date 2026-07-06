@@ -246,6 +246,7 @@ class ManualOrder(Base):
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="draft", index=True)
     source: Mapped[str] = mapped_column(String(20), default="manual", nullable=False)
+    manual_format: Mapped[str] = mapped_column(String(40), default="standard", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -270,6 +271,9 @@ class ManualOrderRow(Base):
         index=True,
     )
     position: Mapped[str] = mapped_column(String(80), default="")
+    section: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    client_position: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    index_number: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     glass_type: Mapped[str] = mapped_column(String(255), nullable=False)
     width_mm: Mapped[float] = mapped_column(Float, nullable=False)
     height_mm: Mapped[float] = mapped_column(Float, nullable=False)
@@ -620,6 +624,39 @@ def _ensure_schema() -> None:
             conn.execute(text("UPDATE whatsapp_files SET touched = 0 WHERE touched IS NULL"))
             conn.execute(text("UPDATE whatsapp_files SET file_size = 0 WHERE file_size IS NULL"))
             conn.execute(text("UPDATE whatsapp_files SET deleted = 0 WHERE deleted IS NULL"))
+
+        manual_order_info = conn.execute(text("PRAGMA table_info(manual_orders)")).fetchall()
+        manual_order_columns = {row[1] for row in manual_order_info}
+        if manual_order_columns and "manual_format" not in manual_order_columns:
+            conn.execute(
+                text(
+                    "ALTER TABLE manual_orders "
+                    "ADD COLUMN manual_format TEXT DEFAULT 'standard'"
+                )
+            )
+        if manual_order_columns:
+            conn.execute(
+                text(
+                    "UPDATE manual_orders SET manual_format = 'standard' "
+                    "WHERE manual_format IS NULL OR TRIM(manual_format) = ''"
+                )
+            )
+
+        manual_row_info = conn.execute(text("PRAGMA table_info(manual_order_rows)")).fetchall()
+        manual_row_columns = {row[1] for row in manual_row_info}
+        manual_row_additions = {
+            "section": "TEXT",
+            "client_position": "TEXT",
+            "index_number": "INTEGER",
+        }
+        for column_name, column_type in manual_row_additions.items():
+            if manual_row_columns and column_name not in manual_row_columns:
+                conn.execute(
+                    text(
+                        f"ALTER TABLE manual_order_rows "
+                        f"ADD COLUMN {column_name} {column_type}"
+                    )
+                )
 
 
 def _normalize_client_name(*values: Any) -> Optional[str]:
@@ -1454,6 +1491,46 @@ def _normalize_manual_status(status: Any, default: str = "draft") -> str:
     return normalized if normalized in MANUAL_ORDER_STATUSES else default
 
 
+MANUAL_FORMAT_STANDARD = "standard"
+MANUAL_FORMAT_CLIENT_POSITIONS_RED_INDEX = "client_positions_red_index"
+MANUAL_ORDER_FORMATS = {
+    MANUAL_FORMAT_STANDARD,
+    MANUAL_FORMAT_CLIENT_POSITIONS_RED_INDEX,
+}
+
+
+def _normalize_manual_format(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    return (
+        normalized
+        if normalized in MANUAL_ORDER_FORMATS
+        else MANUAL_FORMAT_STANDARD
+    )
+
+
+def _compose_manual_position(client_position: Any, index_number: Any) -> str:
+    client = str(client_position or "").strip()
+    index = "" if index_number in (None, "") else str(int(index_number))
+    return " ".join(part for part in (client, index) if part).strip()
+
+
+def _duplicate_manual_index_numbers(rows: Sequence[Dict[str, Any]]) -> List[int]:
+    seen: set[int] = set()
+    duplicates: set[int] = set()
+    for row in rows:
+        raw = row.get("index_number")
+        if raw in (None, ""):
+            continue
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if value in seen:
+            duplicates.add(value)
+        seen.add(value)
+    return sorted(duplicates)
+
+
 def _manual_area(width_mm: Any, height_mm: Any, quantity: Any) -> float:
     return round(float(width_mm) * float(height_mm) * int(quantity) / 1_000_000, 3)
 
@@ -1675,6 +1752,7 @@ def _serialize_manual_order(order: ManualOrder, *, include_rows: bool = True) ->
         "notes": order.notes or "",
         "status": _normalize_manual_status(order.status),
         "source": "manual",
+        "manual_format": _normalize_manual_format(order.manual_format),
         "created_at": order.created_at.isoformat(),
         "updated_at": (order.updated_at or order.created_at).isoformat(),
         "row_count": len(rows),
@@ -1687,6 +1765,9 @@ def _serialize_manual_order(order: ManualOrder, *, include_rows: bool = True) ->
                 "id": row.id,
                 "manual_order_id": row.manual_order_id,
                 "position": row.position or "",
+                "section": row.section or "",
+                "client_position": row.client_position or "",
+                "index_number": row.index_number,
                 "glass_type": row.glass_type,
                 "width_mm": row.width_mm,
                 "height_mm": row.height_mm,
@@ -1704,6 +1785,7 @@ def _serialize_manual_order(order: ManualOrder, *, include_rows: bool = True) ->
 def _replace_manual_order_rows(session: Session, order: ManualOrder, rows: Sequence[Dict[str, Any]]) -> None:
     order.rows.clear()
     session.flush()
+    manual_format = _normalize_manual_format(order.manual_format)
     for row in rows:
         width_mm = float(row.get("width_mm"))
         height_mm = float(row.get("height_mm"))
@@ -1719,9 +1801,25 @@ def _replace_manual_order_rows(session: Session, order: ManualOrder, rows: Seque
         area_override = None if override_raw in (None, "") else round(float(override_raw), 3)
         if area_override is not None and area_override < 0:
             raise ValueError("Area override cannot be negative.")
+        section = str(row.get("section") or "").strip()
+        client_position = str(row.get("client_position") or "").strip()
+        index_number: Optional[int] = None
+        position = str(row.get("position") or "").strip()
+        if manual_format == MANUAL_FORMAT_CLIENT_POSITIONS_RED_INDEX:
+            raw_index = row.get("index_number")
+            if raw_index in (None, ""):
+                raise ValueError("Red index is required for every row in this manual format.")
+            numeric_index = float(raw_index)
+            if not numeric_index.is_integer() or numeric_index <= 0:
+                raise ValueError("Red index must be a positive integer.")
+            index_number = int(numeric_index)
+            position = _compose_manual_position(client_position, index_number)
         order.rows.append(
             ManualOrderRow(
-                position=str(row.get("position") or "").strip(),
+                position=position,
+                section=section or None,
+                client_position=client_position or None,
+                index_number=index_number,
                 glass_type=glass_type,
                 width_mm=width_mm,
                 height_mm=height_mm,
@@ -1757,6 +1855,12 @@ def create_manual_order(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not client_name or not order_number or not order_date:
         raise ValueError("Client name, order number, and order date are required.")
     duplicate_warning = manual_order_number_exists(order_number)
+    manual_format = _normalize_manual_format(payload.get("manual_format"))
+    duplicate_index_numbers = (
+        _duplicate_manual_index_numbers(rows)
+        if manual_format == MANUAL_FORMAT_CLIENT_POSITIONS_RED_INDEX
+        else []
+    )
     with get_session() as session:
         order = ManualOrder(
             client_name=client_name,
@@ -1765,6 +1869,7 @@ def create_manual_order(payload: Dict[str, Any]) -> Dict[str, Any]:
             notes=str(payload.get("notes") or "").strip() or None,
             status=_normalize_manual_status(payload.get("status")),
             source="manual",
+            manual_format=manual_format,
         )
         session.add(order)
         _remember_manual_client(session, client_name)
@@ -1772,6 +1877,7 @@ def create_manual_order(payload: Dict[str, Any]) -> Dict[str, Any]:
         session.flush()
         data = _serialize_manual_order(order)
         data["duplicate_warning"] = duplicate_warning
+        data["duplicate_index_numbers"] = duplicate_index_numbers
         return data
 
 
@@ -1830,6 +1936,12 @@ def update_manual_order(order_id: int, payload: Dict[str, Any]) -> Dict[str, Any
     if not client_name or not order_number or not order_date:
         raise ValueError("Client name, order number, and order date are required.")
     duplicate_warning = manual_order_number_exists(order_number, exclude_id=order_id)
+    manual_format = _normalize_manual_format(payload.get("manual_format"))
+    duplicate_index_numbers = (
+        _duplicate_manual_index_numbers(rows)
+        if manual_format == MANUAL_FORMAT_CLIENT_POSITIONS_RED_INDEX
+        else []
+    )
     with get_session() as session:
         order = session.get(ManualOrder, int(order_id))
         if not order:
@@ -1840,12 +1952,14 @@ def update_manual_order(order_id: int, payload: Dict[str, Any]) -> Dict[str, Any
         order.notes = str(payload.get("notes") or "").strip() or None
         order.status = _normalize_manual_status(payload.get("status"), default=order.status)
         order.source = "manual"
+        order.manual_format = manual_format
         order.updated_at = datetime.now(timezone.utc)
         _remember_manual_client(session, client_name)
         _replace_manual_order_rows(session, order, rows)
         session.flush()
         data = _serialize_manual_order(order)
         data["duplicate_warning"] = duplicate_warning
+        data["duplicate_index_numbers"] = duplicate_index_numbers
         return data
 
 
@@ -1866,9 +1980,13 @@ def duplicate_manual_order(order_id: int) -> Dict[str, Any]:
             "order_date": original["order_date"],
             "notes": original.get("notes") or "",
             "status": "draft",
+            "manual_format": original.get("manual_format") or MANUAL_FORMAT_STANDARD,
             "rows": [
                 {
                     "position": row.get("position") or "",
+                    "section": row.get("section") or "",
+                    "client_position": row.get("client_position") or "",
+                    "index_number": row.get("index_number"),
                     "glass_type": row.get("glass_type") or "",
                     "width_mm": row.get("width_mm"),
                     "height_mm": row.get("height_mm"),
@@ -1915,9 +2033,14 @@ def send_manual_order_to_processing(order_id: int) -> Dict[str, Any]:
             "order_date": order.order_date,
             "status": "processing",
             "source": "manual",
+            "manual_format": _normalize_manual_format(order.manual_format),
             "rows": [
                 {
                     "position": row.position or "",
+                    "section": row.section or "",
+                    "client_position": row.client_position or "",
+                    "index_number": row.index_number,
+                    "manual_format": _normalize_manual_format(order.manual_format),
                     "glass_type": row.glass_type,
                     "type": row.glass_type,
                     "width_mm": row.width_mm,
