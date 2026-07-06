@@ -1,2 +1,3 @@
 backend/.env
 .DS_Store
+# Keep deployment-only commits from changing application behavior.
