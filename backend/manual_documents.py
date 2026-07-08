@@ -12,8 +12,10 @@ from reportlab.pdfgen import canvas
 
 MANUAL_PROCESSING_PAGE_SIZE = (100 * mm, 210 * mm)
 MANUAL_LABEL_PAGE_SIZE = (100 * mm, 40 * mm)
+A4_PORTRAIT_PAGE_SIZE = (210 * mm, 297 * mm)
 A4_LANDSCAPE_PAGE_SIZE = (297 * mm, 210 * mm)
 PROCESSING_PRINT_LAYOUT_SLIP = "slip"
+PROCESSING_PRINT_LAYOUT_A4_PORTRAIT = "a4_portrait"
 PROCESSING_PRINT_LAYOUT_A4_2UP = "a4_landscape_2up"
 
 DEFAULT_MANUAL_PRINT_SETTINGS: Dict[str, Any] = {
@@ -30,7 +32,7 @@ DEFAULT_MANUAL_PRINT_SETTINGS: Dict[str, Any] = {
     "label_show_manual_marker": False,
     "label_show_divider": True,
     "processing_font_family": "Helvetica",
-    "processing_print_layout": PROCESSING_PRINT_LAYOUT_SLIP,
+    "processing_print_layout": PROCESSING_PRINT_LAYOUT_A4_PORTRAIT,
     "processing_show_cut_guide": True,
     "processing_page_width_mm": 100.0,
     "processing_page_height_mm": 210.0,
@@ -41,6 +43,7 @@ DEFAULT_MANUAL_PRINT_SETTINGS: Dict[str, Any] = {
     "processing_client_bold": True,
     "processing_glass_size": 14.0,
     "processing_row_size": 12.0,
+    "processing_row_spacing_mm": 0.0,
     "processing_dimension_unit": "cm",
     "processing_glass_bold": True,
     "processing_rows_bold": True,
@@ -76,7 +79,7 @@ _NUMBER_LIMITS = {
     "label_position_size": (8.0, 14.0),
     "label_dimension_size": (11.0, 21.0),
     "label_glass_size": (7.0, 13.0),
-    "processing_page_width_mm": (70.0, 140.0),
+    "processing_page_width_mm": (70.0, 210.0),
     "processing_page_height_mm": (100.0, 297.0),
     "processing_margin_mm": (4.0, 15.0),
     "processing_header_size": (6.0, 11.0),
@@ -84,6 +87,7 @@ _NUMBER_LIMITS = {
     "processing_client_size": (7.0, 15.0),
     "processing_glass_size": (9.0, 20.0),
     "processing_row_size": (9.0, 18.0),
+    "processing_row_spacing_mm": (0.0, 6.0),
 }
 
 _BOOLEAN_KEYS = {
@@ -123,9 +127,13 @@ def normalize_manual_print_settings(values: Optional[Dict[str, Any]] = None) -> 
             normalized[key] = value if value in _FONT_FAMILIES else fallback
         elif key == "processing_print_layout":
             normalized[key] = (
-                PROCESSING_PRINT_LAYOUT_A4_2UP
-                if value == PROCESSING_PRINT_LAYOUT_A4_2UP
-                else PROCESSING_PRINT_LAYOUT_SLIP
+                value
+                if value in {
+                    PROCESSING_PRINT_LAYOUT_SLIP,
+                    PROCESSING_PRINT_LAYOUT_A4_PORTRAIT,
+                    PROCESSING_PRINT_LAYOUT_A4_2UP,
+                }
+                else fallback
             )
         elif key == "processing_dimension_unit":
             normalized[key] = "mm" if str(value).lower() == "mm" else "cm"
@@ -241,47 +249,106 @@ def _group_rows(rows: Iterable[Dict[str, Any]]) -> List[tuple[str, List[Dict[str
     return list(grouped.items())
 
 
+def _processing_page_geometry(config: Dict[str, Any]) -> tuple[bool, float, float, float, float, tuple[float, float]]:
+    layout = config["processing_print_layout"]
+    is_a4_two_up = layout == PROCESSING_PRINT_LAYOUT_A4_2UP
+    if is_a4_two_up:
+        processing_width_mm = 100.0
+        processing_height_mm = 210.0
+        output_page_size = A4_LANDSCAPE_PAGE_SIZE
+    elif layout == PROCESSING_PRINT_LAYOUT_A4_PORTRAIT:
+        processing_width_mm = 210.0
+        processing_height_mm = 297.0
+        output_page_size = A4_PORTRAIT_PAGE_SIZE
+    else:
+        processing_width_mm = config["processing_page_width_mm"]
+        processing_height_mm = config["processing_page_height_mm"]
+        output_page_size = (processing_width_mm * mm, processing_height_mm * mm)
+    page_width = processing_width_mm * mm
+    page_height = processing_height_mm * mm
+    return is_a4_two_up, processing_width_mm, processing_height_mm, page_width, page_height, output_page_size
+
+
 def _build_red_index_processing_pdf(
     order: Dict[str, Any],
     config: Dict[str, Any],
 ) -> bytes:
     rows = list(order.get("rows") or [])
-    is_a4_two_up = config["processing_print_layout"] == PROCESSING_PRINT_LAYOUT_A4_2UP
-    processing_width_mm = 100.0 if is_a4_two_up else config["processing_page_width_mm"]
-    processing_height_mm = 210.0 if is_a4_two_up else config["processing_page_height_mm"]
-    page_width = processing_width_mm * mm
-    page_height = processing_height_mm * mm
+    (
+        is_a4_two_up,
+        processing_width_mm,
+        processing_height_mm,
+        page_width,
+        page_height,
+        output_page_size,
+    ) = _processing_page_geometry(config)
     margin = config["processing_margin_mm"] * mm
-    output_page_size = A4_LANDSCAPE_PAGE_SIZE if is_a4_two_up else (page_width, page_height)
+    row_step_mm = max(
+        5.5,
+        config["processing_row_size"] * 0.46 + config["processing_row_spacing_mm"],
+    )
+    groups = _group_rows(rows)
+
+    def row_height_mm(row: Dict[str, Any]) -> float:
+        notes_height = (
+            3.0
+            if config["processing_show_notes"] and _pdf_text(row.get("notes"))
+            else 0
+        )
+        return row_step_mm + notes_height
+
+    section_header_mm = 19.0
     bottom_guard_mm = max(config["processing_margin_mm"], 10.0)
-    content_budget_mm = max(
-        24.0,
+    page_content_mm = max(
+        section_header_mm + row_step_mm,
         processing_height_mm
         - config["processing_margin_mm"]
-        - 26.5
+        - 16.5
         - bottom_guard_mm,
     )
-    section_height_mm = 7.0
-    row_height_mm = 10.5
+    page_specs: List[List[tuple[str, Sequence[Dict[str, Any]]]]] = []
+    current_page: List[tuple[str, Sequence[Dict[str, Any]]]] = []
+    remaining_mm = page_content_mm
 
-    page_specs: List[List[tuple[Dict[str, Any], bool]]] = []
-    current_page: List[tuple[Dict[str, Any], bool]] = []
-    used_mm = 0.0
-    current_section: Optional[str] = None
-    for row in rows:
-        section = _pdf_text(row.get("section"))
-        show_section = bool(section and section != current_section)
-        required_mm = row_height_mm + (section_height_mm if show_section else 0)
-        if current_page and used_mm + required_mm > content_budget_mm:
-            page_specs.append(current_page)
-            current_page = []
-            used_mm = 0.0
-            current_section = None
-            show_section = bool(section)
-            required_mm = row_height_mm + (section_height_mm if show_section else 0)
-        current_page.append((row, show_section))
-        used_mm += required_mm
-        current_section = section or current_section
+    for glass_type, glass_rows in groups:
+        row_index = 0
+        while row_index < len(glass_rows):
+            minimum_section_mm = section_header_mm + row_height_mm(glass_rows[row_index])
+            if current_page and remaining_mm < minimum_section_mm:
+                page_specs.append(current_page)
+                current_page = []
+                remaining_mm = page_content_mm
+
+            chunk: List[Dict[str, Any]] = []
+            chunk_height_mm = section_header_mm
+            while row_index < len(glass_rows):
+                next_row_height_mm = row_height_mm(glass_rows[row_index])
+                if chunk and chunk_height_mm + next_row_height_mm > remaining_mm:
+                    break
+                if not chunk and chunk_height_mm + next_row_height_mm > remaining_mm:
+                    break
+                chunk.append(glass_rows[row_index])
+                chunk_height_mm += next_row_height_mm
+                row_index += 1
+
+            if not chunk:
+                if current_page:
+                    page_specs.append(current_page)
+                    current_page = []
+                    remaining_mm = page_content_mm
+                    continue
+                chunk.append(glass_rows[row_index])
+                chunk_height_mm += row_height_mm(glass_rows[row_index])
+                row_index += 1
+
+            current_page.append((glass_type, chunk))
+            remaining_mm -= chunk_height_mm
+
+            if row_index < len(glass_rows):
+                page_specs.append(current_page)
+                current_page = []
+                remaining_mm = page_content_mm
+
     if current_page:
         page_specs.append(current_page)
 
@@ -293,13 +360,13 @@ def _build_red_index_processing_pdf(
     italic_font = _font(config, "processing", "italic")
     row_font = bold_font if config["processing_rows_bold"] else regular_font
     client_font = bold_font if config["processing_client_bold"] else regular_font
+    glass_font = bold_font if config["processing_glass_bold"] else regular_font
     order_number = _pdf_text(order.get("order_number"), "Manual order")
     client_name = _pdf_text(order.get("client_name"), "-")
     order_date = _display_date(order.get("order_date"))
     dimension_unit = config["processing_dimension_unit"].upper()
-    dimension_x = margin + (usable_width * 0.38)
 
-    for page_index, page_rows in enumerate(page_specs, start=1):
+    for page_index, page_sections in enumerate(page_specs, start=1):
         form_name = f"manual_red_index_slip_{page_index}"
         if is_a4_two_up:
             pdf.beginForm(form_name, 0, 0, page_width, page_height)
@@ -345,99 +412,114 @@ def _build_red_index_processing_pdf(
         pdf.setLineWidth(0.8)
         pdf.line(margin, y, page_width - margin, y)
 
-        y -= 6 * mm
-        pdf.setFillColor(colors.HexColor("#667085"))
-        pdf.setFont(bold_font, config["processing_header_size"])
-        pdf.drawString(margin, y, "POS")
-        pdf.drawString(margin + 14 * mm, y, "INDEX")
-        pdf.drawString(dimension_x, y, f"DIMENSIONS ({dimension_unit})")
-        pdf.drawRightString(page_width - margin, y, "QTY")
-        y -= 4 * mm
-        pdf.setStrokeColor(colors.HexColor("#D0D5DD"))
-        pdf.setLineWidth(0.5)
-        pdf.line(margin, y, page_width - margin, y)
+        for glass_type, page_rows in page_sections:
+            y -= 10 * mm
+            pdf.setFillColor(colors.HexColor("#101828"))
+            pdf.setFont(glass_font, config["processing_glass_size"])
+            area_width = usable_width * 0.26
+            _draw_fitted_text(
+                pdf,
+                glass_type,
+                x=margin,
+                y=y,
+                max_width=usable_width - area_width - (3 * mm),
+                font=glass_font,
+                size=config["processing_glass_size"],
+                min_size=8,
+            )
+            area_size = max(9.0, config["processing_glass_size"] - 2)
+            pdf.setFont(bold_font, area_size)
+            _draw_fitted_text(
+                pdf,
+                _format_area_m2(page_rows),
+                x=page_width - margin,
+                y=y,
+                max_width=area_width,
+                font=bold_font,
+                size=area_size,
+                min_size=8,
+                align="right",
+            )
 
-        for row, show_section in page_rows:
-            if show_section:
-                y -= section_height_mm * mm
+            y -= 5.5 * mm
+            pos_x = margin
+            index_x = margin + (usable_width * 0.15)
+            dimension_x = margin + (usable_width * 0.31)
+            pdf.setFillColor(colors.HexColor("#667085"))
+            pdf.setFont(bold_font, config["processing_header_size"])
+            pdf.drawString(pos_x, y, "POS")
+            pdf.drawString(index_x, y, "INDEX")
+            pdf.drawString(dimension_x, y, f"DIMENSIONS ({dimension_unit})")
+            pdf.drawRightString(page_width - margin, y, "QTY")
+            y -= 3 * mm
+            pdf.setStrokeColor(colors.HexColor("#D0D5DD"))
+            pdf.setLineWidth(0.5)
+            pdf.line(margin, y, page_width - margin, y)
+
+            for row in page_rows:
+                y -= row_step_mm * mm
+                position_size = max(8.0, config["processing_row_size"] - 1)
                 pdf.setFillColor(colors.HexColor("#101828"))
-                section_size = max(8.0, config["processing_header_size"] + 1.5)
-                pdf.setFont(bold_font, section_size)
+                pdf.setFont(row_font, position_size)
                 _draw_fitted_text(
                     pdf,
-                    _pdf_text(row.get("section")),
-                    x=margin,
+                    _pdf_text(row.get("client_position"), "-"),
+                    x=pos_x,
                     y=y,
-                    max_width=usable_width,
-                    font=bold_font,
-                    size=section_size,
+                    max_width=index_x - pos_x - (3 * mm),
+                    font=row_font,
+                    size=position_size,
                     min_size=8,
                 )
+                pdf.setFillColor(colors.HexColor("#DC2626"))
+                pdf.setFont(row_font, position_size)
+                _draw_fitted_text(
+                    pdf,
+                    _pdf_text(row.get("index_number"), "-"),
+                    x=index_x,
+                    y=y,
+                    max_width=dimension_x - index_x - (3 * mm),
+                    font=row_font,
+                    size=position_size,
+                    min_size=8,
+                )
+                formatter = _format_mm if config["processing_dimension_unit"] == "mm" else _format_cm
+                dimensions = f"{formatter(row.get('width_mm'))} x {formatter(row.get('height_mm'))}"
+                pdf.setFillColor(colors.HexColor("#101828"))
+                pdf.setFont(row_font, config["processing_row_size"])
+                _draw_fitted_text(
+                    pdf,
+                    dimensions,
+                    x=dimension_x,
+                    y=y,
+                    max_width=usable_width * 0.45,
+                    font=row_font,
+                    size=config["processing_row_size"],
+                    min_size=9,
+                )
+                quantity = max(1, int(row.get("quantity") or 1))
+                pdf.drawRightString(page_width - margin, y, f"x {quantity}")
 
-            y -= 7 * mm
-            position_size = max(8.0, config["processing_row_size"] - 1)
-            pdf.setFillColor(colors.HexColor("#101828"))
-            pdf.setFont(row_font, position_size)
-            _draw_fitted_text(
-                pdf,
-                _pdf_text(row.get("client_position"), "-"),
-                x=margin,
-                y=y,
-                max_width=12 * mm,
-                font=row_font,
-                size=position_size,
-                min_size=8,
-            )
-            pdf.setFillColor(colors.HexColor("#DC2626"))
-            pdf.setFont(row_font, position_size)
-            _draw_fitted_text(
-                pdf,
-                _pdf_text(row.get("index_number"), "-"),
-                x=margin + 14 * mm,
-                y=y,
-                max_width=max(10 * mm, dimension_x - margin - 16 * mm),
-                font=row_font,
-                size=position_size,
-                min_size=8,
-            )
-            formatter = _format_mm if config["processing_dimension_unit"] == "mm" else _format_cm
-            dimensions = f"{formatter(row.get('width_mm'))} x {formatter(row.get('height_mm'))}"
-            pdf.setFillColor(colors.HexColor("#101828"))
-            pdf.setFont(row_font, config["processing_row_size"])
-            _draw_fitted_text(
-                pdf,
-                dimensions,
-                x=dimension_x,
-                y=y,
-                max_width=usable_width * 0.48,
-                font=row_font,
-                size=config["processing_row_size"],
-                min_size=9,
-            )
-            quantity = max(1, int(row.get("quantity") or 1))
-            pdf.drawRightString(page_width - margin, y, f"x {quantity}")
+                notes = _pdf_text(row.get("notes"))
+                if notes and config["processing_show_notes"]:
+                    y -= 3 * mm
+                    pdf.setFillColor(colors.HexColor("#667085"))
+                    note_size = max(6.0, config["processing_header_size"])
+                    pdf.setFont(italic_font, note_size)
+                    _draw_fitted_text(
+                        pdf,
+                        notes,
+                        x=dimension_x,
+                        y=y,
+                        max_width=(page_width - margin) - dimension_x,
+                        font=italic_font,
+                        size=note_size,
+                    )
 
-            y -= 3.5 * mm
-            detail = _pdf_text(row.get("glass_type") or row.get("type"), "-")
-            notes = _pdf_text(row.get("notes"))
-            if notes and config["processing_show_notes"]:
-                detail = f"{detail} - {notes}"
-            detail_size = max(6.5, config["processing_header_size"])
-            pdf.setFillColor(colors.HexColor("#667085"))
-            pdf.setFont(italic_font, detail_size)
-            _draw_fitted_text(
-                pdf,
-                detail,
-                x=margin,
-                y=y,
-                max_width=usable_width,
-                font=italic_font,
-                size=detail_size,
-            )
-            if config["processing_row_separators"]:
-                pdf.setStrokeColor(colors.HexColor("#EAECF0"))
-                pdf.setLineWidth(0.35)
-                pdf.line(margin, y - 2 * mm, page_width - margin, y - 2 * mm)
+                if config["processing_row_separators"]:
+                    pdf.setStrokeColor(colors.HexColor("#EAECF0"))
+                    pdf.setLineWidth(0.35)
+                    pdf.line(margin, y - 2 * mm, page_width - margin, y - 2 * mm)
 
         if config["processing_show_footer"]:
             pdf.setFillColor(colors.HexColor("#98A2B3"))
@@ -489,14 +571,19 @@ def build_manual_processing_pdf(
     config = normalize_manual_print_settings(settings)
     if order.get("manual_format") == "client_positions_red_index":
         return _build_red_index_processing_pdf(order, config)
-    is_a4_two_up = config["processing_print_layout"] == PROCESSING_PRINT_LAYOUT_A4_2UP
-    processing_width_mm = 100.0 if is_a4_two_up else config["processing_page_width_mm"]
-    processing_height_mm = 210.0 if is_a4_two_up else config["processing_page_height_mm"]
-    page_width = processing_width_mm * mm
-    page_height = processing_height_mm * mm
+    (
+        is_a4_two_up,
+        processing_width_mm,
+        processing_height_mm,
+        page_width,
+        page_height,
+        output_page_size,
+    ) = _processing_page_geometry(config)
     margin = config["processing_margin_mm"] * mm
-    output_page_size = A4_LANDSCAPE_PAGE_SIZE if is_a4_two_up else (page_width, page_height)
-    row_step_mm = max(8.5, config["processing_row_size"] * 0.55)
+    row_step_mm = max(
+        7.0,
+        config["processing_row_size"] * 0.50 + config["processing_row_spacing_mm"],
+    )
     groups = _group_rows(rows)
 
     def row_height_mm(row: Dict[str, Any]) -> float:

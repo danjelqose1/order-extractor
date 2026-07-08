@@ -329,8 +329,10 @@ def test_manual_orders_frontend_exposes_isolated_factory_workflow():
     assert 'data-manual-print-setting="processing_font_family"' in html
     assert 'data-manual-print-setting="processing_dimension_unit"' in html
     assert 'data-manual-print-setting="processing_print_layout"' in html
+    assert 'data-manual-print-setting="processing_row_spacing_mm"' in html
     assert 'data-manual-print-setting="processing_show_cut_guide"' in html
     assert 'data-manual-print-setting="processing_client_bold"' in html
+    assert "A4 portrait — 1 full page" in html
     assert "A4 landscape — 2 copies" in html
     assert "function syncManualProcessingPrintLayout" in js
     assert "function manualCalculatedArea" in js
@@ -338,9 +340,10 @@ def test_manual_orders_frontend_exposes_isolated_factory_workflow():
     assert 'source: "manual"' in js
     assert 'data-manual-action="processing-choice"' in js
     assert 'id="manualProcessingLayoutModal"' in html
+    assert 'data-manual-processing-download-layout="a4_portrait"' in html
     assert 'data-manual-processing-download-layout="slip"' in html
     assert 'data-manual-processing-download-layout="a4_landscape_2up"' in html
-    assert "Portrait — 1 copy" in html
+    assert "Custom slip — 1 copy" in html
     assert "A4 landscape — 2 copies" in html
     assert "function openManualProcessingLayoutChoice" in js
     assert 'processing-sheet.pdf?layout=${encodeURIComponent(processingLayout)}' in js
@@ -424,8 +427,8 @@ def test_manual_processing_sheet_matches_compact_workshop_format():
     pdf = fitz.open(stream=pdf_bytes, filetype="pdf")
 
     assert len(pdf) == 1
-    assert pdf[0].rect.width == pytest.approx(100 * 72 / 25.4, abs=0.2)
-    assert pdf[0].rect.height == pytest.approx(210 * 72 / 25.4, abs=0.2)
+    assert pdf[0].rect.width == pytest.approx(210 * 72 / 25.4, abs=0.2)
+    assert pdf[0].rect.height == pytest.approx(297 * 72 / 25.4, abs=0.2)
     text = pdf[0].get_text()
     assert "MANUAL PROCESSING" in text
     assert "Tr+12+Tr" in text
@@ -677,9 +680,10 @@ def test_red_index_processing_and_labels_render_black_client_position_and_red_in
         filetype="pdf",
     )
     processing_text = processing[0].get_text()
-    assert "Villa 3" in processing_text
     assert "POS" in processing_text
     assert "INDEX" in processing_text
+    assert "4F + 16 + LowE" in processing_text
+    assert "3.949 m²" in processing_text
     assert "K1-" in processing_text
     assert "12" in processing_text
     assert "169.5 x 233" in processing_text
@@ -793,6 +797,7 @@ def test_manual_document_settings_change_fonts_visibility_and_processing_layout(
             "label_show_date": False,
             "label_show_manual_marker": False,
             "processing_font_family": "Times",
+            "processing_print_layout": "slip",
             "processing_page_width_mm": 110,
             "processing_page_height_mm": 180,
             "processing_dimension_unit": "mm",

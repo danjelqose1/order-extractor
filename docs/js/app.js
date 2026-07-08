@@ -20740,14 +20740,18 @@ function closeManualProcessingLayoutChoice(){
 }
 
 function syncManualProcessingPrintLayout(){
-  const isA4TwoUp = manualProcessingPrintLayout?.value === "a4_landscape_2up";
-  if (manualProcessingPageWidth) manualProcessingPageWidth.disabled = isA4TwoUp;
-  if (manualProcessingPageHeight) manualProcessingPageHeight.disabled = isA4TwoUp;
+  const layout = manualProcessingPrintLayout?.value || "a4_portrait";
+  const isFixedA4 = layout === "a4_portrait" || layout === "a4_landscape_2up";
+  const isA4TwoUp = layout === "a4_landscape_2up";
+  if (manualProcessingPageWidth) manualProcessingPageWidth.disabled = isFixedA4;
+  if (manualProcessingPageHeight) manualProcessingPageHeight.disabled = isFixedA4;
   if (manualProcessingCutGuide) manualProcessingCutGuide.disabled = !isA4TwoUp;
   if (manualProcessingPrintLayoutHint){
-    manualProcessingPrintLayoutHint.textContent = isA4TwoUp
-      ? "Exports two identical 100 × 210 mm slips on one A4 landscape page. Order data remains single."
-      : "Exports one processing slip per PDF page.";
+    manualProcessingPrintLayoutHint.textContent = layout === "a4_portrait"
+      ? "Exports one full A4 portrait processing sheet."
+      : isA4TwoUp
+        ? "Exports two identical 100 × 210 mm slips on one A4 landscape page. Order data remains single."
+        : "Exports one custom-size processing slip per PDF page.";
   }
 }
 
@@ -21495,18 +21499,22 @@ async function handleManualOrderAction(action, orderId, options = {}){
       const normalized = action === "processing"
         ? await manualApi(`/manual-orders/${orderId}/processing`, { method: "POST" })
         : await manualApi(`/manual-orders/${orderId}`);
-      const processingLayout = options.layout === "a4_landscape_2up"
-        ? "a4_landscape_2up"
-        : "slip";
+      const processingLayout = ["a4_portrait", "a4_landscape_2up", "slip"].includes(options.layout)
+        ? options.layout
+        : "a4_portrait";
       const processingLabel = processingLayout === "a4_landscape_2up"
         ? "A4 landscape — 2 copies"
-        : "portrait — 1 copy";
+        : processingLayout === "slip"
+          ? "custom slip — 1 copy"
+          : "A4 portrait — 1 full page";
       await downloadManualOrderDocument(
         orderId,
         `processing-sheet.pdf?layout=${encodeURIComponent(processingLayout)}`,
         processingLayout === "a4_landscape_2up"
           ? `${normalized.order_number}-processing-sheet-a4-2-copies.pdf`
-          : `${normalized.order_number}-processing-sheet-portrait.pdf`,
+          : processingLayout === "slip"
+            ? `${normalized.order_number}-processing-sheet-slip.pdf`
+            : `${normalized.order_number}-processing-sheet-a4-portrait.pdf`,
       );
       const normalizedId = normalized.manual_order_id ?? normalized.id;
       if (action === "processing" && String(manualOrdersState.editingId) === String(normalizedId) && manualOrderStatus){

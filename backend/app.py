@@ -3858,7 +3858,7 @@ def _manual_pdf_response(
         raise HTTPException(status_code=400, detail="Approve the manual order before generating factory documents.")
     settings = normalize_manual_print_settings(db_module.get_manual_print_settings())
     if document == "processing-sheet" and processing_layout is not None:
-        if processing_layout not in {"slip", "a4_landscape_2up"}:
+        if processing_layout not in {"slip", "a4_portrait", "a4_landscape_2up"}:
             raise HTTPException(status_code=400, detail="Unsupported processing-sheet layout.")
         settings["processing_print_layout"] = processing_layout
     try:
