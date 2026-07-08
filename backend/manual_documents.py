@@ -26,6 +26,17 @@ DEFAULT_MANUAL_PRINT_SETTINGS: Dict[str, Any] = {
     "label_position_size": 10.5,
     "label_dimension_size": 14.5,
     "label_glass_size": 9.0,
+    "label_date_size": 7.0,
+    "label_section_size": 6.5,
+    "label_index_size": 14.0,
+    "label_top_offset_mm": 3.0,
+    "label_dimension_y_mm": 15.0,
+    "label_bottom_offset_mm": 0.5,
+    "label_order_width_mm": 26.0,
+    "label_client_width_mm": 36.0,
+    "label_position_width_mm": 28.0,
+    "label_glass_width_mm": 70.0,
+    "label_index_width_mm": 22.0,
     "label_client_bold": True,
     "label_dimension_bold": True,
     "label_show_date": True,
@@ -79,6 +90,17 @@ _NUMBER_LIMITS = {
     "label_position_size": (8.0, 14.0),
     "label_dimension_size": (11.0, 21.0),
     "label_glass_size": (7.0, 13.0),
+    "label_date_size": (5.0, 10.0),
+    "label_section_size": (5.0, 10.0),
+    "label_index_size": (9.0, 20.0),
+    "label_top_offset_mm": (0.0, 8.0),
+    "label_dimension_y_mm": (10.0, 22.0),
+    "label_bottom_offset_mm": (0.0, 5.0),
+    "label_order_width_mm": (16.0, 42.0),
+    "label_client_width_mm": (24.0, 60.0),
+    "label_position_width_mm": (16.0, 42.0),
+    "label_glass_width_mm": (30.0, 88.0),
+    "label_index_width_mm": (12.0, 36.0),
     "processing_page_width_mm": (70.0, 210.0),
     "processing_page_height_mm": (100.0, 297.0),
     "processing_margin_mm": (4.0, 15.0),
@@ -877,7 +899,7 @@ def build_manual_labels_pdf(
             pdf.setFillColor(colors.white)
             pdf.rect(0, 0, page_width, page_height, fill=1, stroke=0)
 
-            top_y = page_height - margin - 3.0 * mm
+            top_y = page_height - margin - config["label_top_offset_mm"] * mm
             pdf.setFillColor(colors.HexColor("#101828"))
             pdf.setFont(bold_font, config["label_order_size"])
             _draw_fitted_text(
@@ -885,7 +907,7 @@ def build_manual_labels_pdf(
                 order_number,
                 x=margin,
                 y=top_y,
-                max_width=26 * mm,
+                max_width=config["label_order_width_mm"] * mm,
                 font=bold_font,
                 size=config["label_order_size"],
                 min_size=7,
@@ -896,7 +918,7 @@ def build_manual_labels_pdf(
                 client_name,
                 x=page_width / 2,
                 y=top_y,
-                max_width=36 * mm,
+                max_width=config["label_client_width_mm"] * mm,
                 font=client_font,
                 size=config["label_client_size"],
                 min_size=8,
@@ -909,7 +931,7 @@ def build_manual_labels_pdf(
                     f"POS {_pdf_text(row.get('client_position'), '-')}",
                     x=page_width - margin,
                     y=top_y,
-                    max_width=28 * mm,
+                    max_width=config["label_position_width_mm"] * mm,
                     font=bold_font,
                     size=config["label_position_size"],
                     min_size=7,
@@ -922,7 +944,7 @@ def build_manual_labels_pdf(
                     f"POS {position}",
                     x=page_width - margin,
                     y=top_y,
-                    max_width=22 * mm,
+                    max_width=config["label_position_width_mm"] * mm,
                     font=bold_font,
                     size=config["label_position_size"],
                     min_size=8,
@@ -932,20 +954,20 @@ def build_manual_labels_pdf(
             second_y = top_y - 4.5 * mm
             if config["label_show_date"]:
                 pdf.setFillColor(colors.HexColor("#475467"))
-                pdf.setFont(regular_font, 7)
+                pdf.setFont(regular_font, config["label_date_size"])
                 pdf.drawString(margin, second_y, order_date)
             section = _pdf_text(row.get("section"))
             if red_index_format and section:
                 pdf.setFillColor(colors.HexColor("#475467"))
-                pdf.setFont(bold_font, 6.5)
+                pdf.setFont(bold_font, config["label_section_size"])
                 _draw_fitted_text(
                     pdf,
                     section,
                     x=page_width - margin,
                     y=second_y,
-                    max_width=35 * mm,
+                    max_width=config["label_position_width_mm"] * mm,
                     font=bold_font,
-                    size=6.5,
+                    size=config["label_section_size"],
                     min_size=6,
                     align="right",
                 )
@@ -956,7 +978,7 @@ def build_manual_labels_pdf(
                 pdf.setLineWidth(0.55)
                 pdf.line(margin, rule_y, page_width - margin, rule_y)
 
-            dimension_y = 15.0 * mm
+            dimension_y = config["label_dimension_y_mm"] * mm
             pdf.setFillColor(colors.HexColor("#101828"))
             pdf.setFont(dimension_font, config["label_dimension_size"])
             _draw_fitted_text(
@@ -977,22 +999,22 @@ def build_manual_labels_pdf(
                 pdf,
                 glass_type,
                 x=margin,
-                y=margin - 0.5 * mm,
-                max_width=70 * mm,
+                y=margin - config["label_bottom_offset_mm"] * mm,
+                max_width=config["label_glass_width_mm"] * mm,
                 font=bold_font,
                 size=config["label_glass_size"],
                 min_size=7,
             )
             if red_index_format:
-                index_size = max(13.5, config["label_position_size"] + 3.5)
+                index_size = config["label_index_size"]
                 pdf.setFillColor(colors.HexColor("#DC2626"))
                 pdf.setFont(bold_font, index_size)
                 _draw_fitted_text(
                     pdf,
                     f"#{_pdf_text(row.get('index_number'), '-')}",
                     x=page_width - margin,
-                    y=margin - 0.5 * mm,
-                    max_width=22 * mm,
+                    y=margin - config["label_bottom_offset_mm"] * mm,
+                    max_width=config["label_index_width_mm"] * mm,
                     font=bold_font,
                     size=index_size,
                     min_size=9,

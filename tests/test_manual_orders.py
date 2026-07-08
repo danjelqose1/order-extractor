@@ -263,30 +263,46 @@ def test_saved_manual_glass_types_remain_available_for_autocomplete(tmp_path, mo
     assert "4F" in db.list_manual_glass_types()
 
 
-def test_saved_manual_clients_and_date_based_order_number(tmp_path, monkeypatch):
+def test_saved_manual_clients_and_yearly_l_order_number(tmp_path, monkeypatch):
     db = _load_db(tmp_path, monkeypatch)
     first = db.create_manual_order(
         _manual_payload(
             client_name="Qamili",
-            order_number="05072026",
+            order_number="L-26-0001",
             order_date="2026-07-05",
         )
     )
     db.create_manual_order(
         _manual_payload(
             client_name="  qamili  ",
-            order_number="05072026-02",
+            order_number="L-26-0002",
             order_date="2026-07-05",
         )
     )
 
     assert db.list_manual_clients() == ["qamili"]
     assert db.list_manual_clients(query="mil") == ["qamili"]
-    assert db.next_manual_order_number("2026-07-05") == "05072026-03"
-    assert db.next_manual_order_number("2026-07-06") == "06072026"
+    assert db.next_manual_order_number("2026-07-05") == "L-26-0003"
+    assert db.next_manual_order_number("2026-07-06") == "L-26-0003"
+    assert db.next_manual_order_number("2027-01-01") == "L-27-0001"
 
     db.delete_manual_order(first["id"])
     assert db.list_manual_clients() == ["qamili"]
+
+
+def test_duplicate_manual_order_uses_next_yearly_l_order_number(tmp_path, monkeypatch):
+    db = _load_db(tmp_path, monkeypatch)
+    original = db.create_manual_order(
+        _manual_payload(
+            order_number="L-26-0001",
+            order_date="2026-07-05",
+        )
+    )
+
+    copy = db.duplicate_manual_order(original["id"])
+
+    assert copy["order_number"] == "L-26-0002"
+    assert copy["status"] == "draft"
 
 
 def test_manual_print_settings_are_persisted_separately(tmp_path, monkeypatch):
@@ -326,6 +342,10 @@ def test_manual_orders_frontend_exposes_isolated_factory_workflow():
     assert "function closeManualPrintSettings" in js
     assert 'class="card manual-print-settings-card"' not in html
     assert 'data-manual-print-setting="label_font_family"' in html
+    assert 'data-manual-print-setting="label_index_size"' in html
+    assert 'data-manual-print-setting="label_top_offset_mm"' in html
+    assert 'data-manual-print-setting="label_dimension_y_mm"' in html
+    assert 'data-manual-print-setting="label_glass_width_mm"' in html
     assert 'data-manual-print-setting="processing_font_family"' in html
     assert 'data-manual-print-setting="processing_dimension_unit"' in html
     assert 'data-manual-print-setting="processing_print_layout"' in html
@@ -794,6 +814,9 @@ def test_manual_document_settings_change_fonts_visibility_and_processing_layout(
         {
             "label_font_family": "Courier",
             "label_client_size": 15,
+            "label_index_size": 18,
+            "label_dimension_y_mm": 16,
+            "label_glass_width_mm": 55,
             "label_show_date": False,
             "label_show_manual_marker": False,
             "processing_font_family": "Times",
@@ -820,6 +843,37 @@ def test_manual_document_settings_change_fonts_visibility_and_processing_layout(
         for span in line.get("spans", [])
     }
     assert any("Courier" in font for font in label_fonts)
+
+    red_index_label = fitz.open(
+        stream=documents.build_manual_labels_pdf(
+            _manual_payload(
+                status="approved",
+                manual_format="client_positions_red_index",
+                rows=[
+                    {
+                        "position": "A1 7",
+                        "client_position": "A1",
+                        "index_number": 7,
+                        "glass_type": "Tr+12+Tr",
+                        "width_mm": 615,
+                        "height_mm": 1252,
+                        "quantity": 1,
+                        "notes": "",
+                    }
+                ],
+            ),
+            settings,
+        ),
+        filetype="pdf",
+    )
+    red_index_spans = [
+        span
+        for block in red_index_label[0].get_text("dict")["blocks"]
+        for line in block.get("lines", [])
+        for span in line.get("spans", [])
+    ]
+    red_index_span = next(span for span in red_index_spans if span["text"] == "#7")
+    assert red_index_span["size"] == pytest.approx(18, abs=0.2)
 
     processing_pdf = fitz.open(
         stream=documents.build_manual_processing_pdf(order, settings),

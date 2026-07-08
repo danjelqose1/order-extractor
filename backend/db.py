@@ -1691,28 +1691,36 @@ def next_manual_order_number(order_date: str) -> str:
         parsed_date = datetime.strptime(text_value, "%Y-%m-%d")
     except ValueError as exc:
         raise ValueError("Order date must use YYYY-MM-DD format.") from exc
-    prefix = parsed_date.strftime("%d%m%Y")
+    prefix = f"L-{parsed_date:%y}"
+    year_start = parsed_date.replace(month=1, day=1).strftime("%Y-%m-%d")
+    next_year_start = parsed_date.replace(year=parsed_date.year + 1, month=1, day=1).strftime("%Y-%m-%d")
     with SessionLocal() as session:
-        existing = set(
+        matching_numbers = set(
             str(value or "").strip()
             for value in session.execute(
                 select(ManualOrder.order_number).where(
-                    ManualOrder.order_number.like(f"{prefix}%")
+                    ManualOrder.order_number.like(f"{prefix}-%")
                 )
             ).scalars().all()
         )
-    if prefix not in existing:
-        return prefix
-    suffixes = [1]
-    pattern = re.compile(rf"^{re.escape(prefix)}-(\d+)$")
-    for value in existing:
+        yearly_order_count = int(
+            session.execute(
+                select(func.count(ManualOrder.id)).where(
+                    ManualOrder.order_date >= year_start,
+                    ManualOrder.order_date < next_year_start,
+                )
+            ).scalar() or 0
+        )
+    suffixes = [yearly_order_count]
+    pattern = re.compile(rf"^{re.escape(prefix)}-(\d{{4}})$")
+    for value in matching_numbers:
         match = pattern.match(value)
         if match:
             suffixes.append(int(match.group(1)))
     candidate = max(suffixes) + 1
-    while f"{prefix}-{candidate:02d}" in existing:
+    while f"{prefix}-{candidate:04d}" in matching_numbers:
         candidate += 1
-    return f"{prefix}-{candidate:02d}"
+    return f"{prefix}-{candidate:04d}"
 
 
 def get_manual_print_settings() -> Dict[str, Any]:
@@ -1967,12 +1975,7 @@ def duplicate_manual_order(order_id: int) -> Dict[str, Any]:
     original = get_manual_order(order_id)
     if not original:
         raise ValueError(f"Manual order {order_id} not found")
-    base_number = f"{original['order_number']}-COPY"
-    copy_number = base_number
-    suffix = 2
-    while manual_order_number_exists(copy_number):
-        copy_number = f"{base_number}-{suffix}"
-        suffix += 1
+    copy_number = next_manual_order_number(original["order_date"])
     return create_manual_order(
         {
             "client_name": original["client_name"],
