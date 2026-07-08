@@ -315,6 +315,7 @@ def test_manual_orders_frontend_exposes_isolated_factory_workflow():
     assert 'id="manualGlassTypeOptions"' in html
     assert 'id="manualClientOptions"' in html
     assert 'id="manualDimensionUnit"' in html
+    assert "Show MANUAL" not in html
     assert 'id="manualWidthUnitLabel"' in js
     assert 'id="manualHeightUnitLabel"' in js
     assert 'id="manualPrintSettingsForm"' in html
@@ -677,6 +678,8 @@ def test_red_index_processing_and_labels_render_black_client_position_and_red_in
     )
     processing_text = processing[0].get_text()
     assert "Villa 3" in processing_text
+    assert "POS" in processing_text
+    assert "INDEX" in processing_text
     assert "K1-" in processing_text
     assert "12" in processing_text
     assert "169.5 x 233" in processing_text
@@ -698,9 +701,10 @@ def test_red_index_processing_and_labels_render_black_client_position_and_red_in
     )
     assert len(labels) == 1
     label_text = labels[0].get_text()
-    assert "K1-" in label_text
-    assert "12" in label_text
+    assert "POS K1-" in label_text
+    assert "#12" in label_text
     assert "Villa 3" in label_text
+    assert "MANUAL" not in label_text
     label_spans = [
         span
         for block in labels[0].get_text("dict")["blocks"]
@@ -708,10 +712,13 @@ def test_red_index_processing_and_labels_render_black_client_position_and_red_in
         for span in line.get("spans", [])
     ]
     label_client = next(span for span in label_spans if "K1-" in span["text"])
-    label_index = next(span for span in label_spans if span["text"] == "12")
+    label_index = next(span for span in label_spans if span["text"] == "#12")
     assert label_client["color"] != label_index["color"]
     assert (label_index["color"] >> 16) & 0xFF > 200
     assert (label_index["color"] >> 8) & 0xFF < 80
+    assert label_index["size"] > label_client["size"]
+    assert label_index["bbox"][0] > labels[0].rect.width * 0.80
+    assert label_index["bbox"][3] > labels[0].rect.height * 0.82
 
 
 def test_manual_labels_are_dedicated_100x40_quantity_labels():

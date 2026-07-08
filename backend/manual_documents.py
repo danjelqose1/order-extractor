@@ -20,14 +20,14 @@ DEFAULT_MANUAL_PRINT_SETTINGS: Dict[str, Any] = {
     "label_font_family": "Helvetica",
     "label_margin_mm": 5.5,
     "label_order_size": 9.5,
-    "label_client_size": 12.5,
+    "label_client_size": 14.0,
     "label_position_size": 10.5,
-    "label_dimension_size": 16.0,
+    "label_dimension_size": 14.5,
     "label_glass_size": 9.0,
     "label_client_bold": True,
     "label_dimension_bold": True,
     "label_show_date": True,
-    "label_show_manual_marker": True,
+    "label_show_manual_marker": False,
     "label_show_divider": True,
     "processing_font_family": "Helvetica",
     "processing_print_layout": PROCESSING_PRINT_LAYOUT_SLIP,
@@ -241,40 +241,6 @@ def _group_rows(rows: Iterable[Dict[str, Any]]) -> List[tuple[str, List[Dict[str
     return list(grouped.items())
 
 
-def _draw_mixed_position(
-    pdf: canvas.Canvas,
-    *,
-    client_position: Any,
-    index_number: Any,
-    x: float,
-    y: float,
-    max_width: float,
-    font: str,
-    size: float,
-    min_size: float = 7.0,
-    prefix: str = "",
-    align: str = "left",
-) -> float:
-    client = _pdf_text(client_position)
-    index = _pdf_text(index_number, "-")
-    black_text = f"{prefix}{client}{' ' if client else ''}"
-    fitted = size
-    while (
-        fitted > min_size
-        and stringWidth(black_text, font, fitted) + stringWidth(index, font, fitted) > max_width
-    ):
-        fitted -= 0.5
-    total_width = stringWidth(black_text, font, fitted) + stringWidth(index, font, fitted)
-    start_x = x - total_width if align == "right" else x
-    pdf.setFont(font, fitted)
-    pdf.setFillColor(colors.HexColor("#101828"))
-    if black_text:
-        pdf.drawString(start_x, y, black_text)
-    pdf.setFillColor(colors.HexColor("#DC2626"))
-    pdf.drawString(start_x + stringWidth(black_text, font, fitted), y, index)
-    return fitted
-
-
 def _build_red_index_processing_pdf(
     order: Dict[str, Any],
     config: Dict[str, Any],
@@ -382,7 +348,8 @@ def _build_red_index_processing_pdf(
         y -= 6 * mm
         pdf.setFillColor(colors.HexColor("#667085"))
         pdf.setFont(bold_font, config["processing_header_size"])
-        pdf.drawString(margin, y, "POSITION")
+        pdf.drawString(margin, y, "POS")
+        pdf.drawString(margin + 14 * mm, y, "INDEX")
         pdf.drawString(dimension_x, y, f"DIMENSIONS ({dimension_unit})")
         pdf.drawRightString(page_width - margin, y, "QTY")
         y -= 4 * mm
@@ -409,13 +376,26 @@ def _build_red_index_processing_pdf(
 
             y -= 7 * mm
             position_size = max(8.0, config["processing_row_size"] - 1)
-            _draw_mixed_position(
+            pdf.setFillColor(colors.HexColor("#101828"))
+            pdf.setFont(row_font, position_size)
+            _draw_fitted_text(
                 pdf,
-                client_position=row.get("client_position"),
-                index_number=row.get("index_number"),
+                _pdf_text(row.get("client_position"), "-"),
                 x=margin,
                 y=y,
-                max_width=usable_width * 0.34,
+                max_width=12 * mm,
+                font=row_font,
+                size=position_size,
+                min_size=8,
+            )
+            pdf.setFillColor(colors.HexColor("#DC2626"))
+            pdf.setFont(row_font, position_size)
+            _draw_fitted_text(
+                pdf,
+                _pdf_text(row.get("index_number"), "-"),
+                x=margin + 14 * mm,
+                y=y,
+                max_width=max(10 * mm, dimension_x - margin - 16 * mm),
                 font=row_font,
                 size=position_size,
                 min_size=8,
@@ -810,7 +790,7 @@ def build_manual_labels_pdf(
             pdf.setFillColor(colors.white)
             pdf.rect(0, 0, page_width, page_height, fill=1, stroke=0)
 
-            top_y = page_height - margin - 1.5 * mm
+            top_y = page_height - margin - 3.0 * mm
             pdf.setFillColor(colors.HexColor("#101828"))
             pdf.setFont(bold_font, config["label_order_size"])
             _draw_fitted_text(
@@ -836,17 +816,16 @@ def build_manual_labels_pdf(
                 align="center",
             )
             if red_index_format:
-                _draw_mixed_position(
+                pdf.setFont(bold_font, config["label_position_size"])
+                _draw_fitted_text(
                     pdf,
-                    client_position=row.get("client_position"),
-                    index_number=row.get("index_number"),
+                    f"POS {_pdf_text(row.get('client_position'), '-')}",
                     x=page_width - margin,
                     y=top_y,
                     max_width=28 * mm,
                     font=bold_font,
                     size=config["label_position_size"],
                     min_size=7,
-                    prefix="POS ",
                     align="right",
                 )
             else:
@@ -890,7 +869,7 @@ def build_manual_labels_pdf(
                 pdf.setLineWidth(0.55)
                 pdf.line(margin, rule_y, page_width - margin, rule_y)
 
-            dimension_y = 14.5 * mm
+            dimension_y = 15.0 * mm
             pdf.setFillColor(colors.HexColor("#101828"))
             pdf.setFont(dimension_font, config["label_dimension_size"])
             _draw_fitted_text(
@@ -917,10 +896,21 @@ def build_manual_labels_pdf(
                 size=config["label_glass_size"],
                 min_size=7,
             )
-            if config["label_show_manual_marker"]:
-                pdf.setFillColor(colors.HexColor("#667085"))
-                pdf.setFont(bold_font, 6.5)
-                pdf.drawRightString(page_width - margin, margin - 0.3 * mm, "MANUAL")
+            if red_index_format:
+                index_size = max(13.5, config["label_position_size"] + 3.5)
+                pdf.setFillColor(colors.HexColor("#DC2626"))
+                pdf.setFont(bold_font, index_size)
+                _draw_fitted_text(
+                    pdf,
+                    f"#{_pdf_text(row.get('index_number'), '-')}",
+                    x=page_width - margin,
+                    y=margin - 0.5 * mm,
+                    max_width=22 * mm,
+                    font=bold_font,
+                    size=index_size,
+                    min_size=9,
+                    align="right",
+                )
             pdf.showPage()
 
     pdf.save()
