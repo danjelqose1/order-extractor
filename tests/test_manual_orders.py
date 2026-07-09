@@ -344,12 +344,18 @@ def test_manual_orders_frontend_exposes_isolated_factory_workflow():
     assert 'data-manual-print-setting="label_font_family"' in html
     assert 'data-manual-print-setting="label_index_size"' in html
     assert 'data-manual-print-setting="label_top_offset_mm"' in html
+    assert 'data-manual-print-setting="label_second_line_gap_mm"' in html
     assert 'data-manual-print-setting="label_dimension_y_mm"' in html
+    assert 'data-manual-print-setting="label_section_width_mm"' in html
     assert 'data-manual-print-setting="label_glass_width_mm"' in html
     assert 'data-manual-print-setting="processing_font_family"' in html
     assert 'data-manual-print-setting="processing_dimension_unit"' in html
     assert 'data-manual-print-setting="processing_print_layout"' in html
     assert 'data-manual-print-setting="processing_row_spacing_mm"' in html
+    assert 'data-manual-print-setting="processing_section_size"' in html
+    assert 'data-manual-print-setting="processing_section_before_gap_mm"' in html
+    assert 'data-manual-print-setting="processing_section_after_gap_mm"' in html
+    assert 'data-manual-print-setting="processing_repeat_headers_per_section"' in html
     assert 'data-manual-print-setting="processing_show_cut_guide"' in html
     assert 'data-manual-print-setting="processing_client_bold"' in html
     assert "A4 portrait — 1 full page" in html
@@ -397,6 +403,7 @@ def test_manual_orders_frontend_exposes_isolated_factory_workflow():
     assert "function renumberManualRows" in js
     assert "function duplicateManualIndexNumbers" in js
     assert 'manual_format: manualOrdersState.manualFormat' in js
+    assert 'setTimeout(() => focusManualRowField(0, "client_position"), 0)' in js
 
 
 def test_manual_order_rows_support_spreadsheet_keyboard_entry():
@@ -411,7 +418,10 @@ def test_manual_order_rows_support_spreadsheet_keyboard_entry():
     assert 'event.key === "ArrowDown" || event.key === "Enter"' in js
     assert 'event.key === "ArrowUp"' in js
     assert 'event.key === "Tab"' in js
-    assert 'const nextField = event.key === "ArrowDown" ? "width_mm" : field;' in js
+    assert '? (manualIsRedIndexMode() ? "client_position" : "width_mm")' in js
+    assert 'focusField || (manualIsRedIndexMode() ? "client_position" : "position")' in js
+    assert 'width_mm: previous?.width_mm || ""' in js
+    assert 'height_mm: previous?.height_mm || ""' in js
     assert 'glass_type: previous?.glass_type || ""' in js
     assert 'newManualRow({ position: "1" })' in js
     assert 'readonly tabindex="-1"' in js
@@ -700,6 +710,7 @@ def test_red_index_processing_and_labels_render_black_client_position_and_red_in
         filetype="pdf",
     )
     processing_text = processing[0].get_text()
+    assert "Villa 3" in processing_text
     assert "POS" in processing_text
     assert "INDEX" in processing_text
     assert "4F + 16 + LowE" in processing_text
@@ -743,6 +754,72 @@ def test_red_index_processing_and_labels_render_black_client_position_and_red_in
     assert label_index["size"] > label_client["size"]
     assert label_index["bbox"][0] > labels[0].rect.width * 0.80
     assert label_index["bbox"][3] > labels[0].rect.height * 0.82
+
+
+def test_red_index_processing_splits_same_glass_by_client_section():
+    if str(BACKEND_DIR) not in sys.path:
+        sys.path.insert(0, str(BACKEND_DIR))
+    documents = importlib.import_module("manual_documents")
+    order = _manual_payload(
+        status="approved",
+        manual_format="client_positions_red_index",
+        rows=[
+            {
+                "position": "1",
+                "section": "Jaku",
+                "client_position": "",
+                "index_number": 1,
+                "glass_type": "3/3TR+14+TR+gaz",
+                "width_mm": 485,
+                "height_mm": 1225,
+                "quantity": 2,
+                "notes": "",
+            },
+            {
+                "position": "2",
+                "section": "Elti",
+                "client_position": "",
+                "index_number": 2,
+                "glass_type": "3/3TR+14+TR+gaz",
+                "width_mm": 540,
+                "height_mm": 2257,
+                "quantity": 3,
+                "notes": "",
+            },
+        ],
+    )
+
+    processing = fitz.open(
+        stream=documents.build_manual_processing_pdf(order),
+        filetype="pdf",
+    )
+    text = processing[0].get_text()
+
+    assert "Jaku" in text
+    assert "Elti" in text
+    assert text.count("3/3TR+14+TR+gaz") == 1
+    assert "4.845 m²" in text
+
+    tuned = documents.normalize_manual_print_settings(
+        {
+            "processing_section_size": 12,
+            "processing_repeat_headers_per_section": True,
+        }
+    )
+    tuned_pdf = fitz.open(
+        stream=documents.build_manual_processing_pdf(order, tuned),
+        filetype="pdf",
+    )
+    tuned_text = tuned_pdf[0].get_text()
+    assert tuned_text.count("DIMENSIONS (CM)") == 2
+    tuned_spans = [
+        span
+        for block in tuned_pdf[0].get_text("dict")["blocks"]
+        for line in block.get("lines", [])
+        for span in line.get("spans", [])
+    ]
+    jaku_span = next(span for span in tuned_spans if span["text"] == "Jaku")
+    assert jaku_span["size"] == pytest.approx(12, abs=0.2)
 
 
 def test_manual_labels_are_dedicated_100x40_quantity_labels():
@@ -814,8 +891,11 @@ def test_manual_document_settings_change_fonts_visibility_and_processing_layout(
         {
             "label_font_family": "Courier",
             "label_client_size": 15,
+            "label_section_size": 9,
             "label_index_size": 18,
+            "label_second_line_gap_mm": 5,
             "label_dimension_y_mm": 16,
+            "label_section_width_mm": 45,
             "label_glass_width_mm": 55,
             "label_show_date": False,
             "label_show_manual_marker": False,
@@ -852,6 +932,7 @@ def test_manual_document_settings_change_fonts_visibility_and_processing_layout(
                 rows=[
                     {
                         "position": "A1 7",
+                        "section": "Jaku",
                         "client_position": "A1",
                         "index_number": 7,
                         "glass_type": "Tr+12+Tr",
@@ -873,7 +954,9 @@ def test_manual_document_settings_change_fonts_visibility_and_processing_layout(
         for span in line.get("spans", [])
     ]
     red_index_span = next(span for span in red_index_spans if span["text"] == "#7")
+    section_span = next(span for span in red_index_spans if span["text"] == "Jaku")
     assert red_index_span["size"] == pytest.approx(18, abs=0.2)
+    assert section_span["size"] == pytest.approx(9, abs=0.2)
 
     processing_pdf = fitz.open(
         stream=documents.build_manual_processing_pdf(order, settings),

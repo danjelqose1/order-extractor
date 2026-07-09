@@ -30,11 +30,13 @@ DEFAULT_MANUAL_PRINT_SETTINGS: Dict[str, Any] = {
     "label_section_size": 6.5,
     "label_index_size": 14.0,
     "label_top_offset_mm": 3.0,
+    "label_second_line_gap_mm": 4.5,
     "label_dimension_y_mm": 15.0,
     "label_bottom_offset_mm": 0.5,
     "label_order_width_mm": 26.0,
     "label_client_width_mm": 36.0,
     "label_position_width_mm": 28.0,
+    "label_section_width_mm": 35.0,
     "label_glass_width_mm": 70.0,
     "label_index_width_mm": 22.0,
     "label_client_bold": True,
@@ -53,11 +55,15 @@ DEFAULT_MANUAL_PRINT_SETTINGS: Dict[str, Any] = {
     "processing_client_size": 14.0,
     "processing_client_bold": True,
     "processing_glass_size": 14.0,
+    "processing_section_size": 9.5,
+    "processing_section_before_gap_mm": 5.0,
+    "processing_section_after_gap_mm": 4.0,
     "processing_row_size": 12.0,
     "processing_row_spacing_mm": 0.0,
     "processing_dimension_unit": "cm",
     "processing_glass_bold": True,
     "processing_rows_bold": True,
+    "processing_repeat_headers_per_section": False,
     "processing_show_date": True,
     "processing_show_client": True,
     "processing_show_notes": True,
@@ -94,11 +100,13 @@ _NUMBER_LIMITS = {
     "label_section_size": (5.0, 10.0),
     "label_index_size": (9.0, 20.0),
     "label_top_offset_mm": (0.0, 8.0),
+    "label_second_line_gap_mm": (2.0, 8.0),
     "label_dimension_y_mm": (10.0, 22.0),
     "label_bottom_offset_mm": (0.0, 5.0),
     "label_order_width_mm": (16.0, 42.0),
     "label_client_width_mm": (24.0, 60.0),
     "label_position_width_mm": (16.0, 42.0),
+    "label_section_width_mm": (16.0, 50.0),
     "label_glass_width_mm": (30.0, 88.0),
     "label_index_width_mm": (12.0, 36.0),
     "processing_page_width_mm": (70.0, 210.0),
@@ -108,6 +116,9 @@ _NUMBER_LIMITS = {
     "processing_order_size": (8.0, 18.0),
     "processing_client_size": (7.0, 15.0),
     "processing_glass_size": (9.0, 20.0),
+    "processing_section_size": (6.0, 14.0),
+    "processing_section_before_gap_mm": (0.0, 12.0),
+    "processing_section_after_gap_mm": (0.0, 12.0),
     "processing_row_size": (9.0, 18.0),
     "processing_row_spacing_mm": (0.0, 6.0),
 }
@@ -271,6 +282,18 @@ def _group_rows(rows: Iterable[Dict[str, Any]]) -> List[tuple[str, List[Dict[str
     return list(grouped.items())
 
 
+def _group_red_index_rows(rows: Iterable[Dict[str, Any]]) -> List[tuple[str, List[tuple[str, List[Dict[str, Any]]]]]]:
+    grouped: "OrderedDict[str, OrderedDict[str, List[Dict[str, Any]]]]" = OrderedDict()
+    for row in rows:
+        section = _pdf_text(row.get("section"))
+        glass_type = _pdf_text(row.get("glass_type") or row.get("type"), "Unspecified glass")
+        grouped.setdefault(glass_type, OrderedDict()).setdefault(section, []).append(row)
+    return [
+        (glass_type, list(section_rows.items()))
+        for glass_type, section_rows in grouped.items()
+    ]
+
+
 def _processing_page_geometry(config: Dict[str, Any]) -> tuple[bool, float, float, float, float, tuple[float, float]]:
     layout = config["processing_print_layout"]
     is_a4_two_up = layout == PROCESSING_PRINT_LAYOUT_A4_2UP
@@ -309,7 +332,7 @@ def _build_red_index_processing_pdf(
         5.5,
         config["processing_row_size"] * 0.46 + config["processing_row_spacing_mm"],
     )
-    groups = _group_rows(rows)
+    groups = _group_red_index_rows(rows)
 
     def row_height_mm(row: Dict[str, Any]) -> float:
         notes_height = (
@@ -319,57 +342,79 @@ def _build_red_index_processing_pdf(
         )
         return row_step_mm + notes_height
 
-    section_header_mm = 19.0
+    def chunk_header_height_mm(show_glass: bool, section: str) -> float:
+        height = 19.0 if show_glass else 0.0
+        if section:
+            height += config["processing_section_before_gap_mm"]
+            height += max(3.5, config["processing_section_size"] * 0.35)
+            height += config["processing_section_after_gap_mm"]
+        if show_glass or config["processing_repeat_headers_per_section"]:
+            height += 8.5
+        return max(5.0, height)
+
     bottom_guard_mm = max(config["processing_margin_mm"], 10.0)
+    minimum_header_mm = max(
+        chunk_header_height_mm(True, section)
+        for _glass, section_groups in groups
+        for section, _rows in section_groups
+    ) if groups else 19.0
     page_content_mm = max(
-        section_header_mm + row_step_mm,
+        minimum_header_mm + row_step_mm,
         processing_height_mm
         - config["processing_margin_mm"]
         - 16.5
         - bottom_guard_mm,
     )
-    page_specs: List[List[tuple[str, Sequence[Dict[str, Any]]]]] = []
-    current_page: List[tuple[str, Sequence[Dict[str, Any]]]] = []
+    page_specs: List[List[tuple[str, str, Sequence[Dict[str, Any]], bool]]] = []
+    current_page: List[tuple[str, str, Sequence[Dict[str, Any]], bool]] = []
     remaining_mm = page_content_mm
 
-    for glass_type, glass_rows in groups:
-        row_index = 0
-        while row_index < len(glass_rows):
-            minimum_section_mm = section_header_mm + row_height_mm(glass_rows[row_index])
-            if current_page and remaining_mm < minimum_section_mm:
-                page_specs.append(current_page)
-                current_page = []
-                remaining_mm = page_content_mm
-
-            chunk: List[Dict[str, Any]] = []
-            chunk_height_mm = section_header_mm
+    for glass_type, section_groups in groups:
+        show_glass_for_next_chunk = True
+        for section, glass_rows in section_groups:
+            row_index = 0
             while row_index < len(glass_rows):
-                next_row_height_mm = row_height_mm(glass_rows[row_index])
-                if chunk and chunk_height_mm + next_row_height_mm > remaining_mm:
-                    break
-                if not chunk and chunk_height_mm + next_row_height_mm > remaining_mm:
-                    break
-                chunk.append(glass_rows[row_index])
-                chunk_height_mm += next_row_height_mm
-                row_index += 1
-
-            if not chunk:
-                if current_page:
+                header_height_mm = chunk_header_height_mm(show_glass_for_next_chunk, section)
+                minimum_section_mm = header_height_mm + row_height_mm(glass_rows[row_index])
+                if current_page and remaining_mm < minimum_section_mm:
                     page_specs.append(current_page)
                     current_page = []
                     remaining_mm = page_content_mm
-                    continue
-                chunk.append(glass_rows[row_index])
-                chunk_height_mm += row_height_mm(glass_rows[row_index])
-                row_index += 1
+                    show_glass_for_next_chunk = True
+                    header_height_mm = chunk_header_height_mm(show_glass_for_next_chunk, section)
 
-            current_page.append((glass_type, chunk))
-            remaining_mm -= chunk_height_mm
+                chunk: List[Dict[str, Any]] = []
+                chunk_height_mm = header_height_mm
+                while row_index < len(glass_rows):
+                    next_row_height_mm = row_height_mm(glass_rows[row_index])
+                    if chunk and chunk_height_mm + next_row_height_mm > remaining_mm:
+                        break
+                    if not chunk and chunk_height_mm + next_row_height_mm > remaining_mm:
+                        break
+                    chunk.append(glass_rows[row_index])
+                    chunk_height_mm += next_row_height_mm
+                    row_index += 1
 
-            if row_index < len(glass_rows):
-                page_specs.append(current_page)
-                current_page = []
-                remaining_mm = page_content_mm
+                if not chunk:
+                    if current_page:
+                        page_specs.append(current_page)
+                        current_page = []
+                        remaining_mm = page_content_mm
+                        show_glass_for_next_chunk = True
+                        continue
+                    chunk.append(glass_rows[row_index])
+                    chunk_height_mm += row_height_mm(glass_rows[row_index])
+                    row_index += 1
+
+                current_page.append((section, glass_type, chunk, show_glass_for_next_chunk))
+                remaining_mm -= chunk_height_mm
+                show_glass_for_next_chunk = False
+
+                if row_index < len(glass_rows):
+                    page_specs.append(current_page)
+                    current_page = []
+                    remaining_mm = page_content_mm
+                    show_glass_for_next_chunk = True
 
     if current_page:
         page_specs.append(current_page)
@@ -434,49 +479,73 @@ def _build_red_index_processing_pdf(
         pdf.setLineWidth(0.8)
         pdf.line(margin, y, page_width - margin, y)
 
-        for glass_type, page_rows in page_sections:
-            y -= 10 * mm
-            pdf.setFillColor(colors.HexColor("#101828"))
-            pdf.setFont(glass_font, config["processing_glass_size"])
-            area_width = usable_width * 0.26
-            _draw_fitted_text(
-                pdf,
-                glass_type,
-                x=margin,
-                y=y,
-                max_width=usable_width - area_width - (3 * mm),
-                font=glass_font,
-                size=config["processing_glass_size"],
-                min_size=8,
-            )
-            area_size = max(9.0, config["processing_glass_size"] - 2)
-            pdf.setFont(bold_font, area_size)
-            _draw_fitted_text(
-                pdf,
-                _format_area_m2(page_rows),
-                x=page_width - margin,
-                y=y,
-                max_width=area_width,
-                font=bold_font,
-                size=area_size,
-                min_size=8,
-                align="right",
-            )
+        for section, glass_type, page_rows, show_glass in page_sections:
+            y -= 10 * mm if show_glass else config["processing_section_before_gap_mm"] * mm
+            if show_glass:
+                pdf.setFillColor(colors.HexColor("#101828"))
+                pdf.setFont(glass_font, config["processing_glass_size"])
+                area_width = usable_width * 0.26
+                glass_total_rows = [
+                    row
+                    for _page_section, page_glass, section_rows, _show_glass in page_sections
+                    if page_glass == glass_type
+                    for row in section_rows
+                ]
+                _draw_fitted_text(
+                    pdf,
+                    glass_type,
+                    x=margin,
+                    y=y,
+                    max_width=usable_width - area_width - (3 * mm),
+                    font=glass_font,
+                    size=config["processing_glass_size"],
+                    min_size=8,
+                )
+                area_size = max(9.0, config["processing_glass_size"] - 2)
+                pdf.setFont(bold_font, area_size)
+                _draw_fitted_text(
+                    pdf,
+                    _format_area_m2(glass_total_rows),
+                    x=page_width - margin,
+                    y=y,
+                    max_width=area_width,
+                    font=bold_font,
+                    size=area_size,
+                    min_size=8,
+                    align="right",
+                )
+                y -= 5 * mm
+            if section:
+                pdf.setFillColor(colors.HexColor("#667085"))
+                section_size = config["processing_section_size"]
+                pdf.setFont(bold_font, section_size)
+                _draw_fitted_text(
+                    pdf,
+                    section,
+                    x=margin,
+                    y=y,
+                    max_width=usable_width,
+                    font=bold_font,
+                    size=section_size,
+                    min_size=7,
+                )
+                y -= config["processing_section_after_gap_mm"] * mm
 
-            y -= 5.5 * mm
             pos_x = margin
             index_x = margin + (usable_width * 0.15)
             dimension_x = margin + (usable_width * 0.31)
-            pdf.setFillColor(colors.HexColor("#667085"))
-            pdf.setFont(bold_font, config["processing_header_size"])
-            pdf.drawString(pos_x, y, "POS")
-            pdf.drawString(index_x, y, "INDEX")
-            pdf.drawString(dimension_x, y, f"DIMENSIONS ({dimension_unit})")
-            pdf.drawRightString(page_width - margin, y, "QTY")
-            y -= 3 * mm
-            pdf.setStrokeColor(colors.HexColor("#D0D5DD"))
-            pdf.setLineWidth(0.5)
-            pdf.line(margin, y, page_width - margin, y)
+            if show_glass or config["processing_repeat_headers_per_section"]:
+                y -= 5.5 * mm
+                pdf.setFillColor(colors.HexColor("#667085"))
+                pdf.setFont(bold_font, config["processing_header_size"])
+                pdf.drawString(pos_x, y, "POS")
+                pdf.drawString(index_x, y, "INDEX")
+                pdf.drawString(dimension_x, y, f"DIMENSIONS ({dimension_unit})")
+                pdf.drawRightString(page_width - margin, y, "QTY")
+                y -= 3 * mm
+                pdf.setStrokeColor(colors.HexColor("#D0D5DD"))
+                pdf.setLineWidth(0.5)
+                pdf.line(margin, y, page_width - margin, y)
 
             for row in page_rows:
                 y -= row_step_mm * mm
@@ -951,7 +1020,7 @@ def build_manual_labels_pdf(
                     align="right",
                 )
 
-            second_y = top_y - 4.5 * mm
+            second_y = top_y - config["label_second_line_gap_mm"] * mm
             if config["label_show_date"]:
                 pdf.setFillColor(colors.HexColor("#475467"))
                 pdf.setFont(regular_font, config["label_date_size"])
@@ -965,7 +1034,7 @@ def build_manual_labels_pdf(
                     section,
                     x=page_width - margin,
                     y=second_y,
-                    max_width=config["label_position_width_mm"] * mm,
+                    max_width=config["label_section_width_mm"] * mm,
                     font=bold_font,
                     size=config["label_section_size"],
                     min_size=6,

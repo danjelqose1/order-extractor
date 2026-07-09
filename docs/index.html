@@ -1107,11 +1107,13 @@
                 <label><span>Section size</span><input type="number" min="5" max="10" step="0.5" data-manual-print-setting="label_section_size"></label>
                 <label><span># index size</span><input type="number" min="9" max="20" step="0.5" data-manual-print-setting="label_index_size"></label>
                 <label><span>Top offset (mm)</span><input type="number" min="0" max="8" step="0.5" data-manual-print-setting="label_top_offset_mm"></label>
+                <label><span>Second line gap (mm)</span><input type="number" min="2" max="8" step="0.5" data-manual-print-setting="label_second_line_gap_mm"></label>
                 <label><span>Dimension y (mm)</span><input type="number" min="10" max="22" step="0.5" data-manual-print-setting="label_dimension_y_mm"></label>
                 <label><span>Bottom offset (mm)</span><input type="number" min="0" max="5" step="0.5" data-manual-print-setting="label_bottom_offset_mm"></label>
                 <label><span>Order width (mm)</span><input type="number" min="16" max="42" step="0.5" data-manual-print-setting="label_order_width_mm"></label>
                 <label><span>Client width (mm)</span><input type="number" min="24" max="60" step="0.5" data-manual-print-setting="label_client_width_mm"></label>
                 <label><span>Position width (mm)</span><input type="number" min="16" max="42" step="0.5" data-manual-print-setting="label_position_width_mm"></label>
+                <label><span>Section width (mm)</span><input type="number" min="16" max="50" step="0.5" data-manual-print-setting="label_section_width_mm"></label>
                 <label><span>Glass width (mm)</span><input type="number" min="30" max="88" step="0.5" data-manual-print-setting="label_glass_width_mm"></label>
                 <label><span># index width (mm)</span><input type="number" min="12" max="36" step="0.5" data-manual-print-setting="label_index_width_mm"></label>
               </div>
@@ -1157,6 +1159,9 @@
                 <label><span>Order size</span><input type="number" min="8" max="18" step="0.5" data-manual-print-setting="processing_order_size"></label>
                 <label><span>Client size</span><input type="number" min="7" max="15" step="0.5" data-manual-print-setting="processing_client_size"></label>
                 <label><span>Glass type size</span><input type="number" min="9" max="20" step="0.5" data-manual-print-setting="processing_glass_size"></label>
+                <label><span>Section size</span><input type="number" min="6" max="14" step="0.5" data-manual-print-setting="processing_section_size"></label>
+                <label><span>Section gap before (mm)</span><input type="number" min="0" max="12" step="0.5" data-manual-print-setting="processing_section_before_gap_mm"></label>
+                <label><span>Section gap after (mm)</span><input type="number" min="0" max="12" step="0.5" data-manual-print-setting="processing_section_after_gap_mm"></label>
                 <label><span>Row size</span><input type="number" min="9" max="18" step="0.5" data-manual-print-setting="processing_row_size"></label>
                 <label><span>Row spacing (mm)</span><input type="number" min="0" max="6" step="0.5" data-manual-print-setting="processing_row_spacing_mm"></label>
               </div>
@@ -1165,6 +1170,7 @@
                 <label class="inline-toggle"><input type="checkbox" data-manual-print-setting="processing_client_bold"><span>Bold client</span></label>
                 <label class="inline-toggle"><input type="checkbox" data-manual-print-setting="processing_glass_bold"><span>Bold glass type</span></label>
                 <label class="inline-toggle"><input type="checkbox" data-manual-print-setting="processing_rows_bold"><span>Bold rows</span></label>
+                <label class="inline-toggle"><input type="checkbox" data-manual-print-setting="processing_repeat_headers_per_section"><span>Headers each section</span></label>
                 <label class="inline-toggle"><input type="checkbox" data-manual-print-setting="processing_show_date"><span>Show date</span></label>
                 <label class="inline-toggle"><input type="checkbox" data-manual-print-setting="processing_show_client"><span>Show client</span></label>
                 <label class="inline-toggle"><input type="checkbox" data-manual-print-setting="processing_show_notes"><span>Show row notes</span></label>

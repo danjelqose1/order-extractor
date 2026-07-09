@@ -20620,6 +20620,8 @@ function nextManualRowDefaults(){
       index_number: Number.isInteger(previousIndex) && previousIndex > 0
         ? previousIndex + 1
         : fallbackIndex,
+      width_mm: previous?.width_mm || "",
+      height_mm: previous?.height_mm || "",
       glass_type: previous?.glass_type || "",
       quantity: 1,
     });
@@ -21698,9 +21700,9 @@ function initManualOrders(){
         if (fieldIndex < fieldOrder.length - 1){
           focusManualRowField(rowIndex, fieldOrder[fieldIndex + 1]);
         }else if (rowIndex === manualOrdersState.rows.length - 1){
-          appendManualRow({ focusField: manualIsRedIndexMode() ? "section" : "position" });
+          appendManualRow({ focusField: manualIsRedIndexMode() ? "client_position" : "position" });
         }else{
-          focusManualRowField(rowIndex + 1, manualIsRedIndexMode() ? "section" : "position");
+          focusManualRowField(rowIndex + 1, manualIsRedIndexMode() ? "client_position" : "position");
         }
       }
       return;
@@ -21716,7 +21718,9 @@ function initManualOrders(){
     }
     if (event.key === "ArrowDown" || event.key === "Enter"){
       event.preventDefault();
-      const nextField = event.key === "ArrowDown" ? "width_mm" : field;
+      const nextField = event.key === "ArrowDown"
+        ? (manualIsRedIndexMode() ? "client_position" : "width_mm")
+        : field;
       if (rowIndex === manualOrdersState.rows.length - 1){
         appendManualRow({ focusField: nextField });
       }else{
@@ -21765,6 +21769,9 @@ function initManualOrders(){
     }
     setManualFormError("");
     renderManualRows();
+    if (manualIsRedIndexMode()){
+      setTimeout(() => focusManualRowField(0, "client_position"), 0);
+    }
   });
   manualOrderStatus?.addEventListener("change", syncManualFormatUi);
   manualRedIndexPrint?.addEventListener("click", () => {
