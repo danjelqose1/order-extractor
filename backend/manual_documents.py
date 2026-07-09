@@ -515,26 +515,6 @@ def _build_red_index_processing_pdf(
                     align="right",
                 )
                 y -= 5 * mm
-            if section:
-                # The first section follows a glass heading; give it the same
-                # configurable separation used by later section headings.
-                if show_glass:
-                    y -= config["processing_section_before_gap_mm"] * mm
-                pdf.setFillColor(colors.HexColor("#667085"))
-                section_size = config["processing_section_size"]
-                pdf.setFont(bold_font, section_size)
-                _draw_fitted_text(
-                    pdf,
-                    section,
-                    x=margin,
-                    y=y,
-                    max_width=usable_width,
-                    font=bold_font,
-                    size=section_size,
-                    min_size=7,
-                )
-                y -= config["processing_section_after_gap_mm"] * mm
-
             pos_x = margin
             index_x = margin + (usable_width * 0.15)
             dimension_x = margin + (usable_width * 0.31)
@@ -550,6 +530,24 @@ def _build_red_index_processing_pdf(
                 pdf.setStrokeColor(colors.HexColor("#D0D5DD"))
                 pdf.setLineWidth(0.5)
                 pdf.line(margin, y, page_width - margin, y)
+
+            if section:
+                if show_glass or config["processing_repeat_headers_per_section"]:
+                    y -= config["processing_section_before_gap_mm"] * mm
+                pdf.setFillColor(colors.HexColor("#667085"))
+                section_size = config["processing_section_size"]
+                pdf.setFont(bold_font, section_size)
+                _draw_fitted_text(
+                    pdf,
+                    section,
+                    x=pos_x,
+                    y=y,
+                    max_width=index_x - pos_x - (3 * mm),
+                    font=bold_font,
+                    size=section_size,
+                    min_size=7,
+                )
+                y -= config["processing_section_after_gap_mm"] * mm
 
             for row in page_rows:
                 y -= row_step_mm * mm
