@@ -516,6 +516,10 @@ def _build_red_index_processing_pdf(
                 )
                 y -= 5 * mm
             if section:
+                # The first section follows a glass heading; give it the same
+                # configurable separation used by later section headings.
+                if show_glass:
+                    y -= config["processing_section_before_gap_mm"] * mm
                 pdf.setFillColor(colors.HexColor("#667085"))
                 section_size = config["processing_section_size"]
                 pdf.setFont(bold_font, section_size)
