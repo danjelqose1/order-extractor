@@ -387,6 +387,11 @@ def test_photo_assist_frontend_requires_review_and_explicit_apply():
     assert "function renderManualPhotoReview" in js
     assert "function applyManualPhotoResult" in js
     assert "manualPhotoFormHasUnsavedData()" in js
+    assert "async function prepareManualPhotoUpload" in js
+    assert "maxEdge = 1800" in js
+    assert 'canvas.toBlob(' in js
+    assert '"image/jpeg"' in js
+    assert "const preparedFile = await prepareManualPhotoUpload(file)" in js
     assert 'applyManualPhotoResult("replace")' in js
     assert 'applyManualPhotoResult("append")' in js
     assert 'formData.append("image"' in js

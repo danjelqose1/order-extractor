@@ -182,6 +182,7 @@ const manualPhotoAssistState = {
   previewUrl: "",
   result: null,
   controller: null,
+  preparationToken: 0,
   maxUploadBytes: 10 * 1024 * 1024,
 };
 
@@ -20628,6 +20629,7 @@ function clearManualPhotoReview(){
 function discardManualPhotoAssist({ silent = false } = {}){
   manualPhotoAssistState.controller?.abort();
   manualPhotoAssistState.controller = null;
+  manualPhotoAssistState.preparationToken += 1;
   if (manualPhotoAssistState.previewUrl){
     URL.revokeObjectURL(manualPhotoAssistState.previewUrl);
   }
@@ -20649,7 +20651,43 @@ function manualPhotoFileExtension(file){
   return dot >= 0 ? name.slice(dot) : "";
 }
 
-function selectManualPhoto(file){
+async function prepareManualPhotoUpload(file){
+  const maxEdge = 1800;
+  let bitmap;
+  try{
+    bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+    const width = Number(bitmap.width) || 0;
+    const height = Number(bitmap.height) || 0;
+    if (!width || !height) throw new Error("Image dimensions are unavailable.");
+    const scale = Math.min(1, maxEdge / Math.max(width, height));
+    const outputWidth = Math.max(1, Math.round(width * scale));
+    const outputHeight = Math.max(1, Math.round(height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = outputWidth;
+    canvas.height = outputHeight;
+    const context = canvas.getContext("2d", { alpha: false });
+    if (!context) throw new Error("Image preparation is unavailable.");
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, outputWidth, outputHeight);
+    context.drawImage(bitmap, 0, 0, outputWidth, outputHeight);
+    const blob = await new Promise((resolve, reject) => {
+      canvas.toBlob(
+        value => value ? resolve(value) : reject(new Error("Image preparation failed.")),
+        "image/jpeg",
+        0.88,
+      );
+    });
+    const originalName = String(file.name || "manual-order-photo").replace(/\.[^.]+$/, "");
+    return new File([blob], `${originalName}.jpg`, {
+      type: "image/jpeg",
+      lastModified: file.lastModified || Date.now(),
+    });
+  }finally{
+    bitmap?.close?.();
+  }
+}
+
+async function selectManualPhoto(file){
   if (!file) return;
   const allowedTypes = new Set([
     "image/jpeg",
@@ -20670,19 +20708,35 @@ function selectManualPhoto(file){
   }
 
   manualPhotoAssistState.controller?.abort();
+  const preparationToken = manualPhotoAssistState.preparationToken + 1;
+  manualPhotoAssistState.preparationToken = preparationToken;
   if (manualPhotoAssistState.previewUrl){
     URL.revokeObjectURL(manualPhotoAssistState.previewUrl);
   }
   clearManualPhotoReview();
-  manualPhotoAssistState.file = file;
+  manualPhotoAssistState.file = null;
   manualPhotoAssistState.previewUrl = URL.createObjectURL(file);
   if (manualPhotoPreview){
     manualPhotoPreview.src = manualPhotoAssistState.previewUrl;
   }
   if (manualPhotoPreviewWrap) manualPhotoPreviewWrap.hidden = false;
   if (manualPhotoFileName) manualPhotoFileName.textContent = file.name || "Selected photo";
-  setManualPhotoStatus("Image selected. Click Extract photo.", "selected");
   if (manualPhotoAssist) manualPhotoAssist.open = true;
+  setManualPhotoStatus("Preparing photo for extraction…", "uploading");
+  try{
+    const preparedFile = await prepareManualPhotoUpload(file);
+    if (manualPhotoAssistState.preparationToken !== preparationToken) return;
+    manualPhotoAssistState.file = preparedFile;
+    setManualPhotoStatus("Image prepared. Click Extract photo.", "selected");
+  }catch(error){
+    if (manualPhotoAssistState.preparationToken !== preparationToken) return;
+    manualPhotoAssistState.file = null;
+    setManualPhotoStatus(
+      "This photo could not be prepared. Try exporting it as a JPG or PNG.",
+      "failed",
+    );
+    console.warn("Manual Photo Assist image preparation failed", error);
+  }
 }
 
 function manualPhotoDisplay(value, fallback = "Not detected"){
