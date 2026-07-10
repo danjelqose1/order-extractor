@@ -20,6 +20,8 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 
 DEFAULT_MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+MAX_IMAGE_LONG_EDGE = 3200
+MAX_SOURCE_PIXELS = 60_000_000
 JPEG_IMAGE_FORMATS = {"JPEG", "MPO"}
 SUPPORTED_IMAGE_FORMATS = {
     "JPEG": "image/jpeg",
@@ -215,19 +217,29 @@ def normalize_uploaded_image(content: bytes) -> NormalizedImage:
             actual_format = str(opened.format or "").upper()
             if actual_format not in SUPPORTED_IMAGE_FORMATS:
                 raise UnsupportedImageError("Unsupported image format. Upload JPG, PNG, or WebP.")
+            if opened.width * opened.height > MAX_SOURCE_PIXELS:
+                raise InvalidImageError("Image dimensions are too large. Use a smaller photo.")
+
+            # JPEG draft mode asks the decoder to downsample before allocating the
+            # full pixel buffer. This keeps large phone photos within Render's
+            # memory limit without resizing small handwriting into unreadability.
+            if actual_format in JPEG_IMAGE_FORMATS:
+                opened.draft("RGB", (MAX_IMAGE_LONG_EDGE, MAX_IMAGE_LONG_EDGE))
             opened.load()
             image = ImageOps.exif_transpose(opened)
             if image.width < 1 or image.height < 1:
                 raise InvalidImageError("Image could not be read.")
 
-            # Large phone photos remain legible while staying below practical API limits.
-            if max(image.size) > 7680:
-                image.thumbnail((7680, 7680), Image.Resampling.LANCZOS)
+            if max(image.size) > MAX_IMAGE_LONG_EDGE:
+                image.thumbnail(
+                    (MAX_IMAGE_LONG_EDGE, MAX_IMAGE_LONG_EDGE),
+                    Image.Resampling.LANCZOS,
+                )
 
             output = BytesIO()
             if actual_format in JPEG_IMAGE_FORMATS:
                 normalized = image.convert("RGB")
-                normalized.save(output, format="JPEG", quality=95, subsampling=0)
+                normalized.save(output, format="JPEG", quality=92, subsampling=2)
                 mime_type = "image/jpeg"
             else:
                 normalized = image.convert("RGBA" if "A" in image.getbands() else "RGB")

@@ -4890,6 +4890,10 @@ async function addScanFiles(fileList){
 	  return !!(panels.scanstudio && panels.scanstudio.classList.contains("active"));
 	}
 
+	function isManualOrdersActive(){
+	  return !!(panels.manual && panels.manual.classList.contains("active"));
+	}
+
 	function isFileDragEvent(event){
 	  const types = Array.from(event.dataTransfer?.types || []);
 	  return types.includes("Files");
@@ -5027,6 +5031,10 @@ async function addScanFiles(fileList){
 	}
 
 	function handleGlobalScanDragEnter(event){
+	  if (isManualOrdersActive()){
+	    resetGlobalScanDragState();
+	    return;
+	  }
 	  if (shouldIgnoreGlobalScanDropTarget(event.target)) return;
 	  const mode = getPotentialGlobalFileDropMode(event);
 	  if (!mode) return;
@@ -5036,6 +5044,17 @@ async function addScanFiles(fileList){
 
 	function handleGlobalScanDragOver(event){
 	  if (!isFileDragEvent(event)) return;
+	  if (isManualOrdersActive()){
+	    event.preventDefault();
+	    resetGlobalScanDragState();
+	    if (event.dataTransfer){
+	      const target = event.target && event.target.nodeType === Node.ELEMENT_NODE
+	        ? event.target
+	        : event.target?.parentElement;
+	      event.dataTransfer.dropEffect = target?.closest?.("#manualPhotoDropzone") ? "copy" : "none";
+	    }
+	    return;
+	  }
 	  if (shouldIgnoreGlobalScanDropTarget(event.target)) return;
 	  event.preventDefault();
 	  const mode = getPotentialGlobalFileDropMode(event);
@@ -5048,6 +5067,10 @@ async function addScanFiles(fileList){
 	}
 
 	function handleGlobalScanDragLeave(event){
+	  if (isManualOrdersActive()){
+	    resetGlobalScanDragState();
+	    return;
+	  }
 	  if (shouldIgnoreGlobalScanDropTarget(event.target)) return;
 	  if (!getPotentialGlobalFileDropMode(event)) return;
 	  const leftWindow = event.clientX <= 0
@@ -5065,6 +5088,11 @@ async function addScanFiles(fileList){
 	}
 
 	function handleGlobalScanDrop(event){
+	  if (isManualOrdersActive() && isFileDragEvent(event)){
+	    event.preventDefault();
+	    resetGlobalScanDragState();
+	    return;
+	  }
 	  if (!isFileDragEvent(event) || shouldIgnoreGlobalScanDropTarget(event.target)) return;
 	  event.preventDefault();
 	  resetGlobalScanDragState();

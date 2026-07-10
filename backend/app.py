@@ -3760,6 +3760,7 @@ async def extract_manual_order_photo(image: UploadFile = File(...)) -> PhotoAssi
                 detail=f"Image is too large. Maximum size is {max_bytes // (1024 * 1024)} MB.",
             )
         normalized = normalize_uploaded_image(content)
+        del content
         result = await asyncio.to_thread(
             extract_photo_assist,
             normalized,

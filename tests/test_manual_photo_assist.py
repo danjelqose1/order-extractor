@@ -123,6 +123,36 @@ def test_photo_assist_flattens_mpo_detected_iphone_photo_to_jpeg(monkeypatch):
     assert normalized.content.startswith(b"\xff\xd8")
 
 
+def test_photo_assist_downsamples_large_jpeg_before_model_upload():
+    source = Image.new("RGB", (3600, 900), "white")
+    stream = BytesIO()
+    source.save(stream, format="JPEG", quality=90)
+
+    normalized = photo.normalize_uploaded_image(stream.getvalue())
+
+    assert max(normalized.width, normalized.height) <= photo.MAX_IMAGE_LONG_EDGE
+    assert normalized.mime_type == "image/jpeg"
+    assert len(normalized.content) < len(stream.getvalue())
+
+
+def test_photo_assist_rejects_extreme_pixel_dimensions_before_decode(monkeypatch):
+    class OversizedImage:
+        format = "JPEG"
+        width = 10000
+        height = 10000
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(photo.Image, "open", lambda _stream: OversizedImage())
+
+    with pytest.raises(photo.InvalidImageError, match="dimensions are too large"):
+        photo.normalize_uploaded_image(b"not-empty")
+
+
 def test_photo_assist_rejects_heic_with_a_safe_conversion_message():
     fake_heic = b"\x00\x00\x00\x18ftypheic" + (b"\x00" * 32)
 
@@ -365,3 +395,16 @@ def test_photo_assist_frontend_requires_review_and_explicit_apply():
     apply_block = js[js.index("function applyManualPhotoResult"):js.index("function manualToday")]
     assert 'manualApi("/manual-orders"' not in apply_block
     assert "saveManualOrder(" not in apply_block
+
+
+def test_manual_orders_disables_global_scan_studio_drop_routing():
+    js = APP_JS.read_text(encoding="utf-8")
+    global_drop_block = js[
+        js.index("function isScanStudioActive"):
+        js.index("function cleanupGlobalScanDropRouting")
+    ]
+
+    assert "function isManualOrdersActive" in global_drop_block
+    assert "panels.manual.classList.contains(\"active\")" in global_drop_block
+    assert "if (isManualOrdersActive() && isFileDragEvent(event))" in global_drop_block
+    assert 'target?.closest?.("#manualPhotoDropzone") ? "copy" : "none"' in global_drop_block
