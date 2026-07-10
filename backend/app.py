@@ -22,7 +22,7 @@ PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from fastapi import FastAPI, HTTPException, Header, UploadFile, File, Query, Request
+from fastapi import FastAPI, HTTPException, Header, UploadFile, File, Form, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, ValidationError
@@ -3740,7 +3740,10 @@ def get_manual_photo_assist_config() -> Dict[str, Any]:
     "/api/manual-orders/photo-assist/extract",
     response_model=PhotoAssistResponse,
 )
-async def extract_manual_order_photo(image: UploadFile = File(...)) -> PhotoAssistResponse:
+async def extract_manual_order_photo(
+    image: UploadFile = File(...),
+    dimension_unit: str = Form("cm"),
+) -> PhotoAssistResponse:
     if not photo_assist_enabled():
         raise HTTPException(status_code=404, detail="Photo Assist is not enabled.")
 
@@ -3766,6 +3769,7 @@ async def extract_manual_order_photo(image: UploadFile = File(...)) -> PhotoAssi
             normalized,
             request_id=request_id,
             model=model,
+            preferred_dimension_unit="mm" if dimension_unit == "mm" else "cm",
         )
         warning_count = len(result.global_warnings) + sum(len(row.warnings) for row in result.rows)
         logger.info(

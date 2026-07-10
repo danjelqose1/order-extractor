@@ -216,6 +216,65 @@ def test_photo_assist_simple_list_does_not_invent_references_or_indexes():
     assert all("Dimensions may be written in centimetres" in (row.width.warning or "") for row in result.rows)
 
 
+def test_photo_assist_reasons_over_simple_glass_list_with_selected_cm_unit():
+    heading = _row(
+        source_line="3/3 transparent tek",
+        section=None,
+        client_reference=_text(None, None),
+        index_number=_index(None, None),
+        width=_dimension(None, None),
+        height=_dimension(None, None),
+        quantity=_quantity(None, None),
+        glass_type=_text("transparent tek", "transparent tek"),
+        notes={"raw": "3/3", "value": "3/3"},
+    )
+    dimensions = [
+        ("108 x 137.5 = 3", 108, 137.5, 3, "="),
+        ("108 x 78.5 = 3", 108, 78.5, 3, "="),
+        ("110 x 137.5 = 3", 110, 137.5, 3, "="),
+        ("110 x 78.5 = 3", 110, 78.5, 3, "="),
+        ("70 x 132 2 2", 70, 132, 2, "2"),
+        ("70 x 78.5 = 2", 70, 78.5, 2, "="),
+    ]
+    rows = [heading]
+    for source, width, height, quantity, note in dimensions:
+        rows.append(
+            _row(
+                source_line=source,
+                section=None,
+                client_reference=_text(None, None),
+                index_number=_index(None, None),
+                width=_dimension(str(width), width, "unknown", "Unit unclear"),
+                height=_dimension(str(height), height, "unknown", "Unit unclear"),
+                quantity=_quantity(str(quantity), quantity),
+                glass_type=_text(None, None),
+                notes={"raw": note, "value": note},
+                warnings=["Unit not clear from image"],
+            )
+        )
+
+    result = photo.normalize_extraction(
+        _ai_result(
+            rows=rows,
+            document={
+                "client_name": _text(None, None),
+                "order_number": _text(None, None),
+                "glass_type": _text("transparent tek", "transparent tek"),
+            },
+            global_warnings=["Dimension unit is unclear."],
+        ),
+        preferred_dimension_unit="cm",
+    )
+
+    assert len(result.rows) == 6
+    assert result.document.glass_type.value == "3/3 transparent tek"
+    assert all(row.glass_type.value == "3/3 transparent tek" for row in result.rows)
+    assert result.rows[0].width.normalized_mm == 1080
+    assert result.rows[0].height.normalized_mm == 1375
+    assert all(row.notes.value is None for row in result.rows)
+    assert result.global_warnings == []
+
+
 def test_photo_assist_unreadable_row_is_preserved_with_nulls_and_warnings():
     unreadable = _row(
         source_line="? x 120 = ?",
@@ -258,7 +317,7 @@ def test_photo_assist_retries_one_malformed_response_then_returns_review_data():
     assert len(calls) == 2
     assert response.request_id == "request-test"
     assert response.model == "vision-test"
-    assert response.status == "needs_review"
+    assert response.status == "ready"
 
 
 def test_photo_assist_surfaces_model_timeout_as_timeout_error():
@@ -287,6 +346,7 @@ def test_photo_assist_sends_direct_image_with_high_detail_and_strict_schema():
         _normalized_image(),
         model="vision-test",
         client=SimpleNamespace(responses=FakeResponses()),
+        preferred_dimension_unit="cm",
     )
 
     assert result.rows[0].source_line
@@ -294,6 +354,7 @@ def test_photo_assist_sends_direct_image_with_high_detail_and_strict_schema():
     assert calls[0]["store"] is False
     assert calls[0]["text"]["format"]["type"] == "json_schema"
     assert calls[0]["text"]["format"]["strict"] is True
+    assert "currently set to centimetres (cm)" in calls[0]["instructions"]
     image_input = calls[0]["input"][0]["content"][1]
     assert image_input["type"] == "input_image"
     assert image_input["detail"] == "high"
@@ -395,6 +456,7 @@ def test_photo_assist_frontend_requires_review_and_explicit_apply():
     assert 'applyManualPhotoResult("replace")' in js
     assert 'applyManualPhotoResult("append")' in js
     assert 'formData.append("image"' in js
+    assert 'formData.append("dimension_unit"' in js
     assert 'manualApi("/api/manual-orders/photo-assist/extract"' in js
     assert '@app.post(\n    "/api/manual-orders/photo-assist/extract"' in app_py
     apply_block = js[js.index("function applyManualPhotoResult"):js.index("function manualToday")]

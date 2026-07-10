@@ -177,7 +177,7 @@ class NormalizedImage:
 
 
 EXTRACTION_PROMPT = """
-You are extracting handwritten glass-order data from a photograph. Read the document conservatively.
+You are an experienced glass-factory order clerk extracting a handwritten glass order from a photograph. Understand the whole document and its layout before transcribing individual rows.
 
 Never invent missing numbers. When a digit, decimal, quantity, index, client reference, or glass type is unclear, return null or preserve the uncertain raw text and add a warning. Preserve original detected values in raw fields. Do not calculate normalized_mm; the backend does that deterministically.
 
@@ -193,12 +193,31 @@ Rules:
 7. Never manufacture client name or order number when absent.
 8. Preserve source_line for every detected row.
 9. Preserve raw values before normalization.
-10. Dimensions may be mm or cm. Suggest the unit only when the document is sufficiently clear; otherwise use unknown and warn.
+10. Dimensions may be mm or cm. Use an explicit image unit or the supplied Manual Orders unit. Use unknown only when no preferred unit exists or the visible values clearly conflict with it.
 11. Do not use area to correct or infer dimensions.
 12. Return incomplete rows with warnings instead of discarding them.
+13. Classify headings separately from order rows. A glass-type heading without width, height, and quantity is document context and must not be returned as a row.
+14. Preserve the complete glass-type heading. A leading fraction or construction such as 3/3, 4/4, or 3+3 is part of the glass type, not a quantity, note, client reference, or section.
+15. Equals signs, multiplication signs, arrows, and repeated separator marks are syntax, not notes.
+16. Use repeated row structure to resolve layout. For a simple list under one glass-type heading, apply that glass type to every following dimension row.
+17. If the user supplies a preferred Manual Orders dimension unit, use it for ordinary row dimensions unless the image explicitly shows another unit or the values are clearly incompatible with it.
+18. A line such as 70 x 132 = 2 represents width 70, height 132, quantity 2. Do not create an index or client position unless one is visibly present.
 
 Return only data matching the required JSON schema. Do not return markdown or hidden reasoning.
 """.strip()
+
+
+def _model_instructions(preferred_dimension_unit: Optional[str]) -> str:
+    unit = preferred_dimension_unit if preferred_dimension_unit in {"mm", "cm"} else None
+    if not unit:
+        return EXTRACTION_PROMPT
+    label = "centimetres" if unit == "cm" else "millimetres"
+    return (
+        f"{EXTRACTION_PROMPT}\n\n"
+        f"Manual Orders is currently set to {label} ({unit}). Treat ordinary handwritten "
+        f"dimensions as {unit} unless the image explicitly indicates a different unit or the "
+        "values are implausible for architectural glass."
+    )
 
 
 def _looks_like_heic(content: bytes) -> bool:
@@ -307,9 +326,6 @@ def _normalize_dimension(dimension: DimensionDetection, label: str, row_warnings
     dimension.value = value
     if dimension.unit == "cm":
         dimension.normalized_mm = round(value * 10, 3)
-        message = "Dimensions were interpreted as centimetres. Confirm the normalized millimetres before applying."
-        dimension.warning = _append_warning(dimension.warning, message)
-        row_warnings.append(message)
     elif dimension.unit == "mm":
         dimension.normalized_mm = round(value, 3)
     else:
@@ -329,18 +345,58 @@ def _normalize_dimension(dimension: DimensionDetection, label: str, row_warnings
         row_warnings.append(message)
 
 
-def normalize_extraction(ai_result: PhotoAssistAIResult) -> PhotoAssistAIResult:
+def _is_heading_only_row(row: PhotoAssistRow) -> bool:
+    source = str(row.source_line or "").lower()
+    has_dimension_syntax = " x " in source or "×" in source
+    has_dimensions = row.width.value is not None or row.height.value is not None
+    has_quantity = row.quantity.value is not None
+    return bool(row.glass_type.value and not has_dimension_syntax and not has_dimensions and not has_quantity)
+
+
+def _is_unit_uncertainty(message: Optional[str]) -> bool:
+    text = str(message or "").lower()
+    return "unit" in text or "centimet" in text or "millimet" in text
+
+
+def normalize_extraction(
+    ai_result: PhotoAssistAIResult,
+    *,
+    preferred_dimension_unit: Optional[str] = None,
+) -> PhotoAssistAIResult:
     result = ai_result.model_copy(deep=True)
     result.rows = [row for row in result.rows if _row_has_meaning(row)]
+    heading_rows = [row for row in result.rows if _is_heading_only_row(row)]
+    for heading in heading_rows:
+        source = str(heading.source_line or "").strip()
+        current_glass = str(result.document.glass_type.value or "").strip()
+        if source and current_glass and current_glass.lower() in source.lower():
+            result.document.glass_type.raw = source
+            result.document.glass_type.value = source
+    result.rows = [row for row in result.rows if not _is_heading_only_row(row)]
     if not result.rows:
         raise NoOrderRowsError("No order rows were detected.")
 
+    preferred_unit = preferred_dimension_unit if preferred_dimension_unit in {"mm", "cm"} else None
     detected_units = set()
     index_rows: Dict[int, List[int]] = {}
     inherited_glass = result.document.glass_type.value
 
     for row_number, row in enumerate(result.rows, start=1):
         row.warnings = [str(item).strip() for item in row.warnings if str(item).strip()]
+        if preferred_unit:
+            for dimension in (row.width, row.height):
+                if dimension.value is not None and dimension.unit == "unknown":
+                    dimension.unit = preferred_unit
+                    if _is_unit_uncertainty(dimension.warning):
+                        dimension.warning = None
+            row.warnings = [warning for warning in row.warnings if not _is_unit_uncertainty(warning)]
+
+        note_value = str(row.notes.value or "").strip()
+        quantity_text = str(row.quantity.value or row.quantity.raw or "").strip()
+        if note_value in {"=", "x", "×", "+", "->", "→"} or (
+            note_value and quantity_text and note_value == quantity_text and "x" in str(row.source_line or "").lower()
+        ):
+            row.notes.value = None
         _normalize_dimension(row.width, "Width", row.warnings)
         _normalize_dimension(row.height, "Height", row.warnings)
         for dimension in (row.width, row.height):
@@ -393,9 +449,10 @@ def normalize_extraction(ai_result: PhotoAssistAIResult) -> PhotoAssistAIResult:
         if message not in result.global_warnings:
             result.global_warnings.append(message)
 
-    result.global_warnings = list(
-        dict.fromkeys(str(item).strip() for item in result.global_warnings if str(item).strip())
-    )
+    global_warnings = [str(item).strip() for item in result.global_warnings if str(item).strip()]
+    if preferred_unit:
+        global_warnings = [warning for warning in global_warnings if not _is_unit_uncertainty(warning)]
+    result.global_warnings = list(dict.fromkeys(global_warnings))
     return result
 
 
@@ -443,12 +500,13 @@ def _call_model_once(
     *,
     model: str,
     client: Any,
+    preferred_dimension_unit: Optional[str] = None,
 ) -> PhotoAssistAIResult:
     encoded = base64.b64encode(image.content).decode("ascii")
     data_url = f"data:{image.mime_type};base64,{encoded}"
     response = client.responses.create(
         model=model,
-        instructions=EXTRACTION_PROMPT,
+        instructions=_model_instructions(preferred_dimension_unit),
         input=[
             {
                 "role": "user",
@@ -493,6 +551,7 @@ def extract_photo_assist(
     request_id: str,
     client: Any = None,
     model: Optional[str] = None,
+    preferred_dimension_unit: Optional[str] = None,
     call_once: Optional[Callable[..., PhotoAssistAIResult]] = None,
 ) -> PhotoAssistResponse:
     selected_model = model or photo_assist_model()
@@ -502,8 +561,19 @@ def extract_photo_assist(
 
     for attempt in range(2):
         try:
-            extracted = caller(image, model=selected_model, client=openai_client)
-            normalized = normalize_extraction(extracted)
+            if call_once:
+                extracted = caller(image, model=selected_model, client=openai_client)
+            else:
+                extracted = caller(
+                    image,
+                    model=selected_model,
+                    client=openai_client,
+                    preferred_dimension_unit=preferred_dimension_unit,
+                )
+            normalized = normalize_extraction(
+                extracted,
+                preferred_dimension_unit=preferred_dimension_unit,
+            )
             return PhotoAssistResponse(
                 **normalized.model_dump(),
                 status="needs_review" if _result_has_warnings(normalized) else "ready",

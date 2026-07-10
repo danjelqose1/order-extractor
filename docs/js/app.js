@@ -20865,6 +20865,7 @@ async function extractManualPhoto(){
   setManualPhotoStatus("Uploading image and extracting handwriting…", "extracting");
   const formData = new FormData();
   formData.append("image", file, file.name || "manual-order-photo");
+  formData.append("dimension_unit", manualOrdersState.dimensionUnit === "mm" ? "mm" : "cm");
   try{
     const result = await manualApi("/api/manual-orders/photo-assist/extract", {
       method: "POST",
