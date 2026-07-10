@@ -1,11 +1,17 @@
 from pathlib import Path
 
 
-FRONTEND = Path(__file__).resolve().parents[1] / "frontend" / "index.html"
+ROOT = Path(__file__).resolve().parents[1]
+INDEX_HTML = ROOT / "docs" / "index.html"
+APP_JS = ROOT / "docs" / "js" / "app.js"
+STYLES_CSS = ROOT / "docs" / "css" / "styles.css"
 
 
 def _html() -> str:
-    return FRONTEND.read_text(encoding="utf-8")
+    return "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (INDEX_HTML, APP_JS, STYLES_CSS)
+    )
 
 
 def test_pdf_editor_navigation_and_upload_ui_present():

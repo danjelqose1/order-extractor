@@ -553,6 +553,11 @@
                 <span id="workspaceQueueStatus" class="muted small"></span>
               </div>
             </div>
+            <div class="workspace-queue-toolbar">
+              <label for="workspaceQueueSearch">Find an order</label>
+              <input type="search" id="workspaceQueueSearch" placeholder="Search order number or client…" autocomplete="off" />
+              <span id="workspaceQueueFilterStatus" class="muted small" aria-live="polite"></span>
+            </div>
             <div id="workspaceQueue" class="workspace-queue-grid" style="margin-top:12px">
               <div class="workspace-empty">Loading queue...</div>
             </div>
@@ -1829,7 +1834,7 @@
           <button type="button" class="btn small" data-question="Summarize repeated dimensions and batching opportunities.">Summarize repeated dimensions</button>
         </div>
         <div class="controls" style="align-items:stretch">
-          <input type="text" id="analysisQuestion" placeholder="Ask about current aggregated analysis (no raw rows)." style="flex:1;min-width:200px;padding:8px 12px;border:1px solid var(--border-dark);border-radius:10px;background:#fbfcff" />
+          <input type="text" id="analysisQuestion" class="analysis-question-input" placeholder="Ask about current aggregated analysis (no raw rows)." />
           <button type="button" class="btn primary" id="analysisAsk">Ask</button>
         </div>
         <div id="analysisAnswer" class="muted small" style="margin-top:12px">Ask a question based on the computed analysis above.</div>

@@ -4062,20 +4062,37 @@
       .pdf-editor-shell{
         display:flex;
         flex-direction:column;
-        padding-bottom:76px;
+        padding-bottom:0;
       }
       .pdf-editor-toolbar{
-        position:fixed;
-        left:0;
-        right:0;
-        bottom:0;
-        z-index:70;
-        border-radius:14px 14px 0 0;
-        overflow-x:auto;
+        position:static;
+        width:100%;
+        z-index:auto;
+        align-items:stretch;
+        flex-direction:column;
         justify-content:flex-start;
+        gap:8px;
+        overflow:visible;
+        border-radius:12px;
       }
       .pdf-toolbar-group{
-        flex-wrap:nowrap;
+        display:flex;
+        width:100%;
+        flex-wrap:wrap;
+      }
+      .pdf-editor-toolbar .btn.small{
+        min-width:44px;
+        min-height:44px;
+        flex:1 1 auto;
+        white-space:normal;
+      }
+      .pdf-toolbar-group .mono{
+        min-width:48px;
+        text-align:center;
+      }
+      .analysis-table-sort button{
+        min-width:44px;
+        min-height:44px;
       }
       .pdf-editor-sidebar{
         max-height:168px;
@@ -4235,6 +4252,26 @@
     .workspace-main > .card{
       padding:16px;
     }
+    .workspace-queue-toolbar{
+      display:grid;
+      grid-template-columns:auto minmax(220px,360px) minmax(0,1fr);
+      align-items:center;
+      gap:10px;
+      margin-top:12px;
+      padding-top:12px;
+      border-top:1px solid var(--border);
+    }
+    .workspace-queue-toolbar label{
+      color:var(--muted);
+      font-size:12px;
+      font-weight:750;
+    }
+    .workspace-queue-toolbar input{
+      width:100%;
+      min-height:36px;
+      padding:7px 10px;
+      font-size:13px;
+    }
     .workspace-side-panel{
       gap:12px;
     }
@@ -4255,6 +4292,30 @@
       padding:12px;
       border-bottom:1px solid var(--border);
       background:#fbfcff;
+    }
+    .workspace-group-pagination{
+      position:sticky;
+      bottom:-12px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:8px;
+      margin:10px -12px -12px;
+      padding:10px 12px;
+      border-top:1px solid var(--border);
+      background:var(--card-bg);
+      color:var(--muted);
+      font-size:12px;
+      font-weight:700;
+    }
+    .analysis-question-input{
+      flex:1;
+      min-width:200px;
+      padding:8px 12px;
+      border:1px solid var(--border-dark);
+      border-radius:10px;
+      background:var(--card-bg);
+      color:var(--text);
     }
     .workspace-recent-files{
       max-height:360px;
@@ -5615,6 +5676,7 @@
         background:#101822;
       }
       .igu-order-list,
+      .processing-order-list,
       .workspace-order-card,
       .workspace-file-item,
       .workspace-message.assistant,
@@ -5624,6 +5686,11 @@
       .scan-page-list{
         border-color:var(--border);
         background:#151e29;
+      }
+      .processing-order-list.processing-empty{
+        border-color:#3b485b;
+        background:#101822;
+        color:#9da9b9;
       }
       .workspace-group-title{
         border-color:var(--border);
@@ -6937,6 +7004,22 @@
       }
     }
     @media (max-width:600px){
+      .workspace-queue-toolbar{
+        grid-template-columns:1fr;
+        align-items:stretch;
+      }
+      .workspace-queue-toolbar input{
+        min-height:44px;
+        font-size:16px;
+      }
+      .workspace-group-pagination{
+        align-items:stretch;
+        flex-direction:column;
+      }
+      .workspace-group-pagination .btn{
+        width:100%;
+        min-height:44px;
+      }
       .manual-order-fields{
         grid-template-columns:1fr;
       }
@@ -6979,5 +7062,31 @@
       .manual-photo-controls .btn,
       .manual-photo-review-actions .btn{
         width:100%;
+      }
+    }
+
+    /* Late component rules must not override the system dark theme. */
+    @media (prefers-color-scheme:dark){
+      .telegram-files-toolbar input,
+      .telegram-files-toolbar select,
+      .analysis-question-input,
+      .workspace-queue-toolbar input{
+        border-color:var(--border-dark);
+        background:#0f1620;
+        color:#e6ebf2;
+      }
+      .manual-photo-warning,
+      .manual-photo-warning-list,
+      .manual-photo-fallback-badge{
+        border-color:#674d22;
+        background:#352912;
+        color:#edc477;
+      }
+      .manual-photo-reference-image{
+        background:#101822;
+      }
+      .workspace-group-pagination{
+        border-color:var(--border);
+        background:#151e29;
       }
     }

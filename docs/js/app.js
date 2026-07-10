@@ -310,6 +310,9 @@ const workspaceState = {
   selectedOrderNumbers: new Map(),
   lastAgentAction: null,
   latestPendingAction: null,
+  queueQuery: "",
+  queuePageSize: 20,
+  queueGroupLimits: {},
 };
 
 const awaState = {
@@ -893,6 +896,8 @@ const workspaceRefreshBtn = document.getElementById("workspaceRefresh");
 const workspaceQueueEl = document.getElementById("workspaceQueue");
 const workspaceQueueStatusEl = document.getElementById("workspaceQueueStatus");
 const workspaceSelectionStatusEl = document.getElementById("workspaceSelectionStatus");
+const workspaceQueueSearchInput = document.getElementById("workspaceQueueSearch");
+const workspaceQueueFilterStatusEl = document.getElementById("workspaceQueueFilterStatus");
 const workspaceProcessSelectedBtn = document.getElementById("workspaceProcessSelected");
 const workspaceClearSelectionBtn = document.getElementById("workspaceClearSelection");
 const workspaceRecentFilesEl = document.getElementById("workspaceRecentFiles");
@@ -14278,9 +14283,24 @@ function renderWorkspaceQueue(queue){
     });
   }
   const order = ["needs_review", "approved_ready", "processing_done", "labels_ready", "finished"];
+  const query = String(workspaceState.queueQuery || "").trim().toLowerCase();
+  let totalMatches = 0;
   workspaceQueueEl.innerHTML = order.map(key => {
-    const items = Array.isArray(groups[key]) ? groups[key] : [];
-    const cards = items.length ? items.map(item => {
+    const sourceItems = Array.isArray(groups[key]) ? groups[key] : [];
+    const items = query ? sourceItems.filter(item => {
+      const haystack = [item.order_number, item.client_name, item.status]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(query);
+    }) : sourceItems;
+    totalMatches += items.length;
+    const limit = Math.max(
+      workspaceState.queuePageSize,
+      Number(workspaceState.queueGroupLimits[key] || workspaceState.queuePageSize),
+    );
+    const visibleItems = items.slice(0, limit);
+    const cards = visibleItems.length ? visibleItems.map(item => {
       const processingUrl = workspaceFileUrl(item.processing_pdf_url);
       const labelsUrl = workspaceFileUrl(item.labels_pdf_url);
       const canProcess = key === "approved_ready";
@@ -14310,12 +14330,22 @@ function renderWorkspaceQueue(queue){
           ${labelsUrl ? `<a class="btn small" href="${escapeHtml(labelsUrl)}" target="_blank" rel="noopener">Labels PDF</a>` : ""}
         </div>
       </div>`;
-    }).join("") : '<div class="workspace-empty">No orders.</div>';
+    }).join("") : `<div class="workspace-empty">${query ? "No matching orders." : "No orders."}</div>`;
+    const remaining = Math.max(0, items.length - visibleItems.length);
+    const pagination = items.length ? `<div class="workspace-group-pagination">
+      <span>Showing ${visibleItems.length} of ${items.length}</span>
+      ${remaining ? `<button type="button" class="btn small tertiary" data-workspace-show-more="${escapeHtml(key)}">Show ${Math.min(workspaceState.queuePageSize, remaining)} more</button>` : ""}
+    </div>` : "";
     return `<section class="workspace-group">
       <div class="workspace-group-title"><span>${escapeHtml(workspaceGroupLabel(key))}</span><span class="pill">${items.length}</span></div>
-      ${cards}
+      ${cards}${pagination}
     </section>`;
   }).join("");
+  if (workspaceQueueFilterStatusEl){
+    workspaceQueueFilterStatusEl.textContent = query
+      ? `${totalMatches} matching order${totalMatches === 1 ? "" : "s"}`
+      : "Showing up to 20 orders per queue";
+  }
 }
 
 async function loadWorkspace(){
@@ -15139,6 +15169,13 @@ async function processWorkspaceOrder(identifier){
 if (workspaceRefreshBtn){
   workspaceRefreshBtn.addEventListener("click", ()=> loadWorkspace());
 }
+if (workspaceQueueSearchInput){
+  workspaceQueueSearchInput.addEventListener("input", event => {
+    workspaceState.queueQuery = String(event.target.value || "");
+    workspaceState.queueGroupLimits = {};
+    renderWorkspaceQueue(workspaceState.queue);
+  });
+}
 if (awaRefreshBtn){
   awaRefreshBtn.addEventListener("click", ()=> loadAwa());
 }
@@ -15293,6 +15330,16 @@ if (workspaceRecentFilesEl){
 }
 if (workspaceQueueEl){
   workspaceQueueEl.addEventListener("click", async event => {
+    const showMoreButton = event.target.closest("[data-workspace-show-more]");
+    if (showMoreButton){
+      const group = showMoreButton.dataset.workspaceShowMore || "";
+      if (group){
+        const current = Number(workspaceState.queueGroupLimits[group] || workspaceState.queuePageSize);
+        workspaceState.queueGroupLimits[group] = current + workspaceState.queuePageSize;
+        renderWorkspaceQueue(workspaceState.queue);
+      }
+      return;
+    }
     const card = event.target.closest(".workspace-order-card");
     if (card){
       workspaceState.selectedOrderId = card.dataset.workspaceOrderId || "";

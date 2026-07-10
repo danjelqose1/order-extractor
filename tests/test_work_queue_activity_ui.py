@@ -41,3 +41,25 @@ def test_global_activity_center_tracks_long_running_work():
     assert 'startBackgroundActivity("Production PDF"' in JS
     assert ".activity-center" in CSS
     assert ".activity-progress" in CSS
+
+
+def test_production_queue_has_search_and_bounded_incremental_rendering():
+    assert 'id="workspaceQueueSearch"' in HTML
+    assert 'id="workspaceQueueFilterStatus"' in HTML
+    assert "queuePageSize: 20" in JS
+    assert "queueGroupLimits: {}" in JS
+    assert "const visibleItems = items.slice(0, limit);" in JS
+    assert 'data-workspace-show-more="${escapeHtml(key)}"' in JS
+    assert "workspaceQueueSearchInput.addEventListener" in JS
+    assert ".workspace-queue-toolbar" in CSS
+    assert ".workspace-group-pagination" in CSS
+
+
+def test_mobile_pdf_toolbar_wraps_without_covering_content():
+    mobile_pdf = CSS.split("@media (max-width:760px)", 1)[1]
+
+    assert ".pdf-editor-toolbar{" in mobile_pdf
+    assert "position:static;" in mobile_pdf
+    assert "flex-direction:column;" in mobile_pdf
+    assert ".pdf-editor-toolbar .btn.small{" in mobile_pdf
+    assert "min-height:44px;" in mobile_pdf
