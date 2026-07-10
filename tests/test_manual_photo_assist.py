@@ -275,6 +275,89 @@ def test_photo_assist_reasons_over_simple_glass_list_with_selected_cm_unit():
     assert result.global_warnings == []
 
 
+def test_photo_assist_preserves_multiple_glass_groups_and_sections():
+    first_heading = _row(
+        source_line="3/3 tr + 12 + tr + 10 + termik + g (37mm)",
+        section=None,
+        client_reference=_text(None, None),
+        index_number=_index(None, None),
+        width=_dimension(None, None),
+        height=_dimension(None, None),
+        quantity=_quantity(None, None),
+        glass_type=_text("3/3 tr + 12 + tr + 10 + termik + g", "3/3 tr + 12 + tr + 10 + termik + g"),
+        notes={"raw": "37mm", "value": "37mm"},
+    )
+    second_heading = _row(
+        source_line="3/3 tr + 13 + tr + 10 + termik + g (38mm)",
+        section=None,
+        client_reference=_text(None, None),
+        index_number=_index(None, None),
+        width=_dimension(None, None),
+        height=_dimension(None, None),
+        quantity=_quantity(None, None),
+        glass_type=_text("3/3 tr + 13 + tr + 10 + termik + g", "3/3 tr + 13 + tr + 10 + termik + g"),
+        notes={"raw": "38mm", "value": "38mm"},
+    )
+    first_row = _row(
+        source_line="1 - 1 48.5 x 223 x 2",
+        section="Kapollani",
+        client_reference=_text("1", "1"),
+        index_number=_index("1", 1),
+        width=_dimension("48.5", 48.5, "cm"),
+        height=_dimension("223", 223, "cm"),
+        quantity=_quantity("2", 2),
+        glass_type=_text(None, None),
+        notes={"raw": None, "value": None},
+    )
+    second_row = _row(
+        source_line="2 - 2 55 x 139 x 2",
+        section=None,
+        client_reference=_text("2", "2"),
+        index_number=_index("2", 2),
+        width=_dimension("55", 55, "cm"),
+        height=_dimension("139", 139, "cm"),
+        quantity=_quantity("2", 2),
+        glass_type=_text(None, None),
+        notes={"raw": None, "value": None},
+    )
+    third_row = _row(
+        source_line="1 - 12 53 x 132 x 1",
+        section="Hevi",
+        client_reference=_text("1", "1"),
+        index_number=_index("12", 12),
+        width=_dimension("53", 53, "cm"),
+        height=_dimension("132", 132, "cm"),
+        quantity=_quantity("1", 1),
+        glass_type=_text(None, None),
+        notes={"raw": None, "value": None},
+    )
+
+    result = photo.normalize_extraction(
+        _ai_result(
+            rows=[first_heading, first_row, second_row, second_heading, third_row],
+            document={
+                "client_name": _text("Eldi", "Eldi"),
+                "order_number": _text(None, None),
+                "glass_type": _text(None, None),
+            },
+        ),
+        preferred_dimension_unit="cm",
+    )
+
+    assert len(result.rows) == 3
+    assert result.document.client_name.value == "Eldi"
+    assert result.rows[0].section == "Kapollani"
+    assert result.rows[1].section == "Kapollani"
+    assert result.rows[2].section == "Hevi"
+    assert result.rows[0].glass_type.value.startswith("3/3 tr + 12")
+    assert result.rows[1].glass_type.value.startswith("3/3 tr + 12")
+    assert result.rows[2].glass_type.value.startswith("3/3 tr + 13")
+    assert all("mm)" not in row.glass_type.value for row in result.rows)
+    assert result.rows[0].client_reference.value == "1"
+    assert result.rows[0].index_number.value == 1
+    assert result.rows[2].index_number.value == 12
+
+
 def test_photo_assist_unreadable_row_is_preserved_with_nulls_and_warnings():
     unreadable = _row(
         source_line="? x 120 = ?",
@@ -347,6 +430,8 @@ def test_photo_assist_sends_direct_image_with_high_detail_and_strict_schema():
         model="vision-test",
         client=SimpleNamespace(responses=FakeResponses()),
         preferred_dimension_unit="cm",
+        known_glass_types=["3/3 transparent tek"],
+        known_clients=["Eldi"],
     )
 
     assert result.rows[0].source_line
@@ -355,6 +440,9 @@ def test_photo_assist_sends_direct_image_with_high_detail_and_strict_schema():
     assert calls[0]["text"]["format"]["type"] == "json_schema"
     assert calls[0]["text"]["format"]["strict"] is True
     assert "currently set to centimetres (cm)" in calls[0]["instructions"]
+    assert "3/3 transparent tek" in calls[0]["instructions"]
+    assert 'Known clients' in calls[0]["instructions"]
+    assert 'Eldi' in calls[0]["instructions"]
     image_input = calls[0]["input"][0]["content"][1]
     assert image_input["type"] == "input_image"
     assert image_input["detail"] == "high"

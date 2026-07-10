@@ -3764,12 +3764,16 @@ async def extract_manual_order_photo(
             )
         normalized = normalize_uploaded_image(content)
         del content
+        known_glass_types = db_module.list_manual_glass_types(limit=100)
+        known_clients = db_module.list_manual_clients(limit=100)
         result = await asyncio.to_thread(
             extract_photo_assist,
             normalized,
             request_id=request_id,
             model=model,
             preferred_dimension_unit="mm" if dimension_unit == "mm" else "cm",
+            known_glass_types=known_glass_types,
+            known_clients=known_clients,
         )
         warning_count = len(result.global_warnings) + sum(len(row.warnings) for row in result.rows)
         logger.info(

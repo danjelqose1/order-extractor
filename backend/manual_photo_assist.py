@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 from dataclasses import dataclass
 from io import BytesIO
 from typing import Any, Callable, Dict, List, Literal, Optional, Union
@@ -202,22 +203,46 @@ Rules:
 16. Use repeated row structure to resolve layout. For a simple list under one glass-type heading, apply that glass type to every following dimension row.
 17. If the user supplies a preferred Manual Orders dimension unit, use it for ordinary row dimensions unless the image explicitly shows another unit or the values are clearly incompatible with it.
 18. A line such as 70 x 132 = 2 represents width 70, height 132, quantity 2. Do not create an index or client position unless one is visibly present.
+19. A page may contain several glass-type groups separated by lines or whitespace. Apply each heading only to the rows below it, stopping at the next glass-type heading.
+20. A standalone label between a glass-type heading and its rows is usually a section name. Preserve it in section and apply it to following rows until another section or glass-type group begins.
+21. In color-coded lists, repeated black or blue numbers at the left may be client positions while a separate red sequence is the internal index. Use color, column alignment, and repetition across rows to keep them separate.
+22. Parenthesized measurements beside a glass-type heading, such as 37 mm or 38 mm, describe the assembled glass thickness. Keep them with the glass-type context; never turn them into an order row.
+23. A short isolated name at the top or bottom of the page may be the client name. Use the supplied known-client vocabulary as supporting evidence, but never force a match that is not visible.
+24. Words written after a row arrow or at the end of a dimension line are row notes. Preserve meaningful words, but do not preserve arithmetic separators as notes.
+25. When reference vocabularies are supplied, use them to correct likely handwriting variants only when the visible text is a close match. New glass types and new clients are still allowed.
 
 Return only data matching the required JSON schema. Do not return markdown or hidden reasoning.
 """.strip()
 
 
-def _model_instructions(preferred_dimension_unit: Optional[str]) -> str:
+def _model_instructions(
+    preferred_dimension_unit: Optional[str],
+    *,
+    known_glass_types: Optional[List[str]] = None,
+    known_clients: Optional[List[str]] = None,
+) -> str:
     unit = preferred_dimension_unit if preferred_dimension_unit in {"mm", "cm"} else None
-    if not unit:
-        return EXTRACTION_PROMPT
-    label = "centimetres" if unit == "cm" else "millimetres"
-    return (
-        f"{EXTRACTION_PROMPT}\n\n"
-        f"Manual Orders is currently set to {label} ({unit}). Treat ordinary handwritten "
-        f"dimensions as {unit} unless the image explicitly indicates a different unit or the "
-        "values are implausible for architectural glass."
-    )
+    context_lines = []
+    if unit:
+        label = "centimetres" if unit == "cm" else "millimetres"
+        context_lines.append(
+            f"Manual Orders is currently set to {label} ({unit}). Treat ordinary handwritten "
+            f"dimensions as {unit} unless the image explicitly indicates a different unit or the "
+            "values are implausible for architectural glass."
+        )
+    glass_types = [str(value).strip() for value in known_glass_types or [] if str(value).strip()]
+    clients = [str(value).strip() for value in known_clients or [] if str(value).strip()]
+    if glass_types:
+        context_lines.append(
+            "Known glass types (reference vocabulary, not an exhaustive list): "
+            + json.dumps(glass_types[:100], ensure_ascii=False)
+        )
+    if clients:
+        context_lines.append(
+            "Known clients (reference vocabulary, not an exhaustive list): "
+            + json.dumps(clients[:100], ensure_ascii=False)
+        )
+    return EXTRACTION_PROMPT + ("\n\n" + "\n".join(context_lines) if context_lines else "")
 
 
 def _looks_like_heic(content: bytes) -> bool:
@@ -353,6 +378,18 @@ def _is_heading_only_row(row: PhotoAssistRow) -> bool:
     return bool(row.glass_type.value and not has_dimension_syntax and not has_dimensions and not has_quantity)
 
 
+def _heading_glass_value(source: str, row_glass: str) -> str:
+    source_without_thickness = re.sub(
+        r"\(\s*\d+(?:[.,]\d+)?\s*mm\s*\)",
+        "",
+        source,
+        flags=re.IGNORECASE,
+    ).strip()
+    if row_glass and row_glass.lower() in source_without_thickness.lower():
+        return source_without_thickness
+    return row_glass or source_without_thickness
+
+
 def _is_unit_uncertainty(message: Optional[str]) -> bool:
     text = str(message or "").lower()
     return "unit" in text or "centimet" in text or "millimet" in text
@@ -365,14 +402,33 @@ def normalize_extraction(
 ) -> PhotoAssistAIResult:
     result = ai_result.model_copy(deep=True)
     result.rows = [row for row in result.rows if _row_has_meaning(row)]
-    heading_rows = [row for row in result.rows if _is_heading_only_row(row)]
-    for heading in heading_rows:
-        source = str(heading.source_line or "").strip()
-        current_glass = str(result.document.glass_type.value or "").strip()
-        if source and current_glass and current_glass.lower() in source.lower():
-            result.document.glass_type.raw = source
-            result.document.glass_type.value = source
-    result.rows = [row for row in result.rows if not _is_heading_only_row(row)]
+    active_glass = str(result.document.glass_type.value or "").strip() or None
+    active_section: Optional[str] = None
+    first_heading = True
+    data_rows = []
+    for row in result.rows:
+        if _is_heading_only_row(row):
+            source = str(row.source_line or "").strip()
+            row_glass = str(row.glass_type.value or "").strip()
+            active_glass = _heading_glass_value(source, row_glass)
+            if first_heading and active_glass:
+                result.document.glass_type.raw = source or row.glass_type.raw
+                result.document.glass_type.value = active_glass
+                first_heading = False
+            active_section = None
+            continue
+        if not row.glass_type.value and active_glass:
+            row.glass_type.value = active_glass
+            if row.glass_type.raw is None:
+                row.glass_type.raw = active_glass
+        elif row.glass_type.value:
+            active_glass = row.glass_type.value
+        if row.section:
+            active_section = row.section
+        elif active_section:
+            row.section = active_section
+        data_rows.append(row)
+    result.rows = data_rows
     if not result.rows:
         raise NoOrderRowsError("No order rows were detected.")
 
@@ -501,12 +557,18 @@ def _call_model_once(
     model: str,
     client: Any,
     preferred_dimension_unit: Optional[str] = None,
+    known_glass_types: Optional[List[str]] = None,
+    known_clients: Optional[List[str]] = None,
 ) -> PhotoAssistAIResult:
     encoded = base64.b64encode(image.content).decode("ascii")
     data_url = f"data:{image.mime_type};base64,{encoded}"
     response = client.responses.create(
         model=model,
-        instructions=_model_instructions(preferred_dimension_unit),
+        instructions=_model_instructions(
+            preferred_dimension_unit,
+            known_glass_types=known_glass_types,
+            known_clients=known_clients,
+        ),
         input=[
             {
                 "role": "user",
@@ -552,6 +614,8 @@ def extract_photo_assist(
     client: Any = None,
     model: Optional[str] = None,
     preferred_dimension_unit: Optional[str] = None,
+    known_glass_types: Optional[List[str]] = None,
+    known_clients: Optional[List[str]] = None,
     call_once: Optional[Callable[..., PhotoAssistAIResult]] = None,
 ) -> PhotoAssistResponse:
     selected_model = model or photo_assist_model()
@@ -569,6 +633,8 @@ def extract_photo_assist(
                     model=selected_model,
                     client=openai_client,
                     preferred_dimension_unit=preferred_dimension_unit,
+                    known_glass_types=known_glass_types,
+                    known_clients=known_clients,
                 )
             normalized = normalize_extraction(
                 extracted,
