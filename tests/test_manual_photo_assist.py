@@ -103,6 +103,26 @@ def test_photo_assist_normalizes_exif_orientation_without_storing_a_file():
     assert normalized.content.startswith(b"\xff\xd8")
 
 
+def test_photo_assist_flattens_mpo_detected_iphone_photo_to_jpeg(monkeypatch):
+    source = Image.new("RGB", (40, 20), "white")
+    stream = BytesIO()
+    source.save(stream, format="JPEG", quality=95)
+    original_open = photo.Image.open
+
+    def open_as_mpo(image_stream):
+        opened = original_open(image_stream)
+        opened.format = "MPO"
+        return opened
+
+    monkeypatch.setattr(photo.Image, "open", open_as_mpo)
+
+    normalized = photo.normalize_uploaded_image(stream.getvalue())
+
+    assert normalized.original_format == "MPO"
+    assert normalized.mime_type == "image/jpeg"
+    assert normalized.content.startswith(b"\xff\xd8")
+
+
 def test_photo_assist_rejects_heic_with_a_safe_conversion_message():
     fake_heic = b"\x00\x00\x00\x18ftypheic" + (b"\x00" * 32)
 

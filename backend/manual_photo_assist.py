@@ -20,7 +20,15 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 
 DEFAULT_MAX_UPLOAD_BYTES = 10 * 1024 * 1024
-SUPPORTED_IMAGE_FORMATS = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}
+JPEG_IMAGE_FORMATS = {"JPEG", "MPO"}
+SUPPORTED_IMAGE_FORMATS = {
+    "JPEG": "image/jpeg",
+    # iPhone photos with auxiliary frames can be detected by Pillow as MPO.
+    # Flatten the primary frame to a standard JPEG before sending it onward.
+    "MPO": "image/jpeg",
+    "PNG": "image/png",
+    "WEBP": "image/webp",
+}
 TRANSIENT_OPENAI_ERRORS = (APIConnectionError, APITimeoutError, InternalServerError, RateLimitError)
 
 
@@ -217,7 +225,7 @@ def normalize_uploaded_image(content: bytes) -> NormalizedImage:
                 image.thumbnail((7680, 7680), Image.Resampling.LANCZOS)
 
             output = BytesIO()
-            if actual_format == "JPEG":
+            if actual_format in JPEG_IMAGE_FORMATS:
                 normalized = image.convert("RGB")
                 normalized.save(output, format="JPEG", quality=95, subsampling=0)
                 mime_type = "image/jpeg"
