@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from difflib import SequenceMatcher
 import json
 import os
 import re
@@ -219,10 +220,12 @@ You are an experienced glass-factory order clerk. Convert the supplied neutral v
 Privately infer the document's layout grammar from repeated spatial patterns, color changes, separators, headings, row shapes, and surrounding context. The layout is not fixed: it may contain one or many material groups, optional sections, one or two numbering systems, notes, annotations, and header or footer metadata. Determine roles from consistency across the page rather than from any single hard-coded phrase or position.
 
 Use these domain constraints:
-- A production row requires a width, height, and positive quantity. Context-only headings and annotations are not rows.
+- A production row requires a plausible width and height. Context-only headings and annotations are not rows.
+- Quantity may be absent or unreadable. Return that production row with quantity null and a focused warning instead of discarding it.
 - A material heading governs subsequent rows until the next material heading. Preserve complete material constructions, while keeping non-material annotations separate.
 - A section label governs subsequent rows within its group until another section or group begins.
 - Parallel columns or ink colors can represent client positions and internal indexes. Keep them separate; do not invent either when absent.
+- A single same-color sequential number at the start of each line is ordinary row ordering, not an internal red index. Leave client_reference and index_number null unless a separate role is supported by color, column, or repeated-position evidence.
 - Arithmetic separators are syntax. Meaningful trailing words are notes.
 - Dimensions use the selected Manual Orders unit unless the page explicitly states another unit or the values make that interpretation implausible.
 - Header or footer metadata can contain a client name or order number. Use page isolation, vocabulary similarity, and document structure as evidence.
@@ -414,10 +417,279 @@ def _is_unit_uncertainty(message: Optional[str]) -> bool:
     return "unit" in text or "centimet" in text or "millimet" in text
 
 
+def _vocabulary_key(value: str) -> str:
+    return "".join(character for character in str(value or "").casefold() if character.isalnum())
+
+
+def _closest_vocabulary_match(value: str, candidates: Optional[List[str]]) -> Optional[str]:
+    source_key = _vocabulary_key(value)
+    if not source_key:
+        return None
+    scored = [
+        (SequenceMatcher(None, source_key, _vocabulary_key(candidate)).ratio(), candidate)
+        for candidate in candidates or []
+        if _vocabulary_key(candidate)
+    ]
+    if not scored:
+        return None
+    score, candidate = max(scored, key=lambda item: item[0])
+    return str(candidate).strip() if score >= 0.78 else None
+
+
+def _production_line_match(value: str) -> Optional[re.Match[str]]:
+    return re.search(
+        r"(?<![/\d])(?P<width>\d+(?:[.,]\d+)?)\s*(?:x|×|\+)\s*"
+        r"(?P<height>\d+(?:[.,]\d+)?)"
+        r"(?:\s*(?:x|×|\+|=)\s*(?P<quantity>\d+)(?![.,]\d))?",
+        str(value or ""),
+        flags=re.IGNORECASE,
+    )
+
+
+def _span_integer(span: PhotoAssistVisualSpan) -> Optional[int]:
+    match = re.search(r"(?<![\d.,])\d+(?![\d.,])", span.text)
+    return int(match.group(0)) if match else None
+
+
+def _observation_row_contexts(
+    observation: PhotoAssistObservation,
+    known_glass_types: Optional[List[str]],
+) -> List[Dict[str, Any]]:
+    contexts: List[Dict[str, Any]] = []
+    active_glass: Optional[str] = None
+    section_candidates: List[str] = []
+
+    for line in observation.lines:
+        text = str(line.raw_text or "").strip()
+        if line.separator_before:
+            active_glass = None
+            section_candidates = []
+
+        production_match = _production_line_match(text)
+        if production_match:
+            red_span_index = next(
+                (
+                    index
+                    for index, span in enumerate(line.spans)
+                    if span.color == "red" and _span_integer(span) is not None
+                ),
+                None,
+            )
+            red_index = (
+                _span_integer(line.spans[red_span_index])
+                if red_span_index is not None
+                else None
+            )
+            client_position = None
+            if red_span_index is not None:
+                prefix_numbers = [
+                    number
+                    for span in line.spans[:red_span_index]
+                    if span.color != "red"
+                    for number in re.findall(r"(?<![\d.,])\d+(?![\d.,])", span.text)
+                ]
+                if prefix_numbers:
+                    client_position = prefix_numbers[-1]
+            contexts.append(
+                {
+                    "raw_text": text,
+                    "width": float(production_match.group("width").replace(",", ".")),
+                    "height": float(production_match.group("height").replace(",", ".")),
+                    "quantity": int(production_match.group("quantity")) if production_match.group("quantity") else None,
+                    "client_position": client_position,
+                    "red_index": red_index,
+                    "glass_type": active_glass,
+                    "section_candidates": list(section_candidates),
+                    "notes": text[production_match.end():].strip(" \t-=→>"),
+                }
+            )
+        elif text:
+            cleaned_heading = _heading_glass_value(text, "")
+            vocabulary_match = _closest_vocabulary_match(cleaned_heading, known_glass_types)
+            looks_like_material = bool(
+                vocabulary_match
+                or (
+                    not _production_line_match(text)
+                    and (
+                        text.count("+") >= 2
+                        or bool(re.search(r"\d+\s*/\s*\d+", text))
+                    )
+                )
+            )
+            if looks_like_material:
+                active_glass = vocabulary_match or cleaned_heading
+                section_candidates = []
+            elif active_glass and re.search(r"[A-Za-zÀ-ÿ]", text) and not re.fullmatch(r"\([^)]*\)", text):
+                section_candidates.append(text)
+
+        if line.separator_after:
+            active_glass = None
+            section_candidates = []
+
+    return contexts
+
+
+def _select_section_candidate(current: Optional[str], candidates: List[str]) -> Optional[str]:
+    cleaned = [str(candidate).strip() for candidate in candidates if str(candidate).strip()]
+    if not cleaned:
+        return current
+    current_key = _vocabulary_key(str(current or ""))
+    if not current_key:
+        return cleaned[-1]
+    score, candidate = max(
+        (
+            SequenceMatcher(None, current_key, _vocabulary_key(item)).ratio(),
+            item,
+        )
+        for item in cleaned
+    )
+    return candidate if score >= 0.45 else current
+
+
+def _is_non_actionable_extraction_warning(message: str) -> bool:
+    text = str(message or "").casefold()
+    return any(
+        phrase in text
+        for phrase in (
+            "glass type from page header applies",
+            "source line numbering appears inconsistent",
+            "leading measurement line appears",
+            "page shows two grouped sections",
+            "trailing '->",
+        )
+    )
+
+
+def _repair_rows_from_observation(
+    result: PhotoAssistAIResult,
+    observation: Optional[PhotoAssistObservation],
+    known_glass_types: Optional[List[str]],
+) -> None:
+    if observation is None:
+        return
+    contexts = _observation_row_contexts(observation, known_glass_types)
+    if not contexts:
+        return
+
+    def context_matches_row(context: Dict[str, Any], row: PhotoAssistRow) -> bool:
+        try:
+            return (
+                abs(float(row.width.value or 0) - context["width"]) < 0.01
+                and abs(float(row.height.value or 0) - context["height"]) < 0.01
+            )
+        except (TypeError, ValueError):
+            return False
+
+    def new_row(context: Dict[str, Any]) -> PhotoAssistRow:
+        return PhotoAssistRow(
+            source_line=context["raw_text"],
+            section=None,
+            client_reference=TextDetection(raw=None, value=None, warning=None),
+            index_number=IndexDetection(raw=None, value=None, warning=None),
+            width=DimensionDetection(raw=str(context["width"]), value=context["width"], unit="unknown", normalized_mm=None, warning=None),
+            height=DimensionDetection(raw=str(context["height"]), value=context["height"], unit="unknown", normalized_mm=None, warning=None),
+            quantity=QuantityDetection(raw=context["quantity"], value=context["quantity"], warning=None),
+            glass_type=TextDetection(raw=None, value=None, warning=None),
+            notes=NotesDetection(raw=context["notes"] or None, value=context["notes"] or None),
+            warnings=[],
+        )
+
+    predicted_rows = list(result.rows)
+    repaired_rows: List[PhotoAssistRow] = []
+    predicted_index = 0
+    for context_index, context in enumerate(contexts):
+        row = None
+        if predicted_index < len(predicted_rows):
+            current_row = predicted_rows[predicted_index]
+            if context_matches_row(context, current_row):
+                row = current_row
+                predicted_index += 1
+            elif any(
+                context_matches_row(future_context, current_row)
+                for future_context in contexts[context_index + 1:]
+            ):
+                # The reasoning pass skipped this observed line. Keep its next row
+                # available for the matching visual line and synthesize this one.
+                row = new_row(context)
+            else:
+                matching_prediction = next(
+                    (
+                        candidate_index
+                        for candidate_index in range(predicted_index + 1, len(predicted_rows))
+                        if context_matches_row(context, predicted_rows[candidate_index])
+                    ),
+                    None,
+                )
+                if matching_prediction is not None:
+                    row = predicted_rows[matching_prediction]
+                    predicted_index = matching_prediction + 1
+                else:
+                    # The reasoning pass interpreted this line differently. Reuse
+                    # its semantic fields, but let the visual pass replace numbers.
+                    row = current_row
+                    predicted_index += 1
+        if row is None:
+            row = new_row(context)
+
+        row.source_line = context["raw_text"]
+        if context["client_position"] is not None:
+            row.client_reference.raw = context["client_position"]
+            row.client_reference.value = context["client_position"]
+            row.client_reference.warning = None
+        if context["red_index"] is not None:
+            row.index_number.raw = str(context["red_index"])
+            row.index_number.value = context["red_index"]
+            row.index_number.warning = None
+        if context["glass_type"]:
+            row.glass_type.raw = context["glass_type"]
+            row.glass_type.value = context["glass_type"]
+            if _closest_vocabulary_match(context["glass_type"], known_glass_types):
+                row.glass_type.warning = None
+        row.width.raw = str(context["width"])
+        row.width.value = context["width"]
+        row.height.raw = str(context["height"])
+        row.height.value = context["height"]
+        row.quantity.raw = context["quantity"]
+        row.quantity.value = context["quantity"]
+        if context["notes"]:
+            row.notes.raw = context["notes"]
+            row.notes.value = context["notes"]
+        row.section = _select_section_candidate(row.section, context["section_candidates"])
+        row.warnings = [
+            warning
+            for warning in row.warnings
+            if not _is_non_actionable_extraction_warning(warning)
+        ]
+        repaired_rows.append(row)
+
+    result.rows = repaired_rows
+
+    has_red_index_evidence = any(context["red_index"] is not None for context in contexts)
+    has_sections = any(str(row.section or "").strip() for row in result.rows)
+    if not has_red_index_evidence and not has_sections:
+        for row in result.rows:
+            row.client_reference = TextDetection(raw=None, value=None, warning=None)
+            row.index_number = IndexDetection(raw=None, value=None, warning=None)
+
+    first_glass = next((row.glass_type.value for row in result.rows if row.glass_type.value), None)
+    if first_glass:
+        result.document.glass_type.value = first_glass
+        result.document.glass_type.raw = first_glass
+        if _closest_vocabulary_match(first_glass, known_glass_types):
+            result.document.glass_type.warning = None
+    result.global_warnings = [
+        warning
+        for warning in result.global_warnings
+        if not _is_non_actionable_extraction_warning(warning)
+    ]
+
+
 def normalize_extraction(
     ai_result: PhotoAssistAIResult,
     *,
     preferred_dimension_unit: Optional[str] = None,
+    observation: Optional[PhotoAssistObservation] = None,
+    known_glass_types: Optional[List[str]] = None,
 ) -> PhotoAssistAIResult:
     result = ai_result.model_copy(deep=True)
     result.rows = [row for row in result.rows if _row_has_meaning(row)]
@@ -448,6 +720,7 @@ def normalize_extraction(
             row.section = active_section
         data_rows.append(row)
     result.rows = data_rows
+    _repair_rows_from_observation(result, observation, known_glass_types)
     if not result.rows:
         raise NoOrderRowsError("No order rows were detected.")
 
@@ -468,7 +741,16 @@ def normalize_extraction(
 
         note_value = str(row.notes.value or "").strip()
         quantity_text = str(row.quantity.value or row.quantity.raw or "").strip()
-        if note_value in {"=", "x", "×", "+", "->", "→"} or (
+        source_text = str(row.source_line or "").strip()
+        trailing_operator_note = bool(
+            note_value
+            and re.search(
+                rf"(?:-|->|→)\s*{re.escape(note_value)}\s*$",
+                source_text,
+                flags=re.IGNORECASE,
+            )
+        )
+        if (note_value in {"=", "x", "×", "+", "->", "→"} and not trailing_operator_note) or (
             note_value and quantity_text and note_value == quantity_text and "x" in str(row.source_line or "").lower()
         ):
             row.notes.value = None
@@ -780,7 +1062,20 @@ def extract_photo_assist(
             normalized = normalize_extraction(
                 extracted,
                 preferred_dimension_unit=preferred_dimension_unit,
+                observation=observation,
+                known_glass_types=known_glass_types,
             )
+            if active_observation_model != selected_observation_model:
+                normalized.global_warnings.append(
+                    f"Visual transcription used fallback model {active_observation_model}; "
+                    f"{selected_observation_model} was unavailable."
+                )
+            if active_model != selected_model:
+                normalized.global_warnings.append(
+                    f"Contextual interpretation used fallback model {active_model}; "
+                    f"{selected_model} was unavailable."
+                )
+            normalized.global_warnings = list(dict.fromkeys(normalized.global_warnings))
             return PhotoAssistResponse(
                 **normalized.model_dump(),
                 status="needs_review" if _result_has_warnings(normalized) else "ready",

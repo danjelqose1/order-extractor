@@ -1,3 +1,6 @@
 backend/.env
 .DS_Store
 # Keep deployment-only commits from changing application behavior.
+
+# Private Photo Assist evaluation data may contain client information.
+data/private-evals/

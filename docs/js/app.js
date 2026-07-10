@@ -20759,7 +20759,11 @@ function renderManualPhotoReview(){
     manualPhotoReviewStatus.classList.toggle("ready", !needsReview);
   }
   if (manualPhotoRequestMeta){
-    manualPhotoRequestMeta.textContent = `${result.rows?.length || 0} rows · ${result.model || "vision model"}`;
+    const modelLabel = String(result.model || "vision model");
+    const fallbackBadge = modelLabel.includes("gpt-5.4-mini")
+      ? '<span class="manual-photo-fallback-badge">Fallback model</span>'
+      : "";
+    manualPhotoRequestMeta.innerHTML = `${result.rows?.length || 0} rows · ${escapeHtml(modelLabel)} ${fallbackBadge}`;
   }
 
   const globalWarnings = Array.isArray(result.global_warnings) ? result.global_warnings.filter(Boolean) : [];
@@ -20787,6 +20791,7 @@ function renderManualPhotoReview(){
   }
 
   if (manualPhotoReviewRows){
+    let previousGroupKey = "";
     manualPhotoReviewRows.innerHTML = (result.rows || []).map((row, index) => {
       const rowWarnings = Array.from(new Set([
         ...(Array.isArray(row.warnings) ? row.warnings : []),
@@ -20802,7 +20807,14 @@ function renderManualPhotoReview(){
       const quantityInvalid = !(Number.isInteger(Number(row.quantity?.value)) && Number(row.quantity?.value) > 0);
       const glassInvalid = !String(row.glass_type?.value || result.document?.glass_type?.value || "").trim();
       const critical = widthInvalid || heightInvalid || quantityInvalid || glassInvalid;
-      return `<tr data-photo-row-index="${index}">
+      const sectionLabel = String(row.section || "").trim();
+      const glassLabel = String(row.glass_type?.value || result.document?.glass_type?.value || "").trim();
+      const groupKey = `${sectionLabel}\u0000${glassLabel}`;
+      const groupHeader = groupKey !== previousGroupKey
+        ? `<tr class="manual-photo-group-row"><td colspan="10"><strong>${escapeHtml(sectionLabel || "Order group")}</strong><span>${escapeHtml(glassLabel || "Glass type not detected")}</span></td></tr>`
+        : "";
+      previousGroupKey = groupKey;
+      return `${groupHeader}<tr data-photo-row-index="${index}">
         <td><div class="manual-photo-source-line">${escapeHtml(manualPhotoDisplay(row.source_line, "—"))}</div></td>
         <td><input type="text" data-photo-row-field="section" value="${escapeHtml(row.section || "")}"></td>
         <td class="${manualPhotoFieldClass(row.client_reference?.warning)}"><input type="text" data-photo-row-field="client_reference" value="${escapeHtml(row.client_reference?.value || "")}"><span class="manual-photo-raw">Raw: ${escapeHtml(manualPhotoDisplay(row.client_reference?.raw, "—"))}</span></td>
@@ -20812,7 +20824,7 @@ function renderManualPhotoReview(){
         <td class="${manualPhotoFieldClass(row.quantity?.warning, quantityInvalid)}"><input type="number" min="1" step="1" data-photo-row-field="quantity" value="${escapeHtml(row.quantity?.value ?? "")}"><span class="manual-photo-raw">Raw: ${escapeHtml(manualPhotoDisplay(row.quantity?.raw, "—"))}</span></td>
         <td class="${manualPhotoFieldClass(row.glass_type?.warning, glassInvalid)}"><input type="text" data-photo-row-field="glass_type" value="${escapeHtml(row.glass_type?.value || result.document?.glass_type?.value || "")}"><span class="manual-photo-raw">Raw: ${escapeHtml(manualPhotoDisplay(row.glass_type?.raw, "—"))}</span></td>
         <td><input type="text" data-photo-row-field="notes" value="${escapeHtml(row.notes?.value || "")}"></td>
-        <td><div class="manual-photo-row-warnings ${critical ? "critical" : ""}">${rowWarnings.length ? rowWarnings.map(warning => escapeHtml(warning)).join("<br>") : "None"}</div></td>
+        <td><div class="manual-photo-row-warnings ${critical ? "critical" : ""}">${rowWarnings.length ? rowWarnings.map(warning => escapeHtml(warning)).join("<br>") : "—"}</div></td>
       </tr>`;
     }).join("");
   }

@@ -6347,6 +6347,18 @@
       align-items:center;
       gap:8px;
     }
+    .manual-photo-fallback-badge{
+      display:inline-flex;
+      align-items:center;
+      margin-left:5px;
+      padding:2px 6px;
+      border:1px solid #e8c37e;
+      border-radius:999px;
+      background:#fff9ed;
+      color:#7a531a;
+      font-size:10px;
+      font-weight:800;
+    }
     .manual-photo-warning-list{
       padding:9px 10px;
       border:1px solid #e8c37e;
@@ -6431,6 +6443,26 @@
       background:var(--card-bg);
       color:var(--text);
       font-size:12px;
+    }
+    .manual-photo-review-table .manual-photo-group-row td{
+      position:sticky;
+      top:34px;
+      z-index:1;
+      padding:7px 9px;
+      border-top:1px solid var(--border-dark);
+      border-bottom:1px solid var(--border);
+      background:var(--primary-soft);
+      color:var(--text);
+    }
+    .manual-photo-group-row strong,
+    .manual-photo-group-row span{
+      display:inline-block;
+      margin-right:10px;
+    }
+    .manual-photo-group-row span{
+      color:var(--muted);
+      font-size:11px;
+      font-weight:650;
     }
     .manual-photo-source-line{
       color:var(--muted);

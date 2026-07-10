@@ -382,6 +382,294 @@ def test_photo_assist_preserves_multiple_glass_groups_and_sections():
     assert result.rows[2].index_number.value == 12
 
 
+def test_photo_assist_repairs_numbering_and_groups_from_visual_observation():
+    first_glass = "3/3TR+12+TR+10+Termik+G"
+    second_glass = "3/3TR+13+TR+10+Termik+G"
+    observation = photo.PhotoAssistObservation.model_validate(
+        {
+            "page_summary": "Two groups with blue positions and red indexes.",
+            "lines": [
+                {
+                    "raw_text": "3/3 tr + 12 + tr + 10 + fermil + 9 (37mm)",
+                    "region": "header",
+                    "alignment": "left",
+                    "spans": [{"text": "3/3 tr + 12 + tr + 10 + fermil + 9 (37mm)", "color": "blue", "uncertain": True}],
+                    "separator_before": False,
+                    "separator_after": False,
+                    "uncertain_fragments": ["fermil", "9"],
+                },
+                {
+                    "raw_text": "Kapollani",
+                    "region": "body",
+                    "alignment": "left",
+                    "spans": [{"text": "Kapollani", "color": "blue", "uncertain": False}],
+                    "separator_before": False,
+                    "separator_after": False,
+                    "uncertain_fragments": [],
+                },
+                {
+                    "raw_text": "4- 3 43 x 158 x 2",
+                    "region": "body",
+                    "alignment": "left",
+                    "spans": [
+                        {"text": "4-", "color": "blue", "uncertain": False},
+                        {"text": "3", "color": "red", "uncertain": False},
+                        {"text": "43 x 158 x 2", "color": "blue", "uncertain": False},
+                    ],
+                    "separator_before": False,
+                    "separator_after": True,
+                    "uncertain_fragments": [],
+                },
+                {
+                    "raw_text": "3/3 tr + 13 + tr + 10 + fermil + 9 (38mm)",
+                    "region": "body",
+                    "alignment": "left",
+                    "spans": [{"text": "3/3 tr + 13 + tr + 10 + fermil + 9 (38mm)", "color": "blue", "uncertain": True}],
+                    "separator_before": False,
+                    "separator_after": False,
+                    "uncertain_fragments": ["fermil", "9"],
+                },
+                {
+                    "raw_text": "Hevi",
+                    "region": "body",
+                    "alignment": "left",
+                    "spans": [{"text": "Hevi", "color": "blue", "uncertain": False}],
+                    "separator_before": False,
+                    "separator_after": False,
+                    "uncertain_fragments": [],
+                },
+                {
+                    "raw_text": "1- 12 53 x 132 x 1",
+                    "region": "body",
+                    "alignment": "left",
+                    "spans": [
+                        {"text": "1-", "color": "blue", "uncertain": False},
+                        {"text": "12", "color": "red", "uncertain": False},
+                        {"text": "53 x 132 x 1", "color": "blue", "uncertain": False},
+                    ],
+                    "separator_before": False,
+                    "separator_after": False,
+                    "uncertain_fragments": [],
+                },
+            ],
+            "visual_warnings": [],
+        }
+    )
+    rows = [
+        _row(
+            source_line="4- 3 43 x 158 x 2",
+            section="Kapalii",
+            client_reference=_text("3", "3"),
+            index_number=_index("3", 3),
+            width=_dimension("43", 43, "cm"),
+            height=_dimension("158", 158, "cm"),
+            quantity=_quantity("2", 2),
+            glass_type=_text("fermil", "fermil", "Possible misspelling"),
+            warnings=["Source line numbering appears inconsistent in the transcription."],
+        ),
+        _row(
+            source_line="1- 12 53 x 132 x 1",
+            section="Heri",
+            client_reference=_text("12", "12"),
+            index_number=_index("12", 12),
+            width=_dimension("53", 53, "cm"),
+            height=_dimension("132", 132, "cm"),
+            quantity=_quantity("1", 1),
+            glass_type=_text("fermil", "fermil", "Possible misspelling"),
+            warnings=["Glass type from page header applies to this section; preserved as seen."],
+        ),
+    ]
+
+    result = photo.normalize_extraction(
+        _ai_result(rows=rows),
+        preferred_dimension_unit="cm",
+        observation=observation,
+        known_glass_types=[first_glass, second_glass],
+    )
+
+    assert result.rows[0].client_reference.value == "4"
+    assert result.rows[0].index_number.value == 3
+    assert result.rows[1].client_reference.value == "1"
+    assert result.rows[1].index_number.value == 12
+    assert result.rows[0].section == "Kapollani"
+    assert result.rows[1].section == "Hevi"
+    assert result.rows[0].glass_type.value == first_glass
+    assert result.rows[1].glass_type.value == second_glass
+    assert result.rows[0].warnings == []
+    assert result.rows[1].warnings == []
+
+
+def test_photo_assist_visual_pass_restores_incomplete_dimension_rows():
+    observation = photo.PhotoAssistObservation.model_validate(
+        {
+            "page_summary": "A material heading followed by three dimensions.",
+            "lines": [
+                {
+                    "raw_text": "TR + 12 + TR",
+                    "region": "header",
+                    "alignment": "left",
+                    "spans": [{"text": "TR + 12 + TR", "color": "blue", "uncertain": False}],
+                    "separator_before": False,
+                    "separator_after": False,
+                    "uncertain_fragments": [],
+                },
+                *[
+                    {
+                        "raw_text": source,
+                        "region": "body",
+                        "alignment": "left",
+                        "spans": [{"text": source, "color": "blue", "uncertain": False}],
+                        "separator_before": False,
+                        "separator_after": False,
+                        "uncertain_fragments": [],
+                    }
+                    for source in ("115 x 31 = 4", "30.5 x 87", "30.5 x 50")
+                ],
+            ],
+            "visual_warnings": [],
+        }
+    )
+    predicted = _row(
+        source_line="115 x 31 = 4",
+        section=None,
+        client_reference=_text(None, None),
+        index_number=_index(None, None),
+        width=_dimension("115", 115, "cm"),
+        height=_dimension("31", 31, "cm"),
+        quantity=_quantity("4", 4),
+        glass_type=_text("TR + 12 + TR", "TR + 12 + TR"),
+        notes={"raw": None, "value": None},
+    )
+
+    result = photo.normalize_extraction(
+        _ai_result(rows=[predicted]),
+        preferred_dimension_unit="cm",
+        observation=observation,
+    )
+
+    assert [(row.width.value, row.height.value) for row in result.rows] == [
+        (115, 31),
+        (30.5, 87),
+        (30.5, 50),
+    ]
+    assert [row.quantity.value for row in result.rows] == [4, None, None]
+    assert all(row.glass_type.value == "TR + 12 + TR" for row in result.rows)
+    assert "Quantity not detected or invalid." in result.rows[1].warnings
+
+
+def test_photo_assist_visual_numbers_override_reasoning_without_duplicate_rows():
+    observation = photo.PhotoAssistObservation.model_validate(
+        {
+            "page_summary": "An ordinary numbered list in one ink color.",
+            "lines": [
+                {
+                    "raw_text": "1 - 77 x 134 = 2 cop",
+                    "region": "body",
+                    "alignment": "left",
+                    "spans": [{"text": "1 - 77 x 134 = 2 cop", "color": "blue", "uncertain": False}],
+                    "separator_before": False,
+                    "separator_after": False,
+                    "uncertain_fragments": [],
+                },
+                {
+                    "raw_text": "2 - 76.3 x 134 = 1",
+                    "region": "body",
+                    "alignment": "left",
+                    "spans": [{"text": "2 - 76.3 x 134 = 1", "color": "blue", "uncertain": False}],
+                    "separator_before": False,
+                    "separator_after": False,
+                    "uncertain_fragments": [],
+                },
+            ],
+            "visual_warnings": [],
+        }
+    )
+    rows = [
+        _row(
+            source_line="1 - 78 x 134 = 2",
+            section=None,
+            client_reference=_text("1", "1"),
+            index_number=_index("1", 1),
+            width=_dimension("78", 78, "cm"),
+            height=_dimension("134", 134, "cm"),
+            quantity=_quantity("2", 2),
+            notes={"raw": None, "value": None},
+        ),
+        _row(
+            source_line="2 - 76.3 x 134 = 1",
+            section=None,
+            client_reference=_text("2", "2"),
+            index_number=_index("2", 2),
+            width=_dimension("76.3", 76.3, "cm"),
+            height=_dimension("134", 134, "cm"),
+            quantity=_quantity("1", 1),
+            notes={"raw": None, "value": None},
+        ),
+    ]
+
+    result = photo.normalize_extraction(
+        _ai_result(rows=rows),
+        preferred_dimension_unit="cm",
+        observation=observation,
+    )
+
+    assert len(result.rows) == 2
+    assert result.rows[0].width.value == 77
+    assert result.rows[0].notes.value == "cop"
+    assert all(row.client_reference.value is None for row in result.rows)
+    assert all(row.index_number.value is None for row in result.rows)
+
+
+def test_photo_assist_visual_pass_preserves_trailing_glass_notes():
+    observation = photo.PhotoAssistObservation.model_validate(
+        {
+            "page_summary": "Two rows with notes written after quantity.",
+            "lines": [
+                {
+                    "raw_text": source,
+                    "region": "body",
+                    "alignment": "left",
+                    "spans": [{"text": source, "color": "blue", "uncertain": False}],
+                    "separator_before": False,
+                    "separator_after": False,
+                    "uncertain_fragments": [],
+                }
+                for source in (
+                    "180.5 x 195.5 x 1 6+4+5",
+                    "41.5 x 108.5 x 1 satine",
+                    "116 x 35.5 x 1 - x",
+                )
+            ],
+            "visual_warnings": [],
+        }
+    )
+    rows = [
+        _row(
+            source_line=source,
+            section=None,
+            client_reference=_text(None, None),
+            index_number=_index(None, None),
+            width=_dimension(str(width), width, "cm"),
+            height=_dimension(str(height), height, "cm"),
+            quantity=_quantity("1", 1),
+            notes={"raw": None, "value": None},
+        )
+        for source, width, height in (
+            ("180.5 x 195.5 x 1", 180.5, 195.5),
+            ("41.5 x 108.5 x 1", 41.5, 108.5),
+            ("116 x 35.5 x 1", 116, 35.5),
+        )
+    ]
+
+    result = photo.normalize_extraction(
+        _ai_result(rows=rows),
+        preferred_dimension_unit="cm",
+        observation=observation,
+    )
+
+    assert [row.notes.value for row in result.rows] == ["6+4+5", "satine", "x"]
+
+
 def test_photo_assist_unreadable_row_is_preserved_with_nulls_and_warnings():
     unreadable = _row(
         source_line="? x 120 = ?",
@@ -532,7 +820,8 @@ def test_photo_assist_two_stage_pipeline_passes_observation_to_reasoning():
 
     assert len(observations) == 1
     assert reasoning_observations == [_observation()]
-    assert response.rows[0].client_reference.value == "K1"
+    assert response.rows[0].client_reference.value == "1"
+    assert response.rows[0].index_number.value == 12
     assert observations[0][1] == "observation-test"
     assert response.model == "observation-test -> vision-test"
 
@@ -675,6 +964,8 @@ def test_photo_assist_frontend_requires_review_and_explicit_apply():
     assert "AI may misread handwriting. Review every value before applying." in html
     assert "function extractManualPhoto" in js
     assert "function renderManualPhotoReview" in js
+    assert "manual-photo-fallback-badge" in js
+    assert "manual-photo-group-row" in js
     assert "function applyManualPhotoResult" in js
     assert "manualPhotoFormHasUnsavedData()" in js
     assert "async function prepareManualPhotoUpload" in js
