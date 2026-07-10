@@ -45,13 +45,11 @@ def photo_assist_enabled() -> bool:
 
 
 def photo_assist_model() -> str:
-    # No Terra API identifier exists in this project yet. Configure the exact
-    # identifier on Render through MANUAL_PHOTO_ASSIST_MODEL when it is available.
-    return (
-        os.getenv("MANUAL_PHOTO_ASSIST_MODEL")
-        or os.getenv("OCR_MODEL")
-        or "gpt-5.4-mini"
-    )
+    return os.getenv("MANUAL_PHOTO_ASSIST_REASONING_MODEL") or "gpt-5.6-terra"
+
+
+def photo_assist_observation_model() -> str:
+    return os.getenv("MANUAL_PHOTO_ASSIST_OBSERVATION_MODEL") or "gpt-5.6-luna"
 
 
 def photo_assist_max_upload_bytes() -> int:
@@ -168,6 +166,28 @@ class PhotoAssistResponse(PhotoAssistAIResult):
     model: str
 
 
+class PhotoAssistVisualSpan(StrictModel):
+    text: str
+    color: Literal["black", "blue", "red", "green", "other", "unknown"]
+    uncertain: bool
+
+
+class PhotoAssistVisualLine(StrictModel):
+    raw_text: str
+    region: Literal["header", "body", "footer", "unknown"]
+    alignment: Literal["left", "indented", "center", "right", "full", "unknown"]
+    spans: List[PhotoAssistVisualSpan]
+    separator_before: bool
+    separator_after: bool
+    uncertain_fragments: List[str]
+
+
+class PhotoAssistObservation(StrictModel):
+    page_summary: str
+    lines: List[PhotoAssistVisualLine]
+    visual_warnings: List[str]
+
+
 @dataclass(frozen=True)
 class NormalizedImage:
     content: bytes
@@ -177,41 +197,33 @@ class NormalizedImage:
     original_format: str
 
 
+OBSERVATION_PROMPT = """
+Create a neutral visual transcription of this handwritten page before interpreting its business meaning.
+
+Read from top to bottom. Preserve every meaningful line, punctuation mark, number, decimal, fraction, arrow, parenthesis, and separator. Split a line into spans whenever ink color changes so later processing can distinguish parallel numbering systems. Record alignment, page region, horizontal separator lines, and uncertain fragments. Do not decide which text is a client, glass type, section, position, index, dimension, quantity, or note. Do not normalize spelling or units. Do not omit headings or footer text.
+
+Return only data matching the required JSON schema.
+""".strip()
+
+
 EXTRACTION_PROMPT = """
-You are an experienced glass-factory order clerk extracting a handwritten glass order from a photograph. Understand the whole document and its layout before transcribing individual rows.
+You are an experienced glass-factory order clerk. Convert the supplied neutral visual transcription and photograph into Manual Order fields by understanding the document as a whole.
 
-Never invent missing numbers. When a digit, decimal, quantity, index, client reference, or glass type is unclear, return null or preserve the uncertain raw text and add a warning. Preserve original detected values in raw fields. Do not calculate normalized_mm; the backend does that deterministically.
+Privately infer the document's layout grammar from repeated spatial patterns, color changes, separators, headings, row shapes, and surrounding context. The layout is not fixed: it may contain one or many material groups, optional sections, one or two numbering systems, notes, annotations, and header or footer metadata. Determine roles from consistency across the page rather than from any single hard-coded phrase or position.
 
-Possible layouts include glass-type headings, section headings such as Vila 1/Vila 2/Vila 3, black client references such as K1/K2/SHK, red handwritten index numbers, and rows written as width x height x quantity, width x height = quantity, width x height + quantity, or with arrows. Decimal dimensions are common. Notes such as WC must stay separate.
+Use these domain constraints:
+- A production row requires a width, height, and positive quantity. Context-only headings and annotations are not rows.
+- A material heading governs subsequent rows until the next material heading. Preserve complete material constructions, while keeping non-material annotations separate.
+- A section label governs subsequent rows within its group until another section or group begins.
+- Parallel columns or ink colors can represent client positions and internal indexes. Keep them separate; do not invent either when absent.
+- Arithmetic separators are syntax. Meaningful trailing words are notes.
+- Dimensions use the selected Manual Orders unit unless the page explicitly states another unit or the values make that interpretation implausible.
+- Header or footer metadata can contain a client name or order number. Use page isolation, vocabulary similarity, and document structure as evidence.
+- Saved client and glass-type vocabularies are soft context, not allowed-value lists. Correct only close visible matches and allow new values.
+- Preserve source_line and raw fields. If a digit or role remains genuinely ambiguous after considering the full page, retain the raw text, use null where necessary, and add a focused warning.
+- Do not calculate normalized_mm; the backend does that deterministically.
 
-Rules:
-1. client_reference and index_number are separate fields. Never combine them.
-2. Red numbers may be index numbers. Black codes may be client references.
-3. A section applies to following rows until the next section.
-4. A glass-type heading applies to following rows until another type appears.
-5. The final integer after two dimensions usually represents quantity, not part of height.
-6. If there are no index numbers or client references, leave those values null.
-7. Never manufacture client name or order number when absent.
-8. Preserve source_line for every detected row.
-9. Preserve raw values before normalization.
-10. Dimensions may be mm or cm. Use an explicit image unit or the supplied Manual Orders unit. Use unknown only when no preferred unit exists or the visible values clearly conflict with it.
-11. Do not use area to correct or infer dimensions.
-12. Return incomplete rows with warnings instead of discarding them.
-13. Classify headings separately from order rows. A glass-type heading without width, height, and quantity is document context and must not be returned as a row.
-14. Preserve the complete glass-type heading. A leading fraction or construction such as 3/3, 4/4, or 3+3 is part of the glass type, not a quantity, note, client reference, or section.
-15. Equals signs, multiplication signs, arrows, and repeated separator marks are syntax, not notes.
-16. Use repeated row structure to resolve layout. For a simple list under one glass-type heading, apply that glass type to every following dimension row.
-17. If the user supplies a preferred Manual Orders dimension unit, use it for ordinary row dimensions unless the image explicitly shows another unit or the values are clearly incompatible with it.
-18. A line such as 70 x 132 = 2 represents width 70, height 132, quantity 2. Do not create an index or client position unless one is visibly present.
-19. A page may contain several glass-type groups separated by lines or whitespace. Apply each heading only to the rows below it, stopping at the next glass-type heading.
-20. A standalone label between a glass-type heading and its rows is usually a section name. Preserve it in section and apply it to following rows until another section or glass-type group begins.
-21. In color-coded lists, repeated black or blue numbers at the left may be client positions while a separate red sequence is the internal index. Use color, column alignment, and repetition across rows to keep them separate.
-22. Parenthesized measurements beside a glass-type heading, such as 37 mm or 38 mm, describe the assembled glass thickness. Keep them with the glass-type context; never turn them into an order row.
-23. A short isolated name at the top or bottom of the page may be the client name. Use the supplied known-client vocabulary as supporting evidence, but never force a match that is not visible.
-24. Words written after a row arrow or at the end of a dimension line are row notes. Preserve meaningful words, but do not preserve arithmetic separators as notes.
-25. When reference vocabularies are supplied, use them to correct likely handwriting variants only when the visible text is a close match. New glass types and new clients are still allowed.
-
-Return only data matching the required JSON schema. Do not return markdown or hidden reasoning.
+Return only final production rows and document metadata matching the required JSON schema. Do not include context-only lines as rows. Do not return markdown or hidden reasoning.
 """.strip()
 
 
@@ -544,11 +556,67 @@ def _response_schema() -> Dict[str, Any]:
     return PhotoAssistAIResult.model_json_schema()
 
 
+def _observation_schema() -> Dict[str, Any]:
+    return PhotoAssistObservation.model_json_schema()
+
+
 def _default_client() -> OpenAI:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise PhotoAssistUnavailableError("Photo Assist is temporarily unavailable.")
     return OpenAI(api_key=api_key)
+
+
+def _image_data_url(image: NormalizedImage) -> str:
+    encoded = base64.b64encode(image.content).decode("ascii")
+    return f"data:{image.mime_type};base64,{encoded}"
+
+
+def _observe_image_once(
+    image: NormalizedImage,
+    *,
+    model: str,
+    client: Any,
+) -> PhotoAssistObservation:
+    response = client.responses.create(
+        model=model,
+        reasoning={"effort": "low"},
+        instructions=OBSERVATION_PROMPT,
+        input=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": "Transcribe the visible page structure without assigning business roles.",
+                    },
+                    {
+                        "type": "input_image",
+                        "image_url": _image_data_url(image),
+                        "detail": "high",
+                    },
+                ],
+            }
+        ],
+        text={
+            "format": {
+                "type": "json_schema",
+                "name": "manual_photo_assist_observation",
+                "schema": _observation_schema(),
+                "strict": True,
+            }
+        },
+        max_output_tokens=10000,
+        store=False,
+        timeout=httpx.Timeout(photo_assist_timeout_seconds(), connect=20.0),
+    )
+    output_text = str(getattr(response, "output_text", "") or "").strip()
+    if not output_text:
+        raise InvalidExtractionError("The visual transcription could not be validated.")
+    try:
+        return PhotoAssistObservation.model_validate(json.loads(output_text))
+    except (json.JSONDecodeError, ValidationError) as exc:
+        raise InvalidExtractionError("The visual transcription could not be validated.") from exc
 
 
 def _call_model_once(
@@ -559,11 +627,16 @@ def _call_model_once(
     preferred_dimension_unit: Optional[str] = None,
     known_glass_types: Optional[List[str]] = None,
     known_clients: Optional[List[str]] = None,
+    observation: Optional[PhotoAssistObservation] = None,
 ) -> PhotoAssistAIResult:
-    encoded = base64.b64encode(image.content).decode("ascii")
-    data_url = f"data:{image.mime_type};base64,{encoded}"
+    observation_text = (
+        observation.model_dump_json(indent=2)
+        if observation is not None
+        else '{"page_summary":"No separate observation pass was supplied.","lines":[],"visual_warnings":[]}'
+    )
     response = client.responses.create(
         model=model,
+        reasoning={"effort": "medium"},
         instructions=_model_instructions(
             preferred_dimension_unit,
             known_glass_types=known_glass_types,
@@ -575,11 +648,15 @@ def _call_model_once(
                 "content": [
                     {
                         "type": "input_text",
-                        "text": "Extract the handwritten glass order from this image for user review.",
+                        "text": (
+                            "Interpret this handwritten glass order for user review. Use the photograph "
+                            "to verify the neutral visual transcription below.\n\n"
+                            f"VISUAL TRANSCRIPTION JSON:\n{observation_text}"
+                        ),
                     },
                     {
                         "type": "input_image",
-                        "image_url": data_url,
+                        "image_url": _image_data_url(image),
                         # openai==2.26.0 accepts auto, low, or high; original is unsupported.
                         "detail": "high",
                     },
@@ -613,19 +690,27 @@ def extract_photo_assist(
     request_id: str,
     client: Any = None,
     model: Optional[str] = None,
+    observation_model: Optional[str] = None,
     preferred_dimension_unit: Optional[str] = None,
     known_glass_types: Optional[List[str]] = None,
     known_clients: Optional[List[str]] = None,
     call_once: Optional[Callable[..., PhotoAssistAIResult]] = None,
+    observe_once: Optional[Callable[..., PhotoAssistObservation]] = None,
 ) -> PhotoAssistResponse:
     selected_model = model or photo_assist_model()
+    selected_observation_model = observation_model or photo_assist_observation_model()
     openai_client = client or _default_client()
     caller = call_once or _call_model_once
+    observer = observe_once or _observe_image_once
+    use_observation_pass = call_once is None or observe_once is not None
+    observation: Optional[PhotoAssistObservation] = None
     last_error: Optional[Exception] = None
 
     for attempt in range(2):
         try:
-            if call_once:
+            if use_observation_pass and observation is None:
+                observation = observer(image, model=selected_observation_model, client=openai_client)
+            if call_once and not use_observation_pass:
                 extracted = caller(image, model=selected_model, client=openai_client)
             else:
                 extracted = caller(
@@ -635,6 +720,7 @@ def extract_photo_assist(
                     preferred_dimension_unit=preferred_dimension_unit,
                     known_glass_types=known_glass_types,
                     known_clients=known_clients,
+                    observation=observation,
                 )
             normalized = normalize_extraction(
                 extracted,
@@ -644,7 +730,11 @@ def extract_photo_assist(
                 **normalized.model_dump(),
                 status="needs_review" if _result_has_warnings(normalized) else "ready",
                 request_id=request_id,
-                model=selected_model,
+                model=(
+                    f"{selected_observation_model} -> {selected_model}"
+                    if use_observation_pass
+                    else selected_model
+                ),
             )
         except NoOrderRowsError:
             raise

@@ -89,6 +89,30 @@ def _normalized_image():
     )
 
 
+def _observation():
+    return photo.PhotoAssistObservation.model_validate(
+        {
+            "page_summary": "Two handwritten groups separated by a horizontal line.",
+            "lines": [
+                {
+                    "raw_text": "1 - 12 53 x 132 x 1",
+                    "region": "body",
+                    "alignment": "left",
+                    "spans": [
+                        {"text": "1 -", "color": "blue", "uncertain": False},
+                        {"text": "12", "color": "red", "uncertain": False},
+                        {"text": "53 x 132 x 1", "color": "blue", "uncertain": False},
+                    ],
+                    "separator_before": True,
+                    "separator_after": False,
+                    "uncertain_fragments": [],
+                }
+            ],
+            "visual_warnings": [],
+        }
+    )
+
+
 def test_photo_assist_normalizes_exif_orientation_without_storing_a_file():
     source = Image.new("RGB", (40, 20), "white")
     exif = Image.Exif()
@@ -436,6 +460,7 @@ def test_photo_assist_sends_direct_image_with_high_detail_and_strict_schema():
 
     assert result.rows[0].source_line
     assert calls[0]["model"] == "vision-test"
+    assert calls[0]["reasoning"] == {"effort": "medium"}
     assert calls[0]["store"] is False
     assert calls[0]["text"]["format"]["type"] == "json_schema"
     assert calls[0]["text"]["format"]["strict"] is True
@@ -443,10 +468,73 @@ def test_photo_assist_sends_direct_image_with_high_detail_and_strict_schema():
     assert "3/3 transparent tek" in calls[0]["instructions"]
     assert 'Known clients' in calls[0]["instructions"]
     assert 'Eldi' in calls[0]["instructions"]
+    assert "VISUAL TRANSCRIPTION JSON" in calls[0]["input"][0]["content"][0]["text"]
     image_input = calls[0]["input"][0]["content"][1]
     assert image_input["type"] == "input_image"
     assert image_input["detail"] == "high"
     assert image_input["image_url"].startswith("data:image/png;base64,")
+
+
+def test_photo_assist_observation_pass_preserves_layout_and_color_without_roles():
+    calls = []
+
+    class FakeResponses:
+        def create(self, **kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(output_text=_observation().model_dump_json())
+
+    result = photo._observe_image_once(
+        _normalized_image(),
+        model="vision-test",
+        client=SimpleNamespace(responses=FakeResponses()),
+    )
+
+    assert result.lines[0].spans[0].color == "blue"
+    assert result.lines[0].spans[1].color == "red"
+    assert calls[0]["reasoning"] == {"effort": "low"}
+    assert calls[0]["text"]["format"]["name"] == "manual_photo_assist_observation"
+    assert "without assigning business roles" in calls[0]["input"][0]["content"][0]["text"]
+
+
+def test_photo_assist_two_stage_pipeline_passes_observation_to_reasoning():
+    observations = []
+    reasoning_observations = []
+
+    def fake_observe(image, *, model, client):
+        observations.append((image, model, client))
+        return _observation()
+
+    def fake_reason(
+        image,
+        *,
+        model,
+        client,
+        preferred_dimension_unit,
+        known_glass_types,
+        known_clients,
+        observation,
+    ):
+        reasoning_observations.append(observation)
+        return _ai_result()
+
+    response = photo.extract_photo_assist(
+        _normalized_image(),
+        request_id="request-two-stage",
+        client=object(),
+        model="vision-test",
+        observation_model="observation-test",
+        preferred_dimension_unit="cm",
+        known_glass_types=["4F + 16 + LowE"],
+        known_clients=["Klienti"],
+        call_once=fake_reason,
+        observe_once=fake_observe,
+    )
+
+    assert len(observations) == 1
+    assert reasoning_observations == [_observation()]
+    assert response.rows[0].client_reference.value == "K1"
+    assert observations[0][1] == "observation-test"
+    assert response.model == "observation-test -> vision-test"
 
 
 def test_photo_assist_never_creates_a_manual_order(tmp_path, monkeypatch):
@@ -512,10 +600,19 @@ def test_photo_assist_values_continue_through_existing_manual_label_logic():
 
 def test_photo_assist_feature_flag_and_model_are_centralized(monkeypatch):
     monkeypatch.setenv("MANUAL_PHOTO_ASSIST_ENABLED", "true")
-    monkeypatch.setenv("MANUAL_PHOTO_ASSIST_MODEL", "configured-vision-model")
+    monkeypatch.delenv("MANUAL_PHOTO_ASSIST_REASONING_MODEL", raising=False)
+    monkeypatch.delenv("MANUAL_PHOTO_ASSIST_OBSERVATION_MODEL", raising=False)
+    monkeypatch.setenv("MANUAL_PHOTO_ASSIST_MODEL", "legacy-model-must-not-override-pipeline")
+
+    assert photo.photo_assist_model() == "gpt-5.6-terra"
+    assert photo.photo_assist_observation_model() == "gpt-5.6-luna"
+
+    monkeypatch.setenv("MANUAL_PHOTO_ASSIST_REASONING_MODEL", "configured-reasoning-model")
+    monkeypatch.setenv("MANUAL_PHOTO_ASSIST_OBSERVATION_MODEL", "configured-observation-model")
 
     assert photo.photo_assist_enabled() is True
-    assert photo.photo_assist_model() == "configured-vision-model"
+    assert photo.photo_assist_model() == "configured-reasoning-model"
+    assert photo.photo_assist_observation_model() == "configured-observation-model"
 
 
 def test_photo_assist_frontend_requires_review_and_explicit_apply():

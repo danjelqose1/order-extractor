@@ -96,6 +96,7 @@ from manual_photo_assist import (
     photo_assist_enabled,
     photo_assist_max_upload_bytes,
     photo_assist_model,
+    photo_assist_observation_model,
 )
 from validators import validate_rows
 from dimension_repair import apply_dimension_repair
@@ -3733,6 +3734,8 @@ def get_manual_photo_assist_config() -> Dict[str, Any]:
         "enabled": photo_assist_enabled(),
         "max_upload_bytes": photo_assist_max_upload_bytes(),
         "supported_formats": ["JPEG", "JPG", "PNG", "WebP"],
+        "observation_model": photo_assist_observation_model(),
+        "reasoning_model": photo_assist_model(),
     }
 
 
@@ -3753,6 +3756,7 @@ async def extract_manual_order_photo(
     declared_type = str(image.content_type or "application/octet-stream")[:120]
     file_size = 0
     model = photo_assist_model()
+    observation_model = photo_assist_observation_model()
 
     try:
         content = await image.read(max_bytes + 1)
@@ -3771,6 +3775,7 @@ async def extract_manual_order_photo(
             normalized,
             request_id=request_id,
             model=model,
+            observation_model=observation_model,
             preferred_dimension_unit="mm" if dimension_unit == "mm" else "cm",
             known_glass_types=known_glass_types,
             known_clients=known_clients,
@@ -3780,7 +3785,7 @@ async def extract_manual_order_photo(
             "manual_photo_assist_complete request_id=%s model=%s duration_ms=%d file_type=%s "
             "file_size=%d rows=%d warnings=%d",
             request_id,
-            model,
+            result.model,
             round((time.monotonic() - started_at) * 1000),
             declared_type,
             file_size,
