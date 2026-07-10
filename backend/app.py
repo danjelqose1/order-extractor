@@ -83,6 +83,20 @@ from manual_documents import (
     build_manual_processing_pdf,
     normalize_manual_print_settings,
 )
+from manual_photo_assist import (
+    InvalidExtractionError,
+    InvalidImageError,
+    NoOrderRowsError,
+    PhotoAssistResponse,
+    PhotoAssistTimeoutError,
+    PhotoAssistUnavailableError,
+    UnsupportedImageError,
+    extract_photo_assist,
+    normalize_uploaded_image,
+    photo_assist_enabled,
+    photo_assist_max_upload_bytes,
+    photo_assist_model,
+)
 from validators import validate_rows
 from dimension_repair import apply_dimension_repair
 from area_dimension_validator import apply_area_dimension_validation
@@ -3711,6 +3725,104 @@ def download_telegram_file(file_id: int):
         media_type=record.get("mime_type") or "application/pdf",
         filename=_safe_download_filename(record.get("original_filename")),
     )
+
+
+@app.get("/api/manual-orders/photo-assist/config")
+def get_manual_photo_assist_config() -> Dict[str, Any]:
+    return {
+        "enabled": photo_assist_enabled(),
+        "max_upload_bytes": photo_assist_max_upload_bytes(),
+        "supported_formats": ["JPEG", "JPG", "PNG", "WebP"],
+    }
+
+
+@app.post(
+    "/api/manual-orders/photo-assist/extract",
+    response_model=PhotoAssistResponse,
+)
+async def extract_manual_order_photo(image: UploadFile = File(...)) -> PhotoAssistResponse:
+    if not photo_assist_enabled():
+        raise HTTPException(status_code=404, detail="Photo Assist is not enabled.")
+
+    request_id = uuid.uuid4().hex
+    started_at = time.monotonic()
+    max_bytes = photo_assist_max_upload_bytes()
+    declared_type = str(image.content_type or "application/octet-stream")[:120]
+    file_size = 0
+    model = photo_assist_model()
+
+    try:
+        content = await image.read(max_bytes + 1)
+        file_size = len(content)
+        if file_size > max_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Image is too large. Maximum size is {max_bytes // (1024 * 1024)} MB.",
+            )
+        normalized = normalize_uploaded_image(content)
+        result = await asyncio.to_thread(
+            extract_photo_assist,
+            normalized,
+            request_id=request_id,
+            model=model,
+        )
+        warning_count = len(result.global_warnings) + sum(len(row.warnings) for row in result.rows)
+        logger.info(
+            "manual_photo_assist_complete request_id=%s model=%s duration_ms=%d file_type=%s "
+            "file_size=%d rows=%d warnings=%d",
+            request_id,
+            model,
+            round((time.monotonic() - started_at) * 1000),
+            declared_type,
+            file_size,
+            len(result.rows),
+            warning_count,
+        )
+        return result
+    except HTTPException:
+        raise
+    except UnsupportedImageError as exc:
+        status_code = 415
+        detail = str(exc)
+        category = exc.category
+    except InvalidImageError as exc:
+        status_code = 400
+        detail = str(exc)
+        category = exc.category
+    except NoOrderRowsError as exc:
+        status_code = 422
+        detail = str(exc)
+        category = exc.category
+    except InvalidExtractionError as exc:
+        status_code = 502
+        detail = str(exc)
+        category = exc.category
+    except PhotoAssistTimeoutError as exc:
+        status_code = 504
+        detail = str(exc)
+        category = exc.category
+    except PhotoAssistUnavailableError as exc:
+        status_code = 503
+        detail = str(exc)
+        category = exc.category
+    except Exception:
+        status_code = 503
+        detail = "Photo Assist is temporarily unavailable. Try again."
+        category = "unexpected"
+    finally:
+        await image.close()
+
+    logger.warning(
+        "manual_photo_assist_failed request_id=%s model=%s duration_ms=%d file_type=%s "
+        "file_size=%d category=%s",
+        request_id,
+        model,
+        round((time.monotonic() - started_at) * 1000),
+        declared_type,
+        file_size,
+        category,
+    )
+    raise HTTPException(status_code=status_code, detail=detail)
 
 
 @app.get("/manual-orders")

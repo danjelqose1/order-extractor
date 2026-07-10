@@ -983,6 +983,88 @@
         </div>
 
         <form id="manualOrderForm" novalidate>
+          <details id="manualPhotoAssist" class="manual-photo-assist" hidden>
+            <summary>
+              <span class="manual-photo-assist-title">
+                <span>Photo Assist</span>
+                <span class="manual-photo-beta-badge">BETA</span>
+              </span>
+              <span class="muted small">Upload a handwritten order photo to pre-fill the form.</span>
+            </summary>
+            <div class="manual-photo-assist-body">
+              <div class="manual-photo-upload-grid">
+                <div
+                  id="manualPhotoDropzone"
+                  class="manual-photo-dropzone"
+                  role="button"
+                  tabindex="0"
+                  aria-label="Choose handwritten order photo"
+                >
+                  <input
+                    type="file"
+                    id="manualPhotoInput"
+                    accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp,.heic,.heif"
+                    hidden
+                  />
+                  <strong id="manualPhotoFileName">Drop a photo here</strong>
+                  <span>JPG, PNG or WebP · up to 10 MB</span>
+                  <button type="button" class="btn small tertiary" id="manualPhotoBrowse">Browse photo</button>
+                </div>
+                <div class="manual-photo-preview-wrap" id="manualPhotoPreviewWrap" hidden>
+                  <img id="manualPhotoPreview" alt="Selected handwritten order" />
+                </div>
+              </div>
+
+              <div class="manual-photo-warning">
+                AI may misread handwriting. Review every value before applying.
+              </div>
+              <div class="manual-photo-controls">
+                <div id="manualPhotoStatus" class="muted small" role="status"></div>
+                <div>
+                  <button type="button" class="btn small tertiary" id="manualPhotoCancel" hidden>Cancel</button>
+                  <button type="button" class="btn small" id="manualPhotoExtract" disabled>Extract photo</button>
+                </div>
+              </div>
+
+              <div id="manualPhotoReview" class="manual-photo-review" hidden>
+                <div class="manual-photo-review-header">
+                  <div>
+                    <strong>Review extraction</strong>
+                    <span id="manualPhotoReviewStatus" class="manual-photo-review-badge">Needs review</span>
+                  </div>
+                  <span id="manualPhotoRequestMeta" class="muted small"></span>
+                </div>
+
+                <div id="manualPhotoGlobalWarnings" class="manual-photo-warning-list" hidden></div>
+                <div id="manualPhotoDocumentFields" class="manual-photo-document-fields"></div>
+                <div class="table-responsive manual-photo-review-table-wrap">
+                  <table class="manual-photo-review-table">
+                    <thead>
+                      <tr>
+                        <th>Source</th>
+                        <th>Section</th>
+                        <th>Client Pos</th>
+                        <th>Index</th>
+                        <th>Width mm</th>
+                        <th>Height mm</th>
+                        <th>Qty</th>
+                        <th>Glass type</th>
+                        <th>Notes</th>
+                        <th>Warnings</th>
+                      </tr>
+                    </thead>
+                    <tbody id="manualPhotoReviewRows"></tbody>
+                  </table>
+                </div>
+                <div class="manual-photo-review-actions">
+                  <button type="button" class="btn small tertiary" id="manualPhotoDiscard">Discard</button>
+                  <button type="button" class="btn small tertiary" id="manualPhotoReplace">Try another image</button>
+                  <button type="button" class="btn small success" id="manualPhotoApply">Apply to form</button>
+                </div>
+              </div>
+            </div>
+          </details>
+
           <div class="manual-order-fields">
             <label>
               <span>Client name *</span>
@@ -1074,6 +1156,23 @@
           </div>
         </form>
       </section>
+
+      <div id="manualPhotoApplyModal" class="modal-layer" hidden>
+        <div class="modal-card manual-photo-apply-modal-card" role="dialog" aria-modal="true" aria-labelledby="manualPhotoApplyTitle">
+          <div class="manual-settings-modal-header">
+            <div>
+              <h3 id="manualPhotoApplyTitle">Apply photo extraction</h3>
+              <p>Applying this extraction may replace or append to the current unsaved order.</p>
+            </div>
+          </div>
+          <div class="manual-photo-apply-options">
+            <button type="button" class="btn" id="manualPhotoApplyReplace">Replace current unsaved fields</button>
+            <button type="button" class="btn tertiary" id="manualPhotoApplyAppend">Append extracted rows</button>
+            <button type="button" class="btn tertiary" id="manualPhotoApplyCancel">Cancel</button>
+            <span id="manualPhotoApplyHint" class="muted small"></span>
+          </div>
+        </div>
+      </div>
 
       <div id="manualPrintSettingsModal" class="modal-layer manual-print-settings-modal" hidden>
         <div class="modal-card wide" role="dialog" aria-modal="true" aria-labelledby="manualPrintSettingsTitle">

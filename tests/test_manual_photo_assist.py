@@ -1,0 +1,347 @@
+from __future__ import annotations
+
+from io import BytesIO
+import importlib
+import json
+import sys
+import httpx
+from pathlib import Path
+from types import SimpleNamespace
+
+from PIL import Image
+import fitz
+import pytest
+
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+BACKEND_DIR = ROOT_DIR / "backend"
+INDEX_HTML = ROOT_DIR / "docs" / "index.html"
+APP_JS = ROOT_DIR / "docs" / "js" / "app.js"
+APP_PY = ROOT_DIR / "backend" / "app.py"
+
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+
+photo = importlib.import_module("manual_photo_assist")
+
+
+def _text(raw=None, value=None, warning=None):
+    return {"raw": raw, "value": value, "warning": warning}
+
+
+def _dimension(raw=None, value=None, unit="unknown", warning=None):
+    return {
+        "raw": raw,
+        "value": value,
+        "unit": unit,
+        "normalized_mm": None,
+        "warning": warning,
+    }
+
+
+def _quantity(raw=None, value=None, warning=None):
+    return {"raw": raw, "value": value, "warning": warning}
+
+
+def _index(raw=None, value=None, warning=None):
+    return {"raw": raw, "value": value, "warning": warning}
+
+
+def _row(**overrides):
+    row = {
+        "source_line": "K1 1 80 x 231.5 = 2 WC",
+        "section": "Vila 1",
+        "client_reference": _text("K1", "K1"),
+        "index_number": _index("1", 1),
+        "width": _dimension("80", 80, "cm"),
+        "height": _dimension("231.5", 231.5, "cm"),
+        "quantity": _quantity("2", 2),
+        "glass_type": _text(None, None),
+        "notes": {"raw": "WC", "value": "WC"},
+        "warnings": [],
+    }
+    row.update(overrides)
+    return row
+
+
+def _ai_result(rows=None, **overrides):
+    payload = {
+        "document": {
+            "client_name": _text("Klienti", "Klienti"),
+            "order_number": _text(None, None),
+            "glass_type": _text("4F + 16 + LowE", "4F + 16 + LowE"),
+        },
+        "rows": rows if rows is not None else [_row()],
+        "global_warnings": [],
+        "raw_detected_text": "4F + 16 + LowE\nVila 1\nK1 1 80 x 231.5 = 2 WC",
+    }
+    payload.update(overrides)
+    return photo.PhotoAssistAIResult.model_validate(payload)
+
+
+def _normalized_image():
+    return photo.NormalizedImage(
+        content=b"image",
+        mime_type="image/png",
+        width=100,
+        height=100,
+        original_format="PNG",
+    )
+
+
+def test_photo_assist_normalizes_exif_orientation_without_storing_a_file():
+    source = Image.new("RGB", (40, 20), "white")
+    exif = Image.Exif()
+    exif[274] = 6
+    stream = BytesIO()
+    source.save(stream, format="JPEG", quality=95, exif=exif)
+
+    normalized = photo.normalize_uploaded_image(stream.getvalue())
+
+    assert normalized.mime_type == "image/jpeg"
+    assert (normalized.width, normalized.height) == (20, 40)
+    assert normalized.content.startswith(b"\xff\xd8")
+
+
+def test_photo_assist_rejects_heic_with_a_safe_conversion_message():
+    fake_heic = b"\x00\x00\x00\x18ftypheic" + (b"\x00" * 32)
+
+    with pytest.raises(photo.UnsupportedImageError, match="Upload JPG or PNG"):
+        photo.normalize_uploaded_image(fake_heic)
+
+
+def test_photo_assist_mixed_order_preserves_sections_references_indexes_raw_values_and_notes():
+    result = photo.normalize_extraction(
+        _ai_result(
+            rows=[
+                _row(),
+                _row(
+                    source_line="K2 1 137.5 x 90 + 1",
+                    section="Vila 2",
+                    client_reference=_text("K2", "K2"),
+                    index_number=_index("1", 1),
+                    width=_dimension("137.5", 137.5, "cm", "Unclear handwritten digit"),
+                    height=_dimension("90", 90, "cm"),
+                    quantity=_quantity("1", 1),
+                    notes={"raw": None, "value": None},
+                ),
+            ]
+        )
+    )
+
+    assert result.rows[0].section == "Vila 1"
+    assert result.rows[0].client_reference.value == "K1"
+    assert result.rows[0].index_number.value == 1
+    assert result.rows[0].width.raw == "80"
+    assert result.rows[0].width.normalized_mm == 800
+    assert result.rows[0].height.normalized_mm == 2315
+    assert result.rows[0].notes.value == "WC"
+    assert result.rows[0].glass_type.value == "4F + 16 + LowE"
+    assert "Duplicate index number 1." in result.rows[0].warnings
+    assert "Duplicate index number 1." in result.rows[1].warnings
+
+
+def test_photo_assist_simple_list_does_not_invent_references_or_indexes():
+    rows = []
+    for number in range(6):
+        rows.append(
+            _row(
+                source_line=f"{80 + number} x 120 = 2",
+                section=None,
+                client_reference=_text(None, None),
+                index_number=_index(None, None),
+                width=_dimension(str(80 + number), 80 + number, "unknown"),
+                height=_dimension("120", 120, "unknown"),
+                quantity=_quantity("2", 2),
+                notes={"raw": None, "value": None},
+            )
+        )
+
+    result = photo.normalize_extraction(_ai_result(rows=rows))
+
+    assert len(result.rows) == 6
+    assert all(row.index_number.value is None for row in result.rows)
+    assert all(row.client_reference.value is None for row in result.rows)
+    assert all(row.width.normalized_mm is None for row in result.rows)
+    assert all("Dimensions may be written in centimetres" in (row.width.warning or "") for row in result.rows)
+
+
+def test_photo_assist_unreadable_row_is_preserved_with_nulls_and_warnings():
+    unreadable = _row(
+        source_line="? x 120 = ?",
+        client_reference=_text(None, None),
+        index_number=_index(None, None),
+        width=_dimension("?", None, "unknown", "Unclear handwritten digit"),
+        height=_dimension("120", 120, "cm"),
+        quantity=_quantity("?", None),
+        glass_type=_text(None, None),
+        notes={"raw": None, "value": None},
+    )
+
+    result = photo.normalize_extraction(_ai_result(rows=[unreadable]))
+
+    assert len(result.rows) == 1
+    assert result.rows[0].source_line == "? x 120 = ?"
+    assert result.rows[0].width.value is None
+    assert result.rows[0].quantity.value is None
+    assert "Width is missing or unclear." in result.rows[0].warnings
+    assert "Quantity not detected or invalid." in result.rows[0].warnings
+
+
+def test_photo_assist_retries_one_malformed_response_then_returns_review_data():
+    calls = []
+
+    def fake_call(image, *, model, client):
+        calls.append((image, model, client))
+        if len(calls) == 1:
+            raise photo.InvalidExtractionError("The AI response could not be validated.")
+        return _ai_result()
+
+    response = photo.extract_photo_assist(
+        _normalized_image(),
+        request_id="request-test",
+        client=object(),
+        model="vision-test",
+        call_once=fake_call,
+    )
+
+    assert len(calls) == 2
+    assert response.request_id == "request-test"
+    assert response.model == "vision-test"
+    assert response.status == "needs_review"
+
+
+def test_photo_assist_surfaces_model_timeout_as_timeout_error():
+    def timeout_call(image, *, model, client):
+        raise photo.APITimeoutError(httpx.Request("POST", "https://example.invalid"))
+
+    with pytest.raises(photo.PhotoAssistTimeoutError, match="Extraction timed out"):
+        photo.extract_photo_assist(
+            _normalized_image(),
+            request_id="request-timeout",
+            client=object(),
+            model="vision-test",
+            call_once=timeout_call,
+        )
+
+
+def test_photo_assist_sends_direct_image_with_high_detail_and_strict_schema():
+    calls = []
+
+    class FakeResponses:
+        def create(self, **kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(output_text=json.dumps(_ai_result().model_dump()))
+
+    result = photo._call_model_once(
+        _normalized_image(),
+        model="vision-test",
+        client=SimpleNamespace(responses=FakeResponses()),
+    )
+
+    assert result.rows[0].source_line
+    assert calls[0]["model"] == "vision-test"
+    assert calls[0]["store"] is False
+    assert calls[0]["text"]["format"]["type"] == "json_schema"
+    assert calls[0]["text"]["format"]["strict"] is True
+    image_input = calls[0]["input"][0]["content"][1]
+    assert image_input["type"] == "input_image"
+    assert image_input["detail"] == "high"
+    assert image_input["image_url"].startswith("data:image/png;base64,")
+
+
+def test_photo_assist_never_creates_a_manual_order(tmp_path, monkeypatch):
+    monkeypatch.setenv("DB_DIR", str(tmp_path))
+    previous_db = sys.modules.get("db")
+    sys.modules.pop("db", None)
+    try:
+        db = importlib.import_module("db")
+        db.init_db()
+
+        response = photo.extract_photo_assist(
+            _normalized_image(),
+            request_id="request-no-save",
+            client=object(),
+            model="vision-test",
+            call_once=lambda image, *, model, client: _ai_result(),
+        )
+
+        assert response.rows
+        assert db.list_manual_orders() == []
+    finally:
+        if previous_db is None:
+            sys.modules.pop("db", None)
+        else:
+            sys.modules["db"] = previous_db
+
+
+def test_photo_assist_values_continue_through_existing_manual_label_logic():
+    response = photo.extract_photo_assist(
+        _normalized_image(),
+        request_id="request-labels",
+        client=object(),
+        model="vision-test",
+        call_once=lambda image, *, model, client: _ai_result(),
+    )
+    detected = response.rows[0]
+    order = {
+        "order_number": "L-26-0001",
+        "client_name": response.document.client_name.value,
+        "order_date": "2026-07-10",
+        "status": "approved",
+        "manual_format": "client_positions_red_index",
+        "rows": [
+            {
+                "section": detected.section,
+                "client_position": detected.client_reference.value,
+                "index_number": detected.index_number.value,
+                "glass_type": detected.glass_type.value,
+                "width_mm": detected.width.normalized_mm,
+                "height_mm": detected.height.normalized_mm,
+                "quantity": detected.quantity.value,
+                "notes": detected.notes.value or "",
+            }
+        ],
+    }
+    documents = importlib.import_module("manual_documents")
+    labels = fitz.open(stream=documents.build_manual_labels_pdf(order), filetype="pdf")
+
+    assert len(labels) == 2
+    assert all("POS K1" in page.get_text() for page in labels)
+    assert all("#1" in page.get_text() for page in labels)
+
+
+def test_photo_assist_feature_flag_and_model_are_centralized(monkeypatch):
+    monkeypatch.setenv("MANUAL_PHOTO_ASSIST_ENABLED", "true")
+    monkeypatch.setenv("MANUAL_PHOTO_ASSIST_MODEL", "configured-vision-model")
+
+    assert photo.photo_assist_enabled() is True
+    assert photo.photo_assist_model() == "configured-vision-model"
+
+
+def test_photo_assist_frontend_requires_review_and_explicit_apply():
+    html = INDEX_HTML.read_text(encoding="utf-8")
+    js = APP_JS.read_text(encoding="utf-8")
+    app_py = APP_PY.read_text(encoding="utf-8")
+
+    assert 'id="manualPhotoAssist"' in html
+    assert "Photo Assist" in html
+    assert "BETA" in html
+    assert 'id="manualPhotoReview"' in html
+    assert 'id="manualPhotoApply"' in html
+    assert 'id="manualPhotoApplyReplace"' in html
+    assert 'id="manualPhotoApplyAppend"' in html
+    assert 'id="manualPhotoApplyCancel"' in html
+    assert "AI may misread handwriting. Review every value before applying." in html
+    assert "function extractManualPhoto" in js
+    assert "function renderManualPhotoReview" in js
+    assert "function applyManualPhotoResult" in js
+    assert "manualPhotoFormHasUnsavedData()" in js
+    assert 'applyManualPhotoResult("replace")' in js
+    assert 'applyManualPhotoResult("append")' in js
+    assert 'formData.append("image"' in js
+    assert 'manualApi("/api/manual-orders/photo-assist/extract"' in js
+    assert '@app.post(\n    "/api/manual-orders/photo-assist/extract"' in app_py
+    apply_block = js[js.index("function applyManualPhotoResult"):js.index("function manualToday")]
+    assert 'manualApi("/manual-orders"' not in apply_block
+    assert "saveManualOrder(" not in apply_block

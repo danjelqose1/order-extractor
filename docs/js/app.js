@@ -174,6 +174,17 @@ const manualOrdersState = {
   autoNumberFrom: 1,
 };
 
+const manualPhotoAssistState = {
+  configLoaded: false,
+  enabled: false,
+  status: "empty",
+  file: null,
+  previewUrl: "",
+  result: null,
+  controller: null,
+  maxUploadBytes: 10 * 1024 * 1024,
+};
+
 const appState = {
   extract: {
     rows: [],
@@ -20510,8 +20521,421 @@ const manualProcessingCutGuide = document.getElementById("manualProcessingCutGui
 const manualProcessingLayoutModal = document.getElementById("manualProcessingLayoutModal");
 const manualProcessingLayoutOrder = document.getElementById("manualProcessingLayoutOrder");
 const manualProcessingLayoutClose = document.getElementById("manualProcessingLayoutClose");
+const manualPhotoAssist = document.getElementById("manualPhotoAssist");
+const manualPhotoDropzone = document.getElementById("manualPhotoDropzone");
+const manualPhotoInput = document.getElementById("manualPhotoInput");
+const manualPhotoBrowse = document.getElementById("manualPhotoBrowse");
+const manualPhotoFileName = document.getElementById("manualPhotoFileName");
+const manualPhotoPreviewWrap = document.getElementById("manualPhotoPreviewWrap");
+const manualPhotoPreview = document.getElementById("manualPhotoPreview");
+const manualPhotoStatus = document.getElementById("manualPhotoStatus");
+const manualPhotoExtract = document.getElementById("manualPhotoExtract");
+const manualPhotoCancel = document.getElementById("manualPhotoCancel");
+const manualPhotoReview = document.getElementById("manualPhotoReview");
+const manualPhotoReviewStatus = document.getElementById("manualPhotoReviewStatus");
+const manualPhotoRequestMeta = document.getElementById("manualPhotoRequestMeta");
+const manualPhotoGlobalWarnings = document.getElementById("manualPhotoGlobalWarnings");
+const manualPhotoDocumentFields = document.getElementById("manualPhotoDocumentFields");
+const manualPhotoReviewRows = document.getElementById("manualPhotoReviewRows");
+const manualPhotoDiscard = document.getElementById("manualPhotoDiscard");
+const manualPhotoReplace = document.getElementById("manualPhotoReplace");
+const manualPhotoApply = document.getElementById("manualPhotoApply");
+const manualPhotoApplyModal = document.getElementById("manualPhotoApplyModal");
+const manualPhotoApplyReplace = document.getElementById("manualPhotoApplyReplace");
+const manualPhotoApplyAppend = document.getElementById("manualPhotoApplyAppend");
+const manualPhotoApplyCancel = document.getElementById("manualPhotoApplyCancel");
+const manualPhotoApplyHint = document.getElementById("manualPhotoApplyHint");
 let manualProcessingLayoutOrderId = null;
 let manualProcessingLayoutAction = "processing";
+
+function setManualPhotoStatus(message, status = manualPhotoAssistState.status){
+  manualPhotoAssistState.status = status;
+  if (manualPhotoStatus) manualPhotoStatus.textContent = message || "";
+  const busy = status === "uploading" || status === "extracting";
+  if (manualPhotoExtract){
+    manualPhotoExtract.disabled = busy || !manualPhotoAssistState.file;
+    manualPhotoExtract.textContent = busy ? "Extracting…" : "Extract photo";
+  }
+  if (manualPhotoCancel) manualPhotoCancel.hidden = !busy;
+}
+
+function syncManualPhotoAssistVisibility(){
+  if (!manualPhotoAssist) return;
+  manualPhotoAssist.hidden = (
+    !manualPhotoAssistState.enabled
+    || !!manualOrdersState.editingId
+    || manualOrdersState.viewOnly
+  );
+}
+
+async function loadManualPhotoAssistConfig(){
+  if (manualPhotoAssistState.configLoaded) return manualPhotoAssistState.enabled;
+  manualPhotoAssistState.configLoaded = true;
+  try{
+    const config = await manualApi("/api/manual-orders/photo-assist/config");
+    manualPhotoAssistState.enabled = !!config?.enabled;
+    const maxBytes = Number(config?.max_upload_bytes);
+    if (Number.isFinite(maxBytes) && maxBytes > 0){
+      manualPhotoAssistState.maxUploadBytes = maxBytes;
+    }
+  }catch(error){
+    console.warn("Unable to load Photo Assist configuration", error);
+    manualPhotoAssistState.enabled = false;
+  }
+  syncManualPhotoAssistVisibility();
+  return manualPhotoAssistState.enabled;
+}
+
+function clearManualPhotoReview(){
+  manualPhotoAssistState.result = null;
+  if (manualPhotoReview) manualPhotoReview.hidden = true;
+  if (manualPhotoDocumentFields) manualPhotoDocumentFields.innerHTML = "";
+  if (manualPhotoReviewRows) manualPhotoReviewRows.innerHTML = "";
+  if (manualPhotoGlobalWarnings){
+    manualPhotoGlobalWarnings.hidden = true;
+    manualPhotoGlobalWarnings.innerHTML = "";
+  }
+}
+
+function discardManualPhotoAssist({ silent = false } = {}){
+  manualPhotoAssistState.controller?.abort();
+  manualPhotoAssistState.controller = null;
+  if (manualPhotoAssistState.previewUrl){
+    URL.revokeObjectURL(manualPhotoAssistState.previewUrl);
+  }
+  manualPhotoAssistState.previewUrl = "";
+  manualPhotoAssistState.file = null;
+  if (manualPhotoInput) manualPhotoInput.value = "";
+  if (manualPhotoPreview){
+    manualPhotoPreview.removeAttribute("src");
+  }
+  if (manualPhotoPreviewWrap) manualPhotoPreviewWrap.hidden = true;
+  if (manualPhotoFileName) manualPhotoFileName.textContent = "Drop a photo here";
+  clearManualPhotoReview();
+  setManualPhotoStatus(silent ? "" : "Photo discarded.", silent ? "empty" : "discarded");
+}
+
+function manualPhotoFileExtension(file){
+  const name = String(file?.name || "").toLowerCase();
+  const dot = name.lastIndexOf(".");
+  return dot >= 0 ? name.slice(dot) : "";
+}
+
+function selectManualPhoto(file){
+  if (!file) return;
+  const allowedTypes = new Set([
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/heic",
+    "image/heif",
+  ]);
+  const allowedExtensions = new Set([".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"]);
+  if (!allowedTypes.has(String(file.type || "").toLowerCase()) && !allowedExtensions.has(manualPhotoFileExtension(file))){
+    setManualPhotoStatus("Unsupported image format. Upload JPG, PNG, or WebP.", "failed");
+    return;
+  }
+  if (file.size > manualPhotoAssistState.maxUploadBytes){
+    const maxMb = Math.max(1, Math.round(manualPhotoAssistState.maxUploadBytes / (1024 * 1024)));
+    setManualPhotoStatus(`Image is too large. Maximum size is ${maxMb} MB.`, "failed");
+    return;
+  }
+
+  manualPhotoAssistState.controller?.abort();
+  if (manualPhotoAssistState.previewUrl){
+    URL.revokeObjectURL(manualPhotoAssistState.previewUrl);
+  }
+  clearManualPhotoReview();
+  manualPhotoAssistState.file = file;
+  manualPhotoAssistState.previewUrl = URL.createObjectURL(file);
+  if (manualPhotoPreview){
+    manualPhotoPreview.src = manualPhotoAssistState.previewUrl;
+  }
+  if (manualPhotoPreviewWrap) manualPhotoPreviewWrap.hidden = false;
+  if (manualPhotoFileName) manualPhotoFileName.textContent = file.name || "Selected photo";
+  setManualPhotoStatus("Image selected. Click Extract photo.", "selected");
+  if (manualPhotoAssist) manualPhotoAssist.open = true;
+}
+
+function manualPhotoDisplay(value, fallback = "Not detected"){
+  if (value === null || value === undefined || String(value).trim() === "") return fallback;
+  return String(value);
+}
+
+function manualPhotoFieldClass(warning, invalid = false){
+  if (invalid) return "invalid";
+  return warning ? "warning" : "";
+}
+
+function renderManualPhotoReview(){
+  const result = manualPhotoAssistState.result;
+  if (!result || !manualPhotoReview) return;
+  manualPhotoReview.hidden = false;
+  const needsReview = result.status !== "ready";
+  if (manualPhotoReviewStatus){
+    manualPhotoReviewStatus.textContent = needsReview ? "Needs review" : "Ready";
+    manualPhotoReviewStatus.classList.toggle("ready", !needsReview);
+  }
+  if (manualPhotoRequestMeta){
+    manualPhotoRequestMeta.textContent = `${result.rows?.length || 0} rows · ${result.model || "vision model"}`;
+  }
+
+  const globalWarnings = Array.isArray(result.global_warnings) ? result.global_warnings.filter(Boolean) : [];
+  if (manualPhotoGlobalWarnings){
+    manualPhotoGlobalWarnings.hidden = globalWarnings.length === 0;
+    manualPhotoGlobalWarnings.innerHTML = globalWarnings.length
+      ? `<ul>${globalWarnings.map(warning => `<li>${escapeHtml(warning)}</li>`).join("")}</ul>`
+      : "";
+  }
+
+  const documentFields = [
+    ["client_name", "Client name"],
+    ["order_number", "Detected order number"],
+    ["glass_type", "Default glass type"],
+  ];
+  if (manualPhotoDocumentFields){
+    manualPhotoDocumentFields.innerHTML = documentFields.map(([field, label]) => {
+      const detection = result.document?.[field] || {};
+      return `<label class="manual-photo-review-field ${manualPhotoFieldClass(detection.warning)}">
+        <span>${escapeHtml(label)}</span>
+        <input type="text" data-photo-document-field="${escapeHtml(field)}" value="${escapeHtml(detection.value || "")}">
+        <small>Raw: ${escapeHtml(manualPhotoDisplay(detection.raw))}${detection.warning ? ` · ${escapeHtml(detection.warning)}` : ""}</small>
+      </label>`;
+    }).join("");
+  }
+
+  if (manualPhotoReviewRows){
+    manualPhotoReviewRows.innerHTML = (result.rows || []).map((row, index) => {
+      const rowWarnings = Array.from(new Set([
+        ...(Array.isArray(row.warnings) ? row.warnings : []),
+        row.client_reference?.warning,
+        row.index_number?.warning,
+        row.width?.warning,
+        row.height?.warning,
+        row.quantity?.warning,
+        row.glass_type?.warning,
+      ].filter(Boolean)));
+      const widthInvalid = !(Number(row.width?.normalized_mm) > 0);
+      const heightInvalid = !(Number(row.height?.normalized_mm) > 0);
+      const quantityInvalid = !(Number.isInteger(Number(row.quantity?.value)) && Number(row.quantity?.value) > 0);
+      const glassInvalid = !String(row.glass_type?.value || result.document?.glass_type?.value || "").trim();
+      const critical = widthInvalid || heightInvalid || quantityInvalid || glassInvalid;
+      return `<tr data-photo-row-index="${index}">
+        <td><div class="manual-photo-source-line">${escapeHtml(manualPhotoDisplay(row.source_line, "—"))}</div></td>
+        <td><input type="text" data-photo-row-field="section" value="${escapeHtml(row.section || "")}"></td>
+        <td class="${manualPhotoFieldClass(row.client_reference?.warning)}"><input type="text" data-photo-row-field="client_reference" value="${escapeHtml(row.client_reference?.value || "")}"><span class="manual-photo-raw">Raw: ${escapeHtml(manualPhotoDisplay(row.client_reference?.raw, "—"))}</span></td>
+        <td class="${manualPhotoFieldClass(row.index_number?.warning)}"><input type="number" min="1" step="1" data-photo-row-field="index_number" value="${escapeHtml(row.index_number?.value ?? "")}"><span class="manual-photo-raw">Raw: ${escapeHtml(manualPhotoDisplay(row.index_number?.raw, "—"))}</span></td>
+        <td class="${manualPhotoFieldClass(row.width?.warning, widthInvalid)}"><input type="number" min="0.001" step="any" data-photo-row-field="width_mm" value="${escapeHtml(row.width?.normalized_mm ?? "")}"><span class="manual-photo-raw">Raw: ${escapeHtml(manualPhotoDisplay(row.width?.raw, "—"))} ${escapeHtml(row.width?.unit || "unknown")}</span></td>
+        <td class="${manualPhotoFieldClass(row.height?.warning, heightInvalid)}"><input type="number" min="0.001" step="any" data-photo-row-field="height_mm" value="${escapeHtml(row.height?.normalized_mm ?? "")}"><span class="manual-photo-raw">Raw: ${escapeHtml(manualPhotoDisplay(row.height?.raw, "—"))} ${escapeHtml(row.height?.unit || "unknown")}</span></td>
+        <td class="${manualPhotoFieldClass(row.quantity?.warning, quantityInvalid)}"><input type="number" min="1" step="1" data-photo-row-field="quantity" value="${escapeHtml(row.quantity?.value ?? "")}"><span class="manual-photo-raw">Raw: ${escapeHtml(manualPhotoDisplay(row.quantity?.raw, "—"))}</span></td>
+        <td class="${manualPhotoFieldClass(row.glass_type?.warning, glassInvalid)}"><input type="text" data-photo-row-field="glass_type" value="${escapeHtml(row.glass_type?.value || result.document?.glass_type?.value || "")}"><span class="manual-photo-raw">Raw: ${escapeHtml(manualPhotoDisplay(row.glass_type?.raw, "—"))}</span></td>
+        <td><input type="text" data-photo-row-field="notes" value="${escapeHtml(row.notes?.value || "")}"></td>
+        <td><div class="manual-photo-row-warnings ${critical ? "critical" : ""}">${rowWarnings.length ? rowWarnings.map(warning => escapeHtml(warning)).join("<br>") : "None"}</div></td>
+      </tr>`;
+    }).join("");
+  }
+}
+
+function updateManualPhotoDocumentField(field, value){
+  const detection = manualPhotoAssistState.result?.document?.[field];
+  if (!detection) return;
+  detection.value = String(value || "").trim() || null;
+  detection.warning = null;
+}
+
+function updateManualPhotoRowField(rowIndex, field, value){
+  const row = manualPhotoAssistState.result?.rows?.[rowIndex];
+  if (!row) return;
+  const text = String(value ?? "").trim();
+  if (field === "section") row.section = text || null;
+  if (field === "client_reference"){
+    row.client_reference.value = text || null;
+    row.client_reference.warning = null;
+  }
+  if (field === "index_number"){
+    const number = Number(text);
+    row.index_number.value = Number.isInteger(number) && number > 0 ? number : null;
+    row.index_number.warning = null;
+  }
+  if (field === "width_mm" || field === "height_mm"){
+    const dimension = field === "width_mm" ? row.width : row.height;
+    const number = Number(text);
+    dimension.normalized_mm = Number.isFinite(number) && number > 0 ? number : null;
+    dimension.warning = null;
+  }
+  if (field === "quantity"){
+    const number = Number(text);
+    row.quantity.value = Number.isInteger(number) && number > 0 ? number : null;
+    row.quantity.warning = null;
+  }
+  if (field === "glass_type"){
+    row.glass_type.value = text || null;
+    row.glass_type.warning = null;
+  }
+  if (field === "notes") row.notes.value = text || null;
+}
+
+async function extractManualPhoto(){
+  const file = manualPhotoAssistState.file;
+  if (!file || manualPhotoAssistState.controller) return;
+  const controller = new AbortController();
+  manualPhotoAssistState.controller = controller;
+  setManualPhotoStatus("Uploading image and extracting handwriting…", "extracting");
+  const formData = new FormData();
+  formData.append("image", file, file.name || "manual-order-photo");
+  try{
+    const result = await manualApi("/api/manual-orders/photo-assist/extract", {
+      method: "POST",
+      body: formData,
+      signal: controller.signal,
+    });
+    manualPhotoAssistState.result = result;
+    renderManualPhotoReview();
+    setManualPhotoStatus(
+      result.status === "ready"
+        ? "Extraction ready. Review every value before applying."
+        : "Extraction needs review. Check highlighted values and warnings.",
+      result.status === "ready" ? "ready" : "needs_review",
+    );
+  }catch(error){
+    if (error?.name === "AbortError"){
+      setManualPhotoStatus("Extraction cancelled. The selected image is still available.", "selected");
+    }else{
+      setManualPhotoStatus(error.message || "Photo extraction failed. Try again.", "failed");
+    }
+  }finally{
+    if (manualPhotoAssistState.controller === controller){
+      manualPhotoAssistState.controller = null;
+    }
+    if (manualPhotoCancel) manualPhotoCancel.hidden = true;
+    if (manualPhotoExtract){
+      manualPhotoExtract.disabled = !manualPhotoAssistState.file;
+      manualPhotoExtract.textContent = "Extract photo";
+    }
+  }
+}
+
+function manualPhotoResultMode(){
+  const rows = manualPhotoAssistState.result?.rows || [];
+  return rows.some(row => (
+    String(row.section || "").trim()
+    || String(row.client_reference?.value || "").trim()
+    || Number(row.index_number?.value) > 0
+  )) ? "client_positions_red_index" : "standard";
+}
+
+function manualPhotoMappedRows(){
+  const result = manualPhotoAssistState.result;
+  const redIndexMode = manualPhotoResultMode() === "client_positions_red_index";
+  const defaultGlass = String(result?.document?.glass_type?.value || "").trim();
+  return (result?.rows || []).map((row, index) => {
+    const clientPosition = String(row.client_reference?.value || "").trim();
+    const indexNumber = Number(row.index_number?.value);
+    const validIndex = Number.isInteger(indexNumber) && indexNumber > 0 ? indexNumber : "";
+    return newManualRow({
+      position: redIndexMode
+        ? [clientPosition, validIndex].filter(Boolean).join(" ")
+        : String(index + 1),
+      section: String(row.section || "").trim(),
+      client_position: clientPosition,
+      index_number: validIndex,
+      glass_type: String(row.glass_type?.value || defaultGlass).trim(),
+      width_mm: row.width?.normalized_mm ?? "",
+      height_mm: row.height?.normalized_mm ?? "",
+      quantity: row.quantity?.value ?? "",
+      notes: String(row.notes?.value || "").trim(),
+    });
+  });
+}
+
+function manualRowHasUnsavedData(row){
+  return !!(
+    String(row?.position || "").trim() && String(row?.position || "").trim() !== "1"
+    || String(row?.section || "").trim()
+    || String(row?.client_position || "").trim()
+    || String(row?.index_number || "").trim()
+    || String(row?.glass_type || "").trim()
+    || String(row?.width_mm || "").trim()
+    || String(row?.height_mm || "").trim()
+    || String(row?.notes || "").trim()
+  );
+}
+
+function manualPhotoFormHasUnsavedData(){
+  return !!(
+    manualOrdersState.editingId
+    || String(manualClientName?.value || "").trim()
+    || String(manualOrderNumber?.value || "").trim()
+    || String(manualOrderNotes?.value || "").trim()
+    || manualOrdersState.rows.some(manualRowHasUnsavedData)
+  );
+}
+
+function closeManualPhotoApplyModal(){
+  if (manualPhotoApplyModal) manualPhotoApplyModal.hidden = true;
+}
+
+function openManualPhotoApplyModal(){
+  if (!manualPhotoApplyModal) return;
+  const targetMode = manualPhotoResultMode();
+  const existingRows = manualOrdersState.rows.filter(manualRowHasUnsavedData);
+  const canAppend = existingRows.length === 0 || targetMode === manualOrdersState.manualFormat;
+  if (manualPhotoApplyAppend) manualPhotoApplyAppend.disabled = !canAppend;
+  if (manualPhotoApplyHint){
+    manualPhotoApplyHint.textContent = canAppend
+      ? "Append keeps current header fields and adds the extracted rows."
+      : "Append is unavailable because the extracted row format differs from the current form.";
+  }
+  manualPhotoApplyModal.hidden = false;
+  manualPhotoApplyCancel?.focus();
+}
+
+function applyManualPhotoResult(strategy = "replace"){
+  if (!manualPhotoAssistState.result) return;
+  if (manualOrdersState.editingId || manualOrdersState.viewOnly){
+    setManualPhotoStatus("Start a new manual order before applying a photo extraction.", "failed");
+    closeManualPhotoApplyModal();
+    return;
+  }
+  const mappedRows = manualPhotoMappedRows();
+  if (!mappedRows.length){
+    setManualPhotoStatus("No extracted rows are available to apply.", "failed");
+    closeManualPhotoApplyModal();
+    return;
+  }
+  const targetMode = manualPhotoResultMode();
+  const existingRows = manualOrdersState.rows.filter(manualRowHasUnsavedData);
+  if (strategy === "append" && existingRows.length && targetMode !== manualOrdersState.manualFormat){
+    setManualPhotoStatus("The extracted row format cannot be appended safely. Replace the current fields instead.", "failed");
+    return;
+  }
+
+  const documentData = manualPhotoAssistState.result.document || {};
+  const clientName = String(documentData.client_name?.value || "").trim();
+  const orderNumber = String(documentData.order_number?.value || "").trim();
+  if (strategy === "append"){
+    if (!existingRows.length) manualOrdersState.manualFormat = targetMode;
+    manualOrdersState.rows = [...existingRows, ...mappedRows];
+    if (!manualClientName.value.trim() && clientName) manualClientName.value = clientName;
+    if (!manualOrderNumber.value.trim() && orderNumber) manualOrderNumber.value = orderNumber;
+  }else{
+    manualOrdersState.manualFormat = targetMode;
+    manualOrdersState.rows = mappedRows;
+    manualClientName.value = clientName;
+    manualOrderNumber.value = orderNumber;
+    manualOrderNotes.value = "";
+  }
+
+  manualOrdersState.autoOrderNumber = !manualOrderNumber.value.trim();
+  manualOrdersState.lastAutoOrderNumber = "";
+  if (manualOrderFormat) manualOrderFormat.value = manualOrdersState.manualFormat;
+  if (manualOrderStatus) manualOrderStatus.value = "draft";
+  renderManualRows();
+  setManualFormError("");
+  closeManualPhotoApplyModal();
+  setManualPhotoStatus("Photo extraction applied. Review the order before saving.", "applied");
+  if (!manualOrderNumber.value.trim() && manualClientName.value.trim()) fillNextManualOrderNumber();
+}
 
 function manualToday(){
   const now = new Date();
@@ -20684,10 +21108,11 @@ function manualErrorMessage(detail, fallback){
 }
 
 async function manualApi(path, options = {}){
+  const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
   const response = await fetch(API_BASE + path, {
     ...options,
     headers: {
-      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(options.body && !isFormData ? { "Content-Type": "application/json" } : {}),
       ...(options.headers || {}),
     },
   });
@@ -21020,6 +21445,7 @@ function setManualFormMode(viewOnly){
     manualOrderCancelEdit.textContent = manualOrdersState.viewOnly ? "Close view" : "Reset";
   }
   syncManualFormatUi();
+  syncManualPhotoAssistVisibility();
 }
 
 function resetManualOrderForm(){
@@ -21574,6 +22000,7 @@ async function handleManualOrderAction(action, orderId, options = {}){
 
 function ensureManualOrdersReady(){
   if (!manualOrdersState.rows.length) resetManualOrderForm();
+  loadManualPhotoAssistConfig();
   loadManualGlassTypes();
   loadManualClients();
   loadManualPrintSettings();
@@ -21584,6 +22011,70 @@ function ensureManualOrdersReady(){
 function initManualOrders(){
   if (!manualOrderForm) return;
   resetManualOrderForm();
+  loadManualPhotoAssistConfig();
+  manualPhotoBrowse?.addEventListener("click", event => {
+    event.stopPropagation();
+    manualPhotoInput?.click();
+  });
+  manualPhotoDropzone?.addEventListener("click", event => {
+    if (event.target.closest("button, input")) return;
+    manualPhotoInput?.click();
+  });
+  manualPhotoDropzone?.addEventListener("keydown", event => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    manualPhotoInput?.click();
+  });
+  ["dragenter", "dragover"].forEach(eventName => {
+    manualPhotoDropzone?.addEventListener(eventName, event => {
+      event.preventDefault();
+      manualPhotoDropzone.classList.add("dragover");
+    });
+  });
+  ["dragleave", "drop"].forEach(eventName => {
+    manualPhotoDropzone?.addEventListener(eventName, event => {
+      event.preventDefault();
+      manualPhotoDropzone.classList.remove("dragover");
+    });
+  });
+  manualPhotoDropzone?.addEventListener("drop", event => {
+    selectManualPhoto(event.dataTransfer?.files?.[0]);
+  });
+  manualPhotoInput?.addEventListener("change", event => {
+    selectManualPhoto(event.target.files?.[0]);
+  });
+  manualPhotoExtract?.addEventListener("click", extractManualPhoto);
+  manualPhotoCancel?.addEventListener("click", () => {
+    manualPhotoAssistState.controller?.abort();
+  });
+  manualPhotoDiscard?.addEventListener("click", () => discardManualPhotoAssist());
+  manualPhotoReplace?.addEventListener("click", () => {
+    if (manualPhotoInput) manualPhotoInput.value = "";
+    manualPhotoInput?.click();
+  });
+  manualPhotoApply?.addEventListener("click", () => {
+    if (manualPhotoFormHasUnsavedData()) openManualPhotoApplyModal();
+    else applyManualPhotoResult("replace");
+  });
+  manualPhotoDocumentFields?.addEventListener("input", event => {
+    const input = event.target.closest("[data-photo-document-field]");
+    if (!input) return;
+    updateManualPhotoDocumentField(input.dataset.photoDocumentField, input.value);
+    input.closest(".manual-photo-review-field")?.classList.remove("warning");
+  });
+  manualPhotoReviewRows?.addEventListener("input", event => {
+    const input = event.target.closest("[data-photo-row-field]");
+    const row = input?.closest("[data-photo-row-index]");
+    if (!input || !row) return;
+    updateManualPhotoRowField(Number(row.dataset.photoRowIndex), input.dataset.photoRowField, input.value);
+    input.closest("td")?.classList.remove("warning", "invalid");
+  });
+  manualPhotoApplyReplace?.addEventListener("click", () => applyManualPhotoResult("replace"));
+  manualPhotoApplyAppend?.addEventListener("click", () => applyManualPhotoResult("append"));
+  manualPhotoApplyCancel?.addEventListener("click", closeManualPhotoApplyModal);
+  manualPhotoApplyModal?.addEventListener("click", event => {
+    if (event.target === manualPhotoApplyModal) closeManualPhotoApplyModal();
+  });
   manualPrintSettingsOpen?.addEventListener("click", openManualPrintSettings);
   manualPrintSettingsClose?.addEventListener("click", closeManualPrintSettings);
   manualPrintSettingsModal?.addEventListener("click", event => {
@@ -21617,6 +22108,13 @@ function initManualOrders(){
       && !manualProcessingLayoutModal.hidden
     ){
       closeManualProcessingLayoutChoice();
+    }
+    if (
+      event.key === "Escape"
+      && manualPhotoApplyModal
+      && !manualPhotoApplyModal.hidden
+    ){
+      closeManualPhotoApplyModal();
     }
   });
   manualPrintSettingsForm?.addEventListener("submit", event => {
@@ -21805,8 +22303,14 @@ function initManualOrders(){
     localStorage.setItem("manual_dimension_unit", manualOrdersState.dimensionUnit);
     renderManualRows();
   });
-  document.getElementById("manualOrderNew")?.addEventListener("click", resetManualOrderForm);
-  manualOrderCancelEdit?.addEventListener("click", resetManualOrderForm);
+  document.getElementById("manualOrderNew")?.addEventListener("click", () => {
+    discardManualPhotoAssist({ silent: true });
+    resetManualOrderForm();
+  });
+  manualOrderCancelEdit?.addEventListener("click", () => {
+    discardManualPhotoAssist({ silent: true });
+    resetManualOrderForm();
+  });
   let manualClientNumberTimer = null;
   manualClientName?.addEventListener("input", () => {
     if (manualOrdersState.editingId || manualOrdersState.viewOnly) return;
