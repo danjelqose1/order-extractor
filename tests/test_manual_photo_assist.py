@@ -451,7 +451,7 @@ def test_photo_assist_sends_direct_image_with_high_detail_and_strict_schema():
 
     result = photo._call_model_once(
         _normalized_image(),
-        model="vision-test",
+        model="gpt-5.6-terra",
         client=SimpleNamespace(responses=FakeResponses()),
         preferred_dimension_unit="cm",
         known_glass_types=["3/3 transparent tek"],
@@ -459,7 +459,7 @@ def test_photo_assist_sends_direct_image_with_high_detail_and_strict_schema():
     )
 
     assert result.rows[0].source_line
-    assert calls[0]["model"] == "vision-test"
+    assert calls[0]["model"] == "gpt-5.6-terra"
     assert calls[0]["reasoning"] == {"effort": "medium"}
     assert calls[0]["store"] is False
     assert calls[0]["text"]["format"]["type"] == "json_schema"
@@ -485,7 +485,7 @@ def test_photo_assist_observation_pass_preserves_layout_and_color_without_roles(
 
     result = photo._observe_image_once(
         _normalized_image(),
-        model="vision-test",
+        model="gpt-5.6-luna",
         client=SimpleNamespace(responses=FakeResponses()),
     )
 
@@ -535,6 +535,48 @@ def test_photo_assist_two_stage_pipeline_passes_observation_to_reasoning():
     assert response.rows[0].client_reference.value == "K1"
     assert observations[0][1] == "observation-test"
     assert response.model == "observation-test -> vision-test"
+
+
+def test_photo_assist_falls_back_per_stage_when_gpt_56_is_unavailable(monkeypatch):
+    observation_models = []
+    reasoning_models = []
+
+    def fake_observe(image, *, model, client):
+        observation_models.append(model)
+        if model == "gpt-5.6-luna":
+            raise RuntimeError("model gpt-5.6-luna does not exist or access denied")
+        return _observation()
+
+    def fake_reason(
+        image,
+        *,
+        model,
+        client,
+        preferred_dimension_unit,
+        known_glass_types,
+        known_clients,
+        observation,
+    ):
+        reasoning_models.append(model)
+        if model == "gpt-5.6-terra":
+            raise RuntimeError("model gpt-5.6-terra not found")
+        return _ai_result()
+
+    monkeypatch.setattr(photo, "_observe_image_once", fake_observe)
+    monkeypatch.setattr(photo, "_call_model_once", fake_reason)
+
+    response = photo.extract_photo_assist(
+        _normalized_image(),
+        request_id="request-fallback",
+        client=object(),
+        model="gpt-5.6-terra",
+        observation_model="gpt-5.6-luna",
+        fallback_model="gpt-5.4-mini",
+    )
+
+    assert observation_models == ["gpt-5.6-luna", "gpt-5.4-mini"]
+    assert reasoning_models == ["gpt-5.6-terra", "gpt-5.4-mini"]
+    assert response.model == "gpt-5.4-mini -> gpt-5.4-mini"
 
 
 def test_photo_assist_never_creates_a_manual_order(tmp_path, monkeypatch):
@@ -602,10 +644,12 @@ def test_photo_assist_feature_flag_and_model_are_centralized(monkeypatch):
     monkeypatch.setenv("MANUAL_PHOTO_ASSIST_ENABLED", "true")
     monkeypatch.delenv("MANUAL_PHOTO_ASSIST_REASONING_MODEL", raising=False)
     monkeypatch.delenv("MANUAL_PHOTO_ASSIST_OBSERVATION_MODEL", raising=False)
+    monkeypatch.delenv("MANUAL_PHOTO_ASSIST_FALLBACK_MODEL", raising=False)
     monkeypatch.setenv("MANUAL_PHOTO_ASSIST_MODEL", "legacy-model-must-not-override-pipeline")
 
     assert photo.photo_assist_model() == "gpt-5.6-terra"
     assert photo.photo_assist_observation_model() == "gpt-5.6-luna"
+    assert photo.photo_assist_fallback_model() == "gpt-5.4-mini"
 
     monkeypatch.setenv("MANUAL_PHOTO_ASSIST_REASONING_MODEL", "configured-reasoning-model")
     monkeypatch.setenv("MANUAL_PHOTO_ASSIST_OBSERVATION_MODEL", "configured-observation-model")

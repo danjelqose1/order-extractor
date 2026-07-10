@@ -94,6 +94,7 @@ from manual_photo_assist import (
     extract_photo_assist,
     normalize_uploaded_image,
     photo_assist_enabled,
+    photo_assist_fallback_model,
     photo_assist_max_upload_bytes,
     photo_assist_model,
     photo_assist_observation_model,
@@ -3736,6 +3737,7 @@ def get_manual_photo_assist_config() -> Dict[str, Any]:
         "supported_formats": ["JPEG", "JPG", "PNG", "WebP"],
         "observation_model": photo_assist_observation_model(),
         "reasoning_model": photo_assist_model(),
+        "fallback_model": photo_assist_fallback_model(),
     }
 
 
@@ -3757,6 +3759,7 @@ async def extract_manual_order_photo(
     file_size = 0
     model = photo_assist_model()
     observation_model = photo_assist_observation_model()
+    provider_error = "none"
 
     try:
         content = await image.read(max_bytes + 1)
@@ -3819,22 +3822,27 @@ async def extract_manual_order_photo(
         status_code = 503
         detail = str(exc)
         category = exc.category
-    except Exception:
+        cause = exc.__cause__
+        if cause is not None:
+            provider_error = f"{type(cause).__name__}:{str(cause)}"[:500].replace("\n", " ")
+    except Exception as exc:
         status_code = 503
         detail = "Photo Assist is temporarily unavailable. Try again."
         category = "unexpected"
+        provider_error = f"{type(exc).__name__}:{str(exc)}"[:500].replace("\n", " ")
     finally:
         await image.close()
 
     logger.warning(
         "manual_photo_assist_failed request_id=%s model=%s duration_ms=%d file_type=%s "
-        "file_size=%d category=%s",
+        "file_size=%d category=%s provider_error=%s",
         request_id,
         model,
         round((time.monotonic() - started_at) * 1000),
         declared_type,
         file_size,
         category,
+        provider_error,
     )
     raise HTTPException(status_code=status_code, detail=detail)
 

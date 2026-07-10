@@ -12,8 +12,11 @@ import httpx
 from openai import (
     APIConnectionError,
     APITimeoutError,
+    BadRequestError,
     InternalServerError,
+    NotFoundError,
     OpenAI,
+    PermissionDeniedError,
     RateLimitError,
 )
 from PIL import Image, ImageOps, UnidentifiedImageError
@@ -50,6 +53,10 @@ def photo_assist_model() -> str:
 
 def photo_assist_observation_model() -> str:
     return os.getenv("MANUAL_PHOTO_ASSIST_OBSERVATION_MODEL") or "gpt-5.6-luna"
+
+
+def photo_assist_fallback_model() -> str:
+    return os.getenv("MANUAL_PHOTO_ASSIST_FALLBACK_MODEL") or "gpt-5.4-mini"
 
 
 def photo_assist_max_upload_bytes() -> int:
@@ -572,15 +579,36 @@ def _image_data_url(image: NormalizedImage) -> str:
     return f"data:{image.mime_type};base64,{encoded}"
 
 
+def _is_model_unavailable_error(exc: Exception) -> bool:
+    if isinstance(exc, (NotFoundError, PermissionDeniedError)):
+        return True
+    if not isinstance(exc, (BadRequestError, RuntimeError)):
+        return False
+    message = str(exc).lower()
+    return "model" in message and any(
+        phrase in message
+        for phrase in (
+            "not found",
+            "does not exist",
+            "do not have access",
+            "not have access",
+            "access denied",
+            "not supported",
+            "unsupported",
+        )
+    )
+
+
 def _observe_image_once(
     image: NormalizedImage,
     *,
     model: str,
     client: Any,
 ) -> PhotoAssistObservation:
+    reasoning_options = {"reasoning": {"effort": "low"}} if model.startswith("gpt-5.6") else {}
     response = client.responses.create(
         model=model,
-        reasoning={"effort": "low"},
+        **reasoning_options,
         instructions=OBSERVATION_PROMPT,
         input=[
             {
@@ -634,9 +662,10 @@ def _call_model_once(
         if observation is not None
         else '{"page_summary":"No separate observation pass was supplied.","lines":[],"visual_warnings":[]}'
     )
+    reasoning_options = {"reasoning": {"effort": "medium"}} if model.startswith("gpt-5.6") else {}
     response = client.responses.create(
         model=model,
-        reasoning={"effort": "medium"},
+        **reasoning_options,
         instructions=_model_instructions(
             preferred_dimension_unit,
             known_glass_types=known_glass_types,
@@ -696,9 +725,13 @@ def extract_photo_assist(
     known_clients: Optional[List[str]] = None,
     call_once: Optional[Callable[..., PhotoAssistAIResult]] = None,
     observe_once: Optional[Callable[..., PhotoAssistObservation]] = None,
+    fallback_model: Optional[str] = None,
 ) -> PhotoAssistResponse:
     selected_model = model or photo_assist_model()
     selected_observation_model = observation_model or photo_assist_observation_model()
+    selected_fallback_model = fallback_model or photo_assist_fallback_model()
+    active_model = selected_model
+    active_observation_model = selected_observation_model
     openai_client = client or _default_client()
     caller = call_once or _call_model_once
     observer = observe_once or _observe_image_once
@@ -709,19 +742,41 @@ def extract_photo_assist(
     for attempt in range(2):
         try:
             if use_observation_pass and observation is None:
-                observation = observer(image, model=selected_observation_model, client=openai_client)
+                try:
+                    observation = observer(image, model=active_observation_model, client=openai_client)
+                except Exception as exc:
+                    if not call_once and _is_model_unavailable_error(exc) and active_observation_model != selected_fallback_model:
+                        active_observation_model = selected_fallback_model
+                        observation = observer(image, model=active_observation_model, client=openai_client)
+                    else:
+                        raise
             if call_once and not use_observation_pass:
-                extracted = caller(image, model=selected_model, client=openai_client)
+                extracted = caller(image, model=active_model, client=openai_client)
             else:
-                extracted = caller(
-                    image,
-                    model=selected_model,
-                    client=openai_client,
-                    preferred_dimension_unit=preferred_dimension_unit,
-                    known_glass_types=known_glass_types,
-                    known_clients=known_clients,
-                    observation=observation,
-                )
+                try:
+                    extracted = caller(
+                        image,
+                        model=active_model,
+                        client=openai_client,
+                        preferred_dimension_unit=preferred_dimension_unit,
+                        known_glass_types=known_glass_types,
+                        known_clients=known_clients,
+                        observation=observation,
+                    )
+                except Exception as exc:
+                    if not call_once and _is_model_unavailable_error(exc) and active_model != selected_fallback_model:
+                        active_model = selected_fallback_model
+                        extracted = caller(
+                            image,
+                            model=active_model,
+                            client=openai_client,
+                            preferred_dimension_unit=preferred_dimension_unit,
+                            known_glass_types=known_glass_types,
+                            known_clients=known_clients,
+                            observation=observation,
+                        )
+                    else:
+                        raise
             normalized = normalize_extraction(
                 extracted,
                 preferred_dimension_unit=preferred_dimension_unit,
@@ -731,9 +786,9 @@ def extract_photo_assist(
                 status="needs_review" if _result_has_warnings(normalized) else "ready",
                 request_id=request_id,
                 model=(
-                    f"{selected_observation_model} -> {selected_model}"
+                    f"{active_observation_model} -> {active_model}"
                     if use_observation_pass
-                    else selected_model
+                    else active_model
                 ),
             )
         except NoOrderRowsError:
