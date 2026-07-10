@@ -957,6 +957,9 @@ def test_photo_assist_frontend_requires_review_and_explicit_apply():
     assert "Photo Assist" in html
     assert "BETA" in html
     assert 'id="manualPhotoReview"' in html
+    assert 'id="manualPhotoReviewImage"' in html
+    assert 'id="manualPhotoPreviewModal"' in html
+    assert 'id="manualPhotoPreviewLarge"' in html
     assert 'id="manualPhotoApply"' in html
     assert 'id="manualPhotoApplyReplace"' in html
     assert 'id="manualPhotoApplyAppend"' in html
@@ -964,6 +967,9 @@ def test_photo_assist_frontend_requires_review_and_explicit_apply():
     assert "AI may misread handwriting. Review every value before applying." in html
     assert "function extractManualPhoto" in js
     assert "function renderManualPhotoReview" in js
+    assert "function syncManualPhotoPreviewImages" in js
+    assert "function openManualPhotoPreview" in js
+    assert "manualPhotoReviewImageButton?.addEventListener" in js
     assert "manual-photo-fallback-badge" in js
     assert "manual-photo-group-row" in js
     assert "function applyManualPhotoResult" in js

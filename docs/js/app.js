@@ -20561,6 +20561,9 @@ const manualPhotoStatus = document.getElementById("manualPhotoStatus");
 const manualPhotoExtract = document.getElementById("manualPhotoExtract");
 const manualPhotoCancel = document.getElementById("manualPhotoCancel");
 const manualPhotoReview = document.getElementById("manualPhotoReview");
+const manualPhotoReviewImage = document.getElementById("manualPhotoReviewImage");
+const manualPhotoReviewImageButton = document.getElementById("manualPhotoReviewImageButton");
+const manualPhotoReviewPreviewOpen = document.getElementById("manualPhotoReviewPreviewOpen");
 const manualPhotoReviewStatus = document.getElementById("manualPhotoReviewStatus");
 const manualPhotoRequestMeta = document.getElementById("manualPhotoRequestMeta");
 const manualPhotoGlobalWarnings = document.getElementById("manualPhotoGlobalWarnings");
@@ -20574,6 +20577,9 @@ const manualPhotoApplyReplace = document.getElementById("manualPhotoApplyReplace
 const manualPhotoApplyAppend = document.getElementById("manualPhotoApplyAppend");
 const manualPhotoApplyCancel = document.getElementById("manualPhotoApplyCancel");
 const manualPhotoApplyHint = document.getElementById("manualPhotoApplyHint");
+const manualPhotoPreviewModal = document.getElementById("manualPhotoPreviewModal");
+const manualPhotoPreviewClose = document.getElementById("manualPhotoPreviewClose");
+const manualPhotoPreviewLarge = document.getElementById("manualPhotoPreviewLarge");
 let manualProcessingLayoutOrderId = null;
 let manualProcessingLayoutAction = "processing";
 
@@ -20626,6 +20632,27 @@ function clearManualPhotoReview(){
   }
 }
 
+function syncManualPhotoPreviewImages(){
+  [manualPhotoPreview, manualPhotoReviewImage, manualPhotoPreviewLarge].forEach(image => {
+    if (!image) return;
+    if (manualPhotoAssistState.previewUrl) image.src = manualPhotoAssistState.previewUrl;
+    else image.removeAttribute("src");
+  });
+}
+
+function openManualPhotoPreview(){
+  if (!manualPhotoPreviewModal || !manualPhotoAssistState.previewUrl) return;
+  syncManualPhotoPreviewImages();
+  manualPhotoPreviewModal.hidden = false;
+  manualPhotoPreviewClose?.focus();
+}
+
+function closeManualPhotoPreview(){
+  if (!manualPhotoPreviewModal) return;
+  manualPhotoPreviewModal.hidden = true;
+  manualPhotoReviewPreviewOpen?.focus();
+}
+
 function discardManualPhotoAssist({ silent = false } = {}){
   manualPhotoAssistState.controller?.abort();
   manualPhotoAssistState.controller = null;
@@ -20636,9 +20663,8 @@ function discardManualPhotoAssist({ silent = false } = {}){
   manualPhotoAssistState.previewUrl = "";
   manualPhotoAssistState.file = null;
   if (manualPhotoInput) manualPhotoInput.value = "";
-  if (manualPhotoPreview){
-    manualPhotoPreview.removeAttribute("src");
-  }
+  closeManualPhotoPreview();
+  syncManualPhotoPreviewImages();
   if (manualPhotoPreviewWrap) manualPhotoPreviewWrap.hidden = true;
   if (manualPhotoFileName) manualPhotoFileName.textContent = "Drop a photo here";
   clearManualPhotoReview();
@@ -20716,9 +20742,7 @@ async function selectManualPhoto(file){
   clearManualPhotoReview();
   manualPhotoAssistState.file = null;
   manualPhotoAssistState.previewUrl = URL.createObjectURL(file);
-  if (manualPhotoPreview){
-    manualPhotoPreview.src = manualPhotoAssistState.previewUrl;
-  }
+  syncManualPhotoPreviewImages();
   if (manualPhotoPreviewWrap) manualPhotoPreviewWrap.hidden = false;
   if (manualPhotoFileName) manualPhotoFileName.textContent = file.name || "Selected photo";
   if (manualPhotoAssist) manualPhotoAssist.open = true;
@@ -20753,6 +20777,7 @@ function renderManualPhotoReview(){
   const result = manualPhotoAssistState.result;
   if (!result || !manualPhotoReview) return;
   manualPhotoReview.hidden = false;
+  syncManualPhotoPreviewImages();
   const needsReview = result.status !== "ready";
   if (manualPhotoReviewStatus){
     manualPhotoReviewStatus.textContent = needsReview ? "Needs review" : "Ready";
@@ -22143,6 +22168,12 @@ function initManualOrders(){
     manualPhotoAssistState.controller?.abort();
   });
   manualPhotoDiscard?.addEventListener("click", () => discardManualPhotoAssist());
+  manualPhotoReviewImageButton?.addEventListener("click", openManualPhotoPreview);
+  manualPhotoReviewPreviewOpen?.addEventListener("click", openManualPhotoPreview);
+  manualPhotoPreviewClose?.addEventListener("click", closeManualPhotoPreview);
+  manualPhotoPreviewModal?.addEventListener("click", event => {
+    if (event.target === manualPhotoPreviewModal) closeManualPhotoPreview();
+  });
   manualPhotoReplace?.addEventListener("click", () => {
     if (manualPhotoInput) manualPhotoInput.value = "";
     manualPhotoInput?.click();
@@ -22210,6 +22241,13 @@ function initManualOrders(){
       && !manualPhotoApplyModal.hidden
     ){
       closeManualPhotoApplyModal();
+    }
+    if (
+      event.key === "Escape"
+      && manualPhotoPreviewModal
+      && !manualPhotoPreviewModal.hidden
+    ){
+      closeManualPhotoPreview();
     }
   });
   manualPrintSettingsForm?.addEventListener("submit", event => {
