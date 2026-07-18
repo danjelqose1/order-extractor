@@ -5,6 +5,19 @@ const IS_LOCAL_FRONTEND = window.location.protocol === "file:"
   || ["127.0.0.1", "localhost", "::1"].includes(window.location.hostname);
 const API_BASE = API_BASE_OVERRIDE || (IS_LOCAL_FRONTEND ? LOCAL_API_BASE : RENDER_API_BASE);
 console.log("API_BASE:", API_BASE);
+const LIVING_DASHBOARD_STORAGE_KEY = "extractallorder.dashboard.layout.v1";
+const LIVING_DASHBOARD_DEFAULT_LAYOUT = Object.freeze([
+  Object.freeze({ id: "today-overview", x: 0, y: 0, w: 12, h: 3, collapsed: false }),
+  Object.freeze({ id: "order-counts", x: 0, y: 3, w: 12, h: 3, collapsed: false }),
+  Object.freeze({ id: "needs-attention", x: 0, y: 6, w: 6, h: 6, collapsed: false }),
+  Object.freeze({ id: "recent-orders", x: 6, y: 6, w: 6, h: 6, collapsed: false }),
+]);
+const LIVING_DASHBOARD_WIDGETS = Object.freeze([
+  Object.freeze({ id: "today-overview", title: "Today overview", minW: 6, maxW: 12, minH: 3, maxH: 5 }),
+  Object.freeze({ id: "order-counts", title: "Order counts", minW: 6, maxW: 12, minH: 3, maxH: 6 }),
+  Object.freeze({ id: "needs-attention", title: "Needs attention", minW: 6, maxW: 12, minH: 4, maxH: 9 }),
+  Object.freeze({ id: "recent-orders", title: "Recent orders", minW: 6, maxW: 12, minH: 4, maxH: 9 }),
+]);
 try{
   localStorage.removeItem("loe.openaiKey");
   localStorage.removeItem("openai.apiKey");
@@ -550,6 +563,11 @@ const overviewNeedsReview = document.getElementById("overviewNeedsReview");
 const overviewReadyProduction = document.getElementById("overviewReadyProduction");
 const overviewInProduction = document.getElementById("overviewInProduction");
 const overviewCompleted = document.getElementById("overviewCompleted");
+const overviewLayoutToolbar = document.getElementById("overviewLayoutToolbar");
+const overviewEditLayout = document.getElementById("overviewEditLayout");
+const overviewDoneLayout = document.getElementById("overviewDoneLayout");
+const overviewResetLayout = document.getElementById("overviewResetLayout");
+const overviewLayoutSaveStatus = document.getElementById("overviewLayoutSaveStatus");
 const settingsThemeMode = document.getElementById("settingsThemeMode");
 const settingsEnvironmentMode = document.getElementById("settingsEnvironmentMode");
 const settingsApiEndpoint = document.getElementById("settingsApiEndpoint");
@@ -784,6 +802,7 @@ function setNewOrderWorkspaceOpen(open, options = {}){
   overviewDashboard.hidden = !!open;
   newOrderWorkspace.hidden = !open;
   if (open){
+    stopOverviewPolling();
     updateAppChrome("newOrder");
     window.scrollTo({ top: 0, behavior: options.instant ? "auto" : "smooth" });
     if (options.focus !== false){
@@ -792,6 +811,7 @@ function setNewOrderWorkspaceOpen(open, options = {}){
   }else{
     updateAppChrome("extract");
     if (options.load !== false) loadOverview();
+    startOverviewPolling();
   }
 }
 
@@ -827,59 +847,178 @@ function overviewOrderRowHtml(order, options = {}){
   </button>`;
 }
 
+const livingDashboardState = {
+  enabled: false,
+  configLoaded: false,
+  controller: null,
+  pollingTimer: null,
+  destroyed: false,
+};
+const OVERVIEW_POLL_INTERVAL_MS = 45000;
 let overviewLoading = false;
+
+function renderOverviewWidgetSafely(widgetId, renderWidget){
+  try{
+    renderWidget();
+    livingDashboardState.controller?.clearWidgetError(widgetId);
+  }catch(error){
+    console.error(`Dashboard widget ${widgetId} failed to render:`, error);
+    livingDashboardState.controller?.showWidgetError(widgetId);
+  }
+}
+
+function overviewIsVisible(){
+  const panel = document.getElementById("tabExtract");
+  return !!(
+    livingDashboardState.enabled
+    && panel?.classList.contains("active")
+    && !overviewDashboard?.hidden
+    && document.visibilityState !== "hidden"
+  );
+}
+
+function stopOverviewPolling(){
+  if (livingDashboardState.pollingTimer !== null){
+    window.clearTimeout(livingDashboardState.pollingTimer);
+    livingDashboardState.pollingTimer = null;
+  }
+}
+
+function startOverviewPolling(){
+  stopOverviewPolling();
+  if (!overviewIsVisible() || livingDashboardState.destroyed) return;
+  livingDashboardState.pollingTimer = window.setTimeout(async () => {
+    livingDashboardState.pollingTimer = null;
+    if (!overviewIsVisible()) return;
+    await loadOverview();
+    startOverviewPolling();
+  }, OVERVIEW_POLL_INTERVAL_MS);
+}
+
+function handleOverviewVisibilityChange(){
+  if (document.visibilityState === "hidden") stopOverviewPolling();
+  else startOverviewPolling();
+}
+
+function destroyLivingDashboard(){
+  if (!livingDashboardState.enabled) return;
+  livingDashboardState.destroyed = true;
+  stopOverviewPolling();
+  document.removeEventListener("visibilitychange", handleOverviewVisibilityChange);
+  livingDashboardState.controller?.destroy();
+  livingDashboardState.controller = null;
+  livingDashboardState.enabled = false;
+}
+
+function initializeLivingDashboard(){
+  if (livingDashboardState.controller || livingDashboardState.destroyed) return;
+  if (!window.LivingDashboard?.create){
+    console.warn("Living dashboard module is unavailable; keeping the stable dashboard.");
+    return;
+  }
+  try{
+    livingDashboardState.controller = window.LivingDashboard.create({
+      root: overviewDashboard,
+      toolbar: overviewLayoutToolbar,
+      editButton: overviewEditLayout,
+      doneButton: overviewDoneLayout,
+      resetButton: overviewResetLayout,
+      saveStatus: overviewLayoutSaveStatus,
+      storage: window.localStorage,
+      storageKey: LIVING_DASHBOARD_STORAGE_KEY,
+      columns: 12,
+      rowHeight: 56,
+      gap: 12,
+      defaultLayout: LIVING_DASHBOARD_DEFAULT_LAYOUT,
+      widgets: LIVING_DASHBOARD_WIDGETS,
+      onRetry: () => loadOverview(),
+    });
+    livingDashboardState.enabled = true;
+    document.addEventListener("visibilitychange", handleOverviewVisibilityChange);
+    window.addEventListener("beforeunload", destroyLivingDashboard, { once: true });
+    startOverviewPolling();
+  }catch(error){
+    livingDashboardState.controller = null;
+    livingDashboardState.enabled = false;
+    console.warn("Living dashboard initialization failed; keeping the stable dashboard:", error);
+  }
+}
+
+async function loadLivingDashboardFeature(){
+  if (livingDashboardState.configLoaded) return;
+  livingDashboardState.configLoaded = true;
+  try{
+    const response = await fetch(`${API_BASE}/api/features`, { cache: "no-store" });
+    if (!response.ok) throw new Error(`Feature configuration failed (${response.status})`);
+    const features = await response.json();
+    if (features?.living_dashboard === true) initializeLivingDashboard();
+  }catch(error){
+    console.warn("Feature configuration unavailable; keeping the stable dashboard:", error?.message || error);
+  }
+}
 
 async function loadOverview(){
   if (!overviewDashboard || overviewLoading) return;
   overviewLoading = true;
   if (overviewStatus) overviewStatus.textContent = "Refreshing operational overview…";
-  const [queueResult, recentResult] = await Promise.allSettled([
-    fetchWorkspaceQueue(),
-    fetchOrders({ year: "all", limit: 6, offset: 0 }),
-  ]);
+  try{
+    const [queueResult, recentResult] = await Promise.allSettled([
+      fetchWorkspaceQueue(),
+      fetchOrders({ year: "all", limit: 6, offset: 0 }),
+    ]);
 
-  const queue = queueResult.status === "fulfilled" ? queueResult.value : null;
-  const recentData = recentResult.status === "fulfilled" ? recentResult.value : null;
-  const cached = readHistoryCache();
-  const groups = queue?.groups || {};
-  const counts = queue?.counts || {};
-  const needsReviewItems = Array.isArray(groups.needs_review)
-    ? groups.needs_review
-    : cached.filter(item => ["draft", "reviewed"].includes(normalizeHistoryStatusValue(item.status)));
-  const recentItems = Array.isArray(recentData?.items) ? recentData.items : cached.slice(0, 6);
-  const needsReviewCount = Number(counts.needs_review ?? needsReviewItems.length);
-  const readyCount = Number(counts.approved_ready ?? 0);
-  const inProductionCount = Number(counts.processing_done ?? 0) + Number(counts.labels_ready ?? 0);
-  const completedCount = Number(counts.finished ?? 0);
+    const queue = queueResult.status === "fulfilled" ? queueResult.value : null;
+    const recentData = recentResult.status === "fulfilled" ? recentResult.value : null;
+    const cached = readHistoryCache();
+    const groups = queue?.groups || {};
+    const counts = queue?.counts || {};
+    const needsReviewItems = Array.isArray(groups.needs_review)
+      ? groups.needs_review
+      : cached.filter(item => ["draft", "reviewed"].includes(normalizeHistoryStatusValue(item.status)));
+    const recentItems = Array.isArray(recentData?.items) ? recentData.items : cached.slice(0, 6);
+    const needsReviewCount = Number(counts.needs_review ?? needsReviewItems.length);
+    const readyCount = Number(counts.approved_ready ?? 0);
+    const inProductionCount = Number(counts.processing_done ?? 0) + Number(counts.labels_ready ?? 0);
+    const completedCount = Number(counts.finished ?? 0);
 
-  if (overviewNeedsReview) overviewNeedsReview.textContent = String(needsReviewCount);
-  if (overviewReadyProduction) overviewReadyProduction.textContent = String(readyCount);
-  if (overviewInProduction) overviewInProduction.textContent = String(inProductionCount);
-  if (overviewCompleted) overviewCompleted.textContent = String(completedCount);
-  if (overviewHeadline){
-    overviewHeadline.textContent = needsReviewCount
-      ? `${needsReviewCount} order${needsReviewCount === 1 ? "" : "s"} need review and ${readyCount} are ready for production.`
-      : `${readyCount} order${readyCount === 1 ? "" : "s"} are ready for production. Nothing currently needs review.`;
-  }
-  if (overviewAttentionList){
-    overviewAttentionList.innerHTML = needsReviewItems.length
-      ? needsReviewItems.slice(0, 4).map(item => overviewOrderRowHtml(item)).join("")
-      : '<div class="overview-empty success">No orders need review right now.</div>';
-  }
-  if (overviewRecentOrders){
-    overviewRecentOrders.innerHTML = recentItems.length
-      ? recentItems.slice(0, 5).map(item => overviewOrderRowHtml(item)).join("")
-      : '<div class="overview-empty">No saved orders yet.</div>';
-  }
+    renderOverviewWidgetSafely("today-overview", () => {
+      if (overviewHeadline){
+        overviewHeadline.textContent = needsReviewCount
+          ? `${needsReviewCount} order${needsReviewCount === 1 ? "" : "s"} need review and ${readyCount} are ready for production.`
+          : `${readyCount} order${readyCount === 1 ? "" : "s"} are ready for production. Nothing currently needs review.`;
+      }
+    });
+    renderOverviewWidgetSafely("order-counts", () => {
+      if (overviewNeedsReview) overviewNeedsReview.textContent = String(needsReviewCount);
+      if (overviewReadyProduction) overviewReadyProduction.textContent = String(readyCount);
+      if (overviewInProduction) overviewInProduction.textContent = String(inProductionCount);
+      if (overviewCompleted) overviewCompleted.textContent = String(completedCount);
+    });
+    renderOverviewWidgetSafely("needs-attention", () => {
+      if (overviewAttentionList){
+        overviewAttentionList.innerHTML = needsReviewItems.length
+          ? needsReviewItems.slice(0, 4).map(item => overviewOrderRowHtml(item)).join("")
+          : '<div class="overview-empty success">No orders need review right now.</div>';
+      }
+    });
+    renderOverviewWidgetSafely("recent-orders", () => {
+      if (overviewRecentOrders){
+        overviewRecentOrders.innerHTML = recentItems.length
+          ? recentItems.slice(0, 5).map(item => overviewOrderRowHtml(item)).join("")
+          : '<div class="overview-empty">No saved orders yet.</div>';
+      }
+    });
 
-  if (queue) workspaceState.queue = queue;
-  const failures = [queueResult, recentResult].filter(result => result.status === "rejected").length;
-  if (overviewStatus){
-    overviewStatus.textContent = failures
-      ? "Some live data was unavailable. Showing the latest available information."
-      : `Updated ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+    if (queue) workspaceState.queue = queue;
+    const failures = [queueResult, recentResult].filter(result => result.status === "rejected").length;
+    if (overviewStatus){
+      overviewStatus.textContent = failures
+        ? "Some live data was unavailable. Showing the latest available information."
+        : `Updated ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+    }
+  }finally{
+    overviewLoading = false;
   }
-  overviewLoading = false;
 }
 
 const saveToast = document.getElementById("saveToast");
@@ -1190,6 +1329,7 @@ const typeCorrectionsCancelBtn = document.getElementById("typeCorrectionsCancel"
 const groupToggles = document.querySelectorAll("[data-group-toggle]");
 
 function activateTab(name){
+	  if (name !== "extract") stopOverviewPolling();
 	  if (name === "extract"){
 	    setNewOrderWorkspaceOpen(false, { load: false });
 	  }else{
@@ -1233,6 +1373,7 @@ function activateTab(name){
   });
   if (name === "extract"){
     loadOverview();
+    startOverviewPolling();
   }else if (name === "history"){
     ensureHistoryLoaded();
     loadHistoryWorkQueue();
@@ -1333,6 +1474,7 @@ window.addEventListener("resize", ()=>{
 
 updateAppChrome("extract");
 loadOverview();
+loadLivingDashboardFeature();
 
 Object.entries(panels).forEach(([key, panel])=>{
   if (!panel) return;

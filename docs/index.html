@@ -8,7 +8,7 @@
   <meta name="theme-color" content="#0b1018" media="(prefers-color-scheme: dark)" />
   <link rel="icon" href="data:," />
   <title>Overview — Order Extractor</title>
-  <link rel="stylesheet" href="./css/styles.css?v=20260706">
+  <link rel="stylesheet" href="./css/styles.css?v=20260718">
 </head>
 <body>
   <svg class="icon-sprite" aria-hidden="true">
@@ -135,7 +135,16 @@
 
 	    <section id="tabExtract" class="tab-panel active">
       <div id="overviewDashboard" class="overview-dashboard">
-        <section class="card overview-hero">
+        <div id="overviewLayoutToolbar" class="overview-layout-toolbar" hidden aria-label="Dashboard layout controls">
+          <div>
+            <button type="button" class="btn small" id="overviewEditLayout">Edit layout</button>
+            <button type="button" class="btn small primary" id="overviewDoneLayout" hidden>Done</button>
+            <button type="button" class="btn small tertiary" id="overviewResetLayout" hidden>Reset layout</button>
+          </div>
+          <span id="overviewLayoutSaveStatus" class="overview-layout-save-status" aria-live="polite"></span>
+        </div>
+
+        <section class="card overview-hero" data-dashboard-widget="today-overview">
           <div>
             <p class="section-eyebrow">Factory operations</p>
             <h2>Today at a glance</h2>
@@ -148,7 +157,7 @@
           </div>
         </section>
 
-        <div class="overview-kpi-grid" aria-label="Current order workload">
+        <div class="overview-kpi-grid" aria-label="Current order workload" data-dashboard-widget="order-counts">
           <button type="button" class="overview-kpi-card" data-overview-route="history">
             <span class="overview-kpi-icon review" aria-hidden="true"><svg><use href="#icon-history"></use></svg></span>
             <span class="overview-kpi-copy"><span>Needs review</span><strong id="overviewNeedsReview">—</strong><small>Drafts and warning cases</small></span>
@@ -168,7 +177,7 @@
         </div>
 
         <div class="overview-content-grid">
-          <section class="card overview-list-card">
+          <section class="card overview-list-card" data-dashboard-widget="needs-attention">
             <div class="overview-section-header">
               <div>
                 <h3>Needs attention</h3>
@@ -181,7 +190,7 @@
             </div>
           </section>
 
-          <section class="card overview-list-card">
+          <section class="card overview-list-card" data-dashboard-widget="recent-orders">
             <div class="overview-section-header">
               <div>
                 <h3>Recent orders</h3>
@@ -1894,6 +1903,7 @@
   <input type="file" id="pdfEditorImageInput" accept="image/png,image/jpeg,image/webp" hidden />
   <input type="file" id="scanFileInput" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple hidden />
 
-<script src="./js/app.js?v=20260706" defer></script>
+<script src="./js/living-dashboard.js?v=20260718" defer></script>
+<script src="./js/app.js?v=20260718" defer></script>
 </body>
 </html>
