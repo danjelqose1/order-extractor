@@ -548,6 +548,8 @@ def test_manual_processing_a4_landscape_renders_two_visual_copies_without_mutati
     assert page.rect.width == pytest.approx(297 * 72 / 25.4, abs=0.2)
     assert page.rect.height == pytest.approx(210 * 72 / 25.4, abs=0.2)
     assert page.get_text().count("M-2026-001") == 2
+    assert page.get_text().count("4F") == 2
+    assert page.get_text().count("TOTAL AREA") == 2
     order_spans = [
         span
         for block in page.get_text("dict")["blocks"]
@@ -560,6 +562,23 @@ def test_manual_processing_a4_landscape_renders_two_visual_copies_without_mutati
         108 * 72 / 25.4,
         abs=1,
     )
+    glass_spans = [
+        span
+        for block in page.get_text("dict")["blocks"]
+        for line in block.get("lines", [])
+        for span in line.get("spans", [])
+        if span["text"] == "4F"
+    ]
+    area_spans = [
+        span
+        for block in page.get_text("dict")["blocks"]
+        for line in block.get("lines", [])
+        for span in line.get("spans", [])
+        if span["text"].endswith("m²")
+    ]
+    assert len(glass_spans) == len(area_spans) == 2
+    assert area_spans[0]["bbox"][1] > glass_spans[0]["bbox"][1]
+    assert area_spans[1]["bbox"][1] > glass_spans[1]["bbox"][1]
     assert order == original_order
 
 

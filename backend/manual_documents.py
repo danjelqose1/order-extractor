@@ -344,6 +344,8 @@ def _build_red_index_processing_pdf(
 
     def chunk_header_height_mm(show_glass: bool, section: str) -> float:
         height = 19.0 if show_glass else 0.0
+        if show_glass and is_a4_two_up:
+            height += 5.0
         if section:
             height += config["processing_section_before_gap_mm"]
             height += max(3.5, config["processing_section_size"] * 0.35)
@@ -507,13 +509,18 @@ def _build_red_index_processing_pdf(
                     pdf,
                     _format_area_m2(glass_total_rows),
                     x=page_width - margin,
-                    y=y,
+                    y=y - (5 * mm if is_a4_two_up else 0),
                     max_width=area_width,
                     font=bold_font,
                     size=area_size,
                     min_size=8,
                     align="right",
                 )
+                if is_a4_two_up:
+                    pdf.setFillColor(colors.HexColor("#667085"))
+                    pdf.setFont(bold_font, config["processing_header_size"])
+                    pdf.drawString(margin, y - (5 * mm), "TOTAL AREA")
+                    y -= 5 * mm
                 y -= 5 * mm
             pos_x = margin
             index_x = margin + (usable_width * 0.15)
@@ -687,7 +694,7 @@ def build_manual_processing_pdf(
         )
         return row_step_mm + notes_height
 
-    section_header_mm = 21.0
+    section_header_mm = 26.0 if is_a4_two_up else 21.0
     bottom_guard_mm = max(config["processing_margin_mm"], 10.0)
     page_content_mm = max(
         section_header_mm + row_step_mm,
@@ -824,13 +831,18 @@ def build_manual_processing_pdf(
                 pdf,
                 _format_area_m2(page_rows),
                 x=page_width - margin,
-                y=y,
+                y=y - (5 * mm if is_a4_two_up else 0),
                 max_width=area_width,
                 font=bold_font,
                 size=area_size,
                 min_size=8,
                 align="right",
             )
+            if is_a4_two_up:
+                pdf.setFillColor(colors.HexColor("#667085"))
+                pdf.setFont(bold_font, config["processing_header_size"])
+                pdf.drawString(margin, y - (5 * mm), "TOTAL AREA")
+                y -= 5 * mm
 
             y -= 6 * mm
             pdf.setFillColor(colors.HexColor("#667085"))
