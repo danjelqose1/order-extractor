@@ -18174,6 +18174,66 @@ function isPlainTextFile(file){
 }
 
 (function(){
+  const dropZone = document.getElementById("overviewDropZone");
+  const uploadButton = document.getElementById("overviewUploadOrder");
+  const fileInput = document.getElementById("overviewPdfInput");
+  const uploadStatus = document.getElementById("overviewUploadStatus");
+  if (!dropZone || !uploadButton || !fileInput) return;
+
+  const prevent = event=>{
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  const openOrderFile = async file=>{
+    if (!file) return;
+    if (!isPdfFile(file) && !isPlainTextFile(file)){
+      if (uploadStatus) uploadStatus.textContent = "Use a PDF or text file.";
+      return;
+    }
+    if (uploadStatus) uploadStatus.textContent = `Opening ${file.name || "order"}…`;
+    setNewOrderWorkspaceOpen(true, { focus: false, instant: true });
+    if (isPdfFile(file)){
+      await handlePdfExtraction(file);
+      return;
+    }
+    const text = await file.text();
+    if (!text || !text.trim()){
+      setStatusMessage("The selected text file is empty.");
+      return;
+    }
+    document.getElementById("input").value = text;
+    await handleTextExtraction(text);
+  };
+
+  ["dragenter", "dragover"].forEach(type=>{
+    dropZone.addEventListener(type, event=>{
+      prevent(event);
+      dropZone.classList.add("hover");
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    });
+  });
+  ["dragleave", "dragend"].forEach(type=>{
+    dropZone.addEventListener(type, event=>{
+      prevent(event);
+      dropZone.classList.remove("hover");
+    });
+  });
+  dropZone.addEventListener("drop", async event=>{
+    prevent(event);
+    dropZone.classList.remove("hover");
+    const file = event.dataTransfer?.files?.[0];
+    await openOrderFile(file);
+  });
+  uploadButton.addEventListener("click", ()=> fileInput.click());
+  fileInput.addEventListener("change", async event=>{
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    await openOrderFile(file);
+  });
+})();
+
+(function(){
   const dropZone = document.getElementById("pdfDropZone");
   const fileInput = document.getElementById("pdfInput");
   if (!dropZone || !fileInput) return;

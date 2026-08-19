@@ -157,6 +157,20 @@
           </div>
         </section>
 
+        <section id="overviewDropZone" class="overview-upload-card" aria-labelledby="overviewUploadHeading">
+          <span class="overview-upload-icon" aria-hidden="true"><svg><use href="#icon-pdf"></use></svg></span>
+          <div class="overview-upload-copy">
+            <p class="section-eyebrow">Quick import</p>
+            <h2 id="overviewUploadHeading">Drop an order PDF here</h2>
+            <p>or choose a PDF or text file to start extraction immediately.</p>
+          </div>
+          <div class="overview-upload-actions">
+            <span id="overviewUploadStatus" class="muted small" aria-live="polite"></span>
+            <button type="button" class="btn primary" id="overviewUploadOrder">Choose order file</button>
+          </div>
+          <input type="file" id="overviewPdfInput" accept="application/pdf,text/plain,.pdf,.txt" hidden />
+        </section>
+
         <div class="overview-kpi-grid" aria-label="Current order workload" data-dashboard-widget="order-counts">
           <button type="button" class="overview-kpi-card" data-overview-route="history">
             <span class="overview-kpi-icon review" aria-hidden="true"><svg><use href="#icon-history"></use></svg></span>

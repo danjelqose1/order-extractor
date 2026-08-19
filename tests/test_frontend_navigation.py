@@ -27,6 +27,17 @@ def test_overview_gates_the_new_order_workspace():
     assert "function loadOverview" in js
 
 
+def test_overview_quick_upload_reuses_the_order_extraction_workflow():
+    html = INDEX_HTML.read_text(encoding="utf-8")
+    js = APP_JS.read_text(encoding="utf-8")
+
+    assert 'id="overviewDropZone"' in html
+    assert 'id="overviewUploadOrder"' in html
+    assert 'id="overviewPdfInput"' in html
+    assert 'setNewOrderWorkspaceOpen(true, { focus: false, instant: true })' in js
+    assert "await handlePdfExtraction(file)" in js
+
+
 def test_history_only_enables_hard_delete_for_drafts():
     js = APP_JS.read_text(encoding="utf-8")
 
