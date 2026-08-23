@@ -16,6 +16,40 @@ def test_navigation_is_grouped_around_factory_workflows():
     assert 'data-tab="awa"' not in html
 
 
+def test_invoice_workspace_is_reachable_and_complete():
+    html = INDEX_HTML.read_text(encoding="utf-8")
+    js = APP_JS.read_text(encoding="utf-8")
+
+    assert 'data-tab="invoices"' in html
+    assert 'id="tabInvoices"' in html
+    for element_id in (
+        "invoiceJobsWrap",
+        "invoiceDetailCard",
+        "invoiceLinesWrap",
+        "invoiceGeneratePdf",
+        "invoiceGlassPrices",
+        "invoiceSpacerPrices",
+        "invoiceSavePrices",
+        "invoicePrompt",
+        "invoiceAddOrderModal",
+        "typeCorrectionsModal",
+    ):
+        assert f'id="{element_id}"' in html
+
+    manual_action = js[js.index("async function handleManualOrderAction"):js.index("function ensureManualOrdersReady")]
+    assert 'if (action === "invoice")' in manual_action
+    assert 'activateTab("invoices")' in manual_action
+    assert "await createInvoiceJobFromOrder(shared)" in manual_action
+    assert "manualInvoicePricingIssues(shared)" not in manual_action
+
+    new_job_branch = js[js.index("async function addInvoiceJobFromOrder"):js.index("async function createInvoiceJobFromOrder")]
+    assert new_job_branch.index("appState.invoices.jobs.unshift(job)") < new_job_branch.index(
+        "await recalcInvoiceJob(job, { allowPrompt: true })",
+        new_job_branch.index("}else{"),
+    )
+    assert 'kind: "spacer",\n          thickness: th,\n          spacerKind: spacerMode' in js
+
+
 def test_overview_gates_the_new_order_workspace():
     html = INDEX_HTML.read_text(encoding="utf-8")
     js = APP_JS.read_text(encoding="utf-8")

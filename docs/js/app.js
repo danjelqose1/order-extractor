@@ -10905,8 +10905,8 @@ async function addInvoiceJobFromOrder(order){
     await recalcInvoiceJob(merged, { allowPrompt: true });
   }else{
     appState.invoices.activeJobId = job.id;
-    await recalcInvoiceJob(job, { allowPrompt: true });
     appState.invoices.jobs.unshift(job);
+    await recalcInvoiceJob(job, { allowPrompt: true });
   }
   await saveInvoiceJobs();
   updateInvoicesUI();
@@ -11249,7 +11249,7 @@ function getSpacerPrice(thickness, kind){
 function enqueueInvoicePrompt(payload){
   const key = payload.kind === "glass"
     ? `glass:${payload.normalized}`
-    : `spacer:${payload.thickness}:${payload.kind || "unknown"}`;
+    : `spacer:${payload.thickness}:${payload.spacerKind || "unknown"}`;
   if (invoiceRuntime.missingKeys.has(key)) return;
   invoiceRuntime.missingKeys.add(key);
   invoiceRuntime.pendingPrompts.push(payload);
@@ -11276,13 +11276,13 @@ function triggerInvoicePrompt(){
   }
   const descriptor = payload.kind === "glass"
     ? (payload.label || payload.normalized || "Unknown glass")
-    : (payload.description || `Spacer ${payload.thickness ?? "?"}mm (${payload.kind || "unknown"})`);
+    : (payload.description || `Spacer ${payload.thickness ?? "?"}mm (${payload.spacerKind || "unknown"})`);
   invoiceRuntime.currentMissing = {
     kind: payload.kind,
     key: payload.kind === "glass" ? (payload.normalized || normalizeGlassKey(descriptor)) : String(payload.thickness || ""),
     label: descriptor,
     jobId: payload.jobId,
-    spacerKind: payload.kind === "spacer" ? (payload.kind || "normal") : null,
+    spacerKind: payload.kind === "spacer" ? (payload.spacerKind || "normal") : null,
     thickness: payload.thickness,
   };
   if (invoicePromptDescriptor){
@@ -11602,7 +11602,7 @@ async function computeInvoiceLineFromGroup(group, index, options = {}){
         prompt: {
           kind: "spacer",
           thickness: th,
-          kind: spacerMode,
+          spacerKind: spacerMode,
           description: `Spacer ${th ?? "?"}mm (${spacerMode || "normal"})`,
         },
       });
@@ -11770,7 +11770,7 @@ function renderInvoiceJobs(){
   const jobs = applyInvoiceFilters(appState.invoices.jobs || []);
   if (!jobs.length){
     appState.invoices.activeJobId = null;
-    invoiceJobsWrap.innerHTML = '<div class="invoice-empty">No invoice jobs yet. Use the Invoice button in History.</div>';
+    invoiceJobsWrap.innerHTML = '<div class="invoice-empty">No invoice jobs yet. Use the Invoice button in Orders or Manual Orders.</div>';
     pagination.currentPage = 1;
     pagination.totalPages = 1;
     updateInvoicePaginationControls(0, 1, 1);
@@ -22347,22 +22347,19 @@ async function handleManualOrderAction(action, orderId, options = {}){
   }
   if (action === "invoice"){
     try{
+      activateTab("invoices");
       ensureInvoicesLoaded();
       await syncInvoiceConfigFromServer({ silent: true });
       const shared = manualOrderToShared(order, { perUnitArea: true });
-      const issues = manualInvoicePricingIssues(shared);
-      if (issues.length){
-        if (manualOrdersListStatus){
-          manualOrdersListStatus.textContent = `Invoice not generated. Configure prices for: ${issues.join(", ")}.`;
-        }
-        return;
-      }
       const job = await createInvoiceJobFromOrder(shared);
-      if (job && manualOrdersListStatus){
-        manualOrdersListStatus.textContent = `Invoice job generated for ${order.order_number}.`;
+      if (job){
+        appState.invoices.activeJobId = job.id;
+        updateInvoicesUI();
+        setInvoiceStatus(`Invoice draft ready for ${order.order_number}. Review prices, VAT, and discount before generating the PDF.`);
+        document.getElementById("invoiceDetailCard")?.scrollIntoView({ behavior: "smooth", block: "start" });
       }
     }catch(error){
-      if (manualOrdersListStatus) manualOrdersListStatus.textContent = error.message || String(error);
+      setInvoiceStatus(error.message || String(error));
     }
   }
 }

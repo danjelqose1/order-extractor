@@ -21,6 +21,7 @@
     <symbol id="icon-processing" viewBox="0 0 24 24"><path d="M5 3h5v5H5V3Zm9 0h5v5h-5V3ZM5 16h5v5H5v-5Zm11.5-5a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Zm0 2a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5ZM7 9h1v4h3v2H6V9h1Zm5-2h2v3h-2V7Z"/></symbol>
     <symbol id="icon-label" viewBox="0 0 24 24"><path d="M3 4h9.2l8.5 8.5a2 2 0 0 1 0 2.8l-5.4 5.4a2 2 0 0 1-2.8 0L4 12.2A3.4 3.4 0 0 1 3 9.8V4Zm2 2v3.8c0 .4.1.7.4 1l8.5 8.5 5.4-5.4L11.4 6H5Zm3 1a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3Z"/></symbol>
     <symbol id="icon-analysis" viewBox="0 0 24 24"><path d="M4 19h17v2H2V3h2v16Zm3-2H5v-6h2v6Zm4 0H9V7h2v10Zm4 0h-2V9h2v8Zm4 0h-2V4h2v13Z"/></symbol>
+    <symbol id="icon-invoice" viewBox="0 0 24 24"><path d="M6 2h12a2 2 0 0 1 2 2v18l-3-2-2 2-3-2-3 2-3-2-2 2V4a2 2 0 0 1 2-2Zm0 2v14.3l1.9-1.2 2.1 1.4 2-1.4 2 1.4 2.1-1.4 1.9 1.2V4H6Zm3 3h6v2H9V7Zm0 4h6v2H9v-2Zm0 4h4v2H9v-2Z"/></symbol>
     <symbol id="icon-pdf" viewBox="0 0 24 24"><path d="M6 2h8l5 5v15H6V2Zm2 2v16h9V8h-4V4H8Zm7 .8V6h1.2L15 4.8ZM9 11h6v2H9v-2Zm0 4h6v2H9v-2Z"/></symbol>
     <symbol id="icon-scan" viewBox="0 0 24 24"><path d="M4 3h5v2H5v4H3V4a1 1 0 0 1 1-1Zm11 0h5a1 1 0 0 1 1 1v5h-2V5h-4V3ZM3 15h2v4h4v2H4a1 1 0 0 1-1-1v-5Zm16 0h2v5a1 1 0 0 1-1 1h-5v-2h4v-4ZM7 8h10v8H7V8Zm2 2v4h6v-4H9Z"/></symbol>
     <symbol id="icon-menu" viewBox="0 0 24 24"><path d="M3 6h18v2H3V6Zm0 5h18v2H3v-2Zm0 5h18v2H3v-2Z"/></symbol>
@@ -63,6 +64,7 @@
         <button class="tab" data-tab="scanstudio" data-nav-parent="documents"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-scan"></use></svg></span><span>Scan Studio</span></button>
       </div>
       <button class="tab" data-tab="analysis"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-analysis"></use></svg></span><span>Analytics</span></button>
+      <button class="tab" data-tab="invoices"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-invoice"></use></svg></span><span>Invoices</span></button>
       <div class="sidebar-section-label">System</div>
       <button class="tab" data-tab="settings"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-settings"></use></svg></span><span>Settings</span></button>
     </nav>
@@ -1864,6 +1866,127 @@
       </div>
     </section>
 
+    <section id="tabInvoices" class="tab-panel">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+          <div>
+            <span class="section-eyebrow">Finance</span>
+            <h2 style="margin:0">Invoices</h2>
+            <p class="muted small" style="margin:4px 0 0">Review invoice jobs, configure prices, and export invoice PDFs.</p>
+          </div>
+          <div class="invoice-summary" id="invoiceSummary"></div>
+        </div>
+        <div class="invoice-filters" style="margin-top:12px">
+          <label>
+            <span>Client</span>
+            <input type="search" id="invoiceFilterClient" placeholder="Search client…" />
+          </label>
+          <label>
+            <span>Order number</span>
+            <input type="search" id="invoiceFilterOrder" placeholder="Order number…" />
+          </label>
+          <label>
+            <span>Status</span>
+            <select id="invoiceFilterStatus">
+              <option value="">All</option>
+              <option value="draft">Draft</option>
+              <option value="finalized">Finalized</option>
+            </select>
+          </label>
+        </div>
+        <div id="invoiceStatus" class="muted small" style="margin-top:8px" role="status" aria-live="polite"></div>
+      </div>
+
+      <div class="card">
+        <div class="table-responsive" id="invoiceJobsWrap">
+          <div class="invoice-empty">No invoice jobs yet. Use the Invoice button in Orders or Manual Orders.</div>
+        </div>
+        <div class="pagination" id="invoicePagination" hidden>
+          <button class="btn small" type="button" id="invoicePaginationPrev">Previous</button>
+          <button class="btn small" type="button" id="invoicePaginationNext">Next</button>
+        </div>
+      </div>
+
+      <div class="card" id="invoiceDetailCard">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+          <div>
+            <h3 style="margin:0">Invoice detail</h3>
+            <div id="invoiceDetailMeta" class="muted small"></div>
+          </div>
+          <div class="invoice-actions">
+            <button type="button" class="btn small" id="invoiceAddOrderBtn">Add order…</button>
+            <button type="button" class="btn small" id="invoiceRecalc">Recalculate</button>
+            <button type="button" class="btn small success" id="invoiceGeneratePdf">Generate PDF</button>
+            <button type="button" class="btn small danger" id="invoiceDeleteActive">Delete</button>
+          </div>
+        </div>
+        <div id="invoiceMissingNotice" class="alert" hidden></div>
+        <div class="invoice-detail-grid">
+          <label>
+            <span class="muted small">Discount</span>
+            <div style="display:flex;gap:8px;align-items:center">
+              <select id="invoiceDiscountMode" style="min-width:120px;padding:8px 10px;border:1px solid var(--border-dark);border-radius:10px">
+                <option value="percent">Percent (%)</option>
+                <option value="absolute">Flat (ALL)</option>
+              </select>
+              <input type="number" id="invoiceDiscountValue" min="0" step="0.1" />
+            </div>
+          </label>
+          <label>
+            <span class="muted small">VAT %</span>
+            <input type="number" id="invoiceVatValue" min="0" step="0.1" />
+          </label>
+          <label>
+            <span class="muted small">Status</span>
+            <select id="invoiceStatusSelect" style="padding:8px 10px;border:1px solid var(--border-dark);border-radius:10px">
+              <option value="draft">Draft</option>
+              <option value="finalized">Finalized</option>
+            </select>
+          </label>
+        </div>
+        <div class="table-responsive" id="invoiceLinesWrap">
+          <div class="invoice-empty">Select an invoice job from the list.</div>
+        </div>
+        <div id="invoiceTotals" class="invoice-summary"></div>
+      </div>
+
+      <div class="card" id="invoicePricesCard">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+          <div>
+            <h3 style="margin:0">Price list</h3>
+            <p class="muted small" style="margin:4px 0 0">Edit glass and spacer prices in ALL per m².</p>
+          </div>
+          <button type="button" class="btn small" id="invoiceRefreshPrices">Refresh drafts</button>
+        </div>
+        <div class="price-editor" style="margin-top:12px">
+          <div>
+            <h4 style="margin:0 0 6px">Glass prices</h4>
+            <div class="table-responsive" id="invoiceGlassPrices"></div>
+            <button type="button" class="btn small" id="invoiceAddGlassPrice" style="margin-top:8px">Add glass type</button>
+          </div>
+          <div>
+            <h4 style="margin:0 0 6px">Spacer prices</h4>
+            <div class="table-responsive" id="invoiceSpacerPrices"></div>
+            <button type="button" class="btn small" id="invoiceAddSpacerPrice" style="margin-top:8px">Add spacer thickness</button>
+          </div>
+        </div>
+        <details id="typeCorrectionsPanel" style="margin-top:16px">
+          <summary style="cursor:pointer;font-weight:600">Type corrections</summary>
+          <p class="muted small" style="margin:8px 0 10px">Map raw glass descriptions to the corrected values used for pricing.</p>
+          <div class="table-responsive" id="typeCorrectionsTable">
+            <div class="invoice-empty">No corrections yet.</div>
+          </div>
+          <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+            <button type="button" class="btn small" id="typeCorrectionsAdd">Add correction</button>
+          </div>
+        </details>
+        <div class="invoice-actions">
+          <button type="button" class="btn primary small" id="invoiceSavePrices">Save price list</button>
+          <span id="invoicePricesStatus" class="muted small" role="status" aria-live="polite"></span>
+        </div>
+      </div>
+    </section>
+
     <section id="tabSettings" class="tab-panel">
       <div class="settings-grid">
         <section class="card settings-card">
@@ -1893,6 +2016,58 @@
 
   </main>
 
+  <div id="invoicePrompt" class="modal-layer" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="invoicePromptTitle">
+      <h3 id="invoicePromptTitle">New price</h3>
+      <p id="invoicePromptText">This order contains an item without a configured price. Enter its price in ALL per m².</p>
+      <div id="invoicePromptFields">
+        <div id="invoicePromptDescriptor" class="muted small"></div>
+        <input type="number" id="invoicePromptValue" min="0" step="1" placeholder="Price per m² (ALL)" />
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn small" id="invoicePromptCancel">Cancel</button>
+        <button type="button" class="btn primary small" id="invoicePromptSave">Save &amp; Continue</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="typeCorrectionsModal" class="modal-layer" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="typeCorrectionsTitle">
+      <h3 id="typeCorrectionsTitle">Add type correction</h3>
+      <p>Normalize a raw glass description before pricing.</p>
+      <label>
+        <span>Raw type</span>
+        <input type="text" id="typeCorrectionsRaw" placeholder="Original glass description" />
+      </label>
+      <label>
+        <span>Corrected type</span>
+        <input type="text" id="typeCorrectionsCorrected" placeholder="Corrected glass description" />
+      </label>
+      <div class="modal-actions">
+        <button type="button" class="btn small" id="typeCorrectionsCancel">Cancel</button>
+        <button type="button" class="btn primary small" id="typeCorrectionsSave">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="invoiceAddOrderModal" class="modal-layer" hidden>
+    <div class="modal-card wide" role="dialog" aria-modal="true" aria-labelledby="invoiceAddOrderTitle">
+      <h3 id="invoiceAddOrderTitle">Add order to invoice</h3>
+      <p>Pick another approved order to merge into this invoice.</p>
+      <div class="add-order-meta"><span id="invoiceAddOrderHint"></span></div>
+      <div id="invoiceAddOrderStatus" class="muted small" style="min-height:18px" role="status"></div>
+      <div class="add-order-search">
+        <input type="search" id="invoiceAddOrderSearch" placeholder="Search orders…" />
+      </div>
+      <div class="table-responsive" id="invoiceAddOrderList">
+        <div class="invoice-empty">Loading approved orders…</div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn small" id="invoiceAddOrderClose">Close</button>
+      </div>
+    </div>
+  </div>
+
   <div id="telegramPdfModal" class="modal-layer telegram-pdf-modal" hidden>
     <div class="modal-card">
       <div class="telegram-pdf-header">
@@ -1918,6 +2093,6 @@
   <input type="file" id="scanFileInput" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple hidden />
 
 <script src="./js/living-dashboard.js?v=20260718" defer></script>
-<script src="./js/app.js?v=20260718" defer></script>
+<script src="./js/app.js?v=20260823" defer></script>
 </body>
 </html>
