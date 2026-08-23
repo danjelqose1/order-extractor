@@ -10180,7 +10180,7 @@ async function applyInvoiceConfigToState(config, { cacheLocal = true, preferExis
     saveTypeCorrections();
   }
   if (invoiceRuntime.initialized){
-    await recalcAllInvoices({ allowPrompt: false });
+    await recalcAllInvoices({ allowPrompt: false, allowAi: false });
     updateInvoicesUI();
   }
   return {
@@ -10190,8 +10190,21 @@ async function applyInvoiceConfigToState(config, { cacheLocal = true, preferExis
   };
 }
 
+async function fetchInvoiceEndpoint(url, options = {}, timeoutMs = 8000){
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try{
+    return await fetch(url, {
+      ...options,
+      signal: options.signal || controller.signal,
+    });
+  }finally{
+    clearTimeout(timeoutId);
+  }
+}
+
 async function fetchInvoiceConfigFromServer(){
-  const res = await fetch(API_BASE + "/api/prices");
+  const res = await fetchInvoiceEndpoint(API_BASE + "/api/prices");
   if (!res.ok){
     const text = await res.text().catch(()=> "");
     throw new Error(text || `Server responded with ${res.status}`);
@@ -10203,7 +10216,7 @@ async function fetchInvoiceConfigFromServer(){
 async function persistInvoiceConfigToServer(configOverride, { preferExistingTypeCorrections = false } = {}){
   const payload = configOverride || buildInvoiceConfigPayload();
   try{
-    const res = await fetch(API_BASE + "/api/prices", {
+    const res = await fetchInvoiceEndpoint(API_BASE + "/api/prices", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -10530,7 +10543,7 @@ function clearLegacyInvoiceJobs(){
 }
 
 async function fetchInvoiceJobsFromServer(){
-  const res = await fetch(API_BASE + "/api/invoices");
+  const res = await fetchInvoiceEndpoint(API_BASE + "/api/invoices");
   if (!res.ok){
     const text = await res.text().catch(()=> "");
     throw new Error(text || `Server responded with ${res.status}`);
@@ -10561,7 +10574,7 @@ async function ensureInvoiceJobsLoaded(){
     }
     appState.invoices.jobs = normalizeInvoiceJobs(jobs);
     for (const job of appState.invoices.jobs){
-      await recalcInvoiceJob(job, { allowPrompt: false });
+      await recalcInvoiceJob(job, { allowPrompt: false, allowAi: false });
     }
     invoiceRuntime.jobsLoaded = true;
     updateInvoicesUI();
@@ -10583,7 +10596,7 @@ async function saveInvoiceJobs(jobsOverride){
     return rest;
   });
   try{
-    const res = await fetch(API_BASE + "/api/invoices", {
+    const res = await fetchInvoiceEndpoint(API_BASE + "/api/invoices", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ jobs: serialized }),
@@ -10870,8 +10883,9 @@ function buildInvoiceJobFromOrder(order){
   };
 }
 
-async function addInvoiceJobFromOrder(order){
+async function addInvoiceJobFromOrder(order, options = {}){
   if (!order) return null;
+  const { allowAi = true } = options;
   ensureInvoicesLoaded();
   await ensureInvoiceJobsLoaded();
   const job = normalizeInvoiceJob(buildInvoiceJobFromOrder(order));
@@ -10905,19 +10919,19 @@ async function addInvoiceJobFromOrder(order){
     ensureJobOrders(merged);
     appState.invoices.jobs.splice(existingIndex, 1, merged);
     appState.invoices.activeJobId = merged.id;
-    await recalcInvoiceJob(merged, { allowPrompt: true });
+    await recalcInvoiceJob(merged, { allowPrompt: true, allowAi });
   }else{
     appState.invoices.activeJobId = job.id;
     appState.invoices.jobs.unshift(job);
-    await recalcInvoiceJob(job, { allowPrompt: true });
+    await recalcInvoiceJob(job, { allowPrompt: true, allowAi });
   }
-  await saveInvoiceJobs();
   updateInvoicesUI();
   setInvoiceStatus("Invoice job updated from History.");
+  await saveInvoiceJobs();
   return job;
 }
 
-async function createInvoiceJobFromOrder(order){
+async function createInvoiceJobFromOrder(order, options = {}){
   if (!order) return null;
   if (!canInvoiceStatus(order.status)){
     throw new Error(`Order status ${historyStatusLabel(order.status)} is not eligible for invoice.`);
@@ -10928,9 +10942,9 @@ async function createInvoiceJobFromOrder(order){
     if (!canInvoiceStatus(detailed.status)){
       throw new Error(`Order status ${historyStatusLabel(detailed.status)} is not eligible for invoice.`);
     }
-    return addInvoiceJobFromOrder(detailed);
+    return addInvoiceJobFromOrder(detailed, options);
   }
-  return addInvoiceJobFromOrder(order);
+  return addInvoiceJobFromOrder(order, options);
 }
 
 function setInvoiceAddOrderStatus(message){
@@ -11375,7 +11389,7 @@ function formatMoney(value){
 function describeMissingPricing(missing){
   if (!missing) return "";
   if (missing.type === "glass"){
-    const keyLabel = missing.normalized || missing.pane || missing?.details?.normalized || "unknown";
+    const keyLabel = missing.label || missing.normalized || missing.pane || missing?.details?.normalized || "unknown";
     return `Missing glass price for "${keyLabel}".`;
   }
   if (missing.type === "spacer"){
@@ -11389,10 +11403,10 @@ function describeMissingPricing(missing){
 
 async function recalcInvoiceJob(job, options = {}){
   if (!job) return null;
-  const { allowPrompt = false } = options;
+  const { allowPrompt = false, allowAi = true } = options;
   const promptAllowedForJob = allowPrompt && appState.invoices.activeJobId === job.id;
   const rawRows = ensureInvoiceRawRows(job);
-  const lines = await buildInvoiceLinesFromRaw(rawRows, { promptAllowedForJob });
+  const lines = await buildInvoiceLinesFromRaw(rawRows, { promptAllowedForJob, allowAi });
   lines.forEach(line=>{
     if (!Array.isArray(line.rawIndexes)) return;
     line.rawIndexes.forEach(idx=>{
@@ -11432,6 +11446,7 @@ function ensureInvoiceRawRows(job){
 
 async function buildInvoiceLinesFromRaw(rawRows, options = {}){
   const promptAllowedForJob = !!options.promptAllowedForJob;
+  const allowAi = options.allowAi !== false;
   const groups = new Map();
   (rawRows || []).forEach((row, idx)=>{
     if (!row || typeof row !== "object") return;
@@ -11491,7 +11506,7 @@ async function buildInvoiceLinesFromRaw(rawRows, options = {}){
   const lines = [];
   const groupEntries = Array.from(groups.values());
   for (let index = 0; index < groupEntries.length; index += 1){
-    const line = await computeInvoiceLineFromGroup(groupEntries[index], index, { promptAllowedForJob });
+    const line = await computeInvoiceLineFromGroup(groupEntries[index], index, { promptAllowedForJob, allowAi });
     lines.push(line);
   }
   return lines;
@@ -11499,7 +11514,19 @@ async function buildInvoiceLinesFromRaw(rawRows, options = {}){
 
 async function computeInvoiceLineFromGroup(group, index, options = {}){
   const promptAllowedForJob = !!options.promptAllowedForJob;
-  const composition = parseInvoiceComposition(group.displayType || "");
+  const allowAi = options.allowAi !== false;
+  let composition = parseInvoiceComposition(group.displayType || "");
+  // Manual-order catalog names such as "TERMIK + TRANSPARENT 24 mm" are
+  // complete products, not always pane + spacer formulas. If the formula
+  // parser cannot identify a glass pane, price the complete product name
+  // instead of silently producing a zero-value invoice line.
+  if (!composition.panes.length && String(group.displayType || "").trim()){
+    composition = {
+      ...composition,
+      panes: [String(group.displayType).trim()],
+      spacerThicknesses: [],
+    };
+  }
   const glassPriceTable = appState.invoices.priceLists.glass || {};
   let glassPricePerM2 = 0;
   let aiAssisted = !!group.aiAssisted;
@@ -11508,7 +11535,7 @@ async function computeInvoiceLineFromGroup(group, index, options = {}){
   const glassPriceKeys = Object.keys(glassPriceTable);
   const glassIssues = [];
   for (const pane of composition.panes){
-    const result = await resolveGlassType(pane, glassPriceKeys);
+    const result = await resolveGlassType(pane, glassPriceKeys, { allowAi });
     if (result?.fromAi){
       aiAssisted = true;
     }
@@ -11520,8 +11547,8 @@ async function computeInvoiceLineFromGroup(group, index, options = {}){
       const canonicalLabel = priceKey || matchedKey || normalizeGlassKey(pane) || pane;
       console.log("[GlassPriceMissing] rawName:", pane, "normalizedKey:", canonicalLabel, "availableKeys:", Object.keys(glassPriceTable || {}));
       glassIssues.push({
-        missing: { type: "glass", pane: canonicalLabel, normalized: canonicalLabel },
-        prompt: { kind: "glass", label: canonicalLabel, normalized: canonicalLabel },
+        missing: { type: "glass", label: pane, pane: canonicalLabel, normalized: canonicalLabel },
+        prompt: { kind: "glass", label: pane, normalized: canonicalLabel },
       });
     }else{
       glassPricePerM2 += Number(price);
@@ -11556,7 +11583,7 @@ async function computeInvoiceLineFromGroup(group, index, options = {}){
   const needsSpacerAi = !spacerModeResolved;
   const needsHistoricalAi = group.aiAssisted === true;
   const rawLineText = group.rawType || group.displayType || "";
-  if ((needsGlassAi || needsSpacerAi || needsHistoricalAi) && rawLineText){
+  if (allowAi && (needsGlassAi || needsSpacerAi || needsHistoricalAi) && rawLineText){
     console.log("[GlassAI] Calling AI for raw line:", rawLineText);
     const analysis = await analyzeInvoiceLineWithAI(rawLineText, glassPriceKeys);
     console.log("[GlassAI] Result:", analysis);
@@ -11583,8 +11610,8 @@ async function computeInvoiceLineFromGroup(group, index, options = {}){
             const normalizedAiKey = normalizeGlassKey(aiGlassKey) || aiGlassKey;
             console.log("[GlassPriceMissing] rawName:", analysis.glassKey, "normalizedKey:", normalizedAiKey, "availableKeys:", Object.keys(glassPriceTable || {}));
             glassIssues.push({
-              missing: { type: "glass", pane: normalizedAiKey, normalized: normalizedAiKey },
-              prompt: { kind: "glass", label: normalizedAiKey, normalized: normalizedAiKey },
+              missing: { type: "glass", label: analysis.glassKey, pane: normalizedAiKey, normalized: normalizedAiKey },
+              prompt: { kind: "glass", label: analysis.glassKey, normalized: normalizedAiKey },
             });
           }
         }
@@ -11694,10 +11721,10 @@ function finalizeInvoiceTotals(job, lines){
 }
 
 async function recalcAllInvoices(opts = {}){
-  const { allowPrompt = false } = opts;
+  const { allowPrompt = false, allowAi = true } = opts;
   const jobs = appState.invoices.jobs || [];
   for (const job of jobs){
-    await recalcInvoiceJob(job, { allowPrompt });
+    await recalcInvoiceJob(job, { allowPrompt, allowAi });
   }
 }
 
@@ -12173,14 +12200,19 @@ function findLocalGlassMatch(targetCompact, candidates){
   if (!targetCompact) return null;
   const exact = candidates.find(entry => entry.compact === targetCompact);
   if (exact) return exact.key;
-  const startsWith = candidates.find(entry => targetCompact.startsWith(entry.compact) || entry.compact.startsWith(targetCompact));
+  const numberSignature = value => (String(value || "").match(/\d+(?:[.,]\d+)?/g) || []).join("|");
+  const hasCompatibleNumbers = entry => numberSignature(targetCompact) === numberSignature(entry.compact);
+  const startsWith = candidates.find(entry => hasCompatibleNumbers(entry)
+    && (targetCompact.startsWith(entry.compact) || entry.compact.startsWith(targetCompact)));
   if (startsWith) return startsWith.key;
-  const contains = candidates.find(entry => targetCompact.includes(entry.compact) || entry.compact.includes(targetCompact));
+  const contains = candidates.find(entry => hasCompatibleNumbers(entry)
+    && (targetCompact.includes(entry.compact) || entry.compact.includes(targetCompact)));
   if (contains) return contains.key;
   return null;
 }
 
-async function resolveGlassType(rawName, knownTypes = []){
+async function resolveGlassType(rawName, knownTypes = [], options = {}){
+  const allowAi = options.allowAi !== false;
   if (!rawName || !Array.isArray(knownTypes) || !knownTypes.length){
     return { match: null, fromAi: false };
   }
@@ -12201,6 +12233,9 @@ async function resolveGlassType(rawName, knownTypes = []){
     const result = { match: localMatch, fromAi: false };
     glassAliasCache[cacheKey] = result;
     return result;
+  }
+  if (!allowAi){
+    return { match: null, fromAi: false };
   }
   if (glassAliasPending.has(cacheKey)){
     return glassAliasPending.get(cacheKey);
@@ -12233,7 +12268,7 @@ async function callAiGlassMatch(rawName, knownTypes){
   if (!rawName || !Array.isArray(knownTypes) || !knownTypes.length){
     return null;
   }
-  const res = await fetch(API_BASE + "/api/invoices/ai/glass-match", {
+  const res = await fetchInvoiceEndpoint(API_BASE + "/api/invoices/ai/glass-match", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -12261,7 +12296,7 @@ async function analyzeInvoiceLineWithAI(rawLine, knownGlassTypes){
     return null;
   }
   try{
-    const res = await fetch(API_BASE + "/api/invoices/ai/analyze-line", {
+    const res = await fetchInvoiceEndpoint(API_BASE + "/api/invoices/ai/analyze-line", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -22356,9 +22391,12 @@ async function handleManualOrderAction(action, orderId, options = {}){
       openManualInvoiceModal();
       setInvoiceStatus(`Preparing invoice for ${order.order_number}…`);
       ensureInvoicesLoaded();
-      await syncInvoiceConfigFromServer({ silent: true });
+      await Promise.race([
+        syncInvoiceConfigFromServer({ silent: true }),
+        new Promise(resolve => setTimeout(resolve, 1200)),
+      ]);
       const shared = manualOrderToShared(order, { perUnitArea: true });
-      const job = await createInvoiceJobFromOrder(shared);
+      const job = await createInvoiceJobFromOrder(shared, { allowAi: false });
       if (job){
         appState.invoices.activeJobId = job.id;
         updateInvoicesUI();

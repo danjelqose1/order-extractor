@@ -41,15 +41,21 @@ def test_manual_invoice_workspace_stays_inside_manual_orders():
     assert 'if (action === "invoice")' in manual_action
     assert "openManualInvoiceModal()" in manual_action
     assert 'activateTab("invoices")' not in manual_action
-    assert "await createInvoiceJobFromOrder(shared)" in manual_action
+    assert "await createInvoiceJobFromOrder(shared, { allowAi: false })" in manual_action
+    assert "await Promise.race([" in manual_action
     assert "manualInvoicePricingIssues(shared)" not in manual_action
 
     new_job_branch = js[js.index("async function addInvoiceJobFromOrder"):js.index("async function createInvoiceJobFromOrder")]
     assert new_job_branch.index("appState.invoices.jobs.unshift(job)") < new_job_branch.index(
-        "await recalcInvoiceJob(job, { allowPrompt: true })",
+        "await recalcInvoiceJob(job, { allowPrompt: true, allowAi })",
         new_job_branch.index("}else{"),
     )
     assert 'kind: "spacer",\n          thickness: th,\n          spacerKind: spacerMode' in js
+    assert "async function fetchInvoiceEndpoint" in js
+    assert "const { allowPrompt = false, allowAi = true } = options" in js
+    assert 'if (!composition.panes.length && String(group.displayType || "").trim())' in js
+    assert 'panes: [String(group.displayType).trim()]' in js
+    assert 'numberSignature(targetCompact) === numberSignature(entry.compact)' in js
 
 
 def test_overview_gates_the_new_order_workspace():
