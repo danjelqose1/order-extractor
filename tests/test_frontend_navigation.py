@@ -16,14 +16,15 @@ def test_navigation_is_grouped_around_factory_workflows():
     assert 'data-tab="awa"' not in html
 
 
-def test_invoice_workspace_is_reachable_and_complete():
+def test_manual_invoice_workspace_stays_inside_manual_orders():
     html = INDEX_HTML.read_text(encoding="utf-8")
     js = APP_JS.read_text(encoding="utf-8")
 
-    assert 'data-tab="invoices"' in html
-    assert 'id="tabInvoices"' in html
+    assert 'data-tab="invoices"' not in html
+    assert 'id="tabInvoices"' not in html
     for element_id in (
-        "invoiceJobsWrap",
+        "manualInvoiceModal",
+        "manualInvoiceClose",
         "invoiceDetailCard",
         "invoiceLinesWrap",
         "invoiceGeneratePdf",
@@ -38,7 +39,8 @@ def test_invoice_workspace_is_reachable_and_complete():
 
     manual_action = js[js.index("async function handleManualOrderAction"):js.index("function ensureManualOrdersReady")]
     assert 'if (action === "invoice")' in manual_action
-    assert 'activateTab("invoices")' in manual_action
+    assert "openManualInvoiceModal()" in manual_action
+    assert 'activateTab("invoices")' not in manual_action
     assert "await createInvoiceJobFromOrder(shared)" in manual_action
     assert "manualInvoicePricingIssues(shared)" not in manual_action
 

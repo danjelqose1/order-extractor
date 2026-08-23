@@ -455,7 +455,6 @@ const panels = {
   spacer: document.getElementById("tabSpacer"),
   labels: document.getElementById("tabLabels"),
   analysis: document.getElementById("tabAnalysis"),
-  invoices: document.getElementById("tabInvoices"),
   settings: document.getElementById("tabSettings"),
 };
 
@@ -529,11 +528,6 @@ const PAGE_META = Object.freeze({
     eyebrow: "Tools",
     title: "Scan Studio",
     subtitle: "Clean, rotate, crop, and export scanned order pages.",
-  },
-  invoices: {
-    eyebrow: "Finance",
-    title: "Invoices",
-    subtitle: "Build invoices from approved orders and configured prices.",
   },
   settings: {
     eyebrow: "System",
@@ -1317,6 +1311,8 @@ const invoiceAddOrderStatus = document.getElementById("invoiceAddOrderStatus");
 const invoiceAddOrderClose = document.getElementById("invoiceAddOrderClose");
 const invoiceAddOrderHint = document.getElementById("invoiceAddOrderHint");
 const invoiceAddOrderSearch = document.getElementById("invoiceAddOrderSearch");
+const manualInvoiceModal = document.getElementById("manualInvoiceModal");
+const manualInvoiceClose = document.getElementById("manualInvoiceClose");
 const typeCorrectionsPanel = document.getElementById("typeCorrectionsPanel");
 const typeCorrectionsTable = document.getElementById("typeCorrectionsTable");
 const typeCorrectionsAddBtn = document.getElementById("typeCorrectionsAdd");
@@ -1406,10 +1402,6 @@ function activateTab(name){
     }
   }else if (name === "labels"){
     updateLabelsUI();
-  }else if (name === "invoices"){
-    ensureInvoicesLoaded();
-    syncInvoiceConfigFromServer({ silent: true });
-    updateInvoicesUI();
   }
 }
 
@@ -10626,6 +10618,17 @@ function setInvoiceStatus(msg){
   }
 }
 
+function openManualInvoiceModal(){
+  if (!manualInvoiceModal) return;
+  manualInvoiceModal.hidden = false;
+  manualInvoiceClose?.focus();
+}
+
+function closeManualInvoiceModal(){
+  if (!manualInvoiceModal) return;
+  manualInvoiceModal.hidden = true;
+}
+
 function normalizeOrderKey(numbers, fallback){
   const joined = Array.isArray(numbers) ? numbers.map(v => String(v || "").trim()).filter(Boolean).join(", ") : "";
   const base = joined || (fallback ? String(fallback).trim() : "");
@@ -11909,7 +11912,10 @@ function renderInvoiceDetail(){
     const created = formatDate(job.createdAt);
     const invoiceNo = job.invoiceNumber ? ` • Invoice: ${escapeHtml(job.invoiceNumber)}` : "";
     const orderChips = orderNumbers.length
-      ? orderNumbers.map(num => `<span class="order-chip"><span>${escapeHtml(num)}</span><button type="button" data-remove-order="${escapeHtml(num)}" aria-label="Remove order ${escapeHtml(num)}">×</button></span>`).join("")
+      ? orderNumbers.map(num => manualInvoiceModal
+          ? `<span class="order-chip"><span>${escapeHtml(num)}</span></span>`
+          : `<span class="order-chip"><span>${escapeHtml(num)}</span><button type="button" data-remove-order="${escapeHtml(num)}" aria-label="Remove order ${escapeHtml(num)}">×</button></span>`
+        ).join("")
       : '<span class="muted small">(none)</span>';
     invoiceDetailMeta.innerHTML = `
       <div>Client: ${escapeHtml(clientLabel)} • ${escapeHtml(created)}${invoiceNo}</div>
@@ -22347,7 +22353,8 @@ async function handleManualOrderAction(action, orderId, options = {}){
   }
   if (action === "invoice"){
     try{
-      activateTab("invoices");
+      openManualInvoiceModal();
+      setInvoiceStatus(`Preparing invoice for ${order.order_number}…`);
       ensureInvoicesLoaded();
       await syncInvoiceConfigFromServer({ silent: true });
       const shared = manualOrderToShared(order, { perUnitArea: true });
@@ -22356,7 +22363,6 @@ async function handleManualOrderAction(action, orderId, options = {}){
         appState.invoices.activeJobId = job.id;
         updateInvoicesUI();
         setInvoiceStatus(`Invoice draft ready for ${order.order_number}. Review prices, VAT, and discount before generating the PDF.`);
-        document.getElementById("invoiceDetailCard")?.scrollIntoView({ behavior: "smooth", block: "start" });
       }
     }catch(error){
       setInvoiceStatus(error.message || String(error));
@@ -22447,6 +22453,10 @@ function initManualOrders(){
   manualPhotoApplyModal?.addEventListener("click", event => {
     if (event.target === manualPhotoApplyModal) closeManualPhotoApplyModal();
   });
+  manualInvoiceClose?.addEventListener("click", closeManualInvoiceModal);
+  manualInvoiceModal?.addEventListener("click", event => {
+    if (event.target === manualInvoiceModal) closeManualInvoiceModal();
+  });
   manualPrintSettingsOpen?.addEventListener("click", openManualPrintSettings);
   manualPrintSettingsClose?.addEventListener("click", closeManualPrintSettings);
   manualPrintSettingsModal?.addEventListener("click", event => {
@@ -22494,6 +22504,14 @@ function initManualOrders(){
       && !manualPhotoPreviewModal.hidden
     ){
       closeManualPhotoPreview();
+    }
+    if (
+      event.key === "Escape"
+      && manualInvoiceModal
+      && !manualInvoiceModal.hidden
+      && (!invoicePromptLayer || invoicePromptLayer.hidden)
+    ){
+      closeManualInvoiceModal();
     }
   });
   manualPrintSettingsForm?.addEventListener("submit", event => {

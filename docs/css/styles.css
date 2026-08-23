@@ -7058,6 +7058,95 @@
       padding:0;
       overflow:hidden;
     }
+    .manual-invoice-modal-card{
+      width:min(1180px,calc(100vw - 28px));
+      max-width:1180px;
+      max-height:calc(100vh - 28px);
+      padding:0;
+      overflow:hidden;
+    }
+    .manual-invoice-modal-body{
+      display:flex;
+      flex-direction:column;
+      gap:14px;
+      max-height:calc(100vh - 104px);
+      padding:18px 20px 20px;
+      overflow:auto;
+    }
+    .manual-invoice-modal-body .invoice-detail-grid{
+      margin:0;
+    }
+    .manual-invoice-modal-body .invoice-detail-grid label{
+      display:flex;
+      flex-direction:column;
+      gap:5px;
+    }
+    .manual-invoice-modal-body input,
+    .manual-invoice-modal-body select{
+      width:100%;
+      min-height:38px;
+      padding:8px 10px;
+      border:1px solid var(--border-dark);
+      border-radius:9px;
+      background:var(--card-bg);
+      color:var(--text);
+    }
+    .manual-invoice-discount-row{
+      display:grid;
+      grid-template-columns:minmax(130px,.8fr) minmax(100px,1fr);
+      gap:8px;
+    }
+    .manual-invoice-pricing-panel,
+    .manual-invoice-type-corrections{
+      padding:12px 14px;
+      border:1px solid var(--border);
+      border-radius:10px;
+      background:var(--background);
+    }
+    .manual-invoice-pricing-panel > summary,
+    .manual-invoice-type-corrections > summary{
+      cursor:pointer;
+      font-weight:800;
+    }
+    .manual-invoice-pricing-panel h4{
+      margin:10px 0 7px;
+    }
+    .manual-invoice-type-corrections{
+      margin-top:14px;
+      background:var(--card-bg);
+    }
+    .manual-invoice-footer{
+      position:sticky;
+      bottom:-20px;
+      display:flex;
+      justify-content:flex-end;
+      gap:8px;
+      margin:0 -20px -20px;
+      padding:14px 20px;
+      border-top:1px solid var(--border);
+      background:var(--card-bg);
+    }
+    @media (max-width:600px){
+      .manual-invoice-modal-card{
+        width:calc(100vw - 16px);
+        max-height:calc(100vh - 16px);
+      }
+      .manual-invoice-modal-body{
+        max-height:calc(100vh - 84px);
+        padding:14px;
+      }
+      .manual-invoice-discount-row{
+        grid-template-columns:1fr;
+      }
+      .manual-invoice-footer{
+        bottom:-14px;
+        margin:0 -14px -14px;
+        padding:12px 14px;
+      }
+      .manual-invoice-footer .btn{
+        flex:1;
+      }
+    }
     .manual-processing-layout-choices{
       display:grid;
       gap:10px;
