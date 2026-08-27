@@ -34,3 +34,16 @@ def test_late_component_rules_keep_dark_theme_surfaces():
     assert ".telegram-files-toolbar select," in late_dark_theme
     assert ".analysis-question-input," in late_dark_theme
     assert ".manual-photo-warning," in late_dark_theme
+
+
+def test_beta_operator_uses_scoped_responsive_and_dark_theme_styles():
+    css = STYLES_CSS.read_text(encoding="utf-8")
+
+    assert "/* Beta operator: isolated Shadow Mode workspace */" in css
+    assert ".beta-main-grid{" in css
+    assert ".beta-journal-entry{" in css
+    assert ".beta-plan-step.risk-high" in css
+    assert "@media (max-width:760px)" in css
+    beta_styles = css.split("/* Beta operator: isolated Shadow Mode workspace */", 1)[1]
+    assert "@media (prefers-color-scheme:dark)" in beta_styles
+    assert ".beta-safety-banner," in beta_styles

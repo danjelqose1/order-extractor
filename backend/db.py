@@ -466,6 +466,99 @@ class WorkspaceAction(Base):
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 
+class BetaSession(Base):
+    """Isolated state for one experimental operator-agent run."""
+
+    __tablename__ = "beta_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    goal: Mapped[str] = mapped_column(Text, nullable=False)
+    mode: Mapped[str] = mapped_column(String(20), nullable=False, default="shadow")
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="idle", index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        index=True,
+    )
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    approval_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    approval_decision: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    approved_by: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class BetaJournalEntry(Base):
+    """Append-only execution journal for Beta sessions."""
+
+    __tablename__ = "beta_journal_entries"
+    __table_args__ = (
+        UniqueConstraint("session_id", "sequence", name="uq_beta_journal_session_sequence"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey("beta_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    entry_type: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+
+class BetaHardRule(Base):
+    """Human-curated deterministic constraints that override Beta suggestions."""
+
+    __tablename__ = "beta_hard_rules"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    rule_text: Mapped[str] = mapped_column(Text, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=100, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
+class BetaLearnedNote(Base):
+    """Reviewable Beta memory, deliberately separate from hard rules and orders."""
+
+    __tablename__ = "beta_learned_notes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    note_text: Mapped[str] = mapped_column(Text, nullable=False)
+    source_session_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("beta_sessions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
 def _ensure_schema() -> None:
     with engine.begin() as conn:
         conn.execute(text("PRAGMA journal_mode=WAL"))
@@ -2890,6 +2983,10 @@ def record_workspace_action(
 
 __all__ = [
     "init_db",
+    "BetaSession",
+    "BetaJournalEntry",
+    "BetaHardRule",
+    "BetaLearnedNote",
     "backfill_telegram_file_hashes",
     "insert_extraction_with_rows",
     "create_or_get_telegram_intake",

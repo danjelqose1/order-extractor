@@ -336,6 +336,18 @@ const awaState = {
   chatLoading: false,
 };
 
+const betaState = {
+  loaded: false,
+  loading: false,
+  running: false,
+  recordingApproval: false,
+  memorySaving: 0,
+  currentSession: null,
+  sessions: [],
+  hardRules: [],
+  learnedNotes: [],
+};
+
 const telegramFilesState = {
   items: [],
   loading: false,
@@ -445,6 +457,7 @@ const panels = {
   extract: document.getElementById("tabExtract"),
   workspace: document.getElementById("tabWorkspace"),
   awa: document.getElementById("tabAwa"),
+  beta: document.getElementById("tabBeta"),
   telegram: document.getElementById("tabTelegram"),
   scanstudio: document.getElementById("tabScanStudio"),
   pdfeditor: document.getElementById("tabPdfEditor"),
@@ -478,6 +491,11 @@ const PAGE_META = Object.freeze({
     eyebrow: "Automation",
     title: "AWA Beta",
     subtitle: "Review supervised automation suggestions before anything runs.",
+  },
+  beta: {
+    eyebrow: "Automation",
+    title: "Beta",
+    subtitle: "Run read-only operator sessions that prepare plans and stop for human approval.",
   },
   telegram: {
     eyebrow: "Files",
@@ -1061,6 +1079,35 @@ const awaChatLogEl = document.getElementById("awaChatLog");
 const awaChatForm = document.getElementById("awaChatForm");
 const awaChatInput = document.getElementById("awaChatInput");
 const awaChatSendBtn = document.getElementById("awaChatSend");
+const betaRunShadowBtn = document.getElementById("betaRunShadow");
+const betaGoalInput = document.getElementById("betaGoal");
+const betaOperatorStatusEl = document.getElementById("betaOperatorStatus");
+const betaSessionIdEl = document.getElementById("betaSessionId");
+const betaSessionStartedEl = document.getElementById("betaSessionStarted");
+const betaSessionApprovalEl = document.getElementById("betaSessionApproval");
+const betaJournalEl = document.getElementById("betaJournal");
+const betaJournalCountEl = document.getElementById("betaJournalCount");
+const betaPlanEl = document.getElementById("betaPlan");
+const betaPlanCountEl = document.getElementById("betaPlanCount");
+const betaPlanSummaryEl = document.getElementById("betaPlanSummary");
+const betaApprovalBadgeEl = document.getElementById("betaApprovalBadge");
+const betaApprovalCopyEl = document.getElementById("betaApprovalCopy");
+const betaApprovalActionsEl = document.getElementById("betaApprovalActions");
+const betaApprovalStatusEl = document.getElementById("betaApprovalStatus");
+const betaApprovePlanBtn = document.getElementById("betaApprovePlan");
+const betaRejectPlanBtn = document.getElementById("betaRejectPlan");
+const betaHardRuleForm = document.getElementById("betaHardRuleForm");
+const betaHardRuleTitleInput = document.getElementById("betaHardRuleTitle");
+const betaHardRuleTextInput = document.getElementById("betaHardRuleText");
+const betaHardRulePriorityInput = document.getElementById("betaHardRulePriority");
+const betaHardRuleStatusEl = document.getElementById("betaHardRuleStatus");
+const betaHardRulesEl = document.getElementById("betaHardRules");
+const betaLearnedNoteForm = document.getElementById("betaLearnedNoteForm");
+const betaLearnedNoteTitleInput = document.getElementById("betaLearnedNoteTitle");
+const betaLearnedNoteTextInput = document.getElementById("betaLearnedNoteText");
+const betaLearnedNoteStatusEl = document.getElementById("betaLearnedNoteStatus");
+const betaLearnedNotesEl = document.getElementById("betaLearnedNotes");
+const betaSessionHistoryEl = document.getElementById("betaSessionHistory");
 const telegramFilesListEl = document.getElementById("telegramFilesList");
 const telegramFilesStatusEl = document.getElementById("telegramFilesStatus");
 const telegramFilesSearchInput = document.getElementById("telegramFilesSearch");
@@ -1379,6 +1426,8 @@ function activateTab(name){
     loadWorkspace();
   }else if (name === "awa"){
     loadAwa();
+  }else if (name === "beta"){
+    loadBetaOverview();
   }else if (name === "telegram"){
     loadTelegramFiles();
 	  }else if (name === "scanstudio"){
@@ -1438,8 +1487,8 @@ overviewDashboard?.addEventListener("click", async event=>{
   await openOrderFromList(orderButton.dataset.overviewOrderId);
 });
 
-document.getElementById("workspaceOpenAwa")?.addEventListener("click", ()=>{
-  activateTab("awa");
+document.getElementById("workspaceOpenBeta")?.addEventListener("click", ()=>{
+  activateTab("beta");
 });
 
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", syncSettingsSummary);
@@ -14753,6 +14802,500 @@ async function askAwa(question){
   }
 }
 
+function betaEntryMetadata(entry){
+  const raw = entry?.metadata ?? entry?.metadata_json ?? {};
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) return raw;
+  if (typeof raw === "string" && raw.trim()){
+    try{
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    }catch{
+      return {};
+    }
+  }
+  return {};
+}
+
+function betaSessionEntries(session){
+  const entries = session?.journal_entries ?? session?.journal ?? session?.entries ?? [];
+  return Array.isArray(entries)
+    ? entries.slice().sort((a, b) => Number(a.sequence || 0) - Number(b.sequence || 0))
+    : [];
+}
+
+function betaSessionPlan(session){
+  const direct = session?.plan ?? session?.structured_output?.plan ?? session?.output?.plan;
+  if (Array.isArray(direct)) return direct;
+  return betaSessionEntries(session)
+    .filter(entry => String(entry.entry_type || entry.type || "").toLowerCase() === "proposed_action")
+    .map(entry => {
+      const metadata = betaEntryMetadata(entry);
+      return metadata.proposed_action || metadata.action || metadata.plan_step || metadata;
+    })
+    .filter(step => step && typeof step === "object" && (step.action || step.module));
+}
+
+function betaStatusLabel(status){
+  const normalized = String(status || "idle").trim().toLowerCase().replace(/\s+/g, "_");
+  return normalized.replace(/_/g, " ").replace(/\b\w/g, char => char.toUpperCase());
+}
+
+function betaSyncInteractionLock(){
+  const locked = betaState.loading || betaState.running || betaState.recordingApproval || betaState.memorySaving > 0;
+  if (betaRunShadowBtn) betaRunShadowBtn.disabled = locked;
+  if (betaGoalInput) betaGoalInput.disabled = locked;
+  document.querySelectorAll("#tabBeta [data-beta-rule-toggle], #tabBeta [data-beta-note-toggle], #tabBeta [data-beta-session-id], #tabBeta [data-beta-memory-tab], #tabBeta .beta-memory-form input, #tabBeta .beta-memory-form textarea, #tabBeta .beta-memory-form button").forEach(control => {
+    control.disabled = locked;
+  });
+  if (betaApprovalActionsEl){
+    betaApprovalActionsEl.querySelectorAll("button").forEach(button => { button.disabled = locked; });
+  }
+}
+
+function betaSetRunBusy(isBusy){
+  betaState.running = !!isBusy;
+  if (betaRunShadowBtn){
+    betaRunShadowBtn.textContent = isBusy ? "Running Shadow Session…" : "Run Shadow Session";
+  }
+  betaSyncInteractionLock();
+}
+
+function betaSetApprovalBusy(isBusy){
+  betaState.recordingApproval = !!isBusy;
+  betaSyncInteractionLock();
+}
+
+function betaSetMemoryBusy(isBusy){
+  betaState.memorySaving = Math.max(0, betaState.memorySaving + (isBusy ? 1 : -1));
+  betaSyncInteractionLock();
+}
+
+function betaSetOperatorStatus(status){
+  if (!betaOperatorStatusEl) return;
+  const normalized = String(status || "idle").trim().toLowerCase().replace(/\s+/g, "_") || "idle";
+  betaOperatorStatusEl.className = `beta-status-badge is-${normalized.replace(/_/g, "-")}`;
+  betaOperatorStatusEl.textContent = betaStatusLabel(normalized);
+}
+
+function betaApprovalDecision(session){
+  return String(session?.approval_decision || session?.decision || "").trim().toLowerCase();
+}
+
+function renderBetaJournal(session){
+  if (!betaJournalEl) return;
+  const entries = betaSessionEntries(session);
+  if (betaJournalCountEl) betaJournalCountEl.textContent = `${entries.length} ${entries.length === 1 ? "entry" : "entries"}`;
+  if (!entries.length){
+    betaJournalEl.innerHTML = '<div class="workspace-empty">Run a Shadow Session or open a previous session to see its journal.</div>';
+    return;
+  }
+  betaJournalEl.innerHTML = entries.map(entry => {
+    const type = String(entry.entry_type || entry.type || "observation").trim().toLowerCase().replace(/\s+/g, "_");
+    const metadata = betaEntryMetadata(entry);
+    const hasMetadata = Object.keys(metadata).length > 0;
+    const sequence = Number(entry.sequence || 0);
+    return `<article class="beta-journal-entry is-${escapeHtml(type.replace(/_/g, "-"))}">
+      <div class="beta-journal-marker" aria-hidden="true"></div>
+      <div class="beta-journal-content">
+        <div class="beta-journal-meta">
+          <span class="beta-entry-type">${escapeHtml(type.replace(/_/g, " "))}</span>
+          ${sequence ? `<span>#${escapeHtml(sequence)}</span>` : ""}
+          <time>${escapeHtml(formatDate(entry.created_at || entry.timestamp))}</time>
+        </div>
+        <div class="beta-journal-message">${escapeHtml(entry.message || "Journal entry")}</div>
+        ${hasMetadata ? `<details class="beta-journal-details"><summary>Structured details</summary><pre>${escapeHtml(JSON.stringify(metadata, null, 2))}</pre></details>` : ""}
+      </div>
+    </article>`;
+  }).join("");
+}
+
+function renderBetaPlan(session){
+  if (!betaPlanEl) return;
+  const plan = betaSessionPlan(session);
+  if (betaPlanCountEl) betaPlanCountEl.textContent = `${plan.length} ${plan.length === 1 ? "step" : "steps"}`;
+  if (betaPlanSummaryEl) betaPlanSummaryEl.textContent = session?.summary || "No plan prepared yet.";
+  if (!plan.length){
+    betaPlanEl.innerHTML = '<div class="workspace-empty">Shadow actions will appear here.</div>';
+    return;
+  }
+  betaPlanEl.innerHTML = plan.map((step, index) => {
+    const risk = String(step.risk || "low").trim().toLowerCase();
+    const requiresApproval = !!step.requires_human_approval;
+    return `<article class="beta-plan-step risk-${escapeHtml(risk)}">
+      <div class="beta-plan-step-header">
+        <span class="beta-step-number">${escapeHtml(step.step ?? index + 1)}</span>
+        <div>
+          <div class="beta-plan-module">${escapeHtml(step.module || "Other")}</div>
+          <div class="beta-plan-action">${escapeHtml(step.action || "Proposed action")}</div>
+        </div>
+        <span class="beta-risk-badge is-${escapeHtml(risk)}">${escapeHtml(risk)} risk</span>
+      </div>
+      <p>${escapeHtml(step.reason || "No reason provided.")}</p>
+      <div class="beta-plan-safety">
+        <span>${requiresApproval ? "Human approval required" : "No approval requested"}</span>
+        <span>Simulation only · no data mutation</span>
+      </div>
+    </article>`;
+  }).join("");
+}
+
+function renderBetaApproval(session){
+  const requested = !!session?.approval_requested;
+  const decision = betaApprovalDecision(session);
+  const awaiting = String(session?.status || "").toLowerCase() === "awaiting_approval" && requested && !decision;
+  if (betaSessionApprovalEl){
+    betaSessionApprovalEl.textContent = decision
+      ? betaStatusLabel(decision)
+      : (requested ? "Requested" : "Not requested");
+  }
+  if (betaApprovalBadgeEl){
+    const badgeState = decision || (awaiting ? "requested" : "none");
+    betaApprovalBadgeEl.className = `beta-approval-badge is-${escapeHtml(badgeState)}`;
+    betaApprovalBadgeEl.textContent = decision
+      ? betaStatusLabel(decision)
+      : (awaiting ? "Approval requested" : "Not requested");
+  }
+  if (betaApprovalActionsEl) betaApprovalActionsEl.hidden = !awaiting;
+  if (betaApprovalCopyEl){
+    betaApprovalCopyEl.textContent = decision
+      ? `${betaStatusLabel(decision)} was recorded for this plan. No production action was executed.`
+      : "Consequential steps are highlighted. In V1, approval is recorded as the local operator and ends the session; it never executes the plan.";
+  }
+  if (betaApprovalStatusEl && !awaiting && !decision) betaApprovalStatusEl.textContent = "";
+}
+
+function renderBetaSession(session){
+  betaState.currentSession = session || null;
+  const status = session?.status || "idle";
+  betaSetOperatorStatus(status);
+  if (betaSessionIdEl){
+    betaSessionIdEl.textContent = session?.id != null ? `#${session.id}` : "No active session";
+  }
+  if (betaSessionStartedEl){
+    betaSessionStartedEl.textContent = session?.started_at ? formatDate(session.started_at) : "—";
+  }
+  renderBetaJournal(session);
+  renderBetaPlan(session);
+  renderBetaApproval(session);
+}
+
+function renderBetaHardRules(){
+  if (!betaHardRulesEl) return;
+  const rules = Array.isArray(betaState.hardRules) ? betaState.hardRules : [];
+  if (!rules.length){
+    betaHardRulesEl.innerHTML = '<div class="workspace-empty">No Hard Rules have been added.</div>';
+    return;
+  }
+  betaHardRulesEl.innerHTML = rules.map(rule => `<article class="beta-memory-item ${rule.enabled === false ? "is-disabled" : ""}">
+    <div class="beta-memory-item-header">
+      <div>
+        <strong>${escapeHtml(rule.title || "Hard Rule")}</strong>
+        <span class="beta-priority-badge">Priority ${escapeHtml(rule.priority ?? 100)}</span>
+      </div>
+      <label class="beta-enabled-toggle"><input type="checkbox" data-beta-rule-toggle="${escapeHtml(rule.id)}" ${rule.enabled === false ? "" : "checked"} /> Enabled</label>
+    </div>
+    <p>${escapeHtml(rule.rule_text || rule.text || "")}</p>
+    <div class="muted small">Deterministic · overrides AI suggestions</div>
+  </article>`).join("");
+}
+
+function renderBetaLearnedNotes(){
+  if (!betaLearnedNotesEl) return;
+  const notes = Array.isArray(betaState.learnedNotes) ? betaState.learnedNotes : [];
+  if (!notes.length){
+    betaLearnedNotesEl.innerHTML = '<div class="workspace-empty">No Learned Notes have been recorded.</div>';
+    return;
+  }
+  betaLearnedNotesEl.innerHTML = notes.map(note => `<article class="beta-memory-item ${note.enabled === false ? "is-disabled" : ""}">
+    <div class="beta-memory-item-header">
+      <div>
+        <strong>${escapeHtml(note.title || "Learned Note")}</strong>
+        ${note.source_session_id ? `<span class="beta-source-badge">Session #${escapeHtml(note.source_session_id)}</span>` : ""}
+      </div>
+      <label class="beta-enabled-toggle"><input type="checkbox" data-beta-note-toggle="${escapeHtml(note.id)}" ${note.enabled === false ? "" : "checked"} /> Enabled</label>
+    </div>
+    <p>${escapeHtml(note.note_text || note.text || "")}</p>
+    <div class="muted small">${note.enabled === false ? "Pending human review" : "Available to future Shadow Sessions"}</div>
+  </article>`).join("");
+}
+
+function renderBetaSessionHistory(){
+  if (!betaSessionHistoryEl) return;
+  const sessions = Array.isArray(betaState.sessions) ? betaState.sessions : [];
+  if (!sessions.length){
+    betaSessionHistoryEl.innerHTML = '<div class="workspace-empty">No Beta sessions yet.</div>';
+    return;
+  }
+  betaSessionHistoryEl.innerHTML = sessions.map(session => `<button type="button" class="beta-history-item ${String(betaState.currentSession?.id) === String(session.id) ? "active" : ""}" data-beta-session-id="${escapeHtml(session.id)}">
+    <div class="beta-history-topline">
+      <span class="beta-status-badge is-${escapeHtml(String(session.status || "idle").replace(/_/g, "-"))}">${escapeHtml(betaStatusLabel(session.status))}</span>
+      <time>${escapeHtml(formatDate(session.created_at || session.started_at))}</time>
+      <span>${session.approval_requested ? "Approval requested" : "No approval needed"}</span>
+    </div>
+    <strong>${escapeHtml(session.goal || "Untitled Shadow Session")}</strong>
+    <p>${escapeHtml(session.summary || "No summary recorded.")}</p>
+  </button>`).join("");
+  betaSyncInteractionLock();
+}
+
+function renderBetaCollections(){
+  renderBetaHardRules();
+  renderBetaLearnedNotes();
+  renderBetaSessionHistory();
+  betaSyncInteractionLock();
+}
+
+function upsertBetaSession(session){
+  if (!session?.id) return;
+  const prior = Array.isArray(betaState.sessions) ? betaState.sessions : [];
+  betaState.sessions = [session, ...prior.filter(item => String(item.id) !== String(session.id))];
+}
+
+async function betaApi(path, options = {}){
+  const requestOptions = { ...options };
+  if (requestOptions.body && !(requestOptions.body instanceof FormData)){
+    requestOptions.headers = { "Content-Type": "application/json", ...(requestOptions.headers || {}) };
+  }
+  const response = await fetch(API_BASE + path, requestOptions);
+  let payload = null;
+  try{
+    payload = await response.json();
+  }catch{
+    payload = null;
+  }
+  if (!response.ok){
+    const detail = payload?.detail;
+    const message = typeof detail === "string"
+      ? detail
+      : (detail?.message || payload?.message || `Beta request failed (HTTP ${response.status}).`);
+    throw new Error(message);
+  }
+  return payload || {};
+}
+
+async function loadBetaSession(sessionId){
+  if (sessionId == null || sessionId === "") return null;
+  const payload = await betaApi(`/api/beta/sessions/${encodeURIComponent(sessionId)}`);
+  return payload.session || payload;
+}
+
+async function loadBetaOverview(options = {}){
+  if (!betaJournalEl || betaState.loading) return false;
+  betaState.loading = true;
+  betaSyncInteractionLock();
+  try{
+    const data = await betaApi("/api/beta/overview");
+    betaState.sessions = Array.isArray(data.sessions) ? data.sessions : [];
+    betaState.hardRules = Array.isArray(data.hard_rules) ? data.hard_rules : [];
+    betaState.learnedNotes = Array.isArray(data.learned_notes) ? data.learned_notes : [];
+    const requestedId = options.sessionId ?? data.current_session?.id;
+    let selected = data.current_session && String(data.current_session.id) === String(requestedId)
+      ? data.current_session
+      : null;
+    if (requestedId != null){
+      const hasJournal = betaSessionEntries(selected).length > 0;
+      if (!selected || !hasJournal) selected = await loadBetaSession(requestedId);
+    }
+    betaState.loaded = true;
+    renderBetaSession(selected);
+    renderBetaCollections();
+    return true;
+  }catch(error){
+    if (!options.preserveOnError){
+      betaSetOperatorStatus("failed");
+      betaJournalEl.innerHTML = `<div class="workspace-empty beta-load-error">Unable to load Beta safely: ${escapeHtml(error.message || error)}</div>`;
+    }else if (betaApprovalStatusEl){
+      betaApprovalStatusEl.textContent = `The last confirmed Beta response remains visible, but the overview could not refresh: ${error.message || error}`;
+    }
+    return false;
+  }finally{
+    betaState.loading = false;
+    betaSyncInteractionLock();
+  }
+}
+
+async function runBetaShadowSession(){
+  const goal = String(betaGoalInput?.value || "").trim();
+  if (!goal){
+    betaGoalInput?.focus();
+    return;
+  }
+  if (betaState.loading || betaState.running || betaState.recordingApproval || betaState.memorySaving > 0) return;
+  betaSetRunBusy(true);
+  renderBetaSession({
+    goal,
+    status: "observing",
+    summary: "Reading safe order summaries…",
+    approval_requested: false,
+    journal_entries: [],
+    plan: [],
+  });
+  if (betaApprovalStatusEl) betaApprovalStatusEl.textContent = "Reading safe order summaries and preparing a plan…";
+  if (betaJournalEl){
+    betaJournalEl.innerHTML = '<div class="workspace-empty">Shadow Session is observing current order metadata…</div>';
+  }
+  try{
+    const data = await betaApi("/api/beta/sessions/shadow", {
+      method: "POST",
+      body: JSON.stringify({ goal }),
+    });
+    const session = data.session || data;
+    const sessionId = session?.id;
+    if (sessionId == null) throw new Error("Beta returned no session identifier.");
+    upsertBetaSession(session);
+    renderBetaSession(session);
+    renderBetaSessionHistory();
+    const refreshed = await loadBetaOverview({ force: true, sessionId, preserveOnError: true });
+    if (refreshed && betaApprovalStatusEl){
+      betaApprovalStatusEl.textContent = String(betaState.currentSession?.status || "").toLowerCase() === "failed"
+        ? "The session failed closed. Review the journal error; no production data changed."
+        : "Shadow plan prepared. No production data changed.";
+    }
+  }catch(error){
+    betaSetOperatorStatus("failed");
+    if (betaApprovalStatusEl) betaApprovalStatusEl.textContent = "Shadow Session failed closed. No production data changed.";
+    if (betaJournalEl){
+      betaJournalEl.innerHTML = `<article class="beta-journal-entry is-error"><div class="beta-journal-marker"></div><div class="beta-journal-content"><div class="beta-journal-meta"><span class="beta-entry-type">error</span></div><div class="beta-journal-message">${escapeHtml(error.message || error)}</div></div></article>`;
+    }
+  }finally{
+    betaSetRunBusy(false);
+  }
+}
+
+async function recordBetaApproval(decision){
+  const sessionId = betaState.currentSession?.id;
+  if (sessionId == null || betaState.loading || betaState.running || betaState.recordingApproval || betaState.memorySaving > 0 || !["approved", "rejected"].includes(decision)) return;
+  const verb = decision === "approved" ? "approval" : "rejection";
+  if (!window.confirm(`Record this ${verb}? This will only close the Shadow Session; no production action will run.`)) return;
+  betaSetApprovalBusy(true);
+  if (betaApprovalStatusEl) betaApprovalStatusEl.textContent = `Recording ${verb}…`;
+  try{
+    const data = await betaApi(`/api/beta/sessions/${encodeURIComponent(sessionId)}/approval`, {
+      method: "POST",
+      body: JSON.stringify({ decision }),
+    });
+    const session = data.session || data;
+    upsertBetaSession(session);
+    renderBetaSession(session);
+    renderBetaSessionHistory();
+    const refreshed = await loadBetaOverview({ force: true, sessionId: session.id ?? sessionId, preserveOnError: true });
+    if (refreshed && betaApprovalStatusEl) betaApprovalStatusEl.textContent = `${betaStatusLabel(decision)} recorded. No production action was executed.`;
+  }catch(error){
+    if (betaApprovalStatusEl) betaApprovalStatusEl.textContent = `Could not record decision: ${error.message || error}`;
+  }finally{
+    betaSetApprovalBusy(false);
+  }
+}
+
+async function createBetaHardRule(){
+  const title = String(betaHardRuleTitleInput?.value || "").trim();
+  const ruleText = String(betaHardRuleTextInput?.value || "").trim();
+  const priority = Number(betaHardRulePriorityInput?.value || 100);
+  if (!title || !ruleText) return;
+  if (betaState.loading || betaState.running || betaState.recordingApproval || betaState.memorySaving > 0) return;
+  betaSetMemoryBusy(true);
+  if (betaHardRuleStatusEl) betaHardRuleStatusEl.textContent = "Saving…";
+  try{
+    const rule = await betaApi("/api/beta/hard-rules", {
+      method: "POST",
+      body: JSON.stringify({ title, rule_text: ruleText, priority: Number.isFinite(priority) ? priority : 100, enabled: true }),
+    });
+    betaState.hardRules = [rule, ...betaState.hardRules.filter(item => String(item.id) !== String(rule.id))]
+      .sort((a, b) => Number(a.priority ?? 100) - Number(b.priority ?? 100));
+    renderBetaHardRules();
+    betaHardRuleForm?.reset();
+    if (betaHardRulePriorityInput) betaHardRulePriorityInput.value = "100";
+    const refreshed = await loadBetaOverview({ force: true, sessionId: betaState.currentSession?.id, preserveOnError: true });
+    if (betaHardRuleStatusEl){
+      betaHardRuleStatusEl.textContent = refreshed
+        ? "Hard Rule saved separately from order data."
+        : "Hard Rule saved; the overview refresh is pending.";
+    }
+  }catch(error){
+    if (betaHardRuleStatusEl) betaHardRuleStatusEl.textContent = error.message || String(error);
+  }finally{
+    betaSetMemoryBusy(false);
+  }
+}
+
+async function createBetaLearnedNote(){
+  const title = String(betaLearnedNoteTitleInput?.value || "").trim();
+  const noteText = String(betaLearnedNoteTextInput?.value || "").trim();
+  if (!title || !noteText) return;
+  if (betaState.loading || betaState.running || betaState.recordingApproval || betaState.memorySaving > 0) return;
+  betaSetMemoryBusy(true);
+  if (betaLearnedNoteStatusEl) betaLearnedNoteStatusEl.textContent = "Saving…";
+  try{
+    const note = await betaApi("/api/beta/learned-notes", {
+      method: "POST",
+      body: JSON.stringify({ title, note_text: noteText, enabled: true }),
+    });
+    betaState.learnedNotes = [note, ...betaState.learnedNotes.filter(item => String(item.id) !== String(note.id))];
+    renderBetaLearnedNotes();
+    betaLearnedNoteForm?.reset();
+    const refreshed = await loadBetaOverview({ force: true, sessionId: betaState.currentSession?.id, preserveOnError: true });
+    if (betaLearnedNoteStatusEl){
+      betaLearnedNoteStatusEl.textContent = refreshed
+        ? "Learned Note saved in Beta memory."
+        : "Learned Note saved; the overview refresh is pending.";
+    }
+  }catch(error){
+    if (betaLearnedNoteStatusEl) betaLearnedNoteStatusEl.textContent = error.message || String(error);
+  }finally{
+    betaSetMemoryBusy(false);
+  }
+}
+
+async function toggleBetaMemory(kind, id, enabled, input){
+  const path = kind === "rule" ? "hard-rules" : "learned-notes";
+  if (betaState.loading || betaState.running || betaState.recordingApproval || betaState.memorySaving > 0){
+    if (input) input.checked = !enabled;
+    return;
+  }
+  betaSetMemoryBusy(true);
+  if (input) input.disabled = true;
+  try{
+    const updated = await betaApi(`/api/beta/${path}/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ enabled: !!enabled }),
+    });
+    const collectionKey = kind === "rule" ? "hardRules" : "learnedNotes";
+    betaState[collectionKey] = betaState[collectionKey].map(item => String(item.id) === String(id) ? updated : item);
+    renderBetaCollections();
+    const refreshed = await loadBetaOverview({ force: true, sessionId: betaState.currentSession?.id, preserveOnError: true });
+    if (!refreshed){
+      const statusEl = kind === "rule" ? betaHardRuleStatusEl : betaLearnedNoteStatusEl;
+      if (statusEl) statusEl.textContent = "The change was saved; the overview refresh is pending.";
+    }
+  }catch(error){
+    if (input){
+      input.checked = !enabled;
+      input.disabled = false;
+    }
+    const statusEl = kind === "rule" ? betaHardRuleStatusEl : betaLearnedNoteStatusEl;
+    if (statusEl) statusEl.textContent = error.message || String(error);
+  }finally{
+    betaSetMemoryBusy(false);
+  }
+}
+
+function activateBetaMemoryTab(name, options = {}){
+  let activeButton = null;
+  document.querySelectorAll("[data-beta-memory-tab]").forEach(button => {
+    const active = button.dataset.betaMemoryTab === name;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+    button.tabIndex = active ? 0 : -1;
+    if (active) activeButton = button;
+  });
+  document.querySelectorAll("[data-beta-memory-panel]").forEach(panel => {
+    const active = panel.dataset.betaMemoryPanel === name;
+    panel.classList.toggle("active", active);
+    panel.hidden = !active;
+  });
+  if (options.focus) activeButton?.focus();
+}
+
 async function refreshWorkspaceAfterAction(){
   await loadWorkspace();
   historyState.needsRefresh = true;
@@ -15391,6 +15934,71 @@ if (awaChatForm){
     askAwa(message);
   });
 }
+if (betaRunShadowBtn){
+  betaRunShadowBtn.addEventListener("click", runBetaShadowSession);
+}
+if (betaApprovePlanBtn){
+  betaApprovePlanBtn.addEventListener("click", ()=> recordBetaApproval("approved"));
+}
+if (betaRejectPlanBtn){
+  betaRejectPlanBtn.addEventListener("click", ()=> recordBetaApproval("rejected"));
+}
+if (betaHardRuleForm){
+  betaHardRuleForm.addEventListener("submit", event => {
+    event.preventDefault();
+    createBetaHardRule();
+  });
+}
+if (betaLearnedNoteForm){
+  betaLearnedNoteForm.addEventListener("submit", event => {
+    event.preventDefault();
+    createBetaLearnedNote();
+  });
+}
+if (betaHardRulesEl){
+  betaHardRulesEl.addEventListener("change", event => {
+    const input = event.target.closest("[data-beta-rule-toggle]");
+    if (!input) return;
+    toggleBetaMemory("rule", input.dataset.betaRuleToggle, input.checked, input);
+  });
+}
+if (betaLearnedNotesEl){
+  betaLearnedNotesEl.addEventListener("change", event => {
+    const input = event.target.closest("[data-beta-note-toggle]");
+    if (!input) return;
+    toggleBetaMemory("note", input.dataset.betaNoteToggle, input.checked, input);
+  });
+}
+if (betaSessionHistoryEl){
+  betaSessionHistoryEl.addEventListener("click", async event => {
+    const button = event.target.closest("[data-beta-session-id]");
+    if (!button) return;
+    try{
+      const session = await loadBetaSession(button.dataset.betaSessionId);
+      renderBetaSession(session);
+      renderBetaSessionHistory();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }catch(error){
+      if (betaApprovalStatusEl) betaApprovalStatusEl.textContent = `Unable to open session: ${error.message || error}`;
+    }
+  });
+}
+document.querySelectorAll("[data-beta-memory-tab]").forEach(button => {
+  button.addEventListener("click", ()=> activateBetaMemoryTab(button.dataset.betaMemoryTab));
+  button.addEventListener("keydown", event => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const buttons = Array.from(document.querySelectorAll("[data-beta-memory-tab]"));
+    const currentIndex = buttons.indexOf(button);
+    const targetIndex = event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? buttons.length - 1
+        : (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + buttons.length) % buttons.length;
+    const target = buttons[targetIndex];
+    if (target) activateBetaMemoryTab(target.dataset.betaMemoryTab, { focus: true });
+  });
+});
 if (workspaceProcessSelectedBtn){
   workspaceProcessSelectedBtn.addEventListener("click", ()=> {
     const count = workspaceState.selectedOrderIds.size;

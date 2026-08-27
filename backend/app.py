@@ -25,7 +25,7 @@ if PROJECT_ROOT not in sys.path:
 from fastapi import FastAPI, HTTPException, Header, UploadFile, File, Form, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response, StreamingResponse
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from schema import ExtractionResult, Row
 from llm import (
     call_llm_for_extraction,
@@ -490,6 +490,54 @@ class AwaActionPayload(BaseModel):
 class AwaExplainPayload(BaseModel):
     action_id: Optional[str] = None
     question: Optional[str] = None
+
+
+class BetaShadowSessionPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    goal: str = Field(min_length=1, max_length=4000)
+
+
+class BetaApprovalPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    decision: Literal["approved", "rejected"]
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+
+class BetaHardRuleCreatePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    title: str = Field(min_length=1, max_length=255)
+    rule_text: str = Field(min_length=1, max_length=8000)
+    enabled: bool = True
+    priority: int = Field(default=100, ge=-10000, le=10000)
+
+
+class BetaHardRulePatchPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    title: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    rule_text: Optional[str] = Field(default=None, min_length=1, max_length=8000)
+    enabled: Optional[bool] = None
+    priority: Optional[int] = Field(default=None, ge=-10000, le=10000)
+
+
+class BetaLearnedNoteCreatePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    title: str = Field(min_length=1, max_length=255)
+    note_text: str = Field(min_length=1, max_length=8000)
+    source_session_id: Optional[int] = Field(default=None, ge=1)
+    enabled: bool = False
+
+
+class BetaLearnedNotePatchPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    title: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    note_text: Optional[str] = Field(default=None, min_length=1, max_length=8000)
+    enabled: Optional[bool] = None
 
 
 class InvoiceAiGlassMatchPayload(BaseModel):
@@ -1662,6 +1710,108 @@ def workspace_recent_files() -> Dict[str, Any]:
     from workspace_service import get_recent_production_files
 
     return get_recent_production_files()
+
+
+def _beta_service_module():
+    # Keep this import lazy: the app smoke tests intentionally replace the
+    # production db module with a narrow fake, and non-Beta routes should not
+    # need Beta persistence symbols merely to start.
+    import beta_service
+
+    return beta_service
+
+
+@app.get("/api/beta/overview")
+def beta_overview() -> Dict[str, Any]:
+    return _beta_service_module().get_overview()
+
+
+@app.post("/api/beta/sessions/shadow")
+def beta_run_shadow_session(payload: BetaShadowSessionPayload) -> Dict[str, Any]:
+    try:
+        return _beta_service_module().run_shadow_session(payload.goal)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/beta/sessions/{session_id}")
+def beta_session_detail(session_id: int) -> Dict[str, Any]:
+    result = _beta_service_module().get_session_detail(session_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Beta session not found")
+    return result
+
+
+@app.post("/api/beta/sessions/{session_id}/approval")
+def beta_record_approval(session_id: int, payload: BetaApprovalPayload) -> Dict[str, Any]:
+    try:
+        return _beta_service_module().record_approval(
+            session_id,
+            decision=payload.decision,
+            # This deployment has no authenticated user identity. Keep the
+            # audit actor server-owned so clients cannot spoof approval names.
+            approved_by="local_operator",
+            note=payload.note,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/beta/sessions/{session_id}/execute")
+def beta_reject_execute(session_id: int, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    service = _beta_service_module()
+    attempted_action = ""
+    if isinstance(payload, dict):
+        attempted_action = str(payload.get("action") or payload.get("tool") or "")
+    try:
+        service.reject_production_mutation(session_id, attempted_action=attempted_action)
+    except service.BetaProductionMutationBlocked as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    raise HTTPException(status_code=403, detail="Beta V1 production execution is blocked")
+
+
+@app.post("/api/beta/hard-rules")
+def beta_add_hard_rule(payload: BetaHardRuleCreatePayload) -> Dict[str, Any]:
+    try:
+        return _beta_service_module().add_hard_rule(**payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.patch("/api/beta/hard-rules/{rule_id}")
+def beta_patch_hard_rule(rule_id: int, payload: BetaHardRulePatchPayload) -> Dict[str, Any]:
+    try:
+        return _beta_service_module().patch_hard_rule(
+            rule_id,
+            payload.model_dump(exclude_unset=True),
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/beta/learned-notes")
+def beta_add_learned_note(payload: BetaLearnedNoteCreatePayload) -> Dict[str, Any]:
+    try:
+        return _beta_service_module().add_learned_note(**payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.patch("/api/beta/learned-notes/{note_id}")
+def beta_patch_learned_note(note_id: int, payload: BetaLearnedNotePatchPayload) -> Dict[str, Any]:
+    try:
+        return _beta_service_module().patch_learned_note(
+            note_id,
+            payload.model_dump(exclude_unset=True),
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/api/awa/summary")

@@ -8,7 +8,7 @@
   <meta name="theme-color" content="#0b1018" media="(prefers-color-scheme: dark)" />
   <link rel="icon" href="data:," />
   <title>Overview — Order Extractor</title>
-  <link rel="stylesheet" href="./css/styles.css?v=20260823-4">
+  <link rel="stylesheet" href="./css/styles.css?v=20260827-beta1">
 </head>
 <body>
   <svg class="icon-sprite" aria-hidden="true">
@@ -57,6 +57,7 @@
         <button class="tab" data-tab="processing" data-nav-parent="production"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-processing"></use></svg></span><span>Processing</span></button>
         <button class="tab" data-tab="labels" data-nav-parent="production"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-label"></use></svg></span><span>Labels</span></button>
       </div>
+      <button class="tab" data-tab="beta"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-sparkles"></use></svg></span><span>Beta</span><span class="sidebar-beta-badge" aria-hidden="true">Beta</span></button>
       <button class="tab" data-tab="telegram" data-nav-section="documents"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-pdf"></use></svg></span><span>Documents</span><span id="telegramFilesBadge" class="sidebar-badge" hidden>0</span></button>
       <div class="sidebar-subnav" aria-label="Document tools">
         <button class="tab" data-tab="pdfeditor" data-nav-parent="documents"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-pdf"></use></svg></span><span>PDF Editor</span></button>
@@ -571,7 +572,7 @@
                 <span id="workspaceSelectionStatus" class="muted small"></span>
                 <button type="button" class="btn small" id="workspaceProcessSelected" disabled>Process selected together</button>
                 <button type="button" class="btn small" id="workspaceClearSelection" disabled>Clear selection</button>
-                <button type="button" class="btn small tertiary" id="workspaceOpenAwa">AWA suggestions</button>
+                <button type="button" class="btn small tertiary" id="workspaceOpenBeta">Beta operator</button>
                 <button type="button" class="btn small tertiary" id="workspaceRefresh">Refresh</button>
                 <span id="workspaceQueueStatus" class="muted small"></span>
               </div>
@@ -728,6 +729,155 @@
             </form>
           </section>
         </aside>
+      </div>
+    </section>
+
+    <section id="tabBeta" class="tab-panel">
+      <div class="beta-page">
+        <section class="card beta-command-bar">
+          <div>
+            <div class="beta-title-row">
+              <h2>Operator Agent</h2>
+              <span class="beta-product-badge">Beta</span>
+              <span class="beta-mode-badge">Shadow Mode</span>
+            </div>
+            <p class="muted small">Observe current work, prepare a traceable plan, and stop at the approval boundary.</p>
+          </div>
+          <button type="button" class="btn primary" id="betaRunShadow">Run Shadow Session</button>
+        </section>
+
+        <div class="beta-safety-banner" role="note">
+          <strong>Plans only.</strong> Beta V1 can read safe order summaries and record Beta memory. It cannot change orders, history, processing, labels, invoices, or source files.
+        </div>
+
+        <div class="beta-summary-grid">
+          <section class="card beta-goal-card">
+            <div class="beta-card-heading">
+              <div>
+                <span class="section-eyebrow">Current goal</span>
+                <h3>What should the operator prepare?</h3>
+              </div>
+              <span class="muted small">Plain language</span>
+            </div>
+            <label class="sr-only" for="betaGoal">Current operator goal</label>
+            <textarea id="betaGoal" rows="3" maxlength="1000">Prepare all new orders from today for processing.</textarea>
+            <p class="muted small">This draft is used for the next session and stays unchanged while you inspect history. A run never acts on production data.</p>
+          </section>
+
+          <section class="card beta-status-card">
+            <div class="beta-card-heading">
+              <div>
+                <span class="section-eyebrow">Operator status</span>
+                <h3>Session</h3>
+              </div>
+              <span id="betaOperatorStatus" class="beta-status-badge is-idle">Idle</span>
+            </div>
+            <dl class="beta-session-facts">
+              <div><dt>Session</dt><dd id="betaSessionId">No active session</dd></div>
+              <div><dt>Mode</dt><dd>Shadow only</dd></div>
+              <div><dt>Started</dt><dd id="betaSessionStarted">—</dd></div>
+              <div><dt>Approval</dt><dd id="betaSessionApproval">Not requested</dd></div>
+            </dl>
+          </section>
+        </div>
+
+        <div class="beta-main-grid">
+          <section class="card beta-journal-card">
+            <div class="beta-card-heading">
+              <div>
+                <span class="section-eyebrow">Activity</span>
+                <h3>Execution Journal</h3>
+                <p class="muted small">Chronological observations, proposed actions, decisions, results, errors, and lessons.</p>
+              </div>
+              <span id="betaJournalCount" class="beta-count-badge">0 entries</span>
+            </div>
+            <div id="betaJournal" class="beta-journal" aria-live="polite">
+              <div class="workspace-empty">Run a Shadow Session or open a previous session to see its journal.</div>
+            </div>
+          </section>
+
+          <aside class="beta-plan-column">
+            <section class="card beta-plan-card">
+              <div class="beta-card-heading">
+                <div>
+                  <span class="section-eyebrow">Prepared work</span>
+                  <h3>Proposed Plan</h3>
+                </div>
+                <span id="betaPlanCount" class="beta-count-badge">0 steps</span>
+              </div>
+              <div id="betaPlanSummary" class="muted small">No plan prepared yet.</div>
+              <div id="betaPlan" class="beta-plan-list">
+                <div class="workspace-empty">Shadow actions will appear here.</div>
+              </div>
+            </section>
+
+            <section class="card beta-approval-card">
+              <div class="beta-card-heading">
+                <div>
+                  <span class="section-eyebrow">Safety boundary</span>
+                  <h3>Human Approval</h3>
+                </div>
+                <span id="betaApprovalBadge" class="beta-approval-badge">Not requested</span>
+              </div>
+              <p id="betaApprovalCopy" class="muted small">Consequential steps are highlighted. In V1, approval is recorded as the local operator and ends the session; it never executes the plan.</p>
+              <div id="betaApprovalActions" class="beta-approval-actions" hidden>
+                <button type="button" class="btn success" id="betaApprovePlan">Record Approval</button>
+                <button type="button" class="btn tertiary" id="betaRejectPlan">Record Rejection</button>
+              </div>
+              <div id="betaApprovalStatus" class="muted small" aria-live="polite"></div>
+            </section>
+          </aside>
+        </div>
+
+        <section class="card beta-memory-card">
+          <div class="beta-card-heading">
+            <div>
+              <span class="section-eyebrow">Operational memory</span>
+              <h3>Rules, Notes &amp; Session History</h3>
+              <p class="muted small">Beta memory is stored separately from production orders.</p>
+            </div>
+          </div>
+          <div class="beta-memory-tabs" role="tablist" aria-label="Beta operational memory">
+            <button type="button" id="betaMemoryTabRules" class="btn small tertiary active" role="tab" aria-selected="true" aria-controls="betaMemoryPanelRules" tabindex="0" data-beta-memory-tab="rules">Hard Rules</button>
+            <button type="button" id="betaMemoryTabNotes" class="btn small tertiary" role="tab" aria-selected="false" aria-controls="betaMemoryPanelNotes" tabindex="-1" data-beta-memory-tab="notes">Learned Notes</button>
+            <button type="button" id="betaMemoryTabHistory" class="btn small tertiary" role="tab" aria-selected="false" aria-controls="betaMemoryPanelHistory" tabindex="-1" data-beta-memory-tab="history">Session History</button>
+          </div>
+
+          <div id="betaMemoryPanelRules" class="beta-memory-panel active" role="tabpanel" aria-labelledby="betaMemoryTabRules" tabindex="0" data-beta-memory-panel="rules">
+            <div class="beta-memory-layout">
+              <form id="betaHardRuleForm" class="beta-memory-form">
+                <label>Rule title<input id="betaHardRuleTitle" maxlength="160" required placeholder="Example: Never process drafts" /></label>
+                <label>Deterministic rule<textarea id="betaHardRuleText" rows="3" maxlength="2000" required placeholder="Describe the rule clearly. Hard Rules always override AI suggestions."></textarea></label>
+                <label>Priority<input id="betaHardRulePriority" type="number" min="0" max="1000" value="100" /></label>
+                <button type="submit" class="btn small">Add Hard Rule</button>
+                <span id="betaHardRuleStatus" class="muted small" aria-live="polite"></span>
+              </form>
+              <div id="betaHardRules" class="beta-memory-list">
+                <div class="workspace-empty">No Hard Rules have been added.</div>
+              </div>
+            </div>
+          </div>
+
+          <div id="betaMemoryPanelNotes" class="beta-memory-panel" role="tabpanel" aria-labelledby="betaMemoryTabNotes" tabindex="0" data-beta-memory-panel="notes" hidden>
+            <div class="beta-memory-layout">
+              <form id="betaLearnedNoteForm" class="beta-memory-form">
+                <label>Note title<input id="betaLearnedNoteTitle" maxlength="160" required placeholder="Example: Client order numbers vary" /></label>
+                <label>Observation or lesson<textarea id="betaLearnedNoteText" rows="3" maxlength="2000" required placeholder="Record a reusable observation. Model-generated lessons remain disabled until reviewed."></textarea></label>
+                <button type="submit" class="btn small">Add Learned Note</button>
+                <span id="betaLearnedNoteStatus" class="muted small" aria-live="polite"></span>
+              </form>
+              <div id="betaLearnedNotes" class="beta-memory-list">
+                <div class="workspace-empty">No Learned Notes have been recorded.</div>
+              </div>
+            </div>
+          </div>
+
+          <div id="betaMemoryPanelHistory" class="beta-memory-panel" role="tabpanel" aria-labelledby="betaMemoryTabHistory" tabindex="0" data-beta-memory-panel="history" hidden>
+            <div id="betaSessionHistory" class="beta-history-list">
+              <div class="workspace-empty">No Beta sessions yet.</div>
+            </div>
+          </div>
+        </section>
       </div>
     </section>
 
@@ -2052,6 +2202,6 @@
   <input type="file" id="scanFileInput" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple hidden />
 
 <script src="./js/living-dashboard.js?v=20260718" defer></script>
-<script src="./js/app.js?v=20260823-4" defer></script>
+<script src="./js/app.js?v=20260827-beta1" defer></script>
 </body>
 </html>

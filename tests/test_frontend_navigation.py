@@ -16,6 +16,53 @@ def test_navigation_is_grouped_around_factory_workflows():
     assert 'data-tab="awa"' not in html
 
 
+def test_beta_shadow_module_is_registered_without_exposing_legacy_awa():
+    html = INDEX_HTML.read_text(encoding="utf-8")
+    js = APP_JS.read_text(encoding="utf-8")
+
+    assert 'data-tab="beta"' in html
+    assert '<span>Beta</span><span class="sidebar-beta-badge" aria-hidden="true">Beta</span>' in html
+    assert 'id="tabBeta"' in html
+    assert 'id="betaRunShadow"' in html
+    assert 'Shadow Mode' in html
+    assert 'beta: document.getElementById("tabBeta")' in js
+    assert 'title: "Beta"' in js
+    assert 'name === "beta"' in js
+    assert "loadBetaOverview();" in js
+    assert 'data-tab="awa"' not in html
+    assert 'id="workspaceOpenAwa"' not in html
+    assert 'id="workspaceOpenBeta">Beta operator</button>' in html
+    assert 'activateTab("beta")' in js
+
+
+def test_beta_frontend_has_approval_recording_but_no_execution_control():
+    html = INDEX_HTML.read_text(encoding="utf-8")
+    js = APP_JS.read_text(encoding="utf-8")
+    beta_html = html[html.index('id="tabBeta"'):html.index('id="tabTelegram"')]
+    beta_js = js[js.index("function betaEntryMetadata"):js.index("async function refreshWorkspaceAfterAction")]
+
+    assert 'id="betaApprovePlan">Record Approval</button>' in beta_html
+    assert 'id="betaRejectPlan">Record Rejection</button>' in beta_html
+    assert "Run Production" not in beta_html
+    assert "Execute Plan" not in beta_html
+    assert "/api/workspace/confirm-action" not in beta_js
+    assert "/orders/" not in beta_js
+    assert "/api/beta/sessions/shadow" in beta_js
+    assert "No production action was executed." in beta_js
+    assert 'approved_by: "operator"' not in beta_js
+
+
+def test_beta_memory_tabs_have_keyboard_and_panel_relationships():
+    html = INDEX_HTML.read_text(encoding="utf-8")
+    js = APP_JS.read_text(encoding="utf-8")
+
+    assert 'id="betaMemoryTabRules"' in html
+    assert 'aria-controls="betaMemoryPanelRules"' in html
+    assert 'role="tabpanel" aria-labelledby="betaMemoryTabRules"' in html
+    assert '["ArrowLeft", "ArrowRight", "Home", "End"]' in js
+    assert 'activateBetaMemoryTab(target.dataset.betaMemoryTab, { focus: true })' in js
+
+
 def test_manual_invoice_workspace_stays_inside_manual_orders():
     html = INDEX_HTML.read_text(encoding="utf-8")
     js = APP_JS.read_text(encoding="utf-8")
