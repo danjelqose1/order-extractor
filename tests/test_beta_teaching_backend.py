@@ -4,6 +4,7 @@ import base64
 import importlib
 import json
 import sys
+import types
 from pathlib import Path
 from typing import Any, Dict
 
@@ -176,6 +177,75 @@ def test_approval_success_event_is_verified_but_never_executes_approval(tmp_path
         )
 
     assert db.get_order_with_extraction(order_id)["status"] == "draft"
+
+
+def test_full_context_events_cover_all_modules_and_redact_credentials(tmp_path, monkeypatch):
+    _db, _shadow, teaching = _load_modules(tmp_path, monkeypatch)
+    session = teaching.start_teaching_session("Learn my complete in-platform workflow.")
+
+    interaction = teaching.record_teaching_event(
+        session["id"],
+        event_type="ui_action",
+        module="Manual Orders",
+        message="Used Save manual order.",
+        metadata={
+            "control": {"label": "Save manual order", "role": "button"},
+            "context_before": {
+                "view": "manual",
+                "visible_warnings": ["Quantity is required"],
+                "api_key": "sk-this-must-never-be-stored",
+            },
+        },
+    )
+    result = teaching.record_teaching_event(
+        session["id"],
+        event_type="action_result",
+        module="Production",
+        message="POST /manual-orders returned HTTP 200.",
+        metadata={
+            "request": {"method": "POST", "endpoint": "/manual-orders"},
+            "result": {"ok": True, "status": 200},
+        },
+    )
+
+    assert interaction["module"] == "Manual Orders"
+    assert interaction["metadata"]["context_before"]["visible_warnings"] == ["Quantity is required"]
+    assert "api_key" not in interaction["metadata"]["context_before"]
+    assert result["module"] == "Production"
+    assert result["metadata"]["result"] == {"ok": True, "status": 200}
+
+
+def test_pdf_comparison_and_teaching_synthesis_share_gpt_5_6_terra(tmp_path, monkeypatch):
+    db, _shadow, teaching = _load_modules(tmp_path, monkeypatch)
+    monkeypatch.delenv("BETA_MODEL", raising=False)
+    monkeypatch.delenv("BETA_REASONING_EFFORT", raising=False)
+    order_id = _insert_example_order(db)
+    calls = []
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            calls.append(kwargs)
+            schema_name = kwargs["response_format"]["json_schema"]["name"]
+            payload = _matching_vision() if schema_name == "beta_teach_pdf_comparison" else _workflow_output()
+            return types.SimpleNamespace(
+                choices=[types.SimpleNamespace(message=types.SimpleNamespace(content=json.dumps(payload)))]
+            )
+
+    fake_llm = types.ModuleType("llm")
+    fake_llm.get_client = lambda: types.SimpleNamespace(
+        chat=types.SimpleNamespace(completions=FakeCompletions())
+    )
+    fake_llm.pdf_to_png_pages = lambda _pdf, dpi=135: [b"rendered-page"]
+    monkeypatch.setitem(sys.modules, "llm", fake_llm)
+
+    session = teaching.start_teaching_session("Learn review with visual comparison.")
+    comparison = teaching.compare_order(session["id"], order_id=order_id, force_vision=True)
+    learned = teaching.finish_teaching_session(session["id"])
+
+    assert comparison["vision_used"] is True
+    assert learned["status"] == "awaiting_approval"
+    assert [call["model"] for call in calls] == ["gpt-5.6-terra", "gpt-5.6-terra"]
+    assert [call["reasoning_effort"] for call in calls] == ["medium", "medium"]
 
 
 def test_finish_requires_schema_and_memory_is_saved_only_after_human_review(tmp_path, monkeypatch):

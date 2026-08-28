@@ -1458,14 +1458,16 @@ function activateTab(name){
       extract: "Overview",
       history: "Orders",
       orderdetail: "Orders",
-      workspace: "Processing",
+      manual: "Manual Orders",
+      workspace: "Production",
       processing: "Processing",
+      spacer: "Processing",
       labels: "Labels",
-      manual: "Orders",
       telegram: "Documents",
-      pdfeditor: "Documents",
-      scanstudio: "Documents",
+      pdfeditor: "PDF Editor",
+      scanstudio: "Scan Studio",
       analysis: "Analytics",
+      settings: "Settings",
       beta: "Beta",
     };
     void recordBetaTeachingEvent("navigation", {
@@ -15353,8 +15355,15 @@ async function startBetaTeachingSession(){
     upsertBetaSession(session);
     renderBetaSession(session);
     renderBetaSessionHistory();
-    if (betaTeachingSyncStatus) betaTeachingSyncStatus.textContent = "Recording semantic actions";
+    if (betaTeachingSyncStatus) betaTeachingSyncStatus.textContent = "Recording full in-platform context";
     renderBetaTeachingBar();
+    const initialContext = betaTeachingContextSnapshot();
+    enqueueBetaTeachingObservation("context_snapshot", {
+      module: initialContext.module,
+      message: "Captured the platform context at the start of this teaching session.",
+      ...betaTeachingEventOrder(initialContext),
+      metadata: { context: initialContext },
+    });
     activateTab("history");
   }catch(error){
     if (betaApprovalStatusEl) betaApprovalStatusEl.textContent = error.message || String(error);
@@ -15389,6 +15398,354 @@ async function recordBetaTeachingEvent(eventType, details = {}){
     if (betaTeachingSyncStatus) betaTeachingSyncStatus.textContent = `Not saved: ${error.message || error}`;
     return null;
   }
+}
+
+const BETA_TEACHING_SENSITIVE_FIELD_RE = /(api[-_ ]?key|authorization|bearer|cookie|credential|password|secret|token)/i;
+const betaTeachingFieldTimers = new WeakMap();
+const betaTeachingObservationQueue = [];
+let betaTeachingObservationFlushing = false;
+
+function betaTeachingCurrentView(){
+  return Object.entries(panels).find(([, panel]) => panel && panel.classList.contains("active") && !panel.hidden)?.[0] || "other";
+}
+
+function betaTeachingModuleForView(view = betaTeachingCurrentView()){
+  const modules = {
+    extract: "Overview",
+    history: "Orders",
+    orderdetail: "Orders",
+    manual: "Manual Orders",
+    workspace: "Production",
+    processing: "Processing",
+    spacer: "Processing",
+    labels: "Labels",
+    telegram: "Documents",
+    pdfeditor: "PDF Editor",
+    scanstudio: "Scan Studio",
+    analysis: "Analytics",
+    settings: "Settings",
+    beta: "Beta",
+  };
+  return modules[view] || "Other";
+}
+
+function betaTeachingSafeText(value, limit = 400){
+  return String(value == null ? "" : value)
+    .replace(/sk-[A-Za-z0-9_-]{12,}/gi, "[redacted]")
+    .replace(/bearer\s+[A-Za-z0-9._-]{12,}/gi, "[redacted]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, limit);
+}
+
+function betaTeachingFieldIsSensitive(element){
+  if (!(element instanceof Element)) return true;
+  if (String(element.getAttribute("type") || "").toLowerCase() === "password") return true;
+  const identity = [
+    element.id,
+    element.getAttribute("name"),
+    element.getAttribute("autocomplete"),
+    element.getAttribute("aria-label"),
+    element.getAttribute("placeholder"),
+  ].filter(Boolean).join(" ");
+  return BETA_TEACHING_SENSITIVE_FIELD_RE.test(identity);
+}
+
+function betaTeachingElementLabel(element){
+  if (!(element instanceof Element)) return "interface control";
+  const labelledBy = element.getAttribute("aria-labelledby");
+  const ancestorLabel = element.closest("label")?.querySelector(":scope > span, :scope > .field-label")?.textContent;
+  const linkedLabel = element.id
+    ? document.querySelector(`label[for="${String(element.id).replaceAll('"', '\\"')}"]`)?.textContent
+    : "";
+  const labelledText = labelledBy
+    ? labelledBy.split(/\s+/).map(id => document.getElementById(id)?.textContent || "").join(" ")
+    : "";
+  return betaTeachingSafeText(
+    element.getAttribute("aria-label")
+      || labelledText
+      || linkedLabel
+      || ancestorLabel
+      || element.getAttribute("title")
+      || element.textContent
+      || element.dataset?.action
+      || element.dataset?.tab
+      || element.getAttribute("placeholder")
+      || element.id
+      || element.getAttribute("name")
+      || element.tagName.toLowerCase(),
+    180,
+  ) || "interface control";
+}
+
+function betaTeachingElementDescriptor(element){
+  if (!(element instanceof Element)) return {};
+  const descriptor = {
+    tag: element.tagName.toLowerCase(),
+    role: element.getAttribute("role") || undefined,
+    label: betaTeachingElementLabel(element),
+    control_id: betaTeachingSafeText(element.id, 100) || undefined,
+    control_name: betaTeachingSafeText(element.getAttribute("name"), 100) || undefined,
+    action: betaTeachingSafeText(element.dataset?.action || element.dataset?.tab, 120) || undefined,
+  };
+  const orderContainer = element.closest("[data-order-id], [data-id]");
+  const relatedId = orderContainer?.dataset?.orderId || orderContainer?.dataset?.id;
+  if (relatedId) descriptor.related_record_id = betaTeachingSafeText(relatedId, 120);
+  return descriptor;
+}
+
+function betaTeachingFieldValue(element){
+  if (!(element instanceof Element) || betaTeachingFieldIsSensitive(element)) return "[redacted]";
+  if (element instanceof HTMLInputElement){
+    const type = String(element.type || "text").toLowerCase();
+    if (type === "file"){
+      return Array.from(element.files || []).slice(0, 20).map(file => ({
+        name: betaTeachingSafeText(file.name, 180),
+        type: betaTeachingSafeText(file.type, 100),
+        size: Number(file.size || 0),
+      }));
+    }
+    if (type === "checkbox" || type === "radio") return !!element.checked;
+    return betaTeachingSafeText(element.value, 500);
+  }
+  if (element instanceof HTMLSelectElement){
+    return Array.from(element.selectedOptions).map(option => betaTeachingSafeText(option.textContent || option.value, 240));
+  }
+  if (element instanceof HTMLTextAreaElement) return betaTeachingSafeText(element.value, 500);
+  if (element.getAttribute("contenteditable") === "true") return betaTeachingSafeText(element.textContent, 500);
+  return undefined;
+}
+
+function betaTeachingVisibleControlState(activePanel){
+  if (!(activePanel instanceof Element)) return [];
+  return Array.from(activePanel.querySelectorAll("input, select, textarea, [contenteditable='true']"))
+    .filter(element => element.getClientRects().length > 0 && !element.disabled && !betaTeachingFieldIsSensitive(element))
+    .map(element => ({
+      label: betaTeachingElementLabel(element),
+      value: betaTeachingFieldValue(element),
+    }))
+    .filter(item => item.value === true || (Array.isArray(item.value) ? item.value.length : String(item.value || "").trim()))
+    .slice(0, 30);
+}
+
+function betaTeachingContextSnapshot(){
+  const view = betaTeachingCurrentView();
+  const activePanel = panels[view];
+  const order = historyState.selectedOrder;
+  const rows = Array.isArray(order?.rows) ? order.rows : [];
+  const visibleDialog = Array.from(document.querySelectorAll("[role='dialog'], .modal, .modal-layer"))
+    .find(element => !element.hidden && element.getAttribute("aria-hidden") !== "true" && element.getClientRects().length > 0);
+  const alerts = activePanel
+    ? Array.from(activePanel.querySelectorAll("[role='alert'], .warning, .validation-warning, .error-message, .field-error"))
+        .filter(element => element.getClientRects().length > 0)
+        .map(element => betaTeachingSafeText(element.textContent, 260))
+        .filter(Boolean)
+        .slice(0, 12)
+    : [];
+  const selected = activePanel
+    ? Array.from(activePanel.querySelectorAll("[aria-selected='true'], [aria-current='page'], .tab.active"))
+        .map(element => betaTeachingElementLabel(element))
+        .filter(Boolean)
+        .slice(0, 20)
+    : [];
+  return {
+    view,
+    module: betaTeachingModuleForView(view),
+    page_title: betaTeachingSafeText(document.querySelector("#pageTitle")?.textContent || document.title, 180),
+    visible_dialog: visibleDialog ? betaTeachingElementLabel(visibleDialog) : undefined,
+    selected_controls: selected,
+    visible_values: betaTeachingVisibleControlState(activePanel),
+    visible_warnings: alerts,
+    selected_order: order ? {
+      id: order.id,
+      order_number: getOrderLabel(order),
+      status: betaTeachingSafeText(order.status, 80),
+      client: betaTeachingSafeText(order.client_name || order.client, 180),
+      confidence: Number.isFinite(Number(order.confidence)) ? Number(order.confidence) : undefined,
+      row_count: rows.length,
+      total_quantity: rows.reduce((sum, row) => sum + (Number(row.quantity) || 0), 0),
+      total_area: Number(rows.reduce((sum, row) => sum + ((Number(row.area) || 0) * Math.max(Number(row.quantity) || 1, 1)), 0).toFixed(4)),
+    } : undefined,
+    selected_order_count: Number(historyState.selectedIds?.size || 0),
+  };
+}
+
+function betaTeachingEventOrder(context = betaTeachingContextSnapshot()){
+  return {
+    order_id: context.selected_order?.id || undefined,
+    order_number: context.selected_order?.order_number || undefined,
+  };
+}
+
+function enqueueBetaTeachingObservation(eventType, details = {}){
+  if (!betaTeachingIsRecording()) return;
+  betaTeachingObservationQueue.push({ eventType, details });
+  if (betaTeachingObservationQueue.length > 500) betaTeachingObservationQueue.splice(0, betaTeachingObservationQueue.length - 500);
+  if (!betaTeachingObservationFlushing) void flushBetaTeachingObservations();
+}
+
+async function flushBetaTeachingObservations(){
+  if (betaTeachingObservationFlushing) return;
+  betaTeachingObservationFlushing = true;
+  try{
+    while (betaTeachingObservationQueue.length){
+      const item = betaTeachingObservationQueue.shift();
+      if (!betaTeachingIsRecording()) continue;
+      await recordBetaTeachingEvent(item.eventType, item.details);
+    }
+  }finally{
+    betaTeachingObservationFlushing = false;
+  }
+}
+
+function installBetaFullContextRecorder(){
+  if (window.__betaFullContextRecorderInstalled) return;
+  window.__betaFullContextRecorderInstalled = true;
+
+  document.addEventListener("click", event => {
+    if (!betaTeachingIsRecording()) return;
+    const source = event.target instanceof Element ? event.target : event.target?.parentElement;
+    const control = source?.closest("button, a, summary, [role='button'], [data-action], [data-tab]");
+    if (!control || control.disabled) return;
+    const before = betaTeachingContextSnapshot();
+    const descriptor = betaTeachingElementDescriptor(control);
+    setTimeout(() => {
+      const after = betaTeachingContextSnapshot();
+      enqueueBetaTeachingObservation("ui_action", {
+        module: before.module,
+        message: `Used ${descriptor.label || "an interface control"}.`,
+        ...betaTeachingEventOrder(before),
+        metadata: { control: descriptor, context_before: before, context_after: after },
+      });
+    }, 0);
+  }, true);
+
+  const recordField = (element, eventType = "field_input") => {
+    if (!betaTeachingIsRecording() || !(element instanceof Element) || betaTeachingFieldIsSensitive(element)) return;
+    const context = betaTeachingContextSnapshot();
+    const descriptor = betaTeachingElementDescriptor(element);
+    const value = betaTeachingFieldValue(element);
+    enqueueBetaTeachingObservation(eventType, {
+      module: context.module,
+      message: `Set ${descriptor.label || "a field"}.`,
+      ...betaTeachingEventOrder(context),
+      metadata: { control: descriptor, value, context },
+    });
+  };
+
+  document.addEventListener("input", event => {
+    if (!betaTeachingIsRecording()) return;
+    const element = event.target;
+    if (!(element instanceof Element) || betaTeachingFieldIsSensitive(element)) return;
+    clearTimeout(betaTeachingFieldTimers.get(element));
+    betaTeachingFieldTimers.set(element, setTimeout(() => recordField(element, "field_input"), 700));
+  }, true);
+
+  document.addEventListener("change", event => {
+    if (!betaTeachingIsRecording()) return;
+    const element = event.target;
+    if (!(element instanceof Element)) return;
+    clearTimeout(betaTeachingFieldTimers.get(element));
+    const type = String(element.getAttribute("type") || "").toLowerCase();
+    const eventType = type === "file"
+      ? "file_selected"
+      : ((element instanceof HTMLSelectElement || type === "checkbox" || type === "radio") ? "selection_changed" : "field_input");
+    recordField(element, eventType);
+  }, true);
+
+  document.addEventListener("submit", event => {
+    if (!betaTeachingIsRecording()) return;
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement)) return;
+    const context = betaTeachingContextSnapshot();
+    enqueueBetaTeachingObservation("form_submitted", {
+      module: context.module,
+      message: `Submitted ${betaTeachingElementLabel(form)}.`,
+      ...betaTeachingEventOrder(context),
+      metadata: { form: betaTeachingElementDescriptor(form), context },
+    });
+  }, true);
+
+  document.addEventListener("drop", event => {
+    if (!betaTeachingIsRecording() || !event.dataTransfer?.files?.length) return;
+    const context = betaTeachingContextSnapshot();
+    const files = Array.from(event.dataTransfer.files).slice(0, 20).map(file => ({
+      name: betaTeachingSafeText(file.name, 180),
+      type: betaTeachingSafeText(file.type, 100),
+      size: Number(file.size || 0),
+    }));
+    enqueueBetaTeachingObservation("file_selected", {
+      module: context.module,
+      message: `Dropped ${files.length} file${files.length === 1 ? "" : "s"} into the platform.`,
+      ...betaTeachingEventOrder(context),
+      metadata: { files, context },
+    });
+  }, true);
+
+  document.addEventListener("keydown", event => {
+    if (!betaTeachingIsRecording()) return;
+    const manualNavigation = event.target instanceof Element
+      && !!event.target.closest("[data-manual-field]")
+      && ["Tab", "Enter", "ArrowUp", "ArrowDown"].includes(event.key);
+    const command = event.metaKey || event.ctrlKey || event.altKey || ["Escape", "Enter"].includes(event.key);
+    if (!manualNavigation && !command) return;
+    const context = betaTeachingContextSnapshot();
+    const keys = [event.metaKey ? "Meta" : "", event.ctrlKey ? "Control" : "", event.altKey ? "Alt" : "", event.shiftKey ? "Shift" : "", event.key].filter(Boolean);
+    enqueueBetaTeachingObservation("ui_action", {
+      module: context.module,
+      message: `Used keyboard command ${keys.join("+")}.`,
+      ...betaTeachingEventOrder(context),
+      metadata: { keyboard_command: keys, control: betaTeachingElementDescriptor(event.target), context },
+    });
+  }, true);
+
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = async (input, init = {}) => {
+    const rawRequestUrl = typeof input === "string"
+      ? input
+      : (input instanceof URL ? input.href : input?.url);
+    const requestUrl = new URL(rawRequestUrl, window.location.href);
+    const apiUrl = new URL(API_BASE, window.location.href);
+    const method = String(init?.method || input?.method || "GET").toUpperCase();
+    const shouldObserve = betaTeachingIsRecording()
+      && requestUrl.origin === apiUrl.origin
+      && !requestUrl.pathname.startsWith("/api/beta/")
+      && !["GET", "HEAD", "OPTIONS"].includes(method);
+    const startedAt = performance.now();
+    const before = shouldObserve ? betaTeachingContextSnapshot() : null;
+    try{
+      const response = await originalFetch(input, init);
+      if (shouldObserve){
+        enqueueBetaTeachingObservation(response.ok ? "action_result" : "action_error", {
+          module: before.module,
+          message: `${method} ${requestUrl.pathname} returned HTTP ${response.status}.`,
+          ...betaTeachingEventOrder(before),
+          metadata: {
+            request: { method, endpoint: requestUrl.pathname },
+            result: { ok: response.ok, status: response.status, duration_ms: Math.round(performance.now() - startedAt) },
+            context_before: before,
+            context_after: betaTeachingContextSnapshot(),
+          },
+        });
+      }
+      return response;
+    }catch(error){
+      if (shouldObserve){
+        enqueueBetaTeachingObservation("action_error", {
+          module: before.module,
+          message: `${method} ${requestUrl.pathname} failed.`,
+          ...betaTeachingEventOrder(before),
+          metadata: {
+            request: { method, endpoint: requestUrl.pathname },
+            result: { ok: false, error: betaTeachingSafeText(error?.message || error, 300), duration_ms: Math.round(performance.now() - startedAt) },
+            context_before: before,
+            context_after: betaTeachingContextSnapshot(),
+          },
+        });
+      }
+      throw error;
+    }
+  };
 }
 
 async function controlBetaTeaching(action){
@@ -15459,6 +15816,15 @@ async function finishBetaTeaching(){
   const sessionId = betaState.teachingSession?.id;
   if (sessionId == null || betaState.teachingBusy) return;
   betaState.teachingBusy = true;
+  if (betaTeachingSyncStatus) betaTeachingSyncStatus.textContent = "Saving final context…";
+  const finalContext = betaTeachingContextSnapshot();
+  enqueueBetaTeachingObservation("context_snapshot", {
+    module: finalContext.module,
+    message: "Captured the platform context at the end of this teaching session.",
+    ...betaTeachingEventOrder(finalContext),
+    metadata: { context: finalContext },
+  });
+  await flushBetaTeachingObservations();
   betaState.teachingSession = { ...betaState.teachingSession, status: "planning" };
   if (betaTeachingSyncStatus) betaTeachingSyncStatus.textContent = "Learning workflow…";
   renderBetaTeachingBar();
@@ -24043,4 +24409,5 @@ updateSpacerProcessingUI();
 updateLabelsUI();
 connectTelegramFileEvents();
 refreshTelegramFilesBadge();
+installBetaFullContextRecorder();
 restoreBetaTeachingSession();

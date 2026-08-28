@@ -61,6 +61,7 @@
 }
 .beta-teaching-bar-copy{display:flex;flex-direction:column;gap:2px;min-width:0}
 .beta-teaching-bar-title{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.beta-mode-badge.is-context{color:#b8caff;border-color:rgba(117,151,255,.42);background:rgba(68,101,184,.16)}
 .beta-teaching-bar-goal{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .beta-teaching-sync-status{min-height:15px;color:var(--muted);font-size:11px}
 .beta-mode-badge.is-paused{background:rgba(245,158,11,.16);color:#f59e0b;border-color:rgba(245,158,11,.35)}

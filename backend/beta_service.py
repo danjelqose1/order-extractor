@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 from datetime import datetime, timezone
 from typing import Annotated, Any, Callable, Dict, List, Literal, Optional, Sequence
 
@@ -9,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from sqlalchemy import func, select
 
 import db as db_module
+from beta_model import beta_model_name, beta_reasoning_effort
 
 
 BETA_MODE = "shadow"
@@ -392,7 +392,7 @@ def _deterministic_observations(
 def _default_planner(payload: Dict[str, Any]) -> Any:
     from llm import get_client
 
-    model_name = os.getenv("BETA_MODEL") or os.getenv("OPENAI_AGENT_MODEL") or "gpt-5.4-mini"
+    model_name = beta_model_name()
     developer_prompt = (
         "You are the planning component for a factory order platform's Beta Shadow Mode. "
         "You may only observe the supplied sanitized metadata and propose simulated actions. "
@@ -421,7 +421,7 @@ def _default_planner(payload: Dict[str, Any]) -> Any:
                 "schema": ShadowSessionOutput.model_json_schema(),
             },
         },
-        temperature=0.0,
+        reasoning_effort=beta_reasoning_effort(),
     )
     return completion.choices[0].message.content or ""
 

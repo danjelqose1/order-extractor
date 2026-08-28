@@ -280,6 +280,16 @@ def test_default_planner_reuses_shared_client_with_strict_structured_output(tmp_
     assert "tools" not in captured
 
 
+def test_beta_defaults_to_gpt_5_6_terra_with_medium_reasoning(tmp_path, monkeypatch):
+    _db, _service = _load_beta_modules(tmp_path, monkeypatch)
+    monkeypatch.delenv("BETA_MODEL", raising=False)
+    monkeypatch.delenv("BETA_REASONING_EFFORT", raising=False)
+    beta_model = importlib.import_module("beta_model")
+
+    assert beta_model.beta_model_name() == "gpt-5.6-terra"
+    assert beta_model.beta_reasoning_effort() == "medium"
+
+
 def test_hard_rules_and_learned_notes_remain_separate_in_planner_context(tmp_path, monkeypatch):
     _db, service = _load_beta_modules(tmp_path, monkeypatch)
     rule = service.add_hard_rule(

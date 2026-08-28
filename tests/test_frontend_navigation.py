@@ -100,6 +100,32 @@ def test_teach_mode_never_calls_a_beta_production_execution_endpoint():
     assert "processWorkspace" not in teaching_js
 
 
+def test_teach_mode_records_full_platform_context_without_credentials_or_request_bodies():
+    html = INDEX_HTML.read_text(encoding="utf-8")
+    js = APP_JS.read_text(encoding="utf-8")
+
+    assert "Full platform context" in html
+    assert "GPT-5.6 Terra" in html
+    assert "installBetaFullContextRecorder();" in js
+    assert 'document.addEventListener("click"' in js
+    assert 'document.addEventListener("input"' in js
+    assert 'document.addEventListener("change"' in js
+    assert 'document.addEventListener("submit"' in js
+    assert 'document.addEventListener("drop"' in js
+    assert 'document.addEventListener("keydown"' in js
+    assert 'window.fetch = async (input, init = {}) =>' in js
+    assert '"action_result"' in js
+    assert '"action_error"' in js
+    assert "context_before" in js
+    assert "context_after" in js
+    assert "visible_warnings" in js
+    assert "selected_order" in js
+    assert "BETA_TEACHING_SENSITIVE_FIELD_RE" in js
+    recorder = js[js.index("function installBetaFullContextRecorder"):js.index("async function controlBetaTeaching")]
+    assert "init.body" not in recorder
+    assert "request.body" not in recorder
+
+
 def test_manual_invoice_workspace_stays_inside_manual_orders():
     html = INDEX_HTML.read_text(encoding="utf-8")
     js = APP_JS.read_text(encoding="utf-8")
