@@ -39,7 +39,6 @@ const DEFAULT_APPEARANCE_SETTINGS = Object.freeze({
   accentStyle: "none",
 });
 const MOTHER_SHEET_SELECTOR = "#motherSheet, .mother-sheet";
-const PROCESSING_WORKSPACE_STORAGE_KEY = "loe.processing.workspace.v1";
 const ANALYSIS_MAX_DATASET_CHARS = 50000;
 const ANALYSIS_SNAPSHOT_TTL_MS = 7 * 60 * 1000;
 const ANALYSIS_SNAPSHOT_STORAGE_KEY = "loe.analysis.snapshots.v2";
@@ -1251,10 +1250,6 @@ const processingGroupBtn = document.getElementById("processingGroup");
 const processingCopyBtn = document.getElementById("processingCopy");
 const processingExportPdfBtn = document.getElementById("processingExportPdf");
 const processingExportCsvBtn = document.getElementById("processingExportCsv");
-const processingEditSheetBtn = document.getElementById("processingEditSheet");
-const processingPrintSheetBtn = document.getElementById("processingPrintSheet");
-const productionSheetEditorRoot = document.getElementById("productionSheetEditor");
-let productionSheetEditor = null;
 const spacerOutputEl = document.getElementById("spacerOutput");
 const spacerMergeOrdersToggle = document.getElementById("spacerMergeOrdersToggle");
 const spacerPdfPreviewToggle = document.getElementById("spacerPdfPreviewToggle");
@@ -7569,9 +7564,6 @@ function updateProcessingUI(){
   }
 
   const preview = appState.processing.preview;
-  const hasMotherSheet = !!(preview && preview.text && Array.isArray(preview.groups) && preview.groups.length);
-  if (processingEditSheetBtn) processingEditSheetBtn.disabled = !hasMotherSheet;
-  if (processingPrintSheetBtn) processingPrintSheetBtn.disabled = !hasMotherSheet;
   if (processingMetaEl){
     const metaLine = preview.text ? formatProcessingMeta(preview.meta || {}) : "Mother Sheet – Client: — | Orders: — | Date: —";
     const rowsCount = preview.meta && preview.meta.rows ? preview.meta.rows : appState.processing.rows.length;
@@ -7624,10 +7616,7 @@ function updateProcessingUI(){
   }
 
   if (wysiwygToggle && wysiwygPreview){
-    if (productionSheetEditor?.isOpen){
-      if (processingPreviewEl) processingPreviewEl.hidden = true;
-      wysiwygPreview.hidden = true;
-    }else if (wysiwygToggle.checked){
+    if (wysiwygToggle.checked){
       if (processingPreviewEl) processingPreviewEl.hidden = true;
       wysiwygPreview.hidden = false;
       renderMotherSheetHTML(preview);
@@ -7636,8 +7625,6 @@ function updateProcessingUI(){
       wysiwygPreview.hidden = true;
     }
   }
-  syncProductionSheetEditor();
-  persistProcessingWorkspace();
 }
 
 function applyDankoRounding(processingSheetId){
@@ -7794,102 +7781,6 @@ function buildGroupTable(lines, preview){
   return container;
 }
 
-function hashProductionSheetSource(value){
-  const text = String(value || "");
-  let hash = 2166136261;
-  for (let index = 0; index < text.length; index += 1){
-    hash ^= text.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(36);
-}
-
-function currentProductionSheetSignature(){
-  const preview = appState.processing.preview || {};
-  if (!preview.text || !Array.isArray(preview.groups) || !preview.groups.length) return "";
-  const source = {
-    text: preview.text,
-    grouped: !!appState.processing.grouped,
-    options: appState.processing.options,
-    orders: appState.processing.cart.map(entry => ({
-      id: entry.id,
-      orderLabel: entry.orderLabel,
-      rows: Array.isArray(entry.rows) ? entry.rows : [],
-    })),
-  };
-  return `mother-sheet-${hashProductionSheetSource(JSON.stringify(source))}`;
-}
-
-function syncProductionSheetEditor(){
-  if (!productionSheetEditor) return;
-  productionSheetEditor.setSheet(appState.processing.preview || {}, currentProductionSheetSignature());
-}
-
-function setLegacyProcessingPreviewHidden(hidden){
-  const wysiwygRow = wysiwygToggle?.closest("div.muted");
-  if (wysiwygRow) wysiwygRow.hidden = !!hidden;
-  if (hidden){
-    if (processingPreviewEl) processingPreviewEl.hidden = true;
-    if (wysiwygPreview) wysiwygPreview.hidden = true;
-    return;
-  }
-  const showHtml = !!wysiwygToggle?.checked;
-  if (processingPreviewEl) processingPreviewEl.hidden = showHtml;
-  if (wysiwygPreview) wysiwygPreview.hidden = !showHtml;
-}
-
-function initializeProductionSheetEditor(){
-  if (productionSheetEditor || !productionSheetEditorRoot || typeof window.ProductionSheetEditor !== "function") return;
-  productionSheetEditor = new window.ProductionSheetEditor(productionSheetEditorRoot, {
-    onOpen: () => setLegacyProcessingPreviewHidden(true),
-    onClose: () => setLegacyProcessingPreviewHidden(false),
-    onSave: saved => setStatusMessage(saved ? "Production Sheet changes saved." : "Could not save Production Sheet changes."),
-    onPrint: () => setStatusMessage("Print dialog opened for the Production Sheet."),
-  });
-  syncProductionSheetEditor();
-}
-
-function persistProcessingWorkspace(){
-  try{
-    const payload = {
-      version: 1,
-      savedAt: Date.now(),
-      cart: Array.isArray(appState.processing.cart) ? appState.processing.cart : [],
-      options: { ...appState.processing.options },
-      headerOverrides: { ...appState.processing.headerOverrides },
-      grouped: !!appState.processing.grouped,
-      rounding: { ...appState.processing.rounding },
-    };
-    localStorage.setItem(PROCESSING_WORKSPACE_STORAGE_KEY, JSON.stringify(payload));
-  }catch{
-    // The live sheet remains usable when browser storage is restricted.
-  }
-}
-
-function restoreProcessingWorkspace(){
-  try{
-    const payload = JSON.parse(localStorage.getItem(PROCESSING_WORKSPACE_STORAGE_KEY) || "null");
-    if (!payload || payload.version !== 1 || !Array.isArray(payload.cart) || !payload.cart.length) return false;
-    appState.processing.cart = payload.cart.filter(entry => entry && Array.isArray(entry.rows));
-    appState.processing.options = {
-      ...appState.processing.options,
-      ...(payload.options && typeof payload.options === "object" ? payload.options : {}),
-    };
-    appState.processing.headerOverrides = payload.headerOverrides && typeof payload.headerOverrides === "object"
-      ? { ...payload.headerOverrides }
-      : {};
-    appState.processing.grouped = !!payload.grouped;
-    appState.processing.rounding = {
-      ...appState.processing.rounding,
-      ...(payload.rounding && typeof payload.rounding === "object" ? payload.rounding : {}),
-    };
-    rebuildProcessingRows();
-    return true;
-  }catch{
-    return false;
-  }
-}
-
 function addOrderToProcessing(order){
   const entry = convertOrderToProcessingEntry(order);
   const entryKey = String(entry.id);
@@ -7913,7 +7804,6 @@ function removeOrderFromProcessing(orderId){
 }
 
 function clearProcessing(){
-  productionSheetEditor?.close();
   appState.processing.cart = [];
   appState.processing.rows = [];
   appState.processing.headerOverrides = {};
@@ -8720,8 +8610,7 @@ async function exportSpacerProcessingPdf(){
 
 async function buildProcessingPdfBlob(){
   const preview = appState.processing.preview;
-  const editedText = productionSheetEditor?.hasSheet() ? productionSheetEditor.getPlainText() : "";
-  const plainText = editedText || (typeof preview?.text === "string" ? preview.text : "");
+  const plainText = typeof preview?.text === "string" ? preview.text : "";
   if (!plainText.trim()){
     throw new Error("Nothing to export.");
   }
@@ -8730,25 +8619,19 @@ async function buildProcessingPdfBlob(){
   const mmToPt = 2.83464567;
   const pdfDoc = await PDFDocument.create();
   const regularFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const editorLayout = productionSheetEditor?.hasSheet() ? productionSheetEditor.getLayout() : null;
-  const paperMm = editorLayout?.paper === "A3" ? [297, 420] : [210, 297];
-  const orientedPaperMm = editorLayout?.orientation === "landscape" ? [paperMm[1], paperMm[0]] : paperMm;
 
   const layout = {
-    pageWidth: orientedPaperMm[0] * mmToPt,
-    pageHeight: orientedPaperMm[1] * mmToPt,
-    marginTop: (editorLayout?.marginTop || 12.7) * mmToPt,
-    marginBottom: (editorLayout?.marginBottom || 12.7) * mmToPt,
-    marginLeft: (editorLayout?.marginLeft || 12.7) * mmToPt,
-    marginRight: (editorLayout?.marginRight || 12.7) * mmToPt,
+    pageWidth: 210 * mmToPt,
+    pageHeight: 297 * mmToPt,
+    margin: 12.7 * mmToPt,
     columnGap: 8 * mmToPt,
     fontSize: 11,
   };
   layout.lineHeight = layout.fontSize * 1.3;
-  layout.contentWidth = layout.pageWidth - layout.marginLeft - layout.marginRight;
+  layout.contentWidth = layout.pageWidth - (layout.margin * 2);
   layout.columnWidth = (layout.contentWidth - layout.columnGap) / 2;
-  layout.columnTop = layout.pageHeight - layout.marginTop;
-  layout.columnBottom = layout.marginBottom;
+  layout.columnTop = layout.pageHeight - layout.margin;
+  layout.columnBottom = layout.margin;
 
   const textColor = rgb(0, 0, 0);
   const toPdfText = value => String(value ?? "")
@@ -8760,7 +8643,7 @@ async function buildProcessingPdfBlob(){
   let columnIndex = 0;
   let cursorY = layout.columnTop - layout.fontSize;
 
-  const currentColumnX = () => layout.marginLeft + (columnIndex * (layout.columnWidth + layout.columnGap));
+  const currentColumnX = () => layout.margin + (columnIndex * (layout.columnWidth + layout.columnGap));
   const addPage = () => {
     page = pdfDoc.addPage([layout.pageWidth, layout.pageHeight]);
     columnIndex = 0;
@@ -18959,20 +18842,6 @@ if (processingClearBtn){
   });
 }
 
-if (processingEditSheetBtn){
-  processingEditSheetBtn.addEventListener("click", ()=>{
-    initializeProductionSheetEditor();
-    if (!productionSheetEditor?.open()) setStatusMessage("Generate a Mother Sheet before editing.");
-  });
-}
-
-if (processingPrintSheetBtn){
-  processingPrintSheetBtn.addEventListener("click", ()=>{
-    initializeProductionSheetEditor();
-    if (!productionSheetEditor?.print()) setStatusMessage("Generate a Mother Sheet before printing.");
-  });
-}
-
 if (processingRoundingBtn){
   processingRoundingBtn.addEventListener("click", ()=>{
     const active = isProcessingRoundingActive();
@@ -24813,8 +24682,6 @@ initManualOrders();
 	initGlobalScanDropRouting();
 	window.addEventListener("beforeunload", cleanupGlobalScanDropRouting, { once: true });
 	initIguCalculator();
-initializeProductionSheetEditor();
-restoreProcessingWorkspace();
 updateExtractUI();
 updateHistoryDetailUI();
 updateProcessingUI();
