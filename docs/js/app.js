@@ -15800,11 +15800,16 @@ async function compareCurrentOrderForTeaching(options = {}){
     betaState.comparedOrderIds.add(key);
     betaState.teachingEventCount += 1;
     renderBetaOrderComparison(comparison);
+    if (!options.automatic && String(order.status || "").toLowerCase() === "approved"){
+      openBetaDecisionReason(order);
+    }
     return comparison;
   }catch(error){
+    betaState.comparedOrderIds.add(key);
+    betaState.teachingEventCount += 1;
     betaOrderComparison.hidden = false;
     betaOrderComparison.className = "beta-order-comparison is-mismatch";
-    betaOrderComparison.innerHTML = `<strong>Comparison stopped safely</strong><span>${escapeHtml(error.message || error)}</span>`;
+    betaOrderComparison.innerHTML = `<strong>Comparison stopped safely</strong><span>${escapeHtml(error.message || error)} Use Compare PDF to retry when the problem is resolved.</span>`;
     return null;
   }finally{
     betaState.comparisonInFlight.delete(key);

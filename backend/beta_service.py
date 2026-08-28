@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from sqlalchemy import func, select
 
 import db as db_module
-from beta_model import beta_model_name, beta_reasoning_effort
+from beta_model import beta_model_name, beta_reasoning_effort, strict_json_schema
 
 
 BETA_MODE = "shadow"
@@ -418,7 +418,7 @@ def _default_planner(payload: Dict[str, Any]) -> Any:
             "json_schema": {
                 "name": "beta_shadow_plan",
                 "strict": True,
-                "schema": ShadowSessionOutput.model_json_schema(),
+                "schema": strict_json_schema(ShadowSessionOutput),
             },
         },
         reasoning_effort=beta_reasoning_effort(),

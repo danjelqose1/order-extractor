@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 
 import db as db_module
 from area_dimension_validator import apply_area_dimension_validation
-from beta_model import beta_model_name, beta_reasoning_effort
+from beta_model import beta_model_name, beta_reasoning_effort, strict_json_schema
 from utils_text import parse_declared_totals
 
 
@@ -601,7 +601,7 @@ def _default_vision_analyzer(payload: Dict[str, Any]) -> Any:
             "json_schema": {
                 "name": "beta_teach_pdf_comparison",
                 "strict": True,
-                "schema": VisionComparisonOutput.model_json_schema(),
+                "schema": strict_json_schema(VisionComparisonOutput),
             },
         },
         reasoning_effort=beta_reasoning_effort(),
@@ -779,7 +779,7 @@ def _default_workflow_synthesizer(payload: Dict[str, Any]) -> Any:
             "json_schema": {
                 "name": "beta_teaching_workflow",
                 "strict": True,
-                "schema": TeachingSynthesisOutput.model_json_schema(),
+                "schema": strict_json_schema(TeachingSynthesisOutput),
             },
         },
         reasoning_effort=beta_reasoning_effort(),

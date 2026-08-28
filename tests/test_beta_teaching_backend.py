@@ -246,6 +246,15 @@ def test_pdf_comparison_and_teaching_synthesis_share_gpt_5_6_terra(tmp_path, mon
     assert learned["status"] == "awaiting_approval"
     assert [call["model"] for call in calls] == ["gpt-5.6-terra", "gpt-5.6-terra"]
     assert [call["reasoning_effort"] for call in calls] == ["medium", "medium"]
+    vision_schema = calls[0]["response_format"]["json_schema"]["schema"]
+    workflow_schema = calls[1]["response_format"]["json_schema"]["schema"]
+    assert set(vision_schema["required"]) == set(vision_schema["properties"])
+    assert set(vision_schema["$defs"]["VisionRowComparison"]["required"]) == set(
+        vision_schema["$defs"]["VisionRowComparison"]["properties"]
+    )
+    assert "pdf_quantity" in vision_schema["$defs"]["VisionRowComparison"]["required"]
+    assert set(workflow_schema["required"]) == set(workflow_schema["properties"])
+    assert "evidence_event_sequences" in workflow_schema["$defs"]["TeachingWorkflowStep"]["required"]
 
 
 def test_finish_requires_schema_and_memory_is_saved_only_after_human_review(tmp_path, monkeypatch):

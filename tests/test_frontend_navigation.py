@@ -88,6 +88,11 @@ def test_beta_teach_mode_has_persistent_recorder_comparison_and_review_boundary(
     assert 'recordBetaTeachingEvent("approval_succeeded"' in js
     assert 'recordBetaTeachingEvent("decision_reason"' in js
     assert "records mouse" not in js.lower()
+    comparison = js[js.index("async function compareCurrentOrderForTeaching"):js.index("async function finishBetaTeaching")]
+    assert comparison.count("betaState.comparedOrderIds.add(key)") == 2
+    assert "Use Compare PDF to retry" in comparison
+    assert 'String(order.status || "").toLowerCase() === "approved"' in comparison
+    assert "openBetaDecisionReason(order);" in comparison
 
 
 def test_teach_mode_never_calls_a_beta_production_execution_endpoint():
