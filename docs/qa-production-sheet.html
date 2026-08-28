@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Production Sheet QA</title><style>html,body,iframe{width:100%;height:100%;margin:0;border:0}</style></head>
+<body>
+  <iframe id="app" src="./index.html#processing" title="Order Extractor QA"></iframe>
+  <script>
+    document.getElementById("app").addEventListener("load", event => {
+      const app = event.currentTarget.contentWindow;
+      app.activateTab?.("processing");
+      app.clearProcessing?.();
+      app.addOrderToProcessing?.({
+        id: "qa-order-101",
+        order_number: "QA-101",
+        client_name: "Factory QA",
+        status: "approved",
+        created_at: "2026-08-28T12:00:00Z",
+        source: "pdf",
+        rows: [
+          { id: "qa-1", type: "TERMIK + TRANSPARENT 24 mm", width_mm: 1200, height_mm: 800, quantity: 4, position: "1" },
+          { id: "qa-2", type: "TERMIK + TRANSPARENT 24 mm", width_mm: 950, height_mm: 600, quantity: 2, position: "2" },
+          { id: "qa-3", type: "LAMINATED 44.2", width_mm: 700, height_mm: 500, quantity: 3, position: "3" }
+        ]
+      });
+    });
+  </script>
+</body>
+</html>
