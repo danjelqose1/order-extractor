@@ -559,6 +559,63 @@ class BetaLearnedNote(Base):
     )
 
 
+class BetaTeachingEvent(Base):
+    """A semantic operator action captured during an isolated Teach Mode run."""
+
+    __tablename__ = "beta_teaching_events"
+    __table_args__ = (
+        UniqueConstraint("session_id", "sequence", name="uq_beta_teaching_session_sequence"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey("beta_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(60), nullable=False, index=True)
+    module: Mapped[str] = mapped_column(String(40), nullable=False, default="Other", index=True)
+    order_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    order_number: Mapped[Optional[str]] = mapped_column(String(120), nullable=True, index=True)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        index=True,
+    )
+
+
+class BetaTeachingWorkflow(Base):
+    """Reviewable workflow synthesized from one Teach Mode session."""
+
+    __tablename__ = "beta_teaching_workflows"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    source_session_id: Mapped[int] = mapped_column(
+        ForeignKey("beta_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="draft", index=True)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    workflow_json: Mapped[str] = mapped_column(Text, nullable=False)
+    reviewed_by: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
 def _ensure_schema() -> None:
     with engine.begin() as conn:
         conn.execute(text("PRAGMA journal_mode=WAL"))

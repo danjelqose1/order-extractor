@@ -204,6 +204,40 @@ def _serialize_note(record: db_module.BetaLearnedNote) -> Dict[str, Any]:
     }
 
 
+def _serialize_teaching_event(record: db_module.BetaTeachingEvent) -> Dict[str, Any]:
+    return {
+        "id": record.id,
+        "session_id": record.session_id,
+        "sequence": record.sequence,
+        "event_type": record.event_type,
+        "module": record.module,
+        "order_id": record.order_id,
+        "order_number": record.order_number,
+        "message": record.message,
+        "metadata": _load_metadata(record.metadata_json),
+        "created_at": _iso(record.created_at),
+    }
+
+
+def _serialize_teaching_workflow(record: db_module.BetaTeachingWorkflow) -> Dict[str, Any]:
+    try:
+        workflow = json.loads(record.workflow_json)
+    except Exception:
+        workflow = {}
+    return {
+        "id": record.id,
+        "source_session_id": record.source_session_id,
+        "title": record.title,
+        "status": record.status,
+        "summary": record.summary,
+        "workflow": workflow if isinstance(workflow, dict) else {},
+        "reviewed_by": record.reviewed_by,
+        "reviewed_at": _iso(record.reviewed_at),
+        "created_at": _iso(record.created_at),
+        "updated_at": _iso(record.updated_at),
+    }
+
+
 def _append_journal(
     session: Any,
     *,
@@ -445,6 +479,16 @@ def get_session_detail(session_id: int) -> Optional[Dict[str, Any]]:
             .where(db_module.BetaJournalEntry.session_id == record.id)
             .order_by(db_module.BetaJournalEntry.sequence.asc())
         ).scalars().all()
+        teaching_records = session.execute(
+            select(db_module.BetaTeachingEvent)
+            .where(db_module.BetaTeachingEvent.session_id == record.id)
+            .order_by(db_module.BetaTeachingEvent.sequence.asc())
+        ).scalars().all()
+        workflow_record = session.execute(
+            select(db_module.BetaTeachingWorkflow).where(
+                db_module.BetaTeachingWorkflow.source_session_id == record.id
+            )
+        ).scalars().first()
         journal = [_serialize_journal(entry) for entry in journal_records]
         plan = []
         warnings = []
@@ -461,6 +505,10 @@ def get_session_detail(session_id: int) -> Optional[Dict[str, Any]]:
                 "journal_entries": journal,
                 "plan": plan,
                 "warnings": warnings,
+                "teaching_events": [_serialize_teaching_event(entry) for entry in teaching_records],
+                "teaching_workflow": (
+                    _serialize_teaching_workflow(workflow_record) if workflow_record else None
+                ),
                 "production_action_executed": False,
             }
         )
@@ -469,7 +517,16 @@ def get_session_detail(session_id: int) -> Optional[Dict[str, Any]]:
 
 def get_overview() -> Dict[str, Any]:
     sessions = list_sessions()
-    active_statuses = {"idle", "observing", "planning", "awaiting_approval", "running"}
+    active_statuses = {
+        "idle",
+        "observing",
+        "planning",
+        "awaiting_approval",
+        "running",
+        "teaching",
+        "paused",
+        "reviewing",
+    }
     current = next((item for item in sessions if item.get("status") in active_statuses), None)
     return {
         "sessions": sessions,

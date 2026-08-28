@@ -8,7 +8,7 @@
   <meta name="theme-color" content="#0b1018" media="(prefers-color-scheme: dark)" />
   <link rel="icon" href="data:," />
   <title>Overview — Order Extractor</title>
-  <link rel="stylesheet" href="./css/styles.css?v=20260827-beta1">
+  <link rel="stylesheet" href="./css/styles.css?v=20260828-beta-teach1">
 </head>
 <body>
   <svg class="icon-sprite" aria-hidden="true">
@@ -95,6 +95,26 @@
         </div>
       </div>
     </header>
+
+    <section id="betaTeachingBar" class="beta-teaching-bar" aria-live="polite" hidden>
+      <div class="beta-teaching-pulse" aria-hidden="true"></div>
+      <div class="beta-teaching-bar-copy">
+        <div class="beta-teaching-bar-title">
+          <strong>Teach Mode</strong>
+          <span id="betaTeachingBarStatus" class="beta-mode-badge">Recording</span>
+          <span id="betaTeachingEventCount" class="beta-count-badge">0 events</span>
+        </div>
+        <span id="betaTeachingBarGoal" class="muted small">Observe how I review and approve orders.</span>
+        <span id="betaTeachingSyncStatus" class="beta-teaching-sync-status"></span>
+      </div>
+      <div class="beta-teaching-bar-actions">
+        <button type="button" class="btn small tertiary" id="betaTeachingOpenOrders">Open Orders</button>
+        <button type="button" class="btn small" id="betaTeachingCompare" hidden>Compare PDF</button>
+        <button type="button" class="btn small tertiary" id="betaTeachingPause">Pause</button>
+        <button type="button" class="btn small primary" id="betaTeachingFinish">Finish Teaching</button>
+        <button type="button" class="btn small danger" id="betaTeachingCancel">Cancel</button>
+      </div>
+    </section>
 
     <aside id="activityCenter" class="activity-center" aria-label="Background activity" hidden>
       <div class="activity-center-header">
@@ -741,13 +761,16 @@
               <span class="beta-product-badge">Beta</span>
               <span class="beta-mode-badge">Shadow Mode</span>
             </div>
-            <p class="muted small">Observe current work, prepare a traceable plan, and stop at the approval boundary.</p>
+            <p class="muted small">Teach Beta by doing the work yourself, or run a read-only Shadow plan from existing memory.</p>
           </div>
-          <button type="button" class="btn primary" id="betaRunShadow">Run Shadow Session</button>
+          <div class="beta-command-actions">
+            <button type="button" class="btn" id="betaStartTeaching">Teach Beta</button>
+            <button type="button" class="btn primary" id="betaRunShadow">Run Shadow Plan</button>
+          </div>
         </section>
 
         <div class="beta-safety-banner" role="note">
-          <strong>Plans only.</strong> Beta V1 can read safe order summaries and record Beta memory. It cannot change orders, history, processing, labels, invoices, or source files.
+          <strong>Safe learning.</strong> Teach Mode records meaningful actions and comparisons—not screen video or mouse movement. Shadow Mode remains read-only. Beta never replays production changes by itself.
         </div>
 
         <div class="beta-summary-grid">
@@ -774,12 +797,41 @@
             </div>
             <dl class="beta-session-facts">
               <div><dt>Session</dt><dd id="betaSessionId">No active session</dd></div>
-              <div><dt>Mode</dt><dd>Shadow only</dd></div>
+              <div><dt>Mode</dt><dd id="betaSessionMode">Shadow</dd></div>
               <div><dt>Started</dt><dd id="betaSessionStarted">—</dd></div>
               <div><dt>Approval</dt><dd id="betaSessionApproval">Not requested</dd></div>
             </dl>
           </section>
         </div>
+
+        <section id="betaTeachingReview" class="card beta-teaching-review" hidden>
+          <div class="beta-card-heading">
+            <div>
+              <span class="section-eyebrow">Review learned behavior</span>
+              <h3 id="betaTeachingWorkflowTitle">Learned Workflow</h3>
+              <p id="betaTeachingWorkflowSummary" class="muted small"></p>
+            </div>
+            <span id="betaTeachingWorkflowStatus" class="beta-status-badge is-awaiting-approval">Awaiting review</span>
+          </div>
+          <div class="beta-teaching-review-grid">
+            <div>
+              <h4>Observed workflow</h4>
+              <div id="betaTeachingWorkflowSteps" class="beta-plan-list"></div>
+            </div>
+            <div class="beta-teaching-memory-candidates">
+              <h4>Candidate memory</h4>
+              <div id="betaTeachingCandidateRules"></div>
+              <div id="betaTeachingCandidateNotes"></div>
+              <div id="betaTeachingUncertainties"></div>
+            </div>
+          </div>
+          <div class="beta-teaching-review-actions" id="betaTeachingReviewActions">
+            <button type="button" class="btn success" id="betaTeachingAcceptAll">Accept Workflow &amp; Memory</button>
+            <button type="button" class="btn" id="betaTeachingAcceptNotes">Save as Learned Notes</button>
+            <button type="button" class="btn danger" id="betaTeachingRejectWorkflow">Discard</button>
+          </div>
+          <p id="betaTeachingReviewStatus" class="muted small" aria-live="polite"></p>
+        </section>
 
         <div class="beta-main-grid">
           <section class="card beta-journal-card">
@@ -1623,6 +1675,7 @@
           </section>
 
           <section class="order-detail-view" data-order-detail-panel="files" hidden>
+            <div id="betaOrderComparison" class="beta-order-comparison" hidden aria-live="polite"></div>
             <div class="order-detail-files-grid">
               <div class="card order-source-card">
                 <div class="overview-section-header">
@@ -2196,12 +2249,29 @@
     </div>
   </div>
 
+  <div id="betaDecisionReasonModal" class="modal-layer" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="betaDecisionReasonTitle">
+      <span class="section-eyebrow">Teach Beta</span>
+      <h3 id="betaDecisionReasonTitle">Why did you approve this order?</h3>
+      <p class="muted small">Beta recorded the action, but only you can confirm what made the decision safe.</p>
+      <div id="betaDecisionEvidence" class="beta-decision-evidence"></div>
+      <label>
+        <span>Your reason</span>
+        <textarea id="betaDecisionReasonText" rows="4" maxlength="2000" placeholder="Example: Quantity and dimensions match the original PDF."></textarea>
+      </label>
+      <div class="modal-actions">
+        <button type="button" class="btn small tertiary" id="betaDecisionReasonSkip">Skip</button>
+        <button type="button" class="btn primary small" id="betaDecisionReasonSave">Save Reason</button>
+      </div>
+    </div>
+  </div>
+
   <input type="file" id="pdfInput" accept="application/pdf" hidden />
   <input type="file" id="pdfEditorFileInput" accept="application/pdf" hidden />
   <input type="file" id="pdfEditorImageInput" accept="image/png,image/jpeg,image/webp" hidden />
   <input type="file" id="scanFileInput" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple hidden />
 
 <script src="./js/living-dashboard.js?v=20260718" defer></script>
-<script src="./js/app.js?v=20260827-beta1" defer></script>
+<script src="./js/app.js?v=20260828-beta-teach1" defer></script>
 </body>
 </html>

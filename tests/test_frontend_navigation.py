@@ -63,6 +63,43 @@ def test_beta_memory_tabs_have_keyboard_and_panel_relationships():
     assert 'activateBetaMemoryTab(target.dataset.betaMemoryTab, { focus: true })' in js
 
 
+def test_beta_teach_mode_has_persistent_recorder_comparison_and_review_boundary():
+    html = INDEX_HTML.read_text(encoding="utf-8")
+    js = APP_JS.read_text(encoding="utf-8")
+
+    for element_id in (
+        "betaStartTeaching",
+        "betaTeachingBar",
+        "betaTeachingPause",
+        "betaTeachingFinish",
+        "betaTeachingCompare",
+        "betaOrderComparison",
+        "betaDecisionReasonModal",
+        "betaTeachingReview",
+        "betaTeachingAcceptAll",
+        "betaTeachingRejectWorkflow",
+    ):
+        assert f'id="{element_id}"' in html
+
+    assert "/api/beta/teaching/start" in js
+    assert "/api/beta/teaching/${encodeURIComponent(sessionId)}/events" in js
+    assert "/api/beta/teaching/${encodeURIComponent(sessionId)}/compare" in js
+    assert "force_vision: options.forceVision !== false" in js
+    assert 'recordBetaTeachingEvent("approval_succeeded"' in js
+    assert 'recordBetaTeachingEvent("decision_reason"' in js
+    assert "records mouse" not in js.lower()
+
+
+def test_teach_mode_never_calls_a_beta_production_execution_endpoint():
+    js = APP_JS.read_text(encoding="utf-8")
+    teaching_js = js[js.index("function betaTeachingIsActive"):js.index("async function loadBetaSession")]
+
+    assert "/execute" not in teaching_js
+    assert "/api/workspace/confirm-action" not in teaching_js
+    assert "approveDraft(" not in teaching_js
+    assert "processWorkspace" not in teaching_js
+
+
 def test_manual_invoice_workspace_stays_inside_manual_orders():
     html = INDEX_HTML.read_text(encoding="utf-8")
     js = APP_JS.read_text(encoding="utf-8")

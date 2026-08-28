@@ -19,7 +19,112 @@
       --ms-body-line-height:1.4;
       --ms-row-spacing-adjust:0px;
       --ms-accent-color:#2F6BFF;
-    }
+}
+
+/* Beta Teach Mode */
+.beta-command-actions,
+.beta-teaching-bar-actions,
+.beta-teaching-review-actions{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+}
+.beta-teaching-bar{
+  position:sticky;
+  top:12px;
+  z-index:70;
+  display:grid;
+  grid-template-columns:auto minmax(220px,1fr) auto;
+  align-items:center;
+  gap:12px;
+  margin:0 0 16px;
+  padding:12px 14px;
+  border:1px solid color-mix(in srgb,var(--primary) 55%,var(--border));
+  border-radius:14px;
+  background:color-mix(in srgb,var(--card-bg) 94%,var(--primary) 6%);
+  box-shadow:0 12px 30px rgba(15,23,42,.18);
+  backdrop-filter:blur(16px);
+}
+.beta-teaching-bar[hidden]{display:none !important}
+.beta-teaching-pulse{
+  width:12px;
+  height:12px;
+  border-radius:50%;
+  background:#ef4444;
+  box-shadow:0 0 0 5px rgba(239,68,68,.14);
+  animation:beta-teaching-pulse 1.8s ease-in-out infinite;
+}
+@keyframes beta-teaching-pulse{
+  0%,100%{box-shadow:0 0 0 4px rgba(239,68,68,.12)}
+  50%{box-shadow:0 0 0 9px rgba(239,68,68,0)}
+}
+.beta-teaching-bar-copy{display:flex;flex-direction:column;gap:2px;min-width:0}
+.beta-teaching-bar-title{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.beta-teaching-bar-goal{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.beta-teaching-sync-status{min-height:15px;color:var(--muted);font-size:11px}
+.beta-mode-badge.is-paused{background:rgba(245,158,11,.16);color:#f59e0b;border-color:rgba(245,158,11,.35)}
+.beta-teaching-review{margin-top:18px}
+.beta-teaching-review[hidden]{display:none !important}
+.beta-teaching-review-grid{
+  display:grid;
+  grid-template-columns:minmax(0,1.35fr) minmax(280px,.8fr);
+  gap:18px;
+  margin-top:12px;
+}
+.beta-teaching-review-grid h4,.beta-teaching-memory-candidates h5{margin:0 0 10px}
+.beta-teaching-memory-candidates{display:flex;flex-direction:column;gap:14px}
+.beta-teaching-memory-candidates ul{margin:6px 0 0;padding-left:18px;color:var(--muted);font-size:13px}
+.beta-teaching-review-actions{margin-top:16px;padding-top:14px;border-top:1px solid var(--border)}
+.beta-order-comparison{
+  grid-column:1/-1;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  margin-bottom:14px;
+  padding:14px 16px;
+  border:1px solid var(--border);
+  border-left:4px solid var(--primary);
+  border-radius:12px;
+  background:color-mix(in srgb,var(--card-bg) 92%,var(--primary) 8%);
+}
+.beta-order-comparison[hidden]{display:none !important}
+.beta-order-comparison.is-matched{border-left-color:#10b981;background:color-mix(in srgb,var(--card-bg) 92%,#10b981 8%)}
+.beta-order-comparison.is-mismatch{border-left-color:#ef4444;background:color-mix(in srgb,var(--card-bg) 92%,#ef4444 8%)}
+.beta-order-comparison.is-ambiguous{border-left-color:#f59e0b;background:color-mix(in srgb,var(--card-bg) 92%,#f59e0b 8%)}
+.beta-order-comparison.is-loading{border-left-color:var(--primary)}
+.beta-order-comparison-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.beta-order-comparison-head>div{display:flex;flex-direction:column;gap:2px}
+.beta-order-comparison p{margin:0;font-size:13px}
+.beta-order-comparison ul{margin:0;padding-left:18px;color:var(--muted);font-size:12px}
+.beta-comparison-facts{display:flex;gap:8px;flex-wrap:wrap}
+.beta-comparison-facts span{
+  padding:5px 8px;
+  border:1px solid var(--border);
+  border-radius:8px;
+  background:var(--card-bg);
+  font-size:12px;
+  font-variant-numeric:tabular-nums;
+}
+.beta-decision-evidence{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  margin:12px 0;
+  padding:12px;
+  border:1px solid var(--border);
+  border-radius:10px;
+  background:color-mix(in srgb,var(--card-bg) 94%,var(--primary) 6%);
+  font-size:13px;
+}
+.beta-decision-evidence span{color:var(--muted)}
+#betaDecisionReasonModal textarea{min-height:110px;margin-top:6px}
+
+@media (max-width:900px){
+  .beta-teaching-bar{position:relative;top:auto;grid-template-columns:auto 1fr}
+  .beta-teaching-bar-actions{grid-column:1/-1}
+  .beta-teaching-review-grid{grid-template-columns:1fr}
+}
     *,*::before,*::after{box-sizing:border-box}
     body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,Ubuntu,Helvetica,Arial,sans-serif;line-height:1.5}
     main.app{max-width:1100px;margin:0 auto;padding:24px 18px 48px}

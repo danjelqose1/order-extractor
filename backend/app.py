@@ -540,6 +540,44 @@ class BetaLearnedNotePatchPayload(BaseModel):
     enabled: Optional[bool] = None
 
 
+class BetaTeachStartPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    goal: str = Field(min_length=1, max_length=4000)
+
+
+class BetaTeachEventPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    event_type: str = Field(min_length=1, max_length=60)
+    module: str = Field(default="Other", min_length=1, max_length=40)
+    message: str = Field(min_length=1, max_length=4000)
+    order_id: Optional[int] = Field(default=None, ge=1)
+    order_number: Optional[str] = Field(default=None, max_length=120)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class BetaTeachControlPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    action: Literal["pause", "resume", "cancel"]
+
+
+class BetaTeachComparePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    order_id: int = Field(ge=1)
+    force_vision: bool = False
+
+
+class BetaTeachWorkflowReviewPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    decision: Literal["accepted", "rejected"]
+    accept_hard_rules: bool = False
+    accept_learned_notes: bool = False
+
+
 class InvoiceAiGlassMatchPayload(BaseModel):
     raw_name: str
     known_types: List[str]
@@ -1721,9 +1759,96 @@ def _beta_service_module():
     return beta_service
 
 
+def _beta_teaching_service_module():
+    # Teach Mode remains a thin, isolated orchestration layer. Import it lazily
+    # so normal order routes never depend on experimental persistence or AI.
+    import beta_teaching_service
+
+    return beta_teaching_service
+
+
 @app.get("/api/beta/overview")
 def beta_overview() -> Dict[str, Any]:
     return _beta_service_module().get_overview()
+
+
+@app.post("/api/beta/teaching/start")
+def beta_start_teaching(payload: BetaTeachStartPayload) -> Dict[str, Any]:
+    try:
+        return _beta_teaching_service_module().start_teaching_session(payload.goal)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/beta/teaching/{session_id}/events")
+def beta_record_teaching_event(session_id: int, payload: BetaTeachEventPayload) -> Dict[str, Any]:
+    try:
+        return _beta_teaching_service_module().record_teaching_event(
+            session_id,
+            **payload.model_dump(),
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/beta/teaching/{session_id}/control")
+def beta_control_teaching(session_id: int, payload: BetaTeachControlPayload) -> Dict[str, Any]:
+    try:
+        return _beta_teaching_service_module().control_teaching_session(
+            session_id,
+            payload.action,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/beta/teaching/{session_id}/compare")
+def beta_compare_teaching_order(session_id: int, payload: BetaTeachComparePayload) -> Dict[str, Any]:
+    try:
+        return _beta_teaching_service_module().compare_order(
+            session_id,
+            order_id=payload.order_id,
+            force_vision=payload.force_vision,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/api/beta/teaching/{session_id}/finish")
+def beta_finish_teaching(session_id: int) -> Dict[str, Any]:
+    try:
+        return _beta_teaching_service_module().finish_teaching_session(session_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/beta/teaching/workflows/{workflow_id}/review")
+def beta_review_teaching_workflow(
+    workflow_id: int,
+    payload: BetaTeachWorkflowReviewPayload,
+) -> Dict[str, Any]:
+    try:
+        return _beta_teaching_service_module().review_teaching_workflow(
+            workflow_id,
+            decision=payload.decision,
+            accept_hard_rules=payload.accept_hard_rules,
+            accept_learned_notes=payload.accept_learned_notes,
+            reviewed_by="local_operator",
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.post("/api/beta/sessions/shadow")

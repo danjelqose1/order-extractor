@@ -346,6 +346,13 @@ const betaState = {
   sessions: [],
   hardRules: [],
   learnedNotes: [],
+  teachingSession: null,
+  teachingBusy: false,
+  teachingEventCount: 0,
+  comparisons: {},
+  comparedOrderIds: new Set(),
+  comparisonInFlight: new Set(),
+  pendingDecision: null,
 };
 
 const telegramFilesState = {
@@ -1080,10 +1087,12 @@ const awaChatForm = document.getElementById("awaChatForm");
 const awaChatInput = document.getElementById("awaChatInput");
 const awaChatSendBtn = document.getElementById("awaChatSend");
 const betaRunShadowBtn = document.getElementById("betaRunShadow");
+const betaStartTeachingBtn = document.getElementById("betaStartTeaching");
 const betaGoalInput = document.getElementById("betaGoal");
 const betaOperatorStatusEl = document.getElementById("betaOperatorStatus");
 const betaSessionIdEl = document.getElementById("betaSessionId");
 const betaSessionStartedEl = document.getElementById("betaSessionStarted");
+const betaSessionModeEl = document.getElementById("betaSessionMode");
 const betaSessionApprovalEl = document.getElementById("betaSessionApproval");
 const betaJournalEl = document.getElementById("betaJournal");
 const betaJournalCountEl = document.getElementById("betaJournalCount");
@@ -1108,6 +1117,35 @@ const betaLearnedNoteTextInput = document.getElementById("betaLearnedNoteText");
 const betaLearnedNoteStatusEl = document.getElementById("betaLearnedNoteStatus");
 const betaLearnedNotesEl = document.getElementById("betaLearnedNotes");
 const betaSessionHistoryEl = document.getElementById("betaSessionHistory");
+const betaTeachingBar = document.getElementById("betaTeachingBar");
+const betaTeachingBarStatus = document.getElementById("betaTeachingBarStatus");
+const betaTeachingBarGoal = document.getElementById("betaTeachingBarGoal");
+const betaTeachingEventCount = document.getElementById("betaTeachingEventCount");
+const betaTeachingSyncStatus = document.getElementById("betaTeachingSyncStatus");
+const betaTeachingOpenOrders = document.getElementById("betaTeachingOpenOrders");
+const betaTeachingCompare = document.getElementById("betaTeachingCompare");
+const betaTeachingPause = document.getElementById("betaTeachingPause");
+const betaTeachingFinish = document.getElementById("betaTeachingFinish");
+const betaTeachingCancel = document.getElementById("betaTeachingCancel");
+const betaTeachingReview = document.getElementById("betaTeachingReview");
+const betaTeachingWorkflowTitle = document.getElementById("betaTeachingWorkflowTitle");
+const betaTeachingWorkflowSummary = document.getElementById("betaTeachingWorkflowSummary");
+const betaTeachingWorkflowStatus = document.getElementById("betaTeachingWorkflowStatus");
+const betaTeachingWorkflowSteps = document.getElementById("betaTeachingWorkflowSteps");
+const betaTeachingCandidateRules = document.getElementById("betaTeachingCandidateRules");
+const betaTeachingCandidateNotes = document.getElementById("betaTeachingCandidateNotes");
+const betaTeachingUncertainties = document.getElementById("betaTeachingUncertainties");
+const betaTeachingReviewActions = document.getElementById("betaTeachingReviewActions");
+const betaTeachingReviewStatus = document.getElementById("betaTeachingReviewStatus");
+const betaTeachingAcceptAll = document.getElementById("betaTeachingAcceptAll");
+const betaTeachingAcceptNotes = document.getElementById("betaTeachingAcceptNotes");
+const betaTeachingRejectWorkflow = document.getElementById("betaTeachingRejectWorkflow");
+const betaOrderComparison = document.getElementById("betaOrderComparison");
+const betaDecisionReasonModal = document.getElementById("betaDecisionReasonModal");
+const betaDecisionEvidence = document.getElementById("betaDecisionEvidence");
+const betaDecisionReasonText = document.getElementById("betaDecisionReasonText");
+const betaDecisionReasonSave = document.getElementById("betaDecisionReasonSave");
+const betaDecisionReasonSkip = document.getElementById("betaDecisionReasonSkip");
 const telegramFilesListEl = document.getElementById("telegramFilesList");
 const telegramFilesStatusEl = document.getElementById("telegramFilesStatus");
 const telegramFilesSearchInput = document.getElementById("telegramFilesSearch");
@@ -1414,6 +1452,28 @@ function activateTab(name){
       panel.setAttribute("aria-hidden", "true");
     }
   });
+  renderBetaTeachingBar();
+  if (betaTeachingIsRecording()){
+    const moduleByTab = {
+      extract: "Overview",
+      history: "Orders",
+      orderdetail: "Orders",
+      workspace: "Processing",
+      processing: "Processing",
+      labels: "Labels",
+      manual: "Orders",
+      telegram: "Documents",
+      pdfeditor: "Documents",
+      scanstudio: "Documents",
+      analysis: "Analytics",
+      beta: "Beta",
+    };
+    void recordBetaTeachingEvent("navigation", {
+      module: moduleByTab[name] || "Other",
+      message: `Opened ${name === "orderdetail" ? "order detail" : name} view.`,
+      metadata: { view: name },
+    });
+  }
   if (name === "extract"){
     loadOverview();
     startOverviewPolling();
@@ -9655,6 +9715,28 @@ function handleEditableInput(event){
 
 document.getElementById("tableWrap").addEventListener("input", handleEditableInput, true);
 document.getElementById("historyTableWrap").addEventListener("input", handleEditableInput, true);
+document.getElementById("historyTableWrap").addEventListener("change", event => {
+  const input = event.target;
+  if (!input.classList?.contains("cell") || !betaTeachingIsRecording()) return;
+  const field = input.dataset.field;
+  const index = Number(input.dataset.index);
+  const order = historyState.selectedOrder;
+  const currentRow = appState.historyDetail.rows[index];
+  const originalRow = appState.historyDetail.originalRows[index] || {};
+  if (!order || !currentRow || !field || Number.isNaN(index)) return;
+  void recordBetaTeachingEvent("field_changed", {
+    module: "Orders",
+    order_id: Number(order.id),
+    order_number: getOrderLabel(order),
+    message: `Changed ${field} on row ${index + 1} of ${getOrderLabel(order)}.`,
+    metadata: {
+      row_index: index + 1,
+      field,
+      before: originalRow[field] ?? null,
+      after: currentRow[field] ?? null,
+    },
+  });
+});
 document.getElementById("extractNotes").addEventListener("input", (event)=>{
   appState.extract.notes = event.target.value;
 });
@@ -14824,6 +14906,16 @@ function betaSessionEntries(session){
 }
 
 function betaSessionPlan(session){
+  const teachingSteps = session?.teaching_workflow?.workflow?.steps;
+  if (Array.isArray(teachingSteps)){
+    return teachingSteps.map(step => ({
+      ...step,
+      action: step.operator_action,
+      risk: "low",
+      requires_human_approval: false,
+      teaching_step: true,
+    }));
+  }
   const direct = session?.plan ?? session?.structured_output?.plan ?? session?.output?.plan;
   if (Array.isArray(direct)) return direct;
   return betaSessionEntries(session)
@@ -14841,8 +14933,9 @@ function betaStatusLabel(status){
 }
 
 function betaSyncInteractionLock(){
-  const locked = betaState.loading || betaState.running || betaState.recordingApproval || betaState.memorySaving > 0;
-  if (betaRunShadowBtn) betaRunShadowBtn.disabled = locked;
+  const locked = betaState.loading || betaState.running || betaState.recordingApproval || betaState.memorySaving > 0 || betaState.teachingBusy;
+  if (betaRunShadowBtn) betaRunShadowBtn.disabled = locked || betaTeachingIsActive();
+  if (betaStartTeachingBtn) betaStartTeachingBtn.disabled = locked || betaTeachingIsActive();
   if (betaGoalInput) betaGoalInput.disabled = locked;
   document.querySelectorAll("#tabBeta [data-beta-rule-toggle], #tabBeta [data-beta-note-toggle], #tabBeta [data-beta-session-id], #tabBeta [data-beta-memory-tab], #tabBeta .beta-memory-form input, #tabBeta .beta-memory-form textarea, #tabBeta .beta-memory-form button").forEach(control => {
     control.disabled = locked;
@@ -14855,7 +14948,7 @@ function betaSyncInteractionLock(){
 function betaSetRunBusy(isBusy){
   betaState.running = !!isBusy;
   if (betaRunShadowBtn){
-    betaRunShadowBtn.textContent = isBusy ? "Running Shadow Session…" : "Run Shadow Session";
+    betaRunShadowBtn.textContent = isBusy ? "Running Shadow Plan…" : "Run Shadow Plan";
   }
   betaSyncInteractionLock();
 }
@@ -14932,14 +15025,15 @@ function renderBetaPlan(session){
       </div>
       <p>${escapeHtml(step.reason || "No reason provided.")}</p>
       <div class="beta-plan-safety">
-        <span>${requiresApproval ? "Human approval required" : "No approval requested"}</span>
-        <span>Simulation only · no data mutation</span>
+        <span>${step.teaching_step ? "Observed during Teach Mode" : (requiresApproval ? "Human approval required" : "No approval requested")}</span>
+        <span>${step.teaching_step ? "Review before saving to memory" : "Simulation only · no data mutation"}</span>
       </div>
     </article>`;
   }).join("");
 }
 
 function renderBetaApproval(session){
+  const isTeaching = String(session?.mode || "").toLowerCase() === "teach";
   const requested = !!session?.approval_requested;
   const decision = betaApprovalDecision(session);
   const awaiting = String(session?.status || "").toLowerCase() === "awaiting_approval" && requested && !decision;
@@ -14955,9 +15049,11 @@ function renderBetaApproval(session){
       ? betaStatusLabel(decision)
       : (awaiting ? "Approval requested" : "Not requested");
   }
-  if (betaApprovalActionsEl) betaApprovalActionsEl.hidden = !awaiting;
+  if (betaApprovalActionsEl) betaApprovalActionsEl.hidden = isTeaching || !awaiting;
   if (betaApprovalCopyEl){
-    betaApprovalCopyEl.textContent = decision
+    betaApprovalCopyEl.textContent = isTeaching && awaiting
+      ? "The learned workflow is waiting for your review below. Accepting it only updates Beta memory; it never repeats the production actions."
+      : decision
       ? `${betaStatusLabel(decision)} was recorded for this plan. No production action was executed.`
       : "Consequential steps are highlighted. In V1, approval is recorded as the local operator and ends the session; it never executes the plan.";
   }
@@ -14974,9 +15070,13 @@ function renderBetaSession(session){
   if (betaSessionStartedEl){
     betaSessionStartedEl.textContent = session?.started_at ? formatDate(session.started_at) : "—";
   }
+  if (betaSessionModeEl){
+    betaSessionModeEl.textContent = String(session?.mode || "shadow").toLowerCase() === "teach" ? "Teach" : "Shadow";
+  }
   renderBetaJournal(session);
   renderBetaPlan(session);
   renderBetaApproval(session);
+  renderBetaTeachingWorkflow(session?.teaching_workflow || null);
 }
 
 function renderBetaHardRules(){
@@ -15030,9 +15130,9 @@ function renderBetaSessionHistory(){
     <div class="beta-history-topline">
       <span class="beta-status-badge is-${escapeHtml(String(session.status || "idle").replace(/_/g, "-"))}">${escapeHtml(betaStatusLabel(session.status))}</span>
       <time>${escapeHtml(formatDate(session.created_at || session.started_at))}</time>
-      <span>${session.approval_requested ? "Approval requested" : "No approval needed"}</span>
+      <span>${String(session.mode || "shadow").toLowerCase() === "teach" ? "Teach Mode" : "Shadow Mode"}</span>
     </div>
-    <strong>${escapeHtml(session.goal || "Untitled Shadow Session")}</strong>
+    <strong>${escapeHtml(session.goal || "Untitled Beta Session")}</strong>
     <p>${escapeHtml(session.summary || "No summary recorded.")}</p>
   </button>`).join("");
   betaSyncInteractionLock();
@@ -15073,6 +15173,405 @@ async function betaApi(path, options = {}){
   return payload || {};
 }
 
+function betaTeachingIsActive(session = betaState.teachingSession){
+  return String(session?.mode || "").toLowerCase() === "teach"
+    && ["teaching", "paused"].includes(String(session?.status || "").toLowerCase());
+}
+
+function betaTeachingIsRecording(){
+  return betaTeachingIsActive() && String(betaState.teachingSession?.status || "").toLowerCase() === "teaching";
+}
+
+function betaPersistTeachingSession(){
+  const id = betaTeachingIsActive() ? betaState.teachingSession?.id : null;
+  try{
+    if (id != null) localStorage.setItem("betaTeachingSessionId", String(id));
+    else localStorage.removeItem("betaTeachingSessionId");
+  }catch{
+    // Persistence is a convenience only; backend state remains authoritative.
+  }
+}
+
+function renderBetaTeachingBar(){
+  if (!betaTeachingBar) return;
+  const active = betaTeachingIsActive();
+  betaTeachingBar.hidden = !active;
+  if (!active){
+    if (betaTeachingCompare) betaTeachingCompare.hidden = true;
+    betaSyncInteractionLock();
+    return;
+  }
+  const status = String(betaState.teachingSession?.status || "teaching").toLowerCase();
+  if (betaTeachingBarStatus){
+    betaTeachingBarStatus.textContent = status === "paused" ? "Paused" : "Recording";
+    betaTeachingBarStatus.className = `beta-mode-badge ${status === "paused" ? "is-paused" : ""}`;
+  }
+  if (betaTeachingBarGoal) betaTeachingBarGoal.textContent = betaState.teachingSession?.goal || "Teaching Beta";
+  if (betaTeachingEventCount){
+    const count = Number(betaState.teachingEventCount || 0);
+    betaTeachingEventCount.textContent = `${count} ${count === 1 ? "event" : "events"}`;
+  }
+  if (betaTeachingPause){
+    betaTeachingPause.textContent = status === "paused" ? "Resume" : "Pause";
+    betaTeachingPause.disabled = betaState.teachingBusy;
+  }
+  if (betaTeachingFinish) betaTeachingFinish.disabled = betaState.teachingBusy;
+  if (betaTeachingCancel) betaTeachingCancel.disabled = betaState.teachingBusy;
+  const currentOrder = historyState.selectedOrder;
+  const orderVisible = !!(currentOrder && panels.orderdetail?.classList.contains("active"));
+  if (betaTeachingCompare){
+    betaTeachingCompare.hidden = !orderVisible || status !== "teaching";
+    betaTeachingCompare.disabled = betaState.comparisonInFlight.has(String(currentOrder?.id || ""));
+  }
+  betaPersistTeachingSession();
+  betaSyncInteractionLock();
+}
+
+function setBetaTeachingSession(session){
+  if (session && String(session.mode || "").toLowerCase() === "teach" && betaTeachingIsActive(session)){
+    betaState.teachingSession = session;
+    betaState.teachingEventCount = Array.isArray(session.teaching_events) ? session.teaching_events.length : Number(betaState.teachingEventCount || 0);
+  }else if (session && String(betaState.teachingSession?.id) === String(session.id)){
+    betaState.teachingSession = null;
+  }
+  renderBetaTeachingBar();
+}
+
+async function restoreBetaTeachingSession(){
+  let storedId = null;
+  try{
+    storedId = localStorage.getItem("betaTeachingSessionId");
+  }catch{
+    storedId = null;
+  }
+  try{
+    const session = storedId
+      ? await loadBetaSession(storedId)
+      : (await betaApi("/api/beta/overview"))?.current_session;
+    if (session && String(session.mode || "").toLowerCase() === "teach" && betaTeachingIsActive(session)){
+      betaState.teachingSession = session;
+      betaState.teachingEventCount = Array.isArray(session.teaching_events) ? session.teaching_events.length : 0;
+      renderBetaTeachingBar();
+    }else{
+      betaState.teachingSession = null;
+      renderBetaTeachingBar();
+    }
+  }catch{
+    betaState.teachingSession = null;
+    renderBetaTeachingBar();
+  }
+}
+
+function renderBetaTeachingWorkflow(workflowRecord){
+  if (!betaTeachingReview) return;
+  const data = workflowRecord?.workflow;
+  const visible = !!(workflowRecord && data && typeof data === "object");
+  betaTeachingReview.hidden = !visible;
+  if (!visible) return;
+  const status = String(workflowRecord.status || "draft").toLowerCase();
+  if (betaTeachingWorkflowTitle) betaTeachingWorkflowTitle.textContent = data.title || workflowRecord.title || "Learned Workflow";
+  if (betaTeachingWorkflowSummary) betaTeachingWorkflowSummary.textContent = data.summary || workflowRecord.summary || "";
+  if (betaTeachingWorkflowStatus){
+    betaTeachingWorkflowStatus.textContent = status === "draft" ? "Awaiting review" : betaStatusLabel(status);
+    betaTeachingWorkflowStatus.className = `beta-status-badge is-${escapeHtml(status === "draft" ? "awaiting-approval" : status)}`;
+  }
+  const steps = Array.isArray(data.steps) ? data.steps : [];
+  if (betaTeachingWorkflowSteps){
+    betaTeachingWorkflowSteps.innerHTML = steps.length ? steps.map(step => `<article class="beta-plan-step">
+      <div class="beta-plan-step-header">
+        <span class="beta-step-number">${escapeHtml(step.step)}</span>
+        <div><div class="beta-plan-module">${escapeHtml(step.module || "Other")}</div><div class="beta-plan-action">${escapeHtml(step.operator_action || "Observed action")}</div></div>
+      </div>
+      <p>${escapeHtml(step.reason || "")}</p>
+      <div class="beta-plan-safety"><span>Decision condition</span><span>${escapeHtml(step.decision_condition || "Human judgment required")}</span></div>
+    </article>`).join("") : '<div class="workspace-empty">No workflow steps were returned.</div>';
+  }
+  const rules = Array.isArray(data.candidate_hard_rules) ? data.candidate_hard_rules : [];
+  if (betaTeachingCandidateRules){
+    betaTeachingCandidateRules.innerHTML = `<h5>Hard Rules (${rules.length})</h5>${rules.length ? rules.map(rule => `<article class="beta-memory-item"><strong>${escapeHtml(rule.title)}</strong><p>${escapeHtml(rule.rule_text)}</p><span class="muted small">${escapeHtml(rule.confidence || "low")} confidence · requires your acceptance</span></article>`).join("") : '<p class="muted small">No deterministic rules proposed.</p>'}`;
+  }
+  const notes = Array.isArray(data.candidate_learned_notes) ? data.candidate_learned_notes : [];
+  if (betaTeachingCandidateNotes){
+    betaTeachingCandidateNotes.innerHTML = `<h5>Learned Notes (${notes.length})</h5>${notes.length ? notes.map(note => `<article class="beta-memory-item"><strong>${escapeHtml(note.title)}</strong><p>${escapeHtml(note.note_text)}</p></article>`).join("") : '<p class="muted small">No learned notes proposed.</p>'}`;
+  }
+  const uncertainties = Array.isArray(data.uncertainties) ? data.uncertainties : [];
+  if (betaTeachingUncertainties){
+    betaTeachingUncertainties.innerHTML = `<h5>Still uncertain (${uncertainties.length})</h5>${uncertainties.length ? `<ul>${uncertainties.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : '<p class="muted small">No unresolved ambiguity reported.</p>'}`;
+  }
+  if (betaTeachingReviewActions) betaTeachingReviewActions.hidden = status !== "draft";
+  if (betaTeachingReviewStatus && status !== "draft") betaTeachingReviewStatus.textContent = `Workflow ${betaStatusLabel(status)}. No production action was executed.`;
+}
+
+function renderBetaOrderComparison(comparison, options = {}){
+  if (!betaOrderComparison) return;
+  if (options.loading){
+    betaOrderComparison.hidden = false;
+    betaOrderComparison.className = "beta-order-comparison is-loading";
+    betaOrderComparison.innerHTML = '<strong>Beta is comparing the original PDF with the extracted rows…</strong><span>Deterministic checks run first; visual AI verifies the document when requested.</span>';
+    return;
+  }
+  if (!comparison){
+    betaOrderComparison.hidden = true;
+    betaOrderComparison.innerHTML = "";
+    return;
+  }
+  const verdict = String(comparison.verdict || "ambiguous").toLowerCase();
+  const warnings = Array.isArray(comparison.warnings) ? comparison.warnings : [];
+  betaOrderComparison.hidden = false;
+  betaOrderComparison.className = `beta-order-comparison is-${escapeHtml(verdict)}`;
+  betaOrderComparison.innerHTML = `<div class="beta-order-comparison-head">
+    <div><span class="section-eyebrow">Teach Mode comparison</span><strong>${escapeHtml(betaStatusLabel(verdict))}</strong></div>
+    <span class="beta-count-badge">${comparison.vision_used ? "Visual AI + deterministic" : "Deterministic"}</span>
+  </div>
+  <p>${escapeHtml(comparison.suggested_reason || "Comparison completed.")}</p>
+  <div class="beta-comparison-facts">
+    <span>Quantity: ${escapeHtml(comparison.extracted_units ?? "—")}${comparison.declared_units != null ? ` / PDF ${escapeHtml(comparison.declared_units)}` : ""}</span>
+    <span>Quantity-aware area: ${escapeHtml(Number(comparison.quantity_aware_extracted_area || 0).toFixed(3))} m²${comparison.declared_area != null ? ` / PDF ${escapeHtml(Number(comparison.declared_area).toFixed(3))} m²` : ""}</span>
+  </div>
+  ${warnings.length ? `<ul>${warnings.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""}`;
+}
+
+async function startBetaTeachingSession(){
+  const goal = String(betaGoalInput?.value || "").trim();
+  if (!goal){
+    betaGoalInput?.focus();
+    return;
+  }
+  if (betaTeachingIsActive() || betaState.teachingBusy) return;
+  betaState.teachingBusy = true;
+  if (betaApprovalStatusEl) betaApprovalStatusEl.textContent = "Starting Teach Mode…";
+  betaSyncInteractionLock();
+  try{
+    const session = await betaApi("/api/beta/teaching/start", {
+      method: "POST",
+      body: JSON.stringify({ goal }),
+    });
+    betaState.teachingSession = session;
+    betaState.teachingEventCount = Array.isArray(session.teaching_events) ? session.teaching_events.length : 1;
+    betaState.comparisons = {};
+    betaState.comparedOrderIds.clear();
+    upsertBetaSession(session);
+    renderBetaSession(session);
+    renderBetaSessionHistory();
+    if (betaTeachingSyncStatus) betaTeachingSyncStatus.textContent = "Recording semantic actions";
+    renderBetaTeachingBar();
+    activateTab("history");
+  }catch(error){
+    if (betaApprovalStatusEl) betaApprovalStatusEl.textContent = error.message || String(error);
+  }finally{
+    betaState.teachingBusy = false;
+    renderBetaTeachingBar();
+  }
+}
+
+async function recordBetaTeachingEvent(eventType, details = {}){
+  if (!betaTeachingIsRecording()) return null;
+  const sessionId = betaState.teachingSession?.id;
+  if (sessionId == null) return null;
+  if (betaTeachingSyncStatus) betaTeachingSyncStatus.textContent = "Saving observation…";
+  try{
+    const event = await betaApi(`/api/beta/teaching/${encodeURIComponent(sessionId)}/events`, {
+      method: "POST",
+      body: JSON.stringify({
+        event_type: eventType,
+        module: details.module || "Other",
+        message: details.message || eventType.replaceAll("_", " "),
+        order_id: details.order_id || undefined,
+        order_number: details.order_number || undefined,
+        metadata: details.metadata || {},
+      }),
+    });
+    betaState.teachingEventCount += 1;
+    if (betaTeachingSyncStatus) betaTeachingSyncStatus.textContent = "Saved";
+    renderBetaTeachingBar();
+    return event;
+  }catch(error){
+    if (betaTeachingSyncStatus) betaTeachingSyncStatus.textContent = `Not saved: ${error.message || error}`;
+    return null;
+  }
+}
+
+async function controlBetaTeaching(action){
+  const sessionId = betaState.teachingSession?.id;
+  if (sessionId == null || betaState.teachingBusy) return;
+  if (action === "cancel" && !window.confirm("Cancel this teaching session? Recorded events will remain, but no workflow will be learned.")) return;
+  betaState.teachingBusy = true;
+  renderBetaTeachingBar();
+  try{
+    const session = await betaApi(`/api/beta/teaching/${encodeURIComponent(sessionId)}/control`, {
+      method: "POST",
+      body: JSON.stringify({ action }),
+    });
+    upsertBetaSession(session);
+    renderBetaSession(session);
+    setBetaTeachingSession(session);
+    renderBetaSessionHistory();
+    if (action === "cancel") activateTab("beta");
+  }catch(error){
+    try{
+      const restored = await loadBetaSession(sessionId);
+      setBetaTeachingSession(restored);
+    }catch{
+      betaState.teachingSession = null;
+    }
+    if (betaTeachingSyncStatus) betaTeachingSyncStatus.textContent = error.message || String(error);
+  }finally{
+    betaState.teachingBusy = false;
+    renderBetaTeachingBar();
+  }
+}
+
+async function compareCurrentOrderForTeaching(options = {}){
+  const order = historyState.selectedOrder;
+  const sessionId = betaState.teachingSession?.id;
+  if (!order || sessionId == null || !betaTeachingIsRecording()) return null;
+  const key = String(order.id);
+  if (betaState.comparisonInFlight.has(key)) return null;
+  if (options.automatic && betaState.comparedOrderIds.has(key)){
+    renderBetaOrderComparison(betaState.comparisons[key] || null);
+    return betaState.comparisons[key] || null;
+  }
+  betaState.comparisonInFlight.add(key);
+  renderBetaTeachingBar();
+  renderBetaOrderComparison(null, { loading: true });
+  try{
+    const comparison = await betaApi(`/api/beta/teaching/${encodeURIComponent(sessionId)}/compare`, {
+      method: "POST",
+      body: JSON.stringify({ order_id: Number(order.id), force_vision: options.forceVision !== false }),
+    });
+    betaState.comparisons[key] = comparison;
+    betaState.comparedOrderIds.add(key);
+    betaState.teachingEventCount += 1;
+    renderBetaOrderComparison(comparison);
+    return comparison;
+  }catch(error){
+    betaOrderComparison.hidden = false;
+    betaOrderComparison.className = "beta-order-comparison is-mismatch";
+    betaOrderComparison.innerHTML = `<strong>Comparison stopped safely</strong><span>${escapeHtml(error.message || error)}</span>`;
+    return null;
+  }finally{
+    betaState.comparisonInFlight.delete(key);
+    renderBetaTeachingBar();
+  }
+}
+
+async function finishBetaTeaching(){
+  const sessionId = betaState.teachingSession?.id;
+  if (sessionId == null || betaState.teachingBusy) return;
+  betaState.teachingBusy = true;
+  betaState.teachingSession = { ...betaState.teachingSession, status: "planning" };
+  if (betaTeachingSyncStatus) betaTeachingSyncStatus.textContent = "Learning workflow…";
+  renderBetaTeachingBar();
+  try{
+    const session = await betaApi(`/api/beta/teaching/${encodeURIComponent(sessionId)}/finish`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    upsertBetaSession(session);
+    betaState.currentSession = session;
+    setBetaTeachingSession(session);
+    activateTab("beta");
+    renderBetaSession(session);
+    renderBetaSessionHistory();
+    if (betaApprovalStatusEl){
+      betaApprovalStatusEl.textContent = String(session.status || "").toLowerCase() === "failed"
+        ? "Learning failed closed. Your recorded events were preserved."
+        : "Review the learned workflow before saving anything to Beta memory.";
+    }
+  }catch(error){
+    try{
+      const restored = await loadBetaSession(sessionId);
+      setBetaTeachingSession(restored);
+    }catch{
+      betaState.teachingSession = null;
+    }
+    if (betaTeachingSyncStatus) betaTeachingSyncStatus.textContent = error.message || String(error);
+  }finally{
+    betaState.teachingBusy = false;
+    renderBetaTeachingBar();
+  }
+}
+
+async function reviewBetaTeachingWorkflow(decision, options = {}){
+  const workflow = betaState.currentSession?.teaching_workflow;
+  if (!workflow?.id || betaState.teachingBusy) return;
+  const verb = decision === "accepted" ? "accept" : "discard";
+  if (!window.confirm(`${verb === "accept" ? "Accept" : "Discard"} this learned workflow? This only updates Beta memory and will not run production actions.`)) return;
+  betaState.teachingBusy = true;
+  if (betaTeachingReviewStatus) betaTeachingReviewStatus.textContent = "Saving review…";
+  betaSyncInteractionLock();
+  try{
+    const session = await betaApi(`/api/beta/teaching/workflows/${encodeURIComponent(workflow.id)}/review`, {
+      method: "POST",
+      body: JSON.stringify({
+        decision,
+        accept_hard_rules: !!options.acceptHardRules,
+        accept_learned_notes: !!options.acceptLearnedNotes,
+      }),
+    });
+    upsertBetaSession(session);
+    renderBetaSession(session);
+    await loadBetaOverview({ force: true, sessionId: session.id, preserveOnError: true });
+    if (betaTeachingReviewStatus) betaTeachingReviewStatus.textContent = "Review saved. No production action was executed.";
+  }catch(error){
+    if (betaTeachingReviewStatus) betaTeachingReviewStatus.textContent = error.message || String(error);
+  }finally{
+    betaState.teachingBusy = false;
+    betaSyncInteractionLock();
+  }
+}
+
+function openBetaDecisionReason(order){
+  if (!betaDecisionReasonModal || !betaTeachingIsRecording() || !order) return;
+  const comparison = betaState.comparisons[String(order.id)] || null;
+  betaState.pendingDecision = {
+    order_id: order.id,
+    order_number: getOrderLabel(order),
+    comparison,
+  };
+  if (betaDecisionEvidence){
+    betaDecisionEvidence.innerHTML = comparison
+      ? `<strong>${escapeHtml(betaStatusLabel(comparison.verdict || "ambiguous"))}</strong><span>${escapeHtml(comparison.suggested_reason || "")}</span>`
+      : "<strong>No saved PDF comparison</strong><span>Explain what you checked before approving.</span>";
+  }
+  if (betaDecisionReasonText){
+    betaDecisionReasonText.value = comparison?.verdict === "matched"
+      ? comparison.suggested_reason || ""
+      : "";
+  }
+  betaDecisionReasonModal.hidden = false;
+  betaDecisionReasonText?.focus();
+}
+
+function closeBetaDecisionReason(){
+  if (betaDecisionReasonModal) betaDecisionReasonModal.hidden = true;
+  betaState.pendingDecision = null;
+}
+
+async function saveBetaDecisionReason(skipped = false){
+  const pending = betaState.pendingDecision;
+  if (!pending) return;
+  const reason = String(betaDecisionReasonText?.value || "").trim();
+  if (!skipped && !reason){
+    betaDecisionReasonText?.focus();
+    return;
+  }
+  await recordBetaTeachingEvent("decision_reason", {
+    module: "Orders",
+    order_id: pending.order_id,
+    order_number: pending.order_number,
+    message: skipped ? "The operator skipped the approval-reason explanation." : `Approval reason: ${reason}`,
+    metadata: {
+      decision: "approved",
+      reason_provided: !skipped,
+      reason: skipped ? "" : reason,
+      comparison_verdict: pending.comparison?.verdict || "not_compared",
+      vision_used: !!pending.comparison?.vision_used,
+    },
+  });
+  closeBetaDecisionReason();
+}
+
 async function loadBetaSession(sessionId){
   if (sessionId == null || sessionId === "") return null;
   const payload = await betaApi(`/api/beta/sessions/${encodeURIComponent(sessionId)}`);
@@ -15098,6 +15597,10 @@ async function loadBetaOverview(options = {}){
     }
     betaState.loaded = true;
     renderBetaSession(selected);
+    const activeTeaching = data.current_session && String(data.current_session.mode || "").toLowerCase() === "teach"
+      ? data.current_session
+      : null;
+    setBetaTeachingSession(activeTeaching);
     renderBetaCollections();
     return true;
   }catch(error){
@@ -15937,6 +16440,42 @@ if (awaChatForm){
 if (betaRunShadowBtn){
   betaRunShadowBtn.addEventListener("click", runBetaShadowSession);
 }
+if (betaStartTeachingBtn){
+  betaStartTeachingBtn.addEventListener("click", startBetaTeachingSession);
+}
+if (betaTeachingOpenOrders){
+  betaTeachingOpenOrders.addEventListener("click", ()=> activateTab("history"));
+}
+if (betaTeachingCompare){
+  betaTeachingCompare.addEventListener("click", ()=> compareCurrentOrderForTeaching({ forceVision: true }));
+}
+if (betaTeachingPause){
+  betaTeachingPause.addEventListener("click", ()=> {
+    const paused = String(betaState.teachingSession?.status || "").toLowerCase() === "paused";
+    controlBetaTeaching(paused ? "resume" : "pause");
+  });
+}
+if (betaTeachingFinish){
+  betaTeachingFinish.addEventListener("click", finishBetaTeaching);
+}
+if (betaTeachingCancel){
+  betaTeachingCancel.addEventListener("click", ()=> controlBetaTeaching("cancel"));
+}
+if (betaTeachingAcceptAll){
+  betaTeachingAcceptAll.addEventListener("click", ()=> reviewBetaTeachingWorkflow("accepted", { acceptHardRules: true, acceptLearnedNotes: true }));
+}
+if (betaTeachingAcceptNotes){
+  betaTeachingAcceptNotes.addEventListener("click", ()=> reviewBetaTeachingWorkflow("accepted", { acceptHardRules: false, acceptLearnedNotes: true }));
+}
+if (betaTeachingRejectWorkflow){
+  betaTeachingRejectWorkflow.addEventListener("click", ()=> reviewBetaTeachingWorkflow("rejected"));
+}
+if (betaDecisionReasonSave){
+  betaDecisionReasonSave.addEventListener("click", ()=> saveBetaDecisionReason(false));
+}
+if (betaDecisionReasonSkip){
+  betaDecisionReasonSkip.addEventListener("click", ()=> saveBetaDecisionReason(true));
+}
 if (betaApprovePlanBtn){
   betaApprovePlanBtn.addEventListener("click", ()=> recordBetaApproval("approved"));
 }
@@ -16732,6 +17271,18 @@ async function openOrderFromList(id){
     const order = await fetchOrder(id);
     historyState.selectedOrder = order;
     renderOrderDetail();
+    renderBetaTeachingBar();
+    void recordBetaTeachingEvent("order_opened", {
+      module: "Orders",
+      order_id: Number(order.id),
+      order_number: getOrderLabel(order),
+      message: `Opened order ${getOrderLabel(order)} for review.`,
+      metadata: {
+        status: normalizeHistoryStatusValue(order.status),
+        row_count: Array.isArray(order.rows) ? order.rows.length : 0,
+        warnings_count: Array.isArray(order.warnings) ? order.warnings.length : 0,
+      },
+    });
     return order;
   }catch(error){
     setHistoryStatus("Failed to load order: " + (error.message || error));
@@ -16894,7 +17445,31 @@ function selectOrderDetailView(viewName){
     panel.classList.toggle("active", active);
     panel.hidden = !active;
   });
-  if (target === "files") renderSourcePdfPage("order", sourcePdfState.order.page);
+  if (target === "files"){
+    renderSourcePdfPage("order", sourcePdfState.order.page);
+    if (betaTeachingIsRecording() && historyState.selectedOrder){
+      const order = historyState.selectedOrder;
+      void recordBetaTeachingEvent("original_document_viewed", {
+        module: "Orders",
+        order_id: Number(order.id),
+        order_number: getOrderLabel(order),
+        message: `Viewed the original document for ${getOrderLabel(order)}.`,
+        metadata: { view: "files", source_available: !orderDetailSourceFrame?.hidden },
+      });
+      void compareCurrentOrderForTeaching({ automatic: true, forceVision: true });
+    }
+  }else if (betaTeachingIsRecording() && historyState.selectedOrder){
+    const order = historyState.selectedOrder;
+    const eventType = target === "items" ? "extracted_items_viewed" : "order_view_changed";
+    void recordBetaTeachingEvent(eventType, {
+      module: "Orders",
+      order_id: Number(order.id),
+      order_number: getOrderLabel(order),
+      message: `Viewed the ${target} section for ${getOrderLabel(order)}.`,
+      metadata: { view: target },
+    });
+  }
+  renderBetaTeachingBar();
 }
 
 function orderLifecycleSteps(status){
@@ -17076,6 +17651,7 @@ function renderOrderDetailEnhancements(order){
   renderOrderLifecycle(order);
   renderOrderReviewSummary(order);
   renderOrderSource(order);
+  renderBetaOrderComparison(betaState.comparisons[String(order.id)] || null);
   selectOrderDetailView(status === "draft" || status === "reviewed" ? "items" : "summary");
   loadOrderDetailFiles(order);
 }
@@ -18246,6 +18822,23 @@ if (invoicePromptSave){
   });
 }
 
+async function recordTeachingApprovalSuccess(order, response = {}){
+  if (!betaTeachingIsRecording() || !order) return;
+  await recordBetaTeachingEvent("approval_succeeded", {
+    module: "Orders",
+    order_id: Number(order.id),
+    order_number: getOrderLabel(order),
+    message: `Approved order ${getOrderLabel(order)} through the existing Orders workflow.`,
+    metadata: {
+      saved_order_id: response?.saved_order_id || order.id,
+      warning_count: Array.isArray(response?.warnings) ? response.warnings.length : 0,
+      user_initiated_production_action: true,
+      beta_triggered_action: false,
+    },
+  });
+  openBetaDecisionReason(order);
+}
+
 document.getElementById("historyApprove").addEventListener("click", async ()=>{
   const order = historyState.selectedOrder;
   if (!order) return;
@@ -18254,9 +18847,21 @@ document.getElementById("historyApprove").addEventListener("click", async ()=>{
     return;
   }
   const rows = buildHistoryRowsPayload(appState.historyDetail.rows || []);
+  await recordBetaTeachingEvent("approval_attempted", {
+    module: "Orders",
+    order_id: Number(order.id),
+    order_number: getOrderLabel(order),
+    message: `Attempted to approve ${getOrderLabel(order)} after review.`,
+    metadata: {
+      row_count: rows.length,
+      warning_count: Array.isArray(appState.historyDetail.warnings) ? appState.historyDetail.warnings.length : 0,
+      comparison_verdict: betaState.comparisons[String(order.id)]?.verdict || "not_compared",
+    },
+  });
   setHistoryStatus("Approving draft…");
   try{
     const resp = await approveDraft(order.id, rows, appState.historyDetail.notes, order);
+    await recordTeachingApprovalSuccess(order, resp);
     setHistoryStatus("Order approved.");
     historyState.needsRefresh = true;
     analysisState.allOrdersDirty = true;
@@ -18293,6 +18898,7 @@ document.getElementById("historyApprove").addEventListener("click", async ()=>{
         }
         setHistoryStatus("Order approved (auto-recovered).");
         showSavedToast(snapshot.id || order.id);
+        await recordTeachingApprovalSuccess(order, { saved_order_id: snapshot.id || order.id });
         fallbackHandled = true;
       }
     }catch(fallbackErr){
@@ -18309,6 +18915,7 @@ document.getElementById("historyApprove").addEventListener("click", async ()=>{
           renderOrderDetail();
           setHistoryStatus("Order approved (history shows success).");
           showSavedToast(order.id);
+          await recordTeachingApprovalSuccess(order, { saved_order_id: order.id });
           analysisState.allOrdersDirty = true;
           analysisState.orderRowCache.delete(order.id);
           fallbackHandled = true;
@@ -18319,6 +18926,13 @@ document.getElementById("historyApprove").addEventListener("click", async ()=>{
     }
 
     if (!fallbackHandled){
+      await recordBetaTeachingEvent("approval_failed", {
+        module: "Orders",
+        order_id: Number(order.id),
+        order_number: getOrderLabel(order),
+        message: `Approval failed for ${getOrderLabel(order)}.`,
+        metadata: { error: error?.message || String(error) },
+      });
       setHistoryStatus("Approval failed: " + (error && error.message ? error.message : String(error)));
     }
   }
@@ -18649,9 +19263,21 @@ document.getElementById("approveSave").addEventListener("click", async ()=>{
     quantity: Number(row.quantity || 0),
     area: Number(row.area || 0),
   }));
+  const teachingOrder = {
+    id: Number(draftId),
+    order_numbers: [...new Set(rows.map(row => row.order_number).filter(Boolean))],
+  };
+  await recordBetaTeachingEvent("approval_attempted", {
+    module: "Extraction",
+    order_id: Number(draftId),
+    order_number: getOrderLabel(teachingOrder),
+    message: `Attempted to approve ${getOrderLabel(teachingOrder)} from the extraction review.`,
+    metadata: { row_count: rows.length, warning_count: (appState.extract.warnings || []).length },
+  });
   setStatusMessage("Approving draft…");
   try{
     const resp = await approveDraft(draftId, rows, appState.extract.notes, appState.extract);
+    await recordTeachingApprovalSuccess(teachingOrder, resp);
     const updatedRows = Array.isArray(resp?.order?.rows) ? resp.order.rows.map(r => ({ ...r })) : rows;
     appState.extract.originalRows = updatedRows.map(row => ({ ...row }));
     const warningsSource = resp?.row_warnings || {};
@@ -18690,6 +19316,13 @@ document.getElementById("approveSave").addEventListener("click", async ()=>{
       showSavedToast(resp.saved_order_id);
     }
   }catch(error){
+    await recordBetaTeachingEvent("approval_failed", {
+      module: "Extraction",
+      order_id: Number(draftId),
+      order_number: getOrderLabel(teachingOrder),
+      message: `Approval failed for ${getOrderLabel(teachingOrder)}.`,
+      metadata: { error: error?.message || String(error) },
+    });
     setStatusMessage("Approval failed.");
     setErrorMessage("Approval error: " + (error.message || error));
   }
@@ -23410,3 +24043,4 @@ updateSpacerProcessingUI();
 updateLabelsUI();
 connectTelegramFileEvents();
 refreshTelegramFilesBadge();
+restoreBetaTeachingSession();

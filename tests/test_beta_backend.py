@@ -154,6 +154,8 @@ def test_beta_tables_are_isolated_and_shadow_run_does_not_change_production(tmp_
         "beta_journal_entries",
         "beta_hard_rules",
         "beta_learned_notes",
+        "beta_teaching_events",
+        "beta_teaching_workflows",
     }
 
 
