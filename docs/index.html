@@ -8,7 +8,7 @@
   <meta name="theme-color" content="#0b1018" media="(prefers-color-scheme: dark)" />
   <link rel="icon" href="data:," />
   <title>Overview — Order Extractor</title>
-  <link rel="stylesheet" href="./css/styles.css?v=20260828-beta-teach1">
+  <link rel="stylesheet" href="./css/styles.css?v=20260828-beta-operator1">
 </head>
 <body>
   <svg class="icon-sprite" aria-hidden="true">
@@ -761,9 +761,10 @@
               <h2>Operator Agent</h2>
               <span class="beta-product-badge">Beta</span>
               <span class="beta-mode-badge">Shadow Mode</span>
+              <span class="beta-mode-badge is-assisted">Assisted Review</span>
               <span class="beta-mode-badge is-context">GPT-5.6 Terra</span>
             </div>
-            <p class="muted small">Teach Beta by doing the work yourself, or run a read-only Shadow plan from existing memory.</p>
+            <p class="muted small">Teach Beta by doing the work, ask it to review orders under your supervision, or run a read-only Shadow plan.</p>
           </div>
           <div class="beta-command-actions">
             <button type="button" class="btn" id="betaStartTeaching">Teach Beta</button>
@@ -772,8 +773,54 @@
         </section>
 
         <div class="beta-safety-banner" role="note">
-          <strong>Full in-platform context.</strong> Teach Mode records controls used, final field values, selections, uploads, forms, keyboard commands, visible warnings, order state, and backend action results. It excludes credentials, raw binary contents, screen video, mouse coordinates, and activity outside this platform. Shadow Mode remains read-only.
+          <strong>Supervised operator.</strong> Teach Mode records your in-platform workflow. Assisted Review can visually compare Needs Review PDFs and recommend approvals, but only the exact orders you confirm can change status. Mismatches, ambiguity, missing files, model errors, and stale reviews fail closed.
         </div>
+
+        <section class="card beta-operator-console" aria-labelledby="betaOperatorConsoleTitle">
+          <div class="beta-card-heading">
+            <div>
+              <span class="section-eyebrow">Ask the operator</span>
+              <h3 id="betaOperatorConsoleTitle">Assisted Order Review</h3>
+              <p class="muted small">Terra checks each original PDF against the extracted rows, applies Hard Rules and learned context, then separates safe matches from orders that need you.</p>
+            </div>
+            <span class="beta-mode-badge is-assisted">Supervised actions</span>
+          </div>
+          <div class="beta-operator-command-row">
+            <label class="beta-operator-command-field" for="betaOperatorCommand">
+              <span>What should Beta do?</span>
+              <textarea id="betaOperatorCommand" rows="2" maxlength="4000">Review the orders that need review and prepare the safe matches for my approval.</textarea>
+            </label>
+            <label class="beta-operator-limit-field" for="betaOperatorLimit">
+              <span>Orders this run</span>
+              <select id="betaOperatorLimit">
+                <option value="5" selected>5 orders</option>
+                <option value="10">10 orders</option>
+                <option value="20">20 orders</option>
+                <option value="25">25 orders</option>
+              </select>
+            </label>
+            <button type="button" class="btn primary" id="betaRunAssistedReview">Review Needs Review</button>
+          </div>
+          <div class="beta-operator-preset-row" aria-label="Operator shortcuts">
+            <button type="button" class="btn small tertiary" data-beta-operator-prompt="Review the newest orders that need review and prepare only exact PDF matches for my approval.">Newest first</button>
+            <button type="button" class="btn small tertiary" data-beta-operator-prompt="Triage the orders that need review. Focus on mismatches, ambiguity, and hard-rule failures. Do not prepare approvals unless every check passes.">Triage risks</button>
+            <button type="button" class="btn small tertiary" data-beta-operator-prompt="Review the orders that need review and suggest the next supervised steps for Processing, Labels, and Invoices after approval.">Review + next steps</button>
+          </div>
+          <div id="betaOperatorProgress" class="beta-operator-progress muted small" aria-live="polite">Ready. No production action happens during review.</div>
+          <div id="betaOperatorResults" class="beta-operator-results">
+            <div class="workspace-empty">Start an assisted review to see one evidence card per order.</div>
+          </div>
+          <div id="betaOperatorApprovalBar" class="beta-operator-approval-bar" hidden>
+            <div>
+              <strong id="betaOperatorApprovalSummary">0 safe matches selected</strong>
+              <span class="muted small">Only checked, freshly revalidated orders will be approved. Rows and source PDFs remain untouched.</span>
+            </div>
+            <div class="beta-operator-approval-actions">
+              <button type="button" class="btn tertiary" id="betaDeclineSafeOrders">Keep for Manual Review</button>
+              <button type="button" class="btn success" id="betaApproveSafeOrders">Confirm &amp; Approve Selected</button>
+            </div>
+          </div>
+        </section>
 
         <div class="beta-summary-grid">
           <section class="card beta-goal-card">
@@ -2274,6 +2321,6 @@
   <input type="file" id="scanFileInput" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple hidden />
 
 <script src="./js/living-dashboard.js?v=20260718" defer></script>
-<script src="./js/app.js?v=20260828-beta-teach1" defer></script>
+<script src="./js/app.js?v=20260828-beta-operator1" defer></script>
 </body>
 </html>

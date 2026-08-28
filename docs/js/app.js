@@ -353,6 +353,10 @@ const betaState = {
   comparedOrderIds: new Set(),
   comparisonInFlight: new Set(),
   pendingDecision: null,
+  operatorBusy: false,
+  operatorSessionId: "",
+  operatorSelectionTouched: false,
+  operatorSelectedIds: new Set(),
 };
 
 const telegramFilesState = {
@@ -1088,6 +1092,15 @@ const awaChatInput = document.getElementById("awaChatInput");
 const awaChatSendBtn = document.getElementById("awaChatSend");
 const betaRunShadowBtn = document.getElementById("betaRunShadow");
 const betaStartTeachingBtn = document.getElementById("betaStartTeaching");
+const betaRunAssistedReviewBtn = document.getElementById("betaRunAssistedReview");
+const betaOperatorCommandInput = document.getElementById("betaOperatorCommand");
+const betaOperatorLimitInput = document.getElementById("betaOperatorLimit");
+const betaOperatorProgressEl = document.getElementById("betaOperatorProgress");
+const betaOperatorResultsEl = document.getElementById("betaOperatorResults");
+const betaOperatorApprovalBar = document.getElementById("betaOperatorApprovalBar");
+const betaOperatorApprovalSummary = document.getElementById("betaOperatorApprovalSummary");
+const betaApproveSafeOrdersBtn = document.getElementById("betaApproveSafeOrders");
+const betaDeclineSafeOrdersBtn = document.getElementById("betaDeclineSafeOrders");
 const betaGoalInput = document.getElementById("betaGoal");
 const betaOperatorStatusEl = document.getElementById("betaOperatorStatus");
 const betaSessionIdEl = document.getElementById("betaSessionId");
@@ -14935,11 +14948,21 @@ function betaStatusLabel(status){
 }
 
 function betaSyncInteractionLock(){
-  const locked = betaState.loading || betaState.running || betaState.recordingApproval || betaState.memorySaving > 0 || betaState.teachingBusy;
-  if (betaRunShadowBtn) betaRunShadowBtn.disabled = locked || betaTeachingIsActive();
-  if (betaStartTeachingBtn) betaStartTeachingBtn.disabled = locked || betaTeachingIsActive();
+  const locked = betaState.loading || betaState.running || betaState.recordingApproval || betaState.memorySaving > 0 || betaState.teachingBusy || betaState.operatorBusy;
+  const operatorActive = String(betaState.currentSession?.mode || "").toLowerCase() === "assisted_review"
+    && ["observing", "running", "awaiting_approval"].includes(String(betaState.currentSession?.status || "").toLowerCase());
+  if (betaRunShadowBtn) betaRunShadowBtn.disabled = locked || betaTeachingIsActive() || operatorActive;
+  if (betaStartTeachingBtn) betaStartTeachingBtn.disabled = locked || betaTeachingIsActive() || operatorActive;
+  if (betaRunAssistedReviewBtn) betaRunAssistedReviewBtn.disabled = locked || betaTeachingIsActive() || operatorActive;
+  if (betaOperatorCommandInput) betaOperatorCommandInput.disabled = locked;
+  if (betaOperatorLimitInput) betaOperatorLimitInput.disabled = locked;
+  if (betaApproveSafeOrdersBtn) betaApproveSafeOrdersBtn.disabled = locked;
+  if (betaDeclineSafeOrdersBtn) betaDeclineSafeOrdersBtn.disabled = locked;
   if (betaGoalInput) betaGoalInput.disabled = locked;
   document.querySelectorAll("#tabBeta [data-beta-rule-toggle], #tabBeta [data-beta-note-toggle], #tabBeta [data-beta-session-id], #tabBeta [data-beta-memory-tab], #tabBeta .beta-memory-form input, #tabBeta .beta-memory-form textarea, #tabBeta .beta-memory-form button").forEach(control => {
+    control.disabled = locked;
+  });
+  document.querySelectorAll("#betaOperatorResults [data-beta-operator-select]").forEach(control => {
     control.disabled = locked;
   });
   if (betaApprovalActionsEl){
@@ -14962,6 +14985,14 @@ function betaSetApprovalBusy(isBusy){
 
 function betaSetMemoryBusy(isBusy){
   betaState.memorySaving = Math.max(0, betaState.memorySaving + (isBusy ? 1 : -1));
+  betaSyncInteractionLock();
+}
+
+function betaSetOperatorBusy(isBusy){
+  betaState.operatorBusy = !!isBusy;
+  if (betaRunAssistedReviewBtn){
+    betaRunAssistedReviewBtn.textContent = isBusy ? "Reviewing PDFs…" : "Review Needs Review";
+  }
   betaSyncInteractionLock();
 }
 
@@ -15036,6 +15067,7 @@ function renderBetaPlan(session){
 
 function renderBetaApproval(session){
   const isTeaching = String(session?.mode || "").toLowerCase() === "teach";
+  const isOperatorReview = String(session?.mode || "").toLowerCase() === "assisted_review";
   const requested = !!session?.approval_requested;
   const decision = betaApprovalDecision(session);
   const awaiting = String(session?.status || "").toLowerCase() === "awaiting_approval" && requested && !decision;
@@ -15051,15 +15083,105 @@ function renderBetaApproval(session){
       ? betaStatusLabel(decision)
       : (awaiting ? "Approval requested" : "Not requested");
   }
-  if (betaApprovalActionsEl) betaApprovalActionsEl.hidden = isTeaching || !awaiting;
+  if (betaApprovalActionsEl) betaApprovalActionsEl.hidden = isTeaching || isOperatorReview || !awaiting;
   if (betaApprovalCopyEl){
-    betaApprovalCopyEl.textContent = isTeaching && awaiting
+    betaApprovalCopyEl.textContent = isOperatorReview
+      ? "Assisted Review uses the confirmation bar above. Only checked safe matches can be approved, and the server revalidates them immediately before the status change."
+      : isTeaching && awaiting
       ? "The learned workflow is waiting for your review below. Accepting it only updates Beta memory; it never repeats the production actions."
       : decision
       ? `${betaStatusLabel(decision)} was recorded for this plan. No production action was executed.`
       : "Consequential steps are highlighted. In V1, approval is recorded as the local operator and ends the session; it never executes the plan.";
   }
   if (betaApprovalStatusEl && !awaiting && !decision) betaApprovalStatusEl.textContent = "";
+}
+
+function betaLatestOperatorReviews(session){
+  const latest = new Map();
+  (Array.isArray(session?.operator_reviews) ? session.operator_reviews : []).forEach(review => {
+    if (review?.order_id != null) latest.set(String(review.order_id), review);
+  });
+  return latest;
+}
+
+function updateBetaOperatorApprovalSummary(){
+  if (!betaOperatorApprovalSummary) return;
+  const count = betaState.operatorSelectedIds.size;
+  betaOperatorApprovalSummary.textContent = `${count} safe ${count === 1 ? "match" : "matches"} selected`;
+  if (betaApproveSafeOrdersBtn) betaApproveSafeOrdersBtn.disabled = betaState.operatorBusy || count === 0;
+}
+
+function renderBetaOperatorSession(session){
+  if (!betaOperatorResultsEl || !betaOperatorProgressEl) return;
+  const isOperator = String(session?.mode || "").toLowerCase() === "assisted_review";
+  if (!isOperator){
+    if (!betaState.operatorBusy){
+      betaOperatorProgressEl.className = "beta-operator-progress muted small";
+      betaOperatorProgressEl.textContent = "Ready. No production action happens during review.";
+      betaOperatorResultsEl.innerHTML = '<div class="workspace-empty">Start an assisted review to see one evidence card per order.</div>';
+      if (betaOperatorApprovalBar) betaOperatorApprovalBar.hidden = true;
+    }
+    return;
+  }
+  const candidates = Array.isArray(session.operator_candidates) ? session.operator_candidates : [];
+  const reviews = betaLatestOperatorReviews(session);
+  const sessionKey = String(session.id || "");
+  if (betaState.operatorSessionId !== sessionKey){
+    betaState.operatorSessionId = sessionKey;
+    betaState.operatorSelectedIds = new Set(
+      Array.from(reviews.values())
+        .filter(review => review.verdict === "safe_to_approve")
+        .map(review => String(review.order_id))
+    );
+  }else{
+    Array.from(reviews.values()).forEach(review => {
+      if (review.verdict === "safe_to_approve" && !betaState.operatorSelectionTouched){
+        betaState.operatorSelectedIds.add(String(review.order_id));
+      }
+    });
+  }
+  const reviewedCount = reviews.size;
+  const status = String(session.status || "").toLowerCase();
+  betaOperatorProgressEl.className = `beta-operator-progress muted small ${betaState.operatorBusy ? "is-running" : ""}`.trim();
+  betaOperatorProgressEl.textContent = betaState.operatorBusy
+    ? `Reviewing original PDFs ${reviewedCount} of ${candidates.length}… Each order is checked independently.`
+    : (session.summary || `${reviewedCount} of ${candidates.length} orders reviewed.`);
+  if (!candidates.length){
+    betaOperatorResultsEl.innerHTML = '<div class="workspace-empty">No eligible Needs Review orders were found.</div>';
+  }else{
+    betaOperatorResultsEl.innerHTML = candidates.map(candidate => {
+      const review = reviews.get(String(candidate.order_id));
+      if (!review){
+        return `<article class="beta-operator-result">
+          <div class="beta-operator-result-header"><div class="beta-operator-result-order"><div><strong>${escapeHtml(candidate.order_number || `Order #${candidate.order_id}`)}</strong><span>${escapeHtml(candidate.client_name || "Unknown client")}</span></div></div><span class="beta-operator-verdict">Waiting</span></div>
+          <p>Waiting for deterministic validation and Terra visual PDF comparison.</p>
+        </article>`;
+      }
+      const verdict = String(review.verdict || "manual_review").toLowerCase();
+      const safe = verdict === "safe_to_approve";
+      const selected = betaState.operatorSelectedIds.has(String(candidate.order_id));
+      const blockers = Array.isArray(review.blockers) ? review.blockers : [];
+      const nextActions = Array.isArray(review.next_actions) ? review.next_actions : [];
+      const approved = status === "completed" && session.approval_decision === "approved" && safe;
+      return `<article class="beta-operator-result is-${escapeHtml(verdict.replace(/_/g, "-"))}">
+        <div class="beta-operator-result-header">
+          <label class="beta-operator-result-order">
+            ${safe && status === "awaiting_approval" ? `<input type="checkbox" data-beta-operator-select="${escapeHtml(candidate.order_id)}" ${selected ? "checked" : ""} />` : ""}
+            <span><strong>${escapeHtml(candidate.order_number || `Order #${candidate.order_id}`)}</strong><span>${escapeHtml(candidate.client_name || "Unknown client")}</span></span>
+          </label>
+          <span class="beta-operator-verdict">${escapeHtml(approved ? "Approved" : verdict.replace(/_/g, " "))}</span>
+        </div>
+        <p>${escapeHtml(review.reason || review.summary || "No explanation returned.")}</p>
+        <div class="beta-operator-evidence"><span>${escapeHtml(Math.round(Number(review.confidence || 0) * 100))}% confidence</span><span>${escapeHtml((review.comparisons || []).length)} row checks</span><span>${escapeHtml((review.hard_rule_checks || []).length)} hard rules</span></div>
+        ${blockers.length ? `<details><summary>${escapeHtml(blockers.length)} blocker${blockers.length === 1 ? "" : "s"}</summary><ul>${blockers.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul></details>` : ""}
+        ${nextActions.length ? `<div class="beta-operator-next"><strong>Suggested next:</strong> ${escapeHtml(nextActions.map(item => `${item.module}: ${item.action}`).join(" · "))}</div>` : ""}
+        <button type="button" class="btn small tertiary" data-beta-open-reviewed-order="${escapeHtml(candidate.order_id)}">Open order</button>
+      </article>`;
+    }).join("");
+  }
+  const safeCount = Array.from(reviews.values()).filter(review => review.verdict === "safe_to_approve").length;
+  if (betaOperatorApprovalBar) betaOperatorApprovalBar.hidden = status !== "awaiting_approval" || safeCount === 0;
+  updateBetaOperatorApprovalSummary();
 }
 
 function renderBetaSession(session){
@@ -15073,12 +15195,15 @@ function renderBetaSession(session){
     betaSessionStartedEl.textContent = session?.started_at ? formatDate(session.started_at) : "—";
   }
   if (betaSessionModeEl){
-    betaSessionModeEl.textContent = String(session?.mode || "shadow").toLowerCase() === "teach" ? "Teach" : "Shadow";
+    const mode = String(session?.mode || "shadow").toLowerCase();
+    betaSessionModeEl.textContent = mode === "teach" ? "Teach" : (mode === "assisted_review" ? "Assisted review" : "Shadow");
   }
   renderBetaJournal(session);
   renderBetaPlan(session);
   renderBetaApproval(session);
   renderBetaTeachingWorkflow(session?.teaching_workflow || null);
+  renderBetaOperatorSession(session);
+  betaSyncInteractionLock();
 }
 
 function renderBetaHardRules(){
@@ -15132,7 +15257,7 @@ function renderBetaSessionHistory(){
     <div class="beta-history-topline">
       <span class="beta-status-badge is-${escapeHtml(String(session.status || "idle").replace(/_/g, "-"))}">${escapeHtml(betaStatusLabel(session.status))}</span>
       <time>${escapeHtml(formatDate(session.created_at || session.started_at))}</time>
-      <span>${String(session.mode || "shadow").toLowerCase() === "teach" ? "Teach Mode" : "Shadow Mode"}</span>
+      <span>${String(session.mode || "shadow").toLowerCase() === "teach" ? "Teach Mode" : (String(session.mode || "").toLowerCase() === "assisted_review" ? "Assisted Review" : "Shadow Mode")}</span>
     </div>
     <strong>${escapeHtml(session.goal || "Untitled Beta Session")}</strong>
     <p>${escapeHtml(session.summary || "No summary recorded.")}</p>
@@ -15988,6 +16113,126 @@ async function loadBetaOverview(options = {}){
   }
 }
 
+async function runBetaAssistedReview(){
+  const goal = String(betaOperatorCommandInput?.value || "").trim();
+  const limit = Math.max(1, Math.min(25, Number(betaOperatorLimitInput?.value || 5)));
+  if (!goal){
+    betaOperatorCommandInput?.focus();
+    return;
+  }
+  if (betaState.loading || betaState.operatorBusy || betaState.teachingBusy || betaTeachingIsActive()) return;
+  betaState.operatorSessionId = "";
+  betaState.operatorSelectionTouched = false;
+  betaState.operatorSelectedIds = new Set();
+  betaSetOperatorBusy(true);
+  let failed = false;
+  if (betaOperatorProgressEl){
+    betaOperatorProgressEl.className = "beta-operator-progress muted small is-running";
+    betaOperatorProgressEl.textContent = "Reading the Needs Review queue…";
+  }
+  try{
+    let session = await betaApi("/api/beta/operator/review/start", {
+      method: "POST",
+      body: JSON.stringify({ goal, limit }),
+    });
+    session = session.session || session;
+    upsertBetaSession(session);
+    renderBetaSession(session);
+    renderBetaSessionHistory();
+    const candidates = Array.isArray(session.operator_candidates) ? session.operator_candidates : [];
+    for (let index = 0; index < candidates.length; index += 1){
+      const candidate = candidates[index];
+      if (betaOperatorProgressEl){
+        betaOperatorProgressEl.textContent = `Reviewing ${candidate.order_number || `order #${candidate.order_id}`} (${index + 1} of ${candidates.length})…`;
+      }
+      const response = await betaApi(`/api/beta/operator/review/${encodeURIComponent(session.id)}/orders`, {
+        method: "POST",
+        body: JSON.stringify({ order_id: Number(candidate.order_id) }),
+      });
+      session = response.session || session;
+      upsertBetaSession(session);
+      renderBetaSession(session);
+      renderBetaSessionHistory();
+    }
+    await loadBetaOverview({ force: true, sessionId: session.id, preserveOnError: true });
+  }catch(error){
+    failed = true;
+    if (betaOperatorProgressEl){
+      betaOperatorProgressEl.className = "beta-operator-progress muted small is-error";
+      betaOperatorProgressEl.textContent = `Assisted Review stopped safely: ${error.message || error}. No unconfirmed order was approved.`;
+    }
+  }finally{
+    betaSetOperatorBusy(false);
+    if (!failed) renderBetaOperatorSession(betaState.currentSession);
+  }
+}
+
+async function approveBetaSafeOrders(){
+  const session = betaState.currentSession;
+  if (String(session?.mode || "").toLowerCase() !== "assisted_review" || String(session?.status || "").toLowerCase() !== "awaiting_approval") return;
+  const orderIds = Array.from(betaState.operatorSelectedIds).map(Number).filter(Number.isFinite);
+  if (!orderIds.length) return;
+  const labels = (session.operator_candidates || [])
+    .filter(item => orderIds.includes(Number(item.order_id)))
+    .map(item => item.order_number || `#${item.order_id}`);
+  const message = `Approve ${orderIds.length} selected ${orderIds.length === 1 ? "order" : "orders"}?\n\n${labels.join(", ")}\n\nThe server will recheck every order first. Rows and source PDFs will not be changed.`;
+  if (!window.confirm(message)) return;
+  betaSetOperatorBusy(true);
+  let failed = false;
+  if (betaOperatorProgressEl){
+    betaOperatorProgressEl.className = "beta-operator-progress muted small is-running";
+    betaOperatorProgressEl.textContent = "Revalidating the selected orders before approval…";
+  }
+  try{
+    const updated = await betaApi(`/api/beta/operator/review/${encodeURIComponent(session.id)}/approve`, {
+      method: "POST",
+      body: JSON.stringify({ order_ids: orderIds, confirmed: true }),
+    });
+    upsertBetaSession(updated);
+    betaState.currentSession = updated;
+    historyState.needsRefresh = true;
+    analysisState.allOrdersDirty = true;
+    workspaceState.queue = null;
+    renderBetaSession(updated);
+    renderBetaSessionHistory();
+    await loadBetaOverview({ force: true, sessionId: updated.id, preserveOnError: true });
+  }catch(error){
+    failed = true;
+    if (betaOperatorProgressEl){
+      betaOperatorProgressEl.className = "beta-operator-progress muted small is-error";
+      betaOperatorProgressEl.textContent = `Approval was blocked: ${error.message || error}. Start a fresh review if an order changed.`;
+    }
+  }finally{
+    betaSetOperatorBusy(false);
+    if (!failed) renderBetaOperatorSession(betaState.currentSession);
+  }
+}
+
+async function declineBetaSafeOrders(){
+  const session = betaState.currentSession;
+  if (String(session?.mode || "").toLowerCase() !== "assisted_review" || String(session?.status || "").toLowerCase() !== "awaiting_approval") return;
+  if (!window.confirm("Keep all reviewed orders for manual review? No production order will be changed.")) return;
+  betaSetOperatorBusy(true);
+  try{
+    const updated = await betaApi(`/api/beta/operator/review/${encodeURIComponent(session.id)}/decline`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    upsertBetaSession(updated);
+    betaState.currentSession = updated;
+    renderBetaSession(updated);
+    renderBetaSessionHistory();
+    await loadBetaOverview({ force: true, sessionId: updated.id, preserveOnError: true });
+  }catch(error){
+    if (betaOperatorProgressEl){
+      betaOperatorProgressEl.className = "beta-operator-progress muted small is-error";
+      betaOperatorProgressEl.textContent = `Could not close the review: ${error.message || error}`;
+    }
+  }finally{
+    betaSetOperatorBusy(false);
+  }
+}
+
 async function runBetaShadowSession(){
   const goal = String(betaGoalInput?.value || "").trim();
   if (!goal){
@@ -16813,6 +17058,37 @@ if (betaRunShadowBtn){
 }
 if (betaStartTeachingBtn){
   betaStartTeachingBtn.addEventListener("click", startBetaTeachingSession);
+}
+if (betaRunAssistedReviewBtn){
+  betaRunAssistedReviewBtn.addEventListener("click", runBetaAssistedReview);
+}
+if (betaApproveSafeOrdersBtn){
+  betaApproveSafeOrdersBtn.addEventListener("click", approveBetaSafeOrders);
+}
+if (betaDeclineSafeOrdersBtn){
+  betaDeclineSafeOrdersBtn.addEventListener("click", declineBetaSafeOrders);
+}
+document.querySelectorAll("[data-beta-operator-prompt]").forEach(button => {
+  button.addEventListener("click", ()=> {
+    if (betaOperatorCommandInput) betaOperatorCommandInput.value = button.dataset.betaOperatorPrompt || "";
+    betaOperatorCommandInput?.focus();
+  });
+});
+if (betaOperatorResultsEl){
+  betaOperatorResultsEl.addEventListener("change", event => {
+    const input = event.target.closest("[data-beta-operator-select]");
+    if (!input) return;
+    betaState.operatorSelectionTouched = true;
+    const id = String(input.dataset.betaOperatorSelect || "");
+    if (input.checked) betaState.operatorSelectedIds.add(id);
+    else betaState.operatorSelectedIds.delete(id);
+    updateBetaOperatorApprovalSummary();
+  });
+  betaOperatorResultsEl.addEventListener("click", event => {
+    const button = event.target.closest("[data-beta-open-reviewed-order]");
+    if (!button) return;
+    openOrderFromList(button.dataset.betaOpenReviewedOrder);
+  });
 }
 if (betaTeachingOpenOrders){
   betaTeachingOpenOrders.addEventListener("click", ()=> activateTab("history"));

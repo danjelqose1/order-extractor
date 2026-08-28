@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Annotated, Any, Callable, Dict, List, Literal, Optional, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
-from sqlalchemy import func, select
+from sqlalchemy import select, update
 
 import db as db_module
 from beta_model import beta_model_name, beta_reasoning_effort, strict_json_schema
@@ -248,14 +248,17 @@ def _append_journal(
 ) -> db_module.BetaJournalEntry:
     if entry_type not in BETA_ENTRY_TYPES:
         raise ValueError(f"Unsupported Beta journal entry type: {entry_type}")
-    sequence = session.execute(
-        select(func.coalesce(func.max(db_module.BetaJournalEntry.sequence), 0)).where(
-            db_module.BetaJournalEntry.session_id == int(session_id)
-        )
-    ).scalar_one()
+    allocated = session.execute(
+        update(db_module.BetaSession)
+        .where(db_module.BetaSession.id == int(session_id))
+        .values(next_journal_sequence=db_module.BetaSession.next_journal_sequence + 1)
+        .returning(db_module.BetaSession.next_journal_sequence)
+    ).scalar_one_or_none()
+    if allocated is None:
+        raise LookupError("Beta session not found")
     record = db_module.BetaJournalEntry(
         session_id=int(session_id),
-        sequence=int(sequence) + 1,
+        sequence=int(allocated) - 1,
         entry_type=entry_type,
         message=_clean_text(message, field="message", max_length=8000),
         metadata_json=_dump_metadata(metadata),
@@ -492,13 +495,26 @@ def get_session_detail(session_id: int) -> Optional[Dict[str, Any]]:
         journal = [_serialize_journal(entry) for entry in journal_records]
         plan = []
         warnings = []
+        operator_candidates = []
+        operator_reviews = []
+        production_action_executed = False
         for entry in journal:
+            metadata = entry["metadata"]
             if entry["entry_type"] == "proposed_action":
-                step = entry["metadata"].get("plan_step")
+                step = metadata.get("plan_step")
                 if isinstance(step, dict):
                     plan.append(step)
             elif entry["entry_type"] == "warning":
                 warnings.append(entry["message"])
+            candidates = metadata.get("operator_candidates")
+            if isinstance(candidates, list) and not operator_candidates:
+                operator_candidates = [item for item in candidates if isinstance(item, dict)]
+            operator_review = metadata.get("operator_review")
+            if isinstance(operator_review, dict):
+                operator_reviews.append(operator_review)
+            production_action_executed = production_action_executed or bool(
+                metadata.get("production_data_changed") is True
+            )
         detail = _serialize_session(record)
         detail.update(
             {
@@ -509,7 +525,9 @@ def get_session_detail(session_id: int) -> Optional[Dict[str, Any]]:
                 "teaching_workflow": (
                     _serialize_teaching_workflow(workflow_record) if workflow_record else None
                 ),
-                "production_action_executed": False,
+                "operator_candidates": operator_candidates,
+                "operator_reviews": operator_reviews,
+                "production_action_executed": production_action_executed,
             }
         )
         return detail

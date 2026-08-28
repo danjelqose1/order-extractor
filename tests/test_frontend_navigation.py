@@ -95,6 +95,29 @@ def test_beta_teach_mode_has_persistent_recorder_comparison_and_review_boundary(
     assert "openBetaDecisionReason(order);" in comparison
 
 
+def test_beta_assisted_operator_reviews_then_requires_exact_human_confirmation():
+    html = INDEX_HTML.read_text(encoding="utf-8")
+    js = APP_JS.read_text(encoding="utf-8")
+
+    for element_id in (
+        "betaOperatorCommand",
+        "betaOperatorLimit",
+        "betaRunAssistedReview",
+        "betaOperatorResults",
+        "betaOperatorApprovalBar",
+        "betaApproveSafeOrders",
+        "betaDeclineSafeOrders",
+    ):
+        assert f'id="{element_id}"' in html
+
+    assert "/api/beta/operator/review/start" in js
+    assert "/api/beta/operator/review/${encodeURIComponent(session.id)}/approve" in js
+    assert "order_ids: orderIds, confirmed: true" in js
+    assert "The server will recheck every order first" in js
+    assert "data-beta-operator-select" in js
+    assert "safe_to_approve" in js
+
+
 def test_teach_mode_never_calls_a_beta_production_execution_endpoint():
     js = APP_JS.read_text(encoding="utf-8")
     teaching_js = js[js.index("function betaTeachingIsActive"):js.index("async function loadBetaSession")]

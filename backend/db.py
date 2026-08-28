@@ -487,6 +487,11 @@ class BetaSession(Base):
     approval_decision: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     approved_by: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Sequence numbers are allocated by atomic UPDATE statements. Using
+    # MAX(sequence) + 1 races when the browser records two semantic events at
+    # the same time (for example an approval result and its decision reason).
+    next_journal_sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    next_teaching_sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
 
 class BetaJournalEntry(Base):
@@ -619,6 +624,39 @@ class BetaTeachingWorkflow(Base):
 def _ensure_schema() -> None:
     with engine.begin() as conn:
         conn.execute(text("PRAGMA journal_mode=WAL"))
+        beta_session_info = conn.execute(text("PRAGMA table_info(beta_sessions)")).fetchall()
+        beta_session_columns = {row[1] for row in beta_session_info}
+        if beta_session_columns:
+            if "next_journal_sequence" not in beta_session_columns:
+                conn.execute(
+                    text(
+                        "ALTER TABLE beta_sessions ADD COLUMN "
+                        "next_journal_sequence INTEGER NOT NULL DEFAULT 1"
+                    )
+                )
+            if "next_teaching_sequence" not in beta_session_columns:
+                conn.execute(
+                    text(
+                        "ALTER TABLE beta_sessions ADD COLUMN "
+                        "next_teaching_sequence INTEGER NOT NULL DEFAULT 1"
+                    )
+                )
+            conn.execute(
+                text(
+                    "UPDATE beta_sessions SET next_journal_sequence = "
+                    "MAX(COALESCE(next_journal_sequence, 1), COALESCE(("
+                    "SELECT MAX(sequence) + 1 FROM beta_journal_entries "
+                    "WHERE beta_journal_entries.session_id = beta_sessions.id), 1))"
+                )
+            )
+            conn.execute(
+                text(
+                    "UPDATE beta_sessions SET next_teaching_sequence = "
+                    "MAX(COALESCE(next_teaching_sequence, 1), COALESCE(("
+                    "SELECT MAX(sequence) + 1 FROM beta_teaching_events "
+                    "WHERE beta_teaching_events.session_id = beta_sessions.id), 1))"
+                )
+            )
         info = conn.execute(text("PRAGMA table_info(orders)")).fetchall()
         columns = {row[1] for row in info}
         if "client_name" not in columns:

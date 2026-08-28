@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
-from sqlalchemy import func, select
+from sqlalchemy import select, update
 
 import db as db_module
 from area_dimension_validator import apply_area_dimension_validation
@@ -273,14 +273,17 @@ def _append_teaching_event(
     if event_type not in TEACH_EVENT_TYPES:
         raise ValueError(f"Unsupported teaching event type: {event_type}")
     safe_module = module if module in TEACH_MODULES else "Other"
-    sequence = session.execute(
-        select(func.coalesce(func.max(db_module.BetaTeachingEvent.sequence), 0)).where(
-            db_module.BetaTeachingEvent.session_id == int(session_id)
-        )
-    ).scalar_one()
+    allocated = session.execute(
+        update(db_module.BetaSession)
+        .where(db_module.BetaSession.id == int(session_id))
+        .values(next_teaching_sequence=db_module.BetaSession.next_teaching_sequence + 1)
+        .returning(db_module.BetaSession.next_teaching_sequence)
+    ).scalar_one_or_none()
+    if allocated is None:
+        raise LookupError("Beta teaching session not found")
     record = db_module.BetaTeachingEvent(
         session_id=int(session_id),
-        sequence=int(sequence) + 1,
+        sequence=int(allocated) - 1,
         event_type=event_type,
         module=safe_module,
         order_id=int(order_id) if order_id is not None else None,
@@ -321,12 +324,15 @@ def start_teaching_session(goal: str) -> Dict[str, Any]:
     with db_module.get_session() as session:
         active = session.execute(
             select(db_module.BetaSession).where(
-                db_module.BetaSession.mode == TEACH_MODE,
-                db_module.BetaSession.status.in_(tuple(TEACH_ACTIVE_STATUSES)),
+                db_module.BetaSession.mode.in_((TEACH_MODE, "assisted_review")),
+                db_module.BetaSession.status.in_((
+                    "teaching", "paused", "planning", "reviewing",
+                    "observing", "running", "awaiting_approval",
+                )),
             )
         ).scalars().first()
         if active:
-            raise ValueError(f"Teach Mode session #{active.id} is already active")
+            raise ValueError(f"Finish or cancel active Beta session #{active.id} before starting Teach Mode")
         record = db_module.BetaSession(
             goal=clean_goal,
             mode=TEACH_MODE,

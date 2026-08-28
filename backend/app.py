@@ -578,6 +578,26 @@ class BetaTeachWorkflowReviewPayload(BaseModel):
     accept_learned_notes: bool = False
 
 
+class BetaOperatorStartPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    goal: str = Field(min_length=1, max_length=4000)
+    limit: int = Field(default=5, ge=1, le=25)
+
+
+class BetaOperatorReviewPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    order_id: int = Field(ge=1)
+
+
+class BetaOperatorApprovePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    order_ids: List[int] = Field(min_length=1, max_length=25)
+    confirmed: Literal[True]
+
+
 class InvoiceAiGlassMatchPayload(BaseModel):
     raw_name: str
     known_types: List[str]
@@ -1767,6 +1787,14 @@ def _beta_teaching_service_module():
     return beta_teaching_service
 
 
+def _beta_operator_service_module():
+    # Assisted approval is isolated from normal order routes and imported only
+    # when the experimental Beta endpoint is used.
+    import beta_operator_service
+
+    return beta_operator_service
+
+
 @app.get("/api/beta/overview")
 def beta_overview() -> Dict[str, Any]:
     return _beta_service_module().get_overview()
@@ -1844,6 +1872,64 @@ def beta_review_teaching_workflow(
             accept_hard_rules=payload.accept_hard_rules,
             accept_learned_notes=payload.accept_learned_notes,
             reviewed_by="local_operator",
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/beta/operator/review/start")
+def beta_start_operator_review(payload: BetaOperatorStartPayload) -> Dict[str, Any]:
+    try:
+        return _beta_operator_service_module().start_review_session(
+            payload.goal,
+            limit=payload.limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/beta/operator/review/{session_id}/orders")
+def beta_review_operator_order(
+    session_id: int,
+    payload: BetaOperatorReviewPayload,
+) -> Dict[str, Any]:
+    try:
+        return _beta_operator_service_module().review_order(
+            session_id,
+            order_id=payload.order_id,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/beta/operator/review/{session_id}/approve")
+def beta_approve_operator_orders(
+    session_id: int,
+    payload: BetaOperatorApprovePayload,
+) -> Dict[str, Any]:
+    try:
+        return _beta_operator_service_module().approve_reviewed_orders(
+            session_id,
+            order_ids=payload.order_ids,
+            confirmed=payload.confirmed,
+            approved_by="local_operator",
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/beta/operator/review/{session_id}/decline")
+def beta_decline_operator_orders(session_id: int) -> Dict[str, Any]:
+    try:
+        return _beta_operator_service_module().decline_reviewed_orders(
+            session_id,
+            declined_by="local_operator",
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
