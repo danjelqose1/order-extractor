@@ -1786,11 +1786,6 @@
             <span>Mother Sheet – Client: — | Orders: — | Date: —</span>
             <span class="muted small">Rows: 0</span>
           </div>
-          <div class="processing-sheet-entry-actions" aria-label="Mother Sheet actions">
-            <button type="button" class="btn primary" id="processingEditSheet" disabled>Edit Sheet</button>
-            <button type="button" class="btn" id="processingPrintSheet" disabled>Print</button>
-            <span class="muted small">Final edits are applied to the printable sheet, not the approved order data.</span>
-          </div>
           <div class="muted small" style="margin:8px 0 6px;display:flex;align-items:center;gap:8px">
             <label class="inline-toggle">
               <input type="checkbox" id="processingWysiwygToggle">
@@ -1799,94 +1794,6 @@
           </div>
           <div id="motherSheetPreview" class="mother-sheet" hidden></div>
           <div id="processingPreview" class="processing-preview">No orders added yet.</div>
-
-          <section id="productionSheetEditor" class="production-sheet-editor" hidden aria-labelledby="productionSheetEditorTitle">
-            <div class="production-sheet-editor-heading">
-              <div>
-                <span class="section-eyebrow">Print-first workspace</span>
-                <h2 id="productionSheetEditorTitle">Production Sheet Editor</h2>
-                <p class="muted small">Blue-marked content came from approved orders. Yellow notes are operator-added.</p>
-              </div>
-              <button type="button" class="btn tertiary" id="productionSheetClose">Close editor</button>
-            </div>
-
-            <div class="production-sheet-commandbar" role="toolbar" aria-label="Production Sheet commands">
-              <button type="button" class="btn" id="productionSheetUndo" disabled>Undo</button>
-              <button type="button" class="btn" id="productionSheetRedo" disabled>Redo</button>
-              <button type="button" class="btn" id="productionSheetReset">Reset to generated</button>
-              <button type="button" class="btn" id="productionSheetSave">Save changes</button>
-              <button type="button" class="btn primary production-sheet-print" id="productionSheetPrint">Print</button>
-              <span id="productionSheetSaveStatus" class="production-sheet-save-status" role="status">Generated sheet</span>
-            </div>
-
-            <div class="production-sheet-tools">
-              <div class="production-sheet-tool-group" aria-label="Text formatting">
-                <strong>Text</strong>
-                <label><span>Font</span><select id="productionSheetFontFamily"><option value="Arial, sans-serif">Arial</option><option value="Inter, system-ui, sans-serif">Inter</option><option value="Georgia, serif">Georgia</option><option value="'Courier New', monospace">Monospace</option></select></label>
-                <button type="button" class="btn small" data-production-sheet-command="font-smaller" aria-label="Decrease font size">A−</button>
-                <label><span>Size</span><input id="productionSheetFontSize" type="number" min="8" max="36" step="1" value="12"></label>
-                <button type="button" class="btn small" data-production-sheet-command="font-larger" aria-label="Increase font size">A+</button>
-                <button type="button" class="btn small format-button" data-production-sheet-command="bold"><strong>B</strong></button>
-                <button type="button" class="btn small format-button" data-production-sheet-command="italic"><em>I</em></button>
-                <button type="button" class="btn small format-button" data-production-sheet-command="underline"><u>U</u></button>
-                <label><span>Color</span><input id="productionSheetTextColor" type="color" value="#111827"></label>
-                <button type="button" class="btn small" data-production-sheet-command="align-left">Left</button>
-                <button type="button" class="btn small" data-production-sheet-command="align-center">Center</button>
-                <button type="button" class="btn small" data-production-sheet-command="align-right">Right</button>
-                <label><span>Line spacing</span><select id="productionSheetLineSpacing"><option value="1">1.0</option><option value="1.15">1.15</option><option value="1.5" selected>1.5</option><option value="2">2.0</option></select></label>
-                <label><span>Before</span><input id="productionSheetSpaceBefore" type="number" min="0" max="48" step="1" value="0"></label>
-                <label><span>After</span><input id="productionSheetSpaceAfter" type="number" min="0" max="48" step="1" value="0"></label>
-                <button type="button" class="btn small" data-production-sheet-command="line-break">Add line break</button>
-                <button type="button" class="btn small" data-production-sheet-command="remove-line-breaks">Remove line breaks</button>
-                <button type="button" class="btn small" data-production-sheet-command="clear-format">Reset formatting</button>
-              </div>
-
-              <details class="production-sheet-tool-group" open>
-                <summary><strong>Table &amp; content</strong></summary>
-                <div class="production-sheet-tool-row">
-                  <button type="button" class="btn small" data-production-sheet-command="add-note">Add note</button>
-                  <button type="button" class="btn small" data-production-sheet-command="add-row">Add row</button>
-                  <button type="button" class="btn small" data-production-sheet-command="remove-row">Remove row</button>
-                  <button type="button" class="btn small" data-production-sheet-command="add-column">Add column</button>
-                  <button type="button" class="btn small" data-production-sheet-command="remove-column">Remove column</button>
-                  <button type="button" class="btn small" data-production-sheet-command="merge-right">Merge right</button>
-                  <button type="button" class="btn small" data-production-sheet-command="split-cell">Split cell</button>
-                  <label><span>Vertical</span><select id="productionSheetVerticalAlign"><option value="top">Top</option><option value="middle">Middle</option><option value="bottom">Bottom</option></select></label>
-                  <label><span>Borders</span><select id="productionSheetBorder"><option value="light">Light</option><option value="strong">Strong</option><option value="none">None</option></select></label>
-                  <label><span>Cell fill</span><input id="productionSheetCellColor" type="color" value="#ffffff"></label>
-                </div>
-                <p class="muted small production-sheet-resize-hint">Tip: drag the lower-right edge of a cell to resize its column or row.</p>
-              </details>
-
-              <details class="production-sheet-tool-group">
-                <summary><strong>Page layout</strong></summary>
-                <div class="production-sheet-tool-row production-sheet-layout-controls">
-                  <label><span>Paper</span><select id="productionSheetPaper"><option value="A4">A4</option><option value="A3">A3</option></select></label>
-                  <label><span>Orientation</span><select id="productionSheetOrientation"><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></label>
-                  <label><span>Top mm</span><input id="productionSheetMarginTop" type="number" min="5" max="40" step="1" value="15"></label>
-                  <label><span>Bottom mm</span><input id="productionSheetMarginBottom" type="number" min="5" max="40" step="1" value="15"></label>
-                  <label><span>Left mm</span><input id="productionSheetMarginLeft" type="number" min="5" max="40" step="1" value="15"></label>
-                  <label><span>Right mm</span><input id="productionSheetMarginRight" type="number" min="5" max="40" step="1" value="15"></label>
-                  <label class="wide"><span>Header text</span><input id="productionSheetHeader" type="text" maxlength="180" placeholder="Optional header"></label>
-                  <label class="wide"><span>Footer text</span><input id="productionSheetFooter" type="text" maxlength="180" placeholder="Optional footer"></label>
-                  <label class="inline-toggle"><input id="productionSheetPageNumbers" type="checkbox" checked><span>Page numbers</span></label>
-                  <label class="inline-toggle"><input id="productionSheetRepeatHeader" type="checkbox" checked><span>Repeat table headers</span></label>
-                  <button type="button" class="btn small" data-production-sheet-command="page-break">Insert page break</button>
-                </div>
-              </details>
-            </div>
-
-            <div id="productionSheetViewport" class="production-sheet-viewport">
-              <div id="productionSheetPaperPreview" class="production-sheet-paper-preview">
-                <div id="productionSheetPageMarkers" class="production-sheet-page-markers" aria-hidden="true"></div>
-                <div id="productionSheetDocument" class="production-sheet-document" aria-label="Editable printable production sheet"></div>
-              </div>
-            </div>
-            <div class="production-sheet-preview-footer">
-              <span id="productionSheetPageCount">1 printable page</span>
-              <span>Page boundaries use the selected paper size and margins.</span>
-            </div>
-          </section>
         </div>
         <div class="processing-controls">
           <div class="card">
@@ -2414,7 +2321,6 @@
   <input type="file" id="scanFileInput" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple hidden />
 
 <script src="./js/living-dashboard.js?v=20260718" defer></script>
-<script src="./js/production-sheet-editor.js?v=20260828" defer></script>
-<script src="./js/app.js?v=20260828-production-sheet-editor" defer></script>
+<script src="./js/app.js?v=20260828-beta-operator1" defer></script>
 </body>
 </html>
