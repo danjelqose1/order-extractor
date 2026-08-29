@@ -10186,12 +10186,14 @@ const invoiceAddOrderState = {
 };
 const glassAliasCache = Object.create(null);
 const glassAliasPending = new Map();
+const invoiceLineAnalysisCache = new Map();
 
 function clearGlassAliasCache(){
   Object.keys(glassAliasCache).forEach(key=>{
     delete glassAliasCache[key];
   });
   glassAliasPending.clear();
+  invoiceLineAnalysisCache.clear();
 }
 
 /**
@@ -10202,6 +10204,10 @@ function clearGlassAliasCache(){
  * @property {boolean} isLaminated
  * @property {number} confidence
  * @property {string=} reason
+ * @property {"matched"|"ambiguous"|"unresolved"} matchStatus
+ * @property {"finished_product"|"component"|"unresolved"} pricingMode
+ * @property {boolean} safeToPrice
+ * @property {string=} pricingExplanation
  */
 
 function groupInvoiceLinesByType(lines){
@@ -11661,7 +11667,20 @@ async function buildInvoiceLinesFromRaw(rawRows, options = {}){
 async function computeInvoiceLineFromGroup(group, index, options = {}){
   const promptAllowedForJob = !!options.promptAllowedForJob;
   const allowAi = options.allowAi !== false;
+  const glassPriceTable = appState.invoices.priceLists.glass || {};
+  const completeProductKey = normalizeGlassKey(group.displayType || "");
+  const completeProductMatch = completeProductKey
+    && Object.prototype.hasOwnProperty.call(glassPriceTable, completeProductKey)
+    ? completeProductKey
+    : null;
   let composition = parseInvoiceComposition(group.displayType || "");
+  if (completeProductMatch){
+    composition = {
+      ...composition,
+      panes: [completeProductMatch],
+      spacerThicknesses: [],
+    };
+  }
   // Manual-order catalog names such as "TERMIK + TRANSPARENT 24 mm" are
   // complete products, not always pane + spacer formulas. If the formula
   // parser cannot identify a glass pane, price the complete product name
@@ -11673,15 +11692,27 @@ async function computeInvoiceLineFromGroup(group, index, options = {}){
       spacerThicknesses: [],
     };
   }
-  const glassPriceTable = appState.invoices.priceLists.glass || {};
   let glassPricePerM2 = 0;
   let aiAssisted = !!group.aiAssisted;
   let lineIsLaminated = false;
   let lineDisplayType = group.displayType || "";
+  let pricingUnderstanding = completeProductMatch ? {
+    status: "matched",
+    matchSource: "exact_catalog",
+    matchedKey: completeProductMatch,
+    confidence: 1,
+    safeToPrice: true,
+    pricingMode: "finished_product",
+    explanation: `Exact catalog product matched: ${completeProductMatch}.`,
+    alternatives: [],
+    warnings: [],
+  } : null;
   const glassPriceKeys = Object.keys(glassPriceTable);
   const glassIssues = [];
+  const matchedGlassKeys = [];
+  const matchedGlassSources = [];
   for (const pane of composition.panes){
-    const result = await resolveGlassType(pane, glassPriceKeys, { allowAi });
+    const result = await resolveGlassType(pane, glassPriceKeys, { allowAi: false });
     if (result?.fromAi){
       aiAssisted = true;
     }
@@ -11698,7 +11729,26 @@ async function computeInvoiceLineFromGroup(group, index, options = {}){
       });
     }else{
       glassPricePerM2 += Number(price);
+      matchedGlassKeys.push(priceKey);
+      matchedGlassSources.push(result?.matchSource || "exact_catalog");
     }
+  }
+  if (!glassIssues.length && !pricingUnderstanding && matchedGlassKeys.length){
+    pricingUnderstanding = {
+      status: "matched",
+      matchSource: matchedGlassSources.every(source => source === "exact_catalog")
+        ? "exact_catalog_components"
+        : "normalized_catalog_alias",
+      matchedKey: matchedGlassKeys.join(" + "),
+      confidence: 1,
+      safeToPrice: true,
+      pricingMode: "component",
+      explanation: matchedGlassSources.every(source => source === "exact_catalog")
+        ? `Matched ${matchedGlassKeys.length === 1 ? "the glass product" : "all glass components"} directly to the price catalog.`
+        : `Normalized spelling and formatting, then matched ${matchedGlassKeys.length === 1 ? "the glass product" : "all glass components"} to the price catalog.`,
+      alternatives: [],
+      warnings: [],
+    };
   }
   const inferredKind = (composition.spacerKind === "thermal" || composition.spacerKind === "normal")
     ? composition.spacerKind
@@ -11734,7 +11784,20 @@ async function computeInvoiceLineFromGroup(group, index, options = {}){
     const analysis = await analyzeInvoiceLineWithAI(rawLineText, glassPriceKeys);
     console.log("[GlassAI] Result:", analysis);
     if (analysis){
-      const confident = Number.isFinite(analysis.confidence) ? Number(analysis.confidence) >= 0.5 : false;
+      const confident = Number.isFinite(analysis.confidence) ? Number(analysis.confidence) >= 0.8 : false;
+      pricingUnderstanding = {
+        status: analysis.matchStatus || "unresolved",
+        matchSource: "gpt-5.6-terra",
+        matchedKey: analysis.glassKey || null,
+        confidence: Number.isFinite(analysis.confidence) ? Number(analysis.confidence) : 0,
+        safeToPrice: Boolean(analysis.safeToPrice && confident),
+        pricingMode: analysis.pricingMode || "unresolved",
+        explanation: analysis.pricingExplanation || analysis.reason || "AI could not safely resolve this description.",
+        alternatives: Array.isArray(analysis.alternativeGlassKeys) ? analysis.alternativeGlassKeys.slice(0, 3) : [],
+        recognizedTerms: Array.isArray(analysis.recognizedTerms) ? analysis.recognizedTerms.slice(0, 12) : [],
+        warnings: Array.isArray(analysis.warnings) ? analysis.warnings.slice(0, 8) : [],
+        overallThicknessMm: analysis.overallThicknessMm ?? null,
+      };
       if (confident){
         aiAssisted = true;
         if (analysis.normalizedType){
@@ -11744,14 +11807,26 @@ async function computeInvoiceLineFromGroup(group, index, options = {}){
           }
         }
         lineIsLaminated = Boolean(analysis.isLaminated);
-        if (analysis.glassKey && glassIssues.length){
+        if (analysis.glassKey && analysis.safeToPrice && glassIssues.length){
           const aiGlassKeyMatch = glassPriceKeys.find(key => key.toLowerCase() === String(analysis.glassKey).toLowerCase());
           const aiGlassKey = aiGlassKeyMatch || analysis.glassKey;
           const aiPrice = glassPriceTable[aiGlassKey];
-          const missingCount = glassIssues.length;
-          glassIssues.length = 0;
           if (Number.isFinite(aiPrice)){
-            glassPricePerM2 += Number(aiPrice) * missingCount;
+            if (analysis.pricingMode === "finished_product"){
+              glassPricePerM2 = Number(aiPrice);
+              glassIssues.length = 0;
+              composition.spacerThicknesses = [];
+            }else if (analysis.pricingMode === "component" && glassIssues.length === 1){
+              glassPricePerM2 += Number(aiPrice);
+              glassIssues.length = 0;
+            }else{
+              pricingUnderstanding.safeToPrice = false;
+              pricingUnderstanding.status = "ambiguous";
+              pricingUnderstanding.warnings = [
+                ...(pricingUnderstanding.warnings || []),
+                "More than one unresolved component remains; confirm the construction before pricing.",
+              ];
+            }
           }else{
             const normalizedAiKey = normalizeGlassKey(aiGlassKey) || aiGlassKey;
             console.log("[GlassPriceMissing] rawName:", analysis.glassKey, "normalizedKey:", normalizedAiKey, "availableKeys:", Object.keys(glassPriceTable || {}));
@@ -11770,7 +11845,11 @@ async function computeInvoiceLineFromGroup(group, index, options = {}){
   }
   let spacerPricePerM2 = 0;
   const spacerIssues = [];
-  thicknesses.forEach(th=>{
+  const pricedThicknesses = pricingUnderstanding?.safeToPrice
+    && pricingUnderstanding?.pricingMode === "finished_product"
+    ? []
+    : thicknesses;
+  pricedThicknesses.forEach(th=>{
     const spacer = getSpacerPrice(th, spacerMode);
     if (spacer.missing){
       spacerIssues.push({
@@ -11796,6 +11875,13 @@ async function computeInvoiceLineFromGroup(group, index, options = {}){
         enqueueInvoicePrompt(entry.prompt);
       });
     }
+    if (pricingUnderstanding){
+      pricingUnderstanding.safeToPrice = false;
+      pricingUnderstanding.warnings = [
+        ...(pricingUnderstanding.warnings || []),
+        "A required catalog or spacer price is still missing.",
+      ];
+    }
   }
   const unitPricePerM2 = glassPricePerM2 + spacerPricePerM2;
   const lineTotal = unitPricePerM2 * group.area;
@@ -11816,7 +11902,7 @@ async function computeInvoiceLineFromGroup(group, index, options = {}){
     spacerPricePerM2,
     spacerKind: spacerMode,
     spacerMode,
-    spacerThicknesses: thicknesses.slice(),
+    spacerThicknesses: pricedThicknesses.slice(),
     spacerOverride: null,
     unitPricePerM2,
     lineTotal,
@@ -11827,6 +11913,7 @@ async function computeInvoiceLineFromGroup(group, index, options = {}){
     rawType: group.rawType || null,
     isLaminated: lineIsLaminated,
     aiAssisted,
+    pricingUnderstanding,
   };
 }
 
@@ -12138,13 +12225,31 @@ function renderInvoiceDetail(){
   }else{
     const body = lines.map(line=>{
       const missingBadge = line.missing ? '<span class="editable-badge">Missing price</span>' : "";
-      const aiBadgeHtml = line.aiAssisted ? '<span class="ai-badge" title="AI-assisted match">AI</span>' : "";
+      const understanding = line.pricingUnderstanding;
+      const confidence = Number(understanding?.confidence);
+      const confidenceLabel = Number.isFinite(confidence) ? `${Math.round(confidence * 100)}%` : "";
+      const aiBadgeHtml = line.aiAssisted
+        ? `<span class="ai-badge" title="GPT-5.6 Terra assisted this interpretation">AI${confidenceLabel ? ` ${confidenceLabel}` : ""}</span>`
+        : "";
+      const understandingClass = understanding?.safeToPrice
+        ? "safe"
+        : understanding?.status === "ambiguous"
+          ? "review"
+          : "unresolved";
+      const understandingHtml = understanding ? `<div class="invoice-pricing-understanding ${understandingClass}">
+        <strong>${understanding.safeToPrice ? "Pricing understood" : understanding.status === "ambiguous" ? "Check interpretation" : "Pricing unresolved"}</strong>
+        <span>${escapeHtml(understanding.explanation || "No explanation available.")}</span>
+        ${understanding.matchedKey ? `<span>Catalog match: <span class="mono">${escapeHtml(understanding.matchedKey)}</span></span>` : ""}
+        ${Array.isArray(understanding.alternatives) && understanding.alternatives.length ? `<span>Other candidates: ${understanding.alternatives.map(escapeHtml).join(", ")}</span>` : ""}
+        ${Array.isArray(understanding.warnings) && understanding.warnings.length ? `<span>${understanding.warnings.map(escapeHtml).join(" ")}</span>` : ""}
+      </div>` : "";
       return `<tr>
         <td>${line.index}</td>
         <td data-col="type">
           <input type="text" data-type-edit="${line.index}" value="${escapeHtml(line.type || line.displayType || "")}" style="width:100%" />
           ${line.rawType ? `<div class="muted small" style="margin-top:4px">Original: ${escapeHtml(line.rawType)}</div>` : ""}
           ${missingBadge}${aiBadgeHtml}
+          ${understandingHtml}
         </td>
         <td>${Number(line.quantity || 0)}</td>
         <td>${formatArea(line.area || 0)}</td>
@@ -12376,7 +12481,8 @@ async function resolveGlassType(rawName, knownTypes = [], options = {}){
   }));
   const localMatch = findLocalGlassMatch(cacheKey, candidates);
   if (localMatch){
-    const result = { match: localMatch, fromAi: false };
+    const isExact = candidates.some(entry => entry.key === localMatch && entry.compact === cacheKey);
+    const result = { match: localMatch, fromAi: false, matchSource: isExact ? "exact_catalog" : "normalized_alias" };
     glassAliasCache[cacheKey] = result;
     return result;
   }
@@ -12441,6 +12547,10 @@ async function analyzeInvoiceLineWithAI(rawLine, knownGlassTypes){
   if (!rawLine || !Array.isArray(knownGlassTypes)){
     return null;
   }
+  const cacheKey = `${getGlassAliasCacheKey(rawLine)}|${knownGlassTypes.map(type => String(type).toLowerCase()).sort().join("|")}`;
+  if (invoiceLineAnalysisCache.has(cacheKey)){
+    return invoiceLineAnalysisCache.get(cacheKey);
+  }
   try{
     const res = await fetchInvoiceEndpoint(API_BASE + "/api/invoices/ai/analyze-line", {
       method: "POST",
@@ -12489,14 +12599,47 @@ async function analyzeInvoiceLineWithAI(rawLine, knownGlassTypes){
       return null;
     }
     const reason = typeof parsed.reason === "string" ? parsed.reason.trim() : "";
-    return {
+    const matchStatus = ["matched", "ambiguous", "unresolved"].includes(parsed.matchStatus)
+      ? parsed.matchStatus
+      : "unresolved";
+    const pricingMode = ["finished_product", "component", "unresolved"].includes(parsed.pricingMode)
+      ? parsed.pricingMode
+      : "unresolved";
+    const alternativeGlassKeys = Array.isArray(parsed.alternativeGlassKeys)
+      ? parsed.alternativeGlassKeys.map(value => {
+          const candidate = String(value || "").trim();
+          return knownGlassTypes.find(entry => entry.toLowerCase() === candidate.toLowerCase()) || null;
+        }).filter(Boolean).slice(0, 3)
+      : [];
+    const safeToPrice = Boolean(parsed.safeToPrice)
+      && matchStatus === "matched"
+      && pricingMode !== "unresolved"
+      && Boolean(glassKey)
+      && confidence >= 0.8;
+    const result = {
       normalizedType,
       glassKey,
       spacerMode,
       isLaminated,
       confidence,
       reason,
+      matchStatus,
+      pricingMode,
+      safeToPrice,
+      pricingExplanation: typeof parsed.pricingExplanation === "string" ? parsed.pricingExplanation.trim() : reason,
+      alternativeGlassKeys,
+      recognizedTerms: Array.isArray(parsed.recognizedTerms)
+        ? parsed.recognizedTerms.map(value => String(value || "").trim()).filter(Boolean).slice(0, 12)
+        : [],
+      warnings: Array.isArray(parsed.warnings)
+        ? parsed.warnings.map(value => String(value || "").trim()).filter(Boolean).slice(0, 8)
+        : [],
+      overallThicknessMm: parsed.overallThicknessMm != null && Number.isFinite(Number(parsed.overallThicknessMm))
+        ? Number(parsed.overallThicknessMm)
+        : null,
     };
+    invoiceLineAnalysisCache.set(cacheKey, result);
+    return result;
   }catch(error){
     console.warn("AI invoice line analysis failed", error);
     return null;
@@ -24287,8 +24430,32 @@ async function handleManualOrderAction(action, orderId, options = {}){
       const job = await createInvoiceJobFromOrder(shared, { allowAi: false });
       if (job){
         appState.invoices.activeJobId = job.id;
+        const activeInvoiceJob = getActiveInvoiceJob() || job;
         updateInvoicesUI();
-        setInvoiceStatus(`Invoice draft ready for ${order.order_number}. Review prices, VAT, and discount before generating the PDF.`);
+        setInvoiceStatus(`Invoice draft ready for ${order.order_number}. AI is checking messy glass descriptions in the background…`);
+        void (async ()=>{
+          try{
+            await recalcInvoiceJob(activeInvoiceJob, { allowPrompt: false, allowAi: true });
+            const stillMissingPrice = (activeInvoiceJob.calculated?.lines || []).some(line => line?.missing);
+            if (!stillMissingPrice){
+              invoiceRuntime.pendingPrompts = [];
+              invoiceRuntime.missingKeys.clear();
+              if (invoiceRuntime.currentMissing){
+                hideInvoicePrompt();
+              }
+            }
+            await saveInvoiceJobs();
+            updateInvoicesUI();
+            const refreshedInvoiceJob = getActiveInvoiceJob() || activeInvoiceJob;
+            const unresolved = (refreshedInvoiceJob.calculated?.lines || []).filter(line => line?.missing || !line?.pricingUnderstanding?.safeToPrice);
+            setInvoiceStatus(unresolved.length
+              ? `AI pricing review finished for ${order.order_number}. ${unresolved.length} line${unresolved.length === 1 ? " needs" : "s need"} your attention.`
+              : `AI pricing review finished for ${order.order_number}. Review prices, VAT, and discount before generating the PDF.`);
+          }catch(error){
+            console.warn("Background invoice pricing review failed", error);
+            setInvoiceStatus(`Invoice draft is ready for ${order.order_number}. AI pricing review is unavailable; unresolved prices remain visible.`);
+          }
+        })();
       }
     }catch(error){
       setInvoiceStatus(error.message || String(error));

@@ -36,6 +36,27 @@ def _client(*contents):
     return client, completions
 
 
+def _analysis_payload(**overrides):
+    payload = {
+        "normalizedType": "3 vetri 33.1 LOWE + 12 + 4F",
+        "glassKey": "33.1lowe",
+        "spacerMode": "thermal",
+        "isLaminated": True,
+        "confidence": 0.91,
+        "reason": "Warm-edge laminated unit.",
+        "matchStatus": "matched",
+        "alternativeGlassKeys": [],
+        "recognizedTerms": ["33.1", "LOWE", "warm edge"],
+        "warnings": [],
+        "overallThicknessMm": None,
+        "safeToPrice": True,
+        "pricingExplanation": "Matched the supplied laminated Low-E catalog product.",
+        "pricingMode": "component",
+    }
+    payload.update(overrides)
+    return payload
+
+
 def test_glass_match_returns_only_a_supplied_canonical_key():
     client, completions = _client("33.1SATINATO")
 
@@ -47,6 +68,8 @@ def test_glass_match_returns_only_a_supplied_canonical_key():
 
     assert result == "33.1Satinato"
     assert "33.1 STAINATO" in completions.calls[0]["messages"][1]["content"]
+    assert completions.calls[0]["model"] == "gpt-5.6-terra"
+    assert completions.calls[0]["reasoning_effort"] == "medium"
 
 
 def test_glass_match_rejects_an_invented_key():
@@ -63,14 +86,8 @@ def test_glass_match_rejects_an_invented_key():
 
 def test_invoice_line_analysis_is_validated_and_canonicalized(monkeypatch):
     monkeypatch.delenv("INVOICE_LINE_ANALYSIS_MODEL", raising=False)
-    payload = {
-        "normalizedType": "3 vetri 33.1 LOWE + 12 + 4F",
-        "glassKey": "33.1lowe",
-        "spacerMode": "thermal",
-        "isLaminated": True,
-        "confidence": 0.91,
-        "reason": "Warm-edge laminated unit.",
-    }
+    monkeypatch.delenv("INVOICE_AI_REASONING_EFFORT", raising=False)
+    payload = _analysis_payload()
     client, completions = _client(json.dumps(payload))
 
     result = analyze_invoice_line(
@@ -82,19 +99,22 @@ def test_invoice_line_analysis_is_validated_and_canonicalized(monkeypatch):
     assert result["glassKey"] == "33.1LowE"
     assert result["spacerMode"] == "thermal"
     assert result["confidence"] == pytest.approx(0.91)
-    assert completions.calls[0]["model"] == "gpt-5.4-mini"
+    assert result["safeToPrice"] is True
+    assert result["pricingMode"] == "component"
+    assert completions.calls[0]["model"] == "gpt-5.6-terra"
+    assert completions.calls[0]["reasoning_effort"] == "medium"
     assert completions.calls[0]["response_format"]["type"] == "json_schema"
 
 
 def test_invoice_line_analysis_rejects_an_invented_key():
-    payload = {
+    payload = _analysis_payload(**{
         "normalizedType": "8F",
         "glassKey": "8F",
         "spacerMode": "normal",
         "isLaminated": False,
         "confidence": 0.8,
         "reason": "Match",
-    }
+    })
     client, _ = _client(json.dumps(payload))
 
     with pytest.raises(RuntimeError, match="unknown glassKey"):
@@ -102,4 +122,40 @@ def test_invoice_line_analysis_rejects_an_invented_key():
             client,
             raw_line="8F",
             known_glass_types=["4F", "6F"],
+        )
+
+
+def test_invoice_line_analysis_does_not_price_ambiguous_match():
+    payload = _analysis_payload(**{
+        "glassKey": "4F",
+        "matchStatus": "ambiguous",
+        "alternativeGlassKeys": ["6F"],
+        "confidence": 0.72,
+        "safeToPrice": False,
+        "pricingMode": "unresolved",
+        "warnings": ["Pane thickness is unclear."],
+    })
+    client, _ = _client(json.dumps(payload))
+
+    result = analyze_invoice_line(
+        client,
+        raw_line="4 or 6 float",
+        known_glass_types=["4F", "6F"],
+    )
+
+    assert result["matchStatus"] == "ambiguous"
+    assert result["glassKey"] is None
+    assert result["alternativeGlassKeys"] == ["6F"]
+    assert result["safeToPrice"] is False
+
+
+def test_invoice_line_analysis_rejects_unsafe_safe_to_price_claim():
+    payload = _analysis_payload(confidence=0.61, safeToPrice=True)
+    client, _ = _client(json.dumps(payload))
+
+    with pytest.raises(RuntimeError, match="unsafe interpretation"):
+        analyze_invoice_line(
+            client,
+            raw_line="unclear glass",
+            known_glass_types=["33.1lowe"],
         )

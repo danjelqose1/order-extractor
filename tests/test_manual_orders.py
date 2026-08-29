@@ -406,6 +406,29 @@ def test_manual_orders_frontend_exposes_isolated_factory_workflow():
     assert 'setTimeout(() => focusManualRowField(0, "client_position"), 0)' in js
 
 
+def test_manual_invoice_runs_guarded_ai_pricing_review_after_opening():
+    js = APP_JS.read_text(encoding="utf-8")
+    handler = js[js.index("async function handleManualOrderAction"):js.index("function ensureManualOrdersReady")]
+
+    assert "createInvoiceJobFromOrder(shared, { allowAi: false })" in handler
+    assert "recalcInvoiceJob(activeInvoiceJob, { allowPrompt: false, allowAi: true })" in handler
+    assert "AI is checking messy glass descriptions in the background" in handler
+    assert "pricingUnderstanding?.safeToPrice" in handler
+
+
+def test_manual_invoice_pricing_understanding_is_explained_and_guarded():
+    js = APP_JS.read_text(encoding="utf-8")
+
+    assert '"gpt-5.6-terra"' in js
+    assert "analysis.safeToPrice && confident" in js
+    assert 'analysis.pricingMode === "finished_product"' in js
+    assert 'analysis.pricingMode === "component" && glassIssues.length === 1' in js
+    assert "More than one unresolved component remains" in js
+    assert "Pricing understood" in js
+    assert "Check interpretation" in js
+    assert "Pricing unresolved" in js
+
+
 def test_manual_order_rows_support_spreadsheet_keyboard_entry():
     html = INDEX_HTML.read_text(encoding="utf-8")
     js = APP_JS.read_text(encoding="utf-8")

@@ -17,6 +17,32 @@ INVOICE_LINE_SCHEMA = {
             "isLaminated": {"type": "boolean"},
             "confidence": {"type": "number", "minimum": 0, "maximum": 1},
             "reason": {"type": "string"},
+            "matchStatus": {
+                "type": "string",
+                "enum": ["matched", "ambiguous", "unresolved"],
+            },
+            "alternativeGlassKeys": {
+                "type": "array",
+                "items": {"type": "string"},
+                "maxItems": 3,
+            },
+            "recognizedTerms": {
+                "type": "array",
+                "items": {"type": "string"},
+                "maxItems": 12,
+            },
+            "warnings": {
+                "type": "array",
+                "items": {"type": "string"},
+                "maxItems": 8,
+            },
+            "overallThicknessMm": {"type": ["number", "null"], "minimum": 0},
+            "safeToPrice": {"type": "boolean"},
+            "pricingExplanation": {"type": "string"},
+            "pricingMode": {
+                "type": "string",
+                "enum": ["finished_product", "component", "unresolved"],
+            },
         },
         "required": [
             "normalizedType",
@@ -25,6 +51,14 @@ INVOICE_LINE_SCHEMA = {
             "isLaminated",
             "confidence",
             "reason",
+            "matchStatus",
+            "alternativeGlassKeys",
+            "recognizedTerms",
+            "warnings",
+            "overallThicknessMm",
+            "safeToPrice",
+            "pricingExplanation",
+            "pricingMode",
         ],
     },
     "strict": True,
@@ -75,8 +109,8 @@ def match_invoice_glass_type(
         raise ValueError("raw_name and known_types are required")
 
     completion = client.chat.completions.create(
-        model=os.getenv("INVOICE_GLASS_MATCH_MODEL", "gpt-4o-mini"),
-        temperature=0,
+        model=os.getenv("INVOICE_GLASS_MATCH_MODEL", "gpt-5.6-terra"),
+        reasoning_effort=os.getenv("INVOICE_AI_REASONING_EFFORT", "medium"),
         messages=[
             {
                 "role": "system",
@@ -124,8 +158,8 @@ def analyze_invoice_line(
         raise ValueError("raw_line is required")
 
     completion = client.chat.completions.create(
-        model=os.getenv("INVOICE_LINE_ANALYSIS_MODEL", "gpt-5.4-mini"),
-        temperature=0,
+        model=os.getenv("INVOICE_LINE_ANALYSIS_MODEL", "gpt-5.6-terra"),
+        reasoning_effort=os.getenv("INVOICE_AI_REASONING_EFFORT", "medium"),
         response_format={
             "type": "json_schema",
             "json_schema": INVOICE_LINE_SCHEMA,
@@ -141,8 +175,17 @@ def analyze_invoice_line(
                     "for editing. Choose glassKey only from the supplied canonical keys, or null. "
                     "Use spacerMode=thermal for warm-edge terms such as caldo, c.caldo, cald, termico, "
                     "or warm edge; otherwise use normal. Detect laminated glass such as 33.1, 44.1, "
-                    "laminato, or stratificato. Return only the requested JSON object. Never invent "
-                    "a canonical key; use null and confidence 0 when none is reasonable."
+                    "laminato, or stratificato. Treat a full supplied catalog key as a finished product "
+                    "when the whole noisy description corresponds to it, even if words are misspelled. "
+                    "Return matched only when one supplied key is the clear best match, ambiguous when "
+                    "two or more supplied keys remain plausible, and unresolved when none is safe. "
+                    "safeToPrice may be true only for a matched supplied key with confidence at least 0.80. "
+                    "Use pricingMode=finished_product when the selected catalog key prices the entire "
+                    "description as one product; use component only when it prices one glass pane within "
+                    "a construction; otherwise use unresolved. "
+                    "Explain the interpretation and catalog match in short factory-friendly language. "
+                    "Never invent a product, canonical key, specification, or price. Return only the "
+                    "requested JSON object."
                 ),
             },
             {
@@ -176,6 +219,18 @@ def analyze_invoice_line(
         if glass_key is None:
             raise RuntimeError("Invoice AI returned an unknown glassKey")
 
+    alternatives: List[str] = []
+    for candidate_value in parsed.get("alternativeGlassKeys") or []:
+        candidate_text = str(candidate_value or "").strip()
+        canonical = next(
+            (item for item in canonical_types if item.casefold() == candidate_text.casefold()),
+            None,
+        )
+        if canonical is None:
+            raise RuntimeError("Invoice AI returned an unknown alternativeGlassKey")
+        if canonical != glass_key and canonical not in alternatives:
+            alternatives.append(canonical)
+
     spacer_mode = str(parsed.get("spacerMode") or "").strip().lower()
     if spacer_mode not in {"normal", "thermal"}:
         raise RuntimeError("Invoice AI returned an invalid spacerMode")
@@ -187,6 +242,38 @@ def analyze_invoice_line(
     if not 0 <= confidence <= 1:
         raise RuntimeError("Invoice AI returned confidence outside 0..1")
 
+    match_status = str(parsed.get("matchStatus") or "").strip().lower()
+    if match_status not in {"matched", "ambiguous", "unresolved"}:
+        raise RuntimeError("Invoice AI returned an invalid matchStatus")
+    safe_to_price = bool(parsed.get("safeToPrice"))
+    if safe_to_price and (match_status != "matched" or glass_key is None or confidence < 0.8):
+        raise RuntimeError("Invoice AI marked an unsafe interpretation safe to price")
+    if match_status != "matched":
+        glass_key = None
+        safe_to_price = False
+    pricing_mode = str(parsed.get("pricingMode") or "").strip().lower()
+    if pricing_mode not in {"finished_product", "component", "unresolved"}:
+        raise RuntimeError("Invoice AI returned an invalid pricingMode")
+    if safe_to_price and pricing_mode == "unresolved":
+        raise RuntimeError("Invoice AI returned an unsafe pricingMode")
+    if not safe_to_price:
+        pricing_mode = "unresolved"
+
+    def _string_list(name: str, limit: int) -> List[str]:
+        values = parsed.get(name) or []
+        if not isinstance(values, list):
+            raise RuntimeError(f"Invoice AI returned invalid {name}")
+        return [str(value).strip() for value in values if str(value or "").strip()][:limit]
+
+    overall_thickness = parsed.get("overallThicknessMm")
+    if overall_thickness is not None:
+        try:
+            overall_thickness = float(overall_thickness)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("Invoice AI returned invalid overallThicknessMm") from exc
+        if overall_thickness < 0:
+            raise RuntimeError("Invoice AI returned invalid overallThicknessMm")
+
     return {
         "normalizedType": normalized_type,
         "glassKey": glass_key,
@@ -194,6 +281,14 @@ def analyze_invoice_line(
         "isLaminated": bool(parsed.get("isLaminated")),
         "confidence": confidence,
         "reason": str(parsed.get("reason") or "").strip(),
+        "matchStatus": match_status,
+        "alternativeGlassKeys": alternatives,
+        "recognizedTerms": _string_list("recognizedTerms", 12),
+        "warnings": _string_list("warnings", 8),
+        "overallThicknessMm": overall_thickness,
+        "safeToPrice": safe_to_price,
+        "pricingExplanation": str(parsed.get("pricingExplanation") or "").strip(),
+        "pricingMode": pricing_mode,
     }
 
 

@@ -363,6 +363,14 @@
     .invoice-meta{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}
     .invoice-lines-table td[data-col="type"]{min-width:260px}
     .invoice-lines-table td[data-col="price"]{white-space:nowrap}
+    .invoice-pricing-understanding{display:grid;gap:3px;margin-top:7px;padding:7px 9px;border:1px solid var(--border);border-radius:8px;background:#f8fafc;color:var(--muted);font-size:11px;line-height:1.35}
+    .invoice-pricing-understanding strong{color:var(--text);font-size:11px}
+    .invoice-pricing-understanding.safe{border-color:#bbf7d0;background:#f0fdf4}
+    .invoice-pricing-understanding.safe strong{color:#166534}
+    .invoice-pricing-understanding.review{border-color:#fde68a;background:#fffbeb}
+    .invoice-pricing-understanding.review strong{color:#92400e}
+    .invoice-pricing-understanding.unresolved{border-color:#fecaca;background:#fff7f7}
+    .invoice-pricing-understanding.unresolved strong{color:#991b1b}
     .invoice-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}
     .price-editor{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px}
     .price-editor table{min-width:100%}
