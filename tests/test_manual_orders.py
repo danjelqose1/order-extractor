@@ -429,6 +429,19 @@ def test_manual_invoice_pricing_understanding_is_explained_and_guarded():
     assert "Pricing unresolved" in js
 
 
+def test_manual_invoice_uses_factory_component_aliases_and_auto_generates_pdf():
+    js = APP_JS.read_text(encoding="utf-8")
+
+    assert '[normalizeGlassKey("Termik")]: normalizeGlassKey("4 LowE")' in js
+    assert '[normalizeGlassKey("Tr")]: normalizeGlassKey("4F")' in js
+    assert 'matchSource: "factory_alias"' in js
+    assert 'const withoutMm = compact.replace' in js
+    assert "firstDigitIdx" not in js[js.index("function tokenizeComposition"):js.index("function stripThermalDescriptors")]
+    assert "await generateInvoicePdf(refreshedInvoiceJob)" in js
+    assert "Invoice PDF generated and downloaded" in js
+    assert "Cannot generate PDF: review the pricing interpretation" in js
+
+
 def test_manual_order_rows_support_spreadsheet_keyboard_entry():
     html = INDEX_HTML.read_text(encoding="utf-8")
     js = APP_JS.read_text(encoding="utf-8")

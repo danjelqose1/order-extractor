@@ -420,6 +420,20 @@ def test_invoice_ai_line_analysis_route_returns_validated_result(monkeypatch):
     assert response.json() == {"analysis": expected}
 
 
+def test_price_config_preserves_factory_component_aliases(monkeypatch):
+    app_module, _calls = _load_app(monkeypatch, legacy_enabled="false")
+
+    config = app_module._coerce_price_config({
+        "componentAliases": {
+            "Termik": "4 LowE",
+            "Tr": "4F",
+        },
+    })
+
+    assert config["componentAliases"]["termik"] == "4lowe"
+    assert config["componentAliases"]["tr"] == "4f"
+
+
 def test_analysis_summary_route_returns_server_computed_snapshot(monkeypatch):
     app_module, _calls = _load_app(monkeypatch, legacy_enabled="false")
     captured = {}

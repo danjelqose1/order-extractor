@@ -203,6 +203,11 @@ DEFAULT_SPACER_PRICES: Dict[Any, Dict[str, float]] = {
     24: {"normal": 1100, "thermal": 1600},
 }
 
+DEFAULT_COMPONENT_ALIASES: Dict[str, str] = {
+    _normalize_glass_key("Termik"): _normalize_glass_key("4 LowE"),
+    _normalize_glass_key("Tr"): _normalize_glass_key("4F"),
+}
+
 def _tokenize_igu_composition(type_string: str) -> List[str]:
     raw = "" if type_string is None else str(type_string)
     compact = re.sub(r"^\s*\d+\s*vetri?\s*", "", raw, flags=re.IGNORECASE)
@@ -230,6 +235,7 @@ def _default_price_config() -> Dict[str, Any]:
     return {
         "glassPrices": dict(DEFAULT_GLASS_PRICES),
         "spacerPrices": {k: dict(v) for k, v in DEFAULT_SPACER_PRICES.items()},
+        "componentAliases": dict(DEFAULT_COMPONENT_ALIASES),
         "typeCorrections": [],
     }
 
@@ -291,13 +297,26 @@ def _sanitize_type_corrections(payload: Any) -> List[Dict[str, str]]:
     return output
 
 
+def _sanitize_component_aliases(payload: Any) -> Dict[str, str]:
+    aliases = dict(DEFAULT_COMPONENT_ALIASES)
+    if isinstance(payload, dict):
+        for raw, target in payload.items():
+            raw_key = _normalize_glass_key(raw)
+            target_key = _normalize_glass_key(target)
+            if raw_key and target_key:
+                aliases[raw_key] = target_key
+    return aliases
+
+
 def _coerce_price_config(payload: Any) -> Dict[str, Any]:
     glass_prices = _sanitize_glass_prices((payload or {}).get("glassPrices") if isinstance(payload, dict) else None)
     spacer_prices = _sanitize_spacer_prices((payload or {}).get("spacerPrices") if isinstance(payload, dict) else None)
     type_corrections = _sanitize_type_corrections((payload or {}).get("typeCorrections") if isinstance(payload, dict) else None)
+    component_aliases = _sanitize_component_aliases((payload or {}).get("componentAliases") if isinstance(payload, dict) else None)
     return {
         "glassPrices": glass_prices,
         "spacerPrices": spacer_prices,
+        "componentAliases": component_aliases,
         "typeCorrections": type_corrections,
     }
 
@@ -606,6 +625,7 @@ class InvoiceAiGlassMatchPayload(BaseModel):
 class InvoiceAiLineAnalysisPayload(BaseModel):
     raw_line: str
     known_glass_types: List[str]
+    component_aliases: Dict[str, str] = Field(default_factory=dict)
 
 
 class ManualOrderRowPayload(BaseModel):
@@ -1462,6 +1482,7 @@ def invoice_ai_analyze_line(payload: InvoiceAiLineAnalysisPayload) -> Dict[str, 
             get_client(),
             raw_line=payload.raw_line,
             known_glass_types=payload.known_glass_types,
+            known_component_aliases=payload.component_aliases,
         )
         return {"analysis": analysis}
     except ValueError as exc:

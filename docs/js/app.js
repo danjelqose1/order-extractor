@@ -269,6 +269,7 @@ const appState = {
       glass: getDefaultGlassPrices(),
       spacer: getDefaultSpacerPrices(),
     },
+    componentAliases: getDefaultComponentAliases(),
     pagination: {
       currentPage: 1,
       pageSize: 5,
@@ -10111,10 +10112,18 @@ function getDefaultSpacerPrices(){
   };
 }
 
+function getDefaultComponentAliases(){
+  return {
+    [normalizeGlassKey("Termik")]: normalizeGlassKey("4 LowE"),
+    [normalizeGlassKey("Tr")]: normalizeGlassKey("4F"),
+  };
+}
+
 function getDefaultInvoiceConfig(){
   return {
     glassPrices: getDefaultGlassPrices(),
     spacerPrices: getDefaultSpacerPrices(),
+    componentAliases: getDefaultComponentAliases(),
     typeCorrections: [],
   };
 }
@@ -10125,6 +10134,7 @@ function normalizeInvoiceConfigPayload(payload){
   const spacerSource = (payload && typeof payload === "object" && (payload.spacerPrices || payload.spacer)) ? (payload.spacerPrices || payload.spacer) : {};
   const glass = { ...defaults.glassPrices };
   const spacer = { ...defaults.spacerPrices };
+  const componentAliases = { ...defaults.componentAliases };
 
   if (glassSource && typeof glassSource === "object"){
     Object.entries(glassSource).forEach(([key, value])=>{
@@ -10149,6 +10159,17 @@ function normalizeInvoiceConfigPayload(payload){
     });
   }
 
+
+  if (payload?.componentAliases && typeof payload.componentAliases === "object"){
+    Object.entries(payload.componentAliases).forEach(([raw, target])=>{
+      const rawKey = normalizeGlassKey(raw);
+      const targetKey = normalizeGlassKey(target);
+      if (rawKey && targetKey){
+        componentAliases[rawKey] = targetKey;
+      }
+    });
+  }
+
   const typeCorrections = Array.isArray(payload?.typeCorrections)
     ? payload.typeCorrections
         .map(entry => ({
@@ -10161,6 +10182,7 @@ function normalizeInvoiceConfigPayload(payload){
   return {
     glassPrices: glass,
     spacerPrices: spacer,
+    componentAliases,
     typeCorrections,
   };
 }
@@ -10290,13 +10312,14 @@ function loadInvoicePrices(source){
     glass: normalized.glassPrices,
     spacer: normalized.spacerPrices,
   };
+  appState.invoices.componentAliases = { ...normalized.componentAliases };
   clearGlassAliasCache();
   return normalized;
 }
 
 function saveInvoicePrices(){
   try{
-    localStorage.setItem(INVOICE_PRICES_KEY, JSON.stringify(appState.invoices.priceLists));
+    localStorage.setItem(INVOICE_PRICES_KEY, JSON.stringify(buildInvoiceConfigPayload()));
   }catch{/* ignore */}
 }
 
@@ -10304,6 +10327,7 @@ function buildInvoiceConfigPayload(){
   return {
     glassPrices: { ...(appState?.invoices?.priceLists?.glass || {}) },
     spacerPrices: { ...(appState?.invoices?.priceLists?.spacer || {}) },
+    componentAliases: { ...(appState?.invoices?.componentAliases || {}) },
     typeCorrections: Array.isArray(TYPE_CORRECTIONS)
       ? TYPE_CORRECTIONS.map(entry => ({
           raw: (entry?.raw || "").trim(),
@@ -10323,6 +10347,7 @@ async function applyInvoiceConfigToState(config, { cacheLocal = true, preferExis
     glass: normalized.glassPrices,
     spacer: normalized.spacerPrices,
   };
+  appState.invoices.componentAliases = { ...normalized.componentAliases };
   TYPE_CORRECTIONS = (mergedCorrections || []).map(entry => ({
     raw: (entry?.raw || "").trim(),
     corrected: (entry?.corrected || "").trim(),
@@ -10338,6 +10363,7 @@ async function applyInvoiceConfigToState(config, { cacheLocal = true, preferExis
   return {
     glassPrices: appState.invoices.priceLists.glass,
     spacerPrices: appState.invoices.priceLists.spacer,
+    componentAliases: { ...(appState.invoices.componentAliases || {}) },
     typeCorrections: TYPE_CORRECTIONS.map(entry => ({ ...entry })),
   };
 }
@@ -10846,9 +10872,7 @@ function isOrderAlreadyInvoiced(order){
 function tokenizeComposition(typeString){
   const raw = String(typeString || "");
   const compact = raw.replace(/^\s*\d+\s*vetri?\s*/i, "").replace(/\s+/g, " ").trim();
-  const firstDigitIdx = compact.search(/\d/);
-  const core = firstDigitIdx >= 0 ? compact.slice(firstDigitIdx) : compact;
-  const withoutMm = core.replace(/\b\d+\s*mm\b/gi, "").replace(/\bmm\b/gi, "");
+  const withoutMm = compact.replace(/\b\d+\s*mm\b/gi, "").replace(/\bmm\b/gi, "");
   const tokens = withoutMm.split("+").map(t => t.trim()).filter(Boolean);
   return tokens;
 }
@@ -12471,6 +12495,15 @@ async function resolveGlassType(rawName, knownTypes = [], options = {}){
   if (!cacheKey){
     return { match: null, fromAi: false };
   }
+  const factoryAliasTarget = appState?.invoices?.componentAliases?.[normalizeGlassKey(rawName)] || null;
+  if (factoryAliasTarget){
+    const aliasMatch = knownTypes.find(type => normalizeGlassKey(type) === factoryAliasTarget);
+    if (aliasMatch){
+      const result = { match: aliasMatch, fromAi: false, matchSource: "factory_alias" };
+      glassAliasCache[cacheKey] = result;
+      return result;
+    }
+  }
   if (Object.prototype.hasOwnProperty.call(glassAliasCache, cacheKey)){
     return glassAliasCache[cacheKey];
   }
@@ -12547,7 +12580,9 @@ async function analyzeInvoiceLineWithAI(rawLine, knownGlassTypes){
   if (!rawLine || !Array.isArray(knownGlassTypes)){
     return null;
   }
-  const cacheKey = `${getGlassAliasCacheKey(rawLine)}|${knownGlassTypes.map(type => String(type).toLowerCase()).sort().join("|")}`;
+  const componentAliases = { ...(appState?.invoices?.componentAliases || {}) };
+  const aliasSignature = Object.entries(componentAliases).sort(([a], [b]) => a.localeCompare(b)).map(([raw, target]) => `${raw}:${target}`).join("|");
+  const cacheKey = `${getGlassAliasCacheKey(rawLine)}|${knownGlassTypes.map(type => String(type).toLowerCase()).sort().join("|")}|${aliasSignature}`;
   if (invoiceLineAnalysisCache.has(cacheKey)){
     return invoiceLineAnalysisCache.get(cacheKey);
   }
@@ -12560,6 +12595,7 @@ async function analyzeInvoiceLineWithAI(rawLine, knownGlassTypes){
       body: JSON.stringify({
         raw_line: String(rawLine),
         known_glass_types: knownGlassTypes,
+        component_aliases: componentAliases,
       }),
     });
     if (!res.ok){
@@ -12735,6 +12771,10 @@ async function generateInvoicePdf(job){
     throw new Error("Cannot generate PDF: missing prices");
   }
   const groupedLines = Array.isArray(calc?.lines) ? calc.lines : [];
+  const unsafeLine = groupedLines.find(line => line?.pricingUnderstanding && !line.pricingUnderstanding.safeToPrice);
+  if (unsafeLine){
+    throw new Error(`Cannot generate PDF: review the pricing interpretation for ${unsafeLine.type || "one invoice line"}.`);
+  }
   await ensurePdfLib();
   const lib = window.PDFLib;
   if (!lib || !lib.PDFDocument){
@@ -24448,9 +24488,13 @@ async function handleManualOrderAction(action, orderId, options = {}){
             updateInvoicesUI();
             const refreshedInvoiceJob = getActiveInvoiceJob() || activeInvoiceJob;
             const unresolved = (refreshedInvoiceJob.calculated?.lines || []).filter(line => line?.missing || !line?.pricingUnderstanding?.safeToPrice);
-            setInvoiceStatus(unresolved.length
-              ? `AI pricing review finished for ${order.order_number}. ${unresolved.length} line${unresolved.length === 1 ? " needs" : "s need"} your attention.`
-              : `AI pricing review finished for ${order.order_number}. Review prices, VAT, and discount before generating the PDF.`);
+            if (unresolved.length){
+              setInvoiceStatus(`AI pricing review finished for ${order.order_number}. ${unresolved.length} line${unresolved.length === 1 ? " needs" : "s need"} your attention.`);
+            }else{
+              setInvoiceStatus(`Pricing understood for ${order.order_number}. Generating the invoice PDF…`);
+              await generateInvoicePdf(refreshedInvoiceJob);
+              setInvoiceStatus(`Invoice PDF generated and downloaded for ${order.order_number}.`);
+            }
           }catch(error){
             console.warn("Background invoice pricing review failed", error);
             setInvoiceStatus(`Invoice draft is ready for ${order.order_number}. AI pricing review is unavailable; unresolved prices remain visible.`);

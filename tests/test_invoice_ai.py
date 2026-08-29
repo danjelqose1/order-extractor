@@ -94,6 +94,7 @@ def test_invoice_line_analysis_is_validated_and_canonicalized(monkeypatch):
         client,
         raw_line="3 vetri 33.1 LOE c.caldo + 4F",
         known_glass_types=["4F", "33.1LowE"],
+        known_component_aliases={"Termik": "4F"},
     )
 
     assert result["glassKey"] == "33.1LowE"
@@ -104,6 +105,7 @@ def test_invoice_line_analysis_is_validated_and_canonicalized(monkeypatch):
     assert completions.calls[0]["model"] == "gpt-5.6-terra"
     assert completions.calls[0]["reasoning_effort"] == "medium"
     assert completions.calls[0]["response_format"]["type"] == "json_schema"
+    assert '"Termik": "4F"' in completions.calls[0]["messages"][1]["content"]
 
 
 def test_invoice_line_analysis_rejects_an_invented_key():

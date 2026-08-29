@@ -151,11 +151,22 @@ def analyze_invoice_line(
     *,
     raw_line: str,
     known_glass_types: Sequence[Any],
+    known_component_aliases: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     raw_text = str(raw_line or "").strip()
     canonical_types = _clean_known_types(known_glass_types)
     if not raw_text:
         raise ValueError("raw_line is required")
+    component_aliases: Dict[str, str] = {}
+    for raw_alias, target_value in (known_component_aliases or {}).items():
+        raw_alias_text = str(raw_alias or "").strip()
+        target_text = str(target_value or "").strip()
+        canonical_target = next(
+            (item for item in canonical_types if item.casefold() == target_text.casefold()),
+            None,
+        )
+        if raw_alias_text and canonical_target:
+            component_aliases[raw_alias_text] = canonical_target
 
     completion = client.chat.completions.create(
         model=os.getenv("INVOICE_LINE_ANALYSIS_MODEL", "gpt-5.6-terra"),
@@ -183,6 +194,8 @@ def analyze_invoice_line(
                     "Use pricingMode=finished_product when the selected catalog key prices the entire "
                     "description as one product; use component only when it prices one glass pane within "
                     "a construction; otherwise use unresolved. "
+                    "Factory component aliases are authoritative: interpret an alias as its supplied "
+                    "canonical catalog key, while still preserving spacers and other components. "
                     "Explain the interpretation and catalog match in short factory-friendly language. "
                     "Never invent a product, canonical key, specification, or price. Return only the "
                     "requested JSON object."
@@ -192,6 +205,7 @@ def analyze_invoice_line(
                 "role": "user",
                 "content": (
                     f"Canonical glass keys:\n{json.dumps(canonical_types, ensure_ascii=False)}\n\n"
+                    f"Factory component aliases:\n{json.dumps(component_aliases, ensure_ascii=False)}\n\n"
                     f"Noisy IGU line:\n{raw_text}"
                 ),
             },
