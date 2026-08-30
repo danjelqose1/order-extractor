@@ -114,6 +114,7 @@ from backend.agents.skills.family_pattern import attach_family_pattern_diagnosti
 from backend.agents.repair_orchestrator import repair_suspicious_row
 from extraction_normalizer import normalize_extracted_rows, normalize_order_metadata
 from utils_text import build_order_total_diagnostics, clean_dimension, parse_declared_totals
+from time_utils import utc_isoformat
 from prompts import PROMPTS
 from analysis_signals import generate_analysis_signals
 from analytics_summary import ANALYTICS_STATUSES, build_analysis_summary
@@ -490,6 +491,13 @@ class WorkspaceProcessPayload(BaseModel):
     order_number: Optional[str] = None
     order_id: Optional[str] = None
     force: Optional[bool] = False
+
+
+class WorkspaceBatchPlanPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    identifiers: List[str] = Field(min_length=1, max_length=25)
+    keep_order_boundaries: bool = True
 
 
 class WorkspaceConfirmPayload(BaseModel):
@@ -1498,7 +1506,7 @@ def healthz():
 
 
 def _awa_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return str(utc_isoformat(datetime.now(timezone.utc)))
 
 
 def _awa_order_ref(item: Dict[str, Any]) -> Tuple[List[Any], List[str]]:
@@ -1789,6 +1797,17 @@ def workspace_recent_files() -> Dict[str, Any]:
     from workspace_service import get_recent_production_files
 
     return get_recent_production_files()
+
+
+@app.post("/api/workspace/batch-plan")
+def workspace_batch_plan(payload: WorkspaceBatchPlanPayload) -> Dict[str, Any]:
+    from workspace_service import build_workspace_batch_plan
+
+    return build_workspace_batch_plan(
+        payload.identifiers,
+        keep_order_boundaries=payload.keep_order_boundaries,
+        requested_by="production_copilot",
+    )
 
 
 def _beta_service_module():
@@ -3270,8 +3289,8 @@ def _recover_telegram_extraction_queue() -> None:
 
 def _telegram_source_metadata(record: Dict[str, Any]) -> Dict[str, Any]:
     received_at = record.get("received_at")
-    if hasattr(received_at, "isoformat"):
-        received_at = received_at.isoformat()
+    if isinstance(received_at, datetime):
+        received_at = utc_isoformat(received_at)
     return {
         "source": "telegram",
         "telegram_chat_id": record.get("telegram_chat_id"),
@@ -3754,7 +3773,7 @@ async def _handle_telegram_update_legacy(update: Dict[str, Any]) -> Dict[str, An
             "telegram_message_id": message_id,
             "telegram_sender_name": _telegram_sender_name(message),
             "original_filename": spec.get("original_filename") or spec.get("filename"),
-            "received_at": received_at.isoformat(),
+            "received_at": utc_isoformat(received_at),
             "caption": message.get("caption") or "",
             "telegram_file_record_id": None,
         }
@@ -4981,7 +5000,7 @@ def analysis_signals(payload: AnalysisSignalsPayload) -> Dict[str, Any]:
     return {
         "signals": signals,
         "count": len(signals),
-        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "generated_at": utc_isoformat(datetime.now(timezone.utc)),
     }
 
 @app.get("/diag")

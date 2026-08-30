@@ -118,6 +118,32 @@ def test_beta_assisted_operator_reviews_then_requires_exact_human_confirmation()
     assert "safe_to_approve" in js
 
 
+def test_production_control_tower_plans_before_processing_and_uses_one_copilot():
+    html = INDEX_HTML.read_text(encoding="utf-8")
+    js = APP_JS.read_text(encoding="utf-8")
+    workspace_html = html[html.index('id="tabWorkspace"'):html.index('id="tabAwa"')]
+
+    for element_id in (
+        "workspaceAttention",
+        "workspaceRecommendations",
+        "workspaceBatchPlan",
+        "workspaceProcessSelected",
+        "workspaceChatLog",
+        "workspaceCommandForm",
+    ):
+        assert f'id="{element_id}"' in workspace_html
+    assert "Production Copilot" in workspace_html
+    assert "Plan selected batch" in workspace_html
+    assert "Nothing runs until you confirm it." in workspace_html
+    assert "Smart Chat" not in workspace_html
+    assert "/api/workspace/batch-plan" in js
+    assert "function renderWorkspaceAttention" in js
+    assert "function renderWorkspaceBatchPlan" in js
+    assert "Confirm &amp; create production files" in js
+    assert "mutated_production_data" not in workspace_html
+    assert "No raw, approved, or history data changed" in js
+
+
 def test_teach_mode_never_calls_a_beta_production_execution_endpoint():
     js = APP_JS.read_text(encoding="utf-8")
     teaching_js = js[js.index("function betaTeachingIsActive"):js.index("async function loadBetaSession")]
@@ -223,3 +249,16 @@ def test_history_only_enables_hard_delete_for_drafts():
 
     assert 'normalizedStatus === "draft"' in js
     assert "Only draft orders can be deleted; archive this order instead." in js
+
+
+def test_frontend_treats_legacy_timezone_less_backend_timestamps_as_utc():
+    js = APP_JS.read_text(encoding="utf-8")
+
+    parser = js[js.index("function parsePlatformDate"):js.index("function activityTimeLabel")]
+    formatter_start = js.index("function formatDate")
+    formatter = js[formatter_start:js.index("function formatArea", formatter_start)]
+    assert "isDateOnly" in parser
+    assert "isIsoDateTime && !hasTimezone" in parser
+    assert 'normalized = `${text}Z`' in parser
+    assert "parsePlatformDate(value)" in formatter
+    assert "platformTimestamp(item.created_at)" in js

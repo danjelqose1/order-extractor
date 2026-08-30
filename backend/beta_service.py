@@ -9,6 +9,7 @@ from sqlalchemy import select, update
 
 import db as db_module
 from beta_model import beta_model_name, beta_reasoning_effort, strict_json_schema
+from time_utils import utc_isoformat
 
 
 BETA_MODE = "shadow"
@@ -104,7 +105,7 @@ def _local_datetime_context() -> Dict[str, str]:
 
 
 def _iso(value: Optional[datetime]) -> Optional[str]:
-    return value.isoformat() if value else None
+    return utc_isoformat(value)
 
 
 def _clean_text(value: Any, *, field: str, max_length: int) -> str:

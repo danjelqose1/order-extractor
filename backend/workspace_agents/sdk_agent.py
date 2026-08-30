@@ -74,8 +74,9 @@ Data safety:
 Approval policy:
 - Draft/unapproved orders must not be processed.
 - Approved orders can be processed.
-- Old extraction warnings on approved orders are informational only and must not block processing.
-- The Check action can explain warnings, but Process should continue for approved orders.
+- Deterministic required-data blockers must stop processing even when an order was previously approved.
+- Advisory findings on approved orders are informational and do not block processing.
+- The Preflight action explains both levels with evidence; only blockers prevent production.
 
 Confirmation policy:
 Require confirmation for reprocessing an existing Workspace job, replacing existing files, loading a Workspace job into manual Processing, destructive actions, or overwriting anything.
@@ -130,7 +131,7 @@ def current_datetime_summary() -> Dict[str, str]:
 
 
 def agent_model() -> str:
-    return os.getenv("OPENAI_AGENT_MODEL") or "gpt-5.4-mini"
+    return os.getenv("OPENAI_AGENT_MODEL") or "gpt-5.6-luna"
 
 
 def _sdk_imports() -> Tuple[Any, Any, Any, Any, Any, Optional[Exception]]:

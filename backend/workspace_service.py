@@ -28,6 +28,7 @@ from db import (
 )
 from utils_text import clean_dimension, parse_declared_totals
 from validators import validate_rows
+from time_utils import utc_isoformat
 
 
 PRODUCTION_FILE_TYPES = {"processing_pdf", "labels_pdf"}
@@ -271,7 +272,9 @@ def prepare_workspace_processing_action(
         return result
 
     blocked = []
-    warnings: List[Dict[str, Any]] = []
+    blockers: List[Dict[str, Any]] = []
+    advisories: List[Dict[str, Any]] = []
+    blocker_order_ids: List[str] = []
     order_ids: List[str] = []
     order_numbers: List[str] = []
     summaries: Dict[str, Any] = {}
@@ -286,8 +289,11 @@ def prepare_workspace_processing_action(
             continue
         validation = _validate_order(order)
         summaries[order_number] = validation["summary"]
-        if validation["critical_warnings"]:
-            warnings.extend(_warning_items(order_number, validation["critical_warnings"]))
+        if validation["blocker_warnings"]:
+            blockers.extend(_warning_items(order_number, validation["blocker_warnings"]))
+            blocker_order_ids.append(order_id)
+        if validation["advisory_warnings"]:
+            advisories.extend(_warning_items(order_number, validation["advisory_warnings"]))
 
     if blocked:
         blocked_labels = ", ".join(
@@ -314,12 +320,35 @@ def prepare_workspace_processing_action(
         )
         return result
 
+    if blockers:
+        result = {
+            "status": "needs_review",
+            "reason": "deterministic_preflight_blocked",
+            "message": "Production preflight found required data that must be corrected before files can be created.",
+            "warnings": blockers,
+            "blocked_orders": sorted({item.get("order_number") for item in blockers if item.get("order_number")}),
+            "actions": [{
+                "type": "open_review",
+                "order_ids": blocker_order_ids,
+                "order_numbers": sorted({item.get("order_number") for item in blockers if item.get("order_number")}),
+            }],
+        }
+        record_workspace_action(
+            actor=requested_by,
+            action_type="process_orders_blocked",
+            status="needs_review",
+            requested_message=original_message,
+            input_json={"identifiers": requested, "mode": mode},
+            output_json=result,
+        )
+        return result
+
     resolved_merge_across_orders = infer_merge_across_orders(original_message) if merge_across_orders is None else bool(merge_across_orders)
     result = _frontend_processing_action(order_ids, mode, merge_across_orders=resolved_merge_across_orders)
     result["order_numbers"] = order_numbers
-    result["informational_warnings"] = warnings
-    if warnings:
-        result["message"] = "Approved order warning(s) are informational only; continue through the Processing module workflow."
+    result["informational_warnings"] = advisories
+    if advisories:
+        result["message"] = "Preflight passed with advisory warning(s); continue through the Processing module workflow."
     record_workspace_action(
         actor=requested_by,
         action_type="process_orders_delegated",
@@ -429,7 +458,7 @@ def _existing_batch(order_id: int) -> Optional[Dict[str, Any]]:
 def _serialize_file(file: ProductionFile) -> Dict[str, Any]:
     return {
         "id": file.id,
-        "created_at": file.created_at.isoformat(),
+        "created_at": utc_isoformat(file.created_at),
         "order_id": file.order_id,
         "order_number": file.order_number,
         "processing_batch_id": file.processing_batch_id,
@@ -452,8 +481,8 @@ def _serialize_batch(session, batch: ProcessingBatch) -> Dict[str, Any]:
         summary = {}
     return {
         "id": batch.id,
-        "created_at": batch.created_at.isoformat(),
-        "updated_at": batch.updated_at.isoformat(),
+        "created_at": utc_isoformat(batch.created_at),
+        "updated_at": utc_isoformat(batch.updated_at),
         "order_id": batch.order_id,
         "order_number": batch.order_number,
         "status": batch.status,
@@ -482,35 +511,75 @@ def _validate_order(order: Dict[str, Any]) -> Dict[str, Any]:
     if declared_area is not None and abs((declared_area or 0.0) - summary["total_area_m2"]) > 0.05:
         warnings.append(f"declared_area_mismatch: declared {declared_area:.3f}, parsed {summary['total_area_m2']:.3f}")
 
-    critical: List[str] = []
+    blockers: List[str] = []
+    advisories: List[str] = []
+    informational: List[str] = []
+
+    def add_warning(message: Any, *, diagnostic_severity: Optional[str] = None) -> None:
+        text = str(message or "").strip()
+        if not text:
+            return
+        lower = text.lower()
+        if "auto_fix:" in lower:
+            informational.append(text)
+            return
+        blocker_tokens = (
+            "missing_required_field",
+            "dimension_invalid",
+            "area_not_numeric",
+            "no rows detected",
+            "no order numbers detected",
+            "invalid dimension",
+            "impossible dimension",
+            "missing dimension",
+            "missing glass",
+            "missing type",
+            "missing quantity",
+        )
+        if diagnostic_severity == "error" or any(token in lower for token in blocker_tokens):
+            blockers.append(text)
+            return
+        advisories.append(text)
+
     for warning in warnings:
-        text = str(warning)
-        if any(token in text.lower() for token in ("missing", "invalid", "mismatch", "dimension", "quantity", "area")):
-            critical.append(text)
+        add_warning(warning)
     for idx, row in enumerate(final_rows, start=1):
         diagnostics = diagnose_extraction_row_issue(row)
         if diagnostics.get("severity") not in {"warning", "error"}:
             continue
         for issue in diagnostics.get("issues") or []:
             message = issue.get("message") or issue.get("code") or "Extraction diagnostic warning"
-            critical.append(f"Row {idx}: {message}")
+            add_warning(f"Row {idx}: {message}", diagnostic_severity=diagnostics.get("severity"))
     for key, values in (row_warnings.items() if isinstance(row_warnings, dict) else []):
+        try:
+            row_label = int(key) + 1
+        except (TypeError, ValueError):
+            row_label = key
         for value in values or []:
-            critical.append(f"Row {key}: {value}")
+            add_warning(f"Row {row_label}: {value}")
 
-    deduped_critical = []
-    seen = set()
-    for item in critical:
-        text = str(item).strip()
-        if text and text not in seen:
-            seen.add(text)
-            deduped_critical.append(text)
+    def dedupe(items: Sequence[Any]) -> List[str]:
+        output: List[str] = []
+        seen = set()
+        for item in items:
+            text = str(item).strip()
+            if text and text not in seen:
+                seen.add(text)
+                output.append(text)
+        return output
+
+    deduped_blockers = dedupe(blockers)
+    deduped_advisories = dedupe(advisories)
+    deduped_informational = dedupe(informational)
 
     return {
-        "ok": not deduped_critical,
+        "ok": not deduped_blockers,
         "rows": final_rows,
         "warnings": warnings,
-        "critical_warnings": deduped_critical,
+        "critical_warnings": deduped_blockers,
+        "blocker_warnings": deduped_blockers,
+        "advisory_warnings": deduped_advisories,
+        "informational_warnings": deduped_informational,
         "row_warnings": row_warnings,
         "summary": summary,
     }
@@ -524,7 +593,8 @@ def validate_order_for_processing(order_number_or_id: Any) -> Dict[str, Any]:
     return {
         "status": "ok" if validation["ok"] else "needs_review",
         "order": _queue_card(order),
-        "warnings": validation["critical_warnings"],
+        "warnings": validation["blocker_warnings"],
+        "advisories": validation["advisory_warnings"],
         "summary": validation["summary"],
     }
 
@@ -706,13 +776,33 @@ def process_approved_order(order_number_or_id: Any, requested_by: str = "workspa
         return result
 
     validation = _validate_order(order)
+    if validation["blocker_warnings"]:
+        result = {
+            "status": "needs_review",
+            "reason": "deterministic_preflight_blocked",
+            "order": _queue_card(order),
+            "summary": validation["summary"],
+            "message": "Production preflight found required data that must be corrected before files can be created.",
+            "warnings": _warning_items(order_number, validation["blocker_warnings"]),
+            "actions": [{"type": "open_review", "order_ids": [str(order_id)], "order_numbers": [order_number]}],
+        }
+        record_workspace_action(
+            actor=requested_by,
+            action_type="process_order_blocked",
+            status="needs_review",
+            order_id=order_id,
+            order_number=order_number,
+            tool_name="process_approved_order",
+            output_json=result,
+        )
+        return result
     result = {
         "status": "frontend_workflow_required",
         "order": _queue_card(order),
         "summary": validation["summary"],
         "message": "Processing PDFs and labels must be generated through the existing Processing and Labels modules.",
         "actions": [{"type": "process_via_existing_modules", "identifier": str(order_id)}],
-        "informational_warnings": _warning_items(order_number, validation["critical_warnings"]),
+        "informational_warnings": _warning_items(order_number, validation["advisory_warnings"]),
     }
     record_workspace_action(
         actor=requested_by,
@@ -864,15 +954,112 @@ def _file_urls_for_order(order_id: int) -> Dict[str, Any]:
     }
 
 
+def _parse_workspace_datetime(value: Any) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _age_days(value: Any) -> int:
+    parsed = _parse_workspace_datetime(value)
+    if not parsed:
+        return 0
+    return max(0, int((datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)).total_seconds() // 86400))
+
+
+def _glass_profile(rows: Sequence[Dict[str, Any]]) -> List[str]:
+    seen = set()
+    profile: List[str] = []
+    for row in rows or []:
+        glass_type = re.sub(r"\s+", " ", str(row.get("type") or "").strip()).upper()
+        if glass_type and glass_type not in seen:
+            seen.add(glass_type)
+            profile.append(glass_type)
+    return sorted(profile)
+
+
+def _queue_attention(card: Dict[str, Any]) -> Dict[str, Any]:
+    status = normalize_order_status(card.get("status"))
+    blockers = int(card.get("blocker_count") or 0)
+    advisories = int(card.get("advisory_count") or 0)
+    age = int(card.get("age_days") or 0)
+    if status in {"completed", "archived"}:
+        return {
+            "severity": "complete",
+            "reason": "Workflow completed",
+            "recommended_action": "Open the audit trail or production files if needed.",
+            "production_eligibility": "complete",
+            "priority_score": 0,
+        }
+    if blockers:
+        return {
+            "severity": "blocker",
+            "reason": f"{blockers} required-data blocker{'s' if blockers != 1 else ''}",
+            "recommended_action": "Open Preflight and correct the source data before production.",
+            "production_eligibility": "blocked",
+            "priority_score": 1000 + (blockers * 20) + min(age, 30),
+        }
+    if status in {"draft", "reviewed"}:
+        reason = f"{advisories} advisory warning{'s' if advisories != 1 else ''}" if advisories else "Awaiting operator review"
+        return {
+            "severity": "advisory" if advisories else "review",
+            "reason": reason,
+            "recommended_action": "Review the order and approve it before production.",
+            "production_eligibility": "not_approved",
+            "priority_score": 700 + min(age, 60),
+        }
+    if status == "approved":
+        if advisories:
+            return {
+                "severity": "advisory",
+                "reason": f"Preflight passed with {advisories} advisory warning{'s' if advisories != 1 else ''}",
+                "recommended_action": "Review the advisory, then include this order in a production plan.",
+                "production_eligibility": "eligible",
+                "priority_score": 500 + min(age, 60) + min(advisories, 10),
+            }
+        return {
+            "severity": "ready",
+            "reason": "Approved and deterministic preflight passed",
+            "recommended_action": "Include this order in a compatible production plan.",
+            "production_eligibility": "eligible",
+            "priority_score": 400 + min(age, 60),
+        }
+    if status == "in_production":
+        return {
+            "severity": "active",
+            "reason": "Production files have been prepared",
+            "recommended_action": "Complete production checks and labels.",
+            "production_eligibility": "in_production",
+            "priority_score": 300 + min(age, 30),
+        }
+    return {
+        "severity": "review",
+        "reason": "Status requires operator review",
+        "recommended_action": "Open the order and confirm its next workflow stage.",
+        "production_eligibility": "not_ready",
+        "priority_score": 100 + min(age, 30),
+    }
+
+
 def _queue_card(order: Dict[str, Any]) -> Dict[str, Any]:
     rows = order.get("rows") or []
     summary = _summarize_rows(rows)
-    warnings_count = 0
+    blockers: List[str] = []
+    advisories: List[str] = []
     if rows:
         validation = _validate_order(order)
-        warnings_count = len(validation.get("critical_warnings") or [])
+        blockers = validation.get("blocker_warnings") or []
+        advisories = validation.get("advisory_warnings") or []
     files = _file_urls_for_order(int(order["id"])) if order.get("id") is not None else {}
-    return {
+    approved_at = _approved_at(order)
+    card = {
         "id": order.get("id"),
         "order_id": order.get("id"),
         "order_number": _primary_order_number(order),
@@ -882,11 +1069,19 @@ def _queue_card(order: Dict[str, Any]) -> Dict[str, Any]:
         "status_label": order.get("status_label"),
         "total_pieces": summary["total_pieces"] or order.get("units_total") or 0,
         "total_area_m2": summary["total_area_m2"] if rows else round(float(order.get("area_total") or 0.0), 3),
-        "warnings_count": warnings_count,
+        "warnings_count": len(blockers) + len(advisories),
+        "blocker_count": len(blockers),
+        "advisory_count": len(advisories),
+        "warning_preview": (blockers + advisories)[:3],
+        "glass_profile": _glass_profile(rows),
         "created_at": order.get("created_at"),
-        "approved_at": _approved_at(order),
+        "updated_at": order.get("updated_at"),
+        "approved_at": approved_at,
+        "age_days": _age_days(approved_at or order.get("created_at")),
         **files,
     }
+    card.update(_queue_attention(card))
+    return card
 
 
 def _approved_at(order: Dict[str, Any]) -> Optional[str]:
@@ -923,7 +1118,233 @@ def get_workspace_queue() -> Dict[str, Any]:
             continue
         if status in {"completed", "archived"}:
             grouped["finished"].append(card)
-    return {"groups": grouped, "counts": {key: len(value) for key, value in grouped.items()}}
+    for key in grouped:
+        grouped[key].sort(
+            key=lambda item: (
+                int(item.get("priority_score") or 0),
+                str(item.get("approved_at") or item.get("created_at") or ""),
+            ),
+            reverse=True,
+        )
+
+    ready_cards = [
+        item for item in grouped["approved_ready"]
+        if item.get("production_eligibility") == "eligible"
+    ]
+    compatibility_groups: Dict[str, List[Dict[str, Any]]] = {}
+    for item in ready_cards:
+        profile = item.get("glass_profile") or []
+        signature = " | ".join(profile) if profile else "UNSPECIFIED"
+        compatibility_groups.setdefault(signature, []).append(item)
+    compatible = max(
+        compatibility_groups.values(),
+        key=lambda values: (len(values), sum(float(item.get("total_area_m2") or 0.0) for item in values)),
+        default=[],
+    )[:8]
+    recommended_batch = None
+    if compatible:
+        recommended_batch = {
+            "order_ids": [str(item.get("order_id")) for item in compatible],
+            "order_numbers": [item.get("order_number") for item in compatible],
+            "order_count": len(compatible),
+            "total_pieces": sum(int(item.get("total_pieces") or 0) for item in compatible),
+            "total_area_m2": round(sum(float(item.get("total_area_m2") or 0.0) for item in compatible), 3),
+            "reason": (
+                "Exact glass profile match across the selected orders."
+                if len(compatible) > 1 else
+                "Oldest eligible order ready for a safe production plan."
+            ),
+        }
+
+    all_cards = [item for values in grouped.values() for item in values]
+    attention = {
+        "blockers": sum(1 for item in all_cards if item.get("severity") == "blocker"),
+        "ready_now": len(ready_cards),
+        "advisories": sum(1 for item in all_cards if item.get("severity") == "advisory"),
+        "ageing": sum(1 for item in grouped["approved_ready"] if int(item.get("age_days") or 0) >= 7),
+        "production_files": sum(1 for item in all_cards if item.get("processing_pdf_url") or item.get("labels_pdf_url")),
+        "recommended_batch": recommended_batch,
+    }
+    return {
+        "groups": grouped,
+        "counts": {key: len(value) for key, value in grouped.items()},
+        "attention": attention,
+    }
+
+
+def _workspace_spacer_width_mm(type_string: Any) -> Optional[float]:
+    raw = re.sub(r"^\s*\d+\s*vetri?\s*", "", str(type_string or ""), flags=re.IGNORECASE)
+    raw = re.sub(r"\b\d+(?:[.,]\d+)?\s*mm\b", "", raw, flags=re.IGNORECASE)
+    for token in raw.split("+"):
+        candidate = re.sub(r"\s+", "", token).replace(",", ".")
+        if not re.fullmatch(r"\d+(?:\.\d+)?", candidate):
+            continue
+        try:
+            value = float(candidate)
+        except ValueError:
+            continue
+        if 1 <= value <= 40:
+            return value
+    return None
+
+
+def build_workspace_batch_plan(
+    identifiers: Sequence[Any],
+    *,
+    keep_order_boundaries: bool = True,
+    requested_by: str = "workspace",
+) -> Dict[str, Any]:
+    requested = [_normalize_workspace_order_token(item) for item in identifiers if str(item or "").strip()]
+    if not requested:
+        return {"status": "missing_order", "message": "Select at least one order to build a production plan."}
+    if len(requested) > 25:
+        return {"status": "too_many_orders", "message": "A production plan can contain at most 25 orders."}
+
+    orders: List[Dict[str, Any]] = []
+    missing: List[str] = []
+    ambiguous: List[str] = []
+    seen_ids = set()
+    for identifier in requested:
+        order, matches = _resolve_order(identifier)
+        if not order:
+            (ambiguous if matches else missing).append(identifier)
+            continue
+        order_id = str(order.get("id") or "")
+        if order_id in seen_ids:
+            continue
+        seen_ids.add(order_id)
+        orders.append(get_order_with_extraction(int(order_id)) or order)
+    if missing or ambiguous:
+        return {
+            "status": "not_found" if missing else "multiple_matches",
+            "message": "Some selected orders could not be resolved. No production data was changed.",
+            "missing": missing,
+            "ambiguous": ambiguous,
+        }
+
+    order_cards: List[Dict[str, Any]] = []
+    blockers: List[Dict[str, Any]] = []
+    advisories: List[Dict[str, Any]] = []
+    total_pieces = 0
+    total_area = 0.0
+    glass_types = set()
+    profiles = set()
+    spacer_total_mm = 0.0
+    butyl_total_kg = 0.0
+    spacer_by_width: Dict[str, float] = {}
+    missing_dimensions = 0
+    missing_spacer = 0
+    not_approved: List[str] = []
+    density_g_cm3 = 1.18
+    bead_height_mm = 5.0
+
+    for order in orders:
+        card = _queue_card(order)
+        order_cards.append(card)
+        order_number = card.get("order_number") or str(card.get("order_id") or "Order")
+        if normalize_order_status(order.get("status")) != "approved":
+            not_approved.append(str(order_number))
+        validation = _validate_order(order)
+        blockers.extend(_warning_items(str(order_number), validation.get("blocker_warnings") or []))
+        advisories.extend(_warning_items(str(order_number), validation.get("advisory_warnings") or []))
+        summary = validation.get("summary") or {}
+        total_pieces += int(summary.get("total_pieces") or 0)
+        total_area += float(summary.get("total_area_m2") or 0.0)
+        profile = _glass_profile(order.get("rows") or [])
+        profiles.add(" | ".join(profile) if profile else "UNSPECIFIED")
+        glass_types.update(profile)
+
+        for row in validation.get("rows") or []:
+            _cleaned, dims = clean_dimension(row.get("dimension") or "")
+            try:
+                quantity = max(0, int(row.get("quantity") or 0))
+            except (TypeError, ValueError):
+                quantity = 0
+            if not dims:
+                missing_dimensions += 1
+                continue
+            width, height = dims
+            perimeter_mm = 2.0 * (float(width) + float(height)) * quantity
+            spacer_total_mm += perimeter_mm
+            spacer_width = _workspace_spacer_width_mm(row.get("type"))
+            if spacer_width is None:
+                missing_spacer += 1
+                continue
+            spacer_key = f"{spacer_width:g} mm"
+            spacer_by_width[spacer_key] = spacer_by_width.get(spacer_key, 0.0) + (perimeter_mm / 1000.0)
+            volume_cm3 = (perimeter_mm * spacer_width * bead_height_mm) / 1000.0
+            butyl_total_kg += (volume_cm3 * density_g_cm3) / 1000.0
+
+    if not_approved:
+        for order_number in not_approved:
+            blockers.append({
+                "order_number": order_number,
+                "row": None,
+                "code": "order_not_approved",
+                "message": "Order is not approved for production.",
+            })
+
+    status = "blocked" if blockers else ("ready_with_advisories" if advisories else "ready")
+    result = {
+        "status": status,
+        "plan_id": f"workspace-plan-{uuid.uuid4().hex[:12]}",
+        "created_at": utc_isoformat(datetime.now(timezone.utc)),
+        "message": (
+            "Production plan is blocked until required data is corrected."
+            if blockers else
+            "Production plan is ready for operator confirmation."
+        ),
+        "can_confirm": not blockers,
+        "confirmation_required": True,
+        "keep_order_boundaries": bool(keep_order_boundaries),
+        "orders": [{
+            "order_id": str(card.get("order_id") or ""),
+            "order_number": card.get("order_number"),
+            "client_name": card.get("client_name"),
+            "pieces": card.get("total_pieces"),
+            "area_m2": card.get("total_area_m2"),
+            "updated_at": card.get("updated_at"),
+        } for card in order_cards],
+        "summary": {
+            "order_count": len(order_cards),
+            "total_pieces": total_pieces,
+            "total_area_m2": round(total_area, 3),
+            "glass_type_count": len(glass_types),
+            "glass_types": sorted(glass_types),
+            "profile_count": len(profiles),
+            "compatibility": "exact_profile" if len(profiles) == 1 else "mixed_profiles",
+        },
+        "materials": {
+            "spacer_m": round(spacer_total_mm / 1000.0, 2),
+            "spacer_by_width_m": {key: round(value, 2) for key, value in sorted(spacer_by_width.items())},
+            "butyl_kg": round(butyl_total_kg, 3),
+            "bostik_4000_boxes": int((butyl_total_kg + 6.5 - 1e-9) // 6.5) if butyl_total_kg > 0 else 0,
+            "missing_dimension_items": missing_dimensions,
+            "missing_spacer_items": missing_spacer,
+            "calculation_note": "Deterministic estimate using 5 mm bead height and 1.18 g/cm3 density; stock availability is not connected.",
+        },
+        "blockers": blockers,
+        "advisories": advisories,
+        "safety": {
+            "mutated_production_data": False,
+            "revalidate_on_confirm": True,
+            "raw_and_approved_data_unchanged": True,
+        },
+    }
+    record_workspace_action(
+        actor=requested_by,
+        action_type="workspace_batch_plan_created",
+        status=status,
+        input_json={"identifiers": requested, "keep_order_boundaries": bool(keep_order_boundaries)},
+        output_json={
+            "plan_id": result["plan_id"],
+            "order_count": len(order_cards),
+            "can_confirm": result["can_confirm"],
+            "blocker_count": len(blockers),
+            "advisory_count": len(advisories),
+        },
+    )
+    return result
 
 
 def get_recent_production_files(limit: int = 20) -> Dict[str, Any]:
@@ -944,7 +1365,7 @@ def get_recent_production_files(limit: int = 20) -> Dict[str, Any]:
                     "order_id": batch.order_id,
                     "order_number": batch.order_number,
                     "client_name": order.client_name or order.client_hint if order else "",
-                    "generated_at": batch.updated_at.isoformat(),
+                    "generated_at": utc_isoformat(batch.updated_at),
                     "batch_status": batch.status,
                     "processing_pdf_url": serialized.get("processing_pdf_url"),
                     "labels_pdf_url": serialized.get("labels_pdf_url"),

@@ -79,6 +79,8 @@ def test_manual_order_uses_separate_tables_and_stays_out_of_pdf_history(tmp_path
     history = db.get_orders(year="all")
 
     assert manual["source"] == "manual"
+    assert manual["created_at"].endswith("Z")
+    assert manual["updated_at"].endswith("Z")
     assert [item["id"] for item in history] == [pdf["order_id"]]
     assert history[0]["source"] == "pdf"
 

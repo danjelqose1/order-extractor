@@ -436,7 +436,7 @@ def _is_continue_message(message: str) -> bool:
 
 
 def _agent_model() -> str:
-    return os.getenv("OPENAI_AGENT_MODEL") or "gpt-5.4-mini"
+    return os.getenv("OPENAI_AGENT_MODEL") or "gpt-5.6-luna"
 
 
 def _fallback_intent(message: str, selected_order_number: Optional[str], selected_order_id: Optional[str]) -> Dict[str, Any]:
@@ -603,7 +603,11 @@ def _format_process_response(result: Dict[str, Any]) -> Dict[str, Any]:
         message = f"I found {order_number}, but it is not approved. Please review and approve it first."
     elif status == "needs_review":
         warnings = result.get("warnings") or []
-        warning_text = "\n".join(f"{idx + 1}. {item}" for idx, item in enumerate(warnings[:5]))
+        warning_text = "\n".join(
+            f"{idx + 1}. {item.get('order_number', 'Order')}: {item.get('message', item)}"
+            if isinstance(item, dict) else f"{idx + 1}. {item}"
+            for idx, item in enumerate(warnings[:5])
+        )
         message = f"I found {len(warnings)} warning(s) before processing:\n{warning_text}\nI stopped before creating production files."
     elif status == "already_processed":
         message = f"{order_number} already has a processing batch. Existing files are available."

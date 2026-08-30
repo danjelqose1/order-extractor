@@ -261,6 +261,9 @@ def test_telegram_intake_insert_is_atomic_under_concurrent_delivery(tmp_path, mo
     stored = db.get_telegram_file(1)
     assert stored["telegram_update_id"] == "7001"
     assert stored["extraction_status"] == "download_queued"
+    assert stored["created_at"].endswith("Z")
+    assert stored["received_at"].endswith("Z")
+    assert stored["queued_at"].endswith("Z")
 
 
 def test_telegram_download_and_processing_states_recover_after_restart(tmp_path, monkeypatch):
@@ -704,15 +707,31 @@ def test_process_approved_order_blocks_draft(tmp_path, monkeypatch):
     assert result["reason"] == "order_not_approved"
 
 
-def test_process_approved_order_allows_approved_order_with_warnings(tmp_path, monkeypatch):
+def test_process_approved_order_blocks_required_data_warning_even_when_approved(tmp_path, monkeypatch):
     db, service = _load_modules(tmp_path, monkeypatch)
-    _insert_order(db, rows=[_row(dimension="", area=0)])
+    order_id = _insert_order(db, rows=[_row(dimension="", area=0)])
+    before = db.get_order_with_extraction(order_id)
+
+    result = service.process_approved_order("R-26-0042", requested_by="test")
+
+    after = db.get_order_with_extraction(order_id)
+    assert result["status"] == "needs_review"
+    assert result["reason"] == "deterministic_preflight_blocked"
+    assert result["warnings"]
+    assert result["actions"][0]["type"] == "open_review"
+    assert before["rows"] == after["rows"]
+    assert before["extraction"]["raw_input"] == after["extraction"]["raw_input"]
+
+
+def test_process_approved_order_allows_advisory_warning(tmp_path, monkeypatch):
+    db, service = _load_modules(tmp_path, monkeypatch)
+    _insert_order(db, rows=[_row(dimension="100x100", quantity=10, area=0.1)])
 
     result = service.process_approved_order("R-26-0042", requested_by="test")
 
     assert result["status"] == "frontend_workflow_required"
     assert result["informational_warnings"]
-    assert not result.get("pending_action")
+    assert result["actions"][0]["type"] == "process_via_existing_modules"
 
 
 def test_process_approved_order_does_not_create_backend_batches(tmp_path, monkeypatch):
@@ -734,6 +753,70 @@ def test_workspace_queue_groups_orders(tmp_path, monkeypatch):
 
     assert queue["counts"]["approved_ready"] == 1
     assert queue["groups"]["approved_ready"][0]["order_number"] == "R-26-0042"
+
+
+def test_workspace_queue_exposes_deterministic_attention_and_blocker_severity(tmp_path, monkeypatch):
+    db, service = _load_modules(tmp_path, monkeypatch)
+    _insert_order(db, rows=[_row(order_number="R-26-0042", dimension="500x600")])
+    _insert_order(db, rows=[_row(order_number="R-26-0043", dimension="", area=0)])
+
+    queue = service.get_workspace_queue()
+    cards = {item["order_number"]: item for item in queue["groups"]["approved_ready"]}
+
+    assert cards["R-26-0042"]["production_eligibility"] == "eligible"
+    assert cards["R-26-0042"]["severity"] == "ready"
+    assert cards["R-26-0043"]["production_eligibility"] == "blocked"
+    assert cards["R-26-0043"]["blocker_count"] > 0
+    assert queue["attention"]["blockers"] == 1
+    assert queue["attention"]["ready_now"] == 1
+    assert queue["attention"]["recommended_batch"]["order_numbers"] == ["R-26-0042"]
+
+
+def test_workspace_batch_plan_previews_materials_without_mutating_orders(tmp_path, monkeypatch):
+    db, service = _load_modules(tmp_path, monkeypatch)
+    first_id = _insert_order(db, rows=[_row(order_number="R-26-0042", dimension="500x600")])
+    second_id = _insert_order(db, rows=[_row(order_number="R-26-0043", dimension="700x800", area=1.12)])
+    before = {order_id: db.get_order_with_extraction(order_id) for order_id in (first_id, second_id)}
+
+    plan = service.build_workspace_batch_plan([str(first_id), str(second_id)], requested_by="test")
+
+    assert plan["status"] == "ready"
+    assert plan["can_confirm"] is True
+    assert plan["confirmation_required"] is True
+    assert plan["keep_order_boundaries"] is True
+    assert plan["summary"]["order_count"] == 2
+    assert plan["summary"]["total_pieces"] == 4
+    assert plan["summary"]["total_area_m2"] == 1.72
+    assert plan["summary"]["compatibility"] == "exact_profile"
+    assert plan["materials"]["spacer_m"] == 10.4
+    assert plan["materials"]["spacer_by_width_m"] == {"16 mm": 10.4}
+    assert plan["materials"]["butyl_kg"] == 0.982
+    assert plan["materials"]["bostik_4000_boxes"] == 1
+    assert plan["safety"]["mutated_production_data"] is False
+    for order_id in (first_id, second_id):
+        after = db.get_order_with_extraction(order_id)
+        assert before[order_id]["status"] == after["status"]
+        assert before[order_id]["rows"] == after["rows"]
+        assert before[order_id]["extraction"]["raw_input"] == after["extraction"]["raw_input"]
+
+
+def test_workspace_batch_plan_route_blocks_missing_required_data(tmp_path, monkeypatch):
+    db, _service = _load_modules(tmp_path, monkeypatch)
+    order_id = _insert_order(db, rows=[_row(dimension="", area=0)])
+    app_module = importlib.import_module("app")
+    client = TestClient(app_module.app)
+
+    response = client.post(
+        "/api/workspace/batch-plan",
+        json={"identifiers": [str(order_id)], "keep_order_boundaries": True},
+    )
+
+    assert response.status_code == 200
+    plan = response.json()
+    assert plan["status"] == "blocked"
+    assert plan["can_confirm"] is False
+    assert plan["blockers"]
+    assert plan["safety"]["raw_and_approved_data_unchanged"] is True
 
 
 def test_agent_route_delegates_clean_approved_order_to_frontend_modules(tmp_path, monkeypatch):
@@ -1356,7 +1439,7 @@ def test_agent_route_same_as_before_reuses_last_mode_safely(tmp_path, monkeypatc
     assert data["actions"][0]["mode"] == "combined"
 
 
-def test_combined_approved_orders_with_warnings_process_without_pending_action(tmp_path, monkeypatch):
+def test_combined_approved_orders_stop_when_one_has_required_data_blocker(tmp_path, monkeypatch):
     db, _service = _load_modules(tmp_path, monkeypatch)
     clean_id = _insert_order(db, rows=[_row(order_number="R-26-0410", dimension="500x600")])
     warning_id = _insert_order(db, rows=[_row(order_number="R-25-1290", dimension="", area=0)])
@@ -1370,11 +1453,11 @@ def test_combined_approved_orders_with_warnings_process_without_pending_action(t
         json={"message": "process order 26-0410 and 25-1290", "context": session_context},
     ).json()
 
-    assert data["status"] == "frontend_workflow_required"
+    assert data["status"] == "needs_review"
     action = data["actions"][0]
-    assert action["identifiers"] == [str(clean_id), str(warning_id)]
-    assert action["mode"] == "combined"
-    assert data["informational_warnings"]
+    assert action["type"] == "open_review"
+    assert action["order_ids"] == [str(warning_id)]
+    assert data["warnings"]
     assert "pending_action" not in data
 
 
@@ -1392,9 +1475,9 @@ def test_agent_route_why_did_it_stop_without_pending_action_is_clear(tmp_path, m
         json={"message": "why did it stop?", "context": {**context}},
     ).json()
 
-    assert processed["status"] == "frontend_workflow_required"
+    assert processed["status"] == "needs_review"
     assert data["status"] == "ok"
-    assert "blocked action" in data["message"]
+    assert "do not have a blocked action" in data["message"]
 
 
 def test_agent_route_why_did_it_stop_explains_last_blocked_action(tmp_path, monkeypatch):
@@ -1437,7 +1520,7 @@ def test_agent_route_what_should_i_do_next_uses_queue(tmp_path, monkeypatch):
     assert data["action_plan"]["planned_tool"] == "get_workspace_queue"
 
 
-def test_approved_warnings_separate_mode_remains_separate_without_pending(tmp_path, monkeypatch):
+def test_required_data_blocker_stops_separate_mode_before_any_processing(tmp_path, monkeypatch):
     db, _service = _load_modules(tmp_path, monkeypatch)
     clean_id = _insert_order(db, rows=[_row(order_number="R-26-0410", dimension="500x600")])
     warning_id = _insert_order(db, rows=[_row(order_number="R-25-1290", dimension="", area=0)])
@@ -1452,9 +1535,9 @@ def test_approved_warnings_separate_mode_remains_separate_without_pending(tmp_pa
     ).json()
 
     action = data["actions"][0]
-    assert action["identifiers"] == [str(clean_id), str(warning_id)]
-    assert action["mode"] == "separate"
-    assert data["informational_warnings"]
+    assert data["status"] == "needs_review"
+    assert action["type"] == "open_review"
+    assert action["order_ids"] == [str(warning_id)]
 
 
 def test_invalid_pending_action_cannot_be_continued(tmp_path, monkeypatch):
@@ -1486,7 +1569,7 @@ def test_combined_processing_blocks_if_any_order_is_draft(tmp_path, monkeypatch)
     assert data["reason"] == "order_not_approved"
 
 
-def test_approved_warning_processing_audit_records_delegated_not_pending(tmp_path, monkeypatch):
+def test_required_data_blocker_audit_records_blocked_not_delegated(tmp_path, monkeypatch):
     db, _service = _load_modules(tmp_path, monkeypatch)
     _insert_order(db, rows=[_row(order_number="R-25-1290", dimension="", area=0)])
     app_module = importlib.import_module("app")
@@ -1498,7 +1581,8 @@ def test_approved_warning_processing_audit_records_delegated_not_pending(tmp_pat
 
     with db.SessionLocal() as session:
         action_types = [row.action_type for row in session.query(db.WorkspaceAction).all()]
-    assert "process_orders_delegated" in action_types
+    assert "process_orders_blocked" in action_types
+    assert "process_orders_delegated" not in action_types
     assert "pending_processing_action_created" not in action_types
 
 
@@ -1513,7 +1597,7 @@ def test_agents_sdk_engine_available_and_tracing_not_disabled(tmp_path, monkeypa
     assert sdk_agent.should_use_agents_sdk()
 
 
-def test_workspace_models_default_to_gpt_5_4_mini(tmp_path, monkeypatch):
+def test_workspace_models_default_to_gpt_5_6_luna(tmp_path, monkeypatch):
     _db, _service = _load_modules(tmp_path, monkeypatch)
     sdk_agent = importlib.import_module("workspace_agents.sdk_agent")
     smart_chat = importlib.import_module("workspace_agents.smart_chat")
@@ -1523,9 +1607,9 @@ def test_workspace_models_default_to_gpt_5_4_mini(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_SMART_CHAT_MODEL", raising=False)
     monkeypatch.setenv("EXTRACTION_MODEL", "legacy-extraction-model")
 
-    assert sdk_agent.agent_model() == "gpt-5.4-mini"
-    assert smart_chat.smart_chat_model() == "gpt-5.4-mini"
-    assert workspace_agent._agent_model() == "gpt-5.4-mini"
+    assert sdk_agent.agent_model() == "gpt-5.6-luna"
+    assert smart_chat.smart_chat_model() == "gpt-5.6-luna"
+    assert workspace_agent._agent_model() == "gpt-5.6-luna"
 
 
 def test_agent_route_uses_agents_sdk_runner_with_trace_config(tmp_path, monkeypatch):
@@ -1886,3 +1970,76 @@ def test_agents_sdk_process_orders_tool_returns_structured_action(tmp_path, monk
     assert result["actions"][0]["type"] == "process_via_existing_modules"
     assert result["actions"][0]["identifiers"] == [str(order_id)]
     assert result["actions"][0]["mode"] == "single"
+
+
+def test_order_api_serialization_includes_explicit_utc_timezone(tmp_path, monkeypatch):
+    db, _service = _load_modules(tmp_path, monkeypatch)
+    order_id = _insert_order(db)
+
+    order = db.get_order_with_extraction(order_id)
+
+    assert order["created_at"].endswith("Z")
+    assert order["updated_at"].endswith("Z")
+    assert order["status_history"][-1]["changed_at"].endswith("Z")
+
+
+def test_order_date_filters_follow_tirana_business_day(tmp_path, monkeypatch):
+    db, _service = _load_modules(tmp_path, monkeypatch)
+    before_local_midnight_id = _insert_order(
+        db,
+        rows=[_row(dimension="500x600")],
+        status="approved",
+    )
+    after_local_midnight_id = _insert_order(
+        db,
+        rows=[_row(dimension="500x601")],
+        status="approved",
+    )
+    with db.SessionLocal() as session:
+        before = session.get(db.Order, before_local_midnight_id)
+        after = session.get(db.Order, after_local_midnight_id)
+        before.created_at = datetime(2026, 8, 28, 21, 59, tzinfo=timezone.utc)
+        before.updated_at = before.created_at
+        after.created_at = datetime(2026, 8, 28, 22, 1, tzinfo=timezone.utc)
+        after.updated_at = after.created_at
+        session.commit()
+
+    items = db.get_orders(
+        date_from="2026-08-29",
+        date_to="2026-08-29",
+        year="all",
+        limit=20,
+    )
+
+    assert [item["id"] for item in items] == [after_local_midnight_id]
+
+
+def test_recent_production_files_include_explicit_utc_timezone(tmp_path, monkeypatch):
+    db, service = _load_modules(tmp_path, monkeypatch)
+    order_id = _insert_order(db)
+    with db.SessionLocal() as session:
+        batch = db.ProcessingBatch(
+            order_id=order_id,
+            order_number="R-26-0042",
+            status="completed",
+            requested_by="test",
+            summary_json="{}",
+        )
+        session.add(batch)
+        session.flush()
+        session.add(
+            db.ProductionFile(
+                order_id=order_id,
+                processing_batch_id=batch.id,
+                order_number="R-26-0042",
+                file_type="processing_pdf",
+                file_path=str(tmp_path / "processing.pdf"),
+                download_url="/api/workspace/files/1/download",
+                status="ready",
+            )
+        )
+        session.commit()
+
+    recent = service.get_recent_production_files(limit=5)
+
+    assert recent["items"][0]["generated_at"].endswith("Z")

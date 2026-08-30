@@ -24,19 +24,17 @@ def test_pdf_editor_navigation_and_upload_ui_present():
     assert "loadPdfIntoEditor(file)" in html
 
 
-def test_workspace_factory_and_smart_chat_sections_are_separate():
+def test_workspace_uses_one_production_copilot_with_safe_chat_routing():
     html = _html()
 
-    assert "Factory Assistant" in html
-    assert "Smart Chat" in html
+    assert "Production Copilot" in html
     assert 'id="workspaceChatLog"' in html
-    assert 'id="workspaceSmartChatLog"' in html
     assert 'id="workspaceCommandInput"' in html
-    assert 'id="workspaceSmartChatInput"' in html
+    assert 'id="workspaceSmartChatLog"' not in INDEX_HTML.read_text(encoding="utf-8")
     assert 'API_BASE + "/api/agent/smart-chat"' in html
     assert "runSmartChat(message)" in html
     assert "runWorkspaceCommand(message)" in html
-    assert "data-smart-chat-action=\"send-to-factory\"" in html
+    assert "data-production-copilot-send" in html
     assert "const backendMessage = typeof response?.message === \"string\" ? response.message : \"\";" in html
     assert 'appendSmartChatMessage("assistant", response.message || "Done.");' not in html
 

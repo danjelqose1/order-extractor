@@ -12,6 +12,7 @@ from sqlalchemy import select, update
 import db as db_module
 from area_dimension_validator import apply_area_dimension_validation
 from beta_model import beta_model_name, beta_reasoning_effort, strict_json_schema
+from time_utils import utc_isoformat
 from utils_text import parse_declared_totals
 
 
@@ -307,7 +308,7 @@ def _serialize_event(record: db_module.BetaTeachingEvent) -> Dict[str, Any]:
         "order_number": record.order_number,
         "message": record.message,
         "metadata": _load(record.metadata_json),
-        "created_at": record.created_at.isoformat() if record.created_at else None,
+        "created_at": utc_isoformat(record.created_at),
     }
 
 

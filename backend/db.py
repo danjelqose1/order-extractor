@@ -37,6 +37,12 @@ from sqlalchemy.orm import (
 )
 
 from utils_text import build_signature, extract_client_hint, normalize_order_number
+from time_utils import (
+    current_platform_year,
+    parse_platform_filter_datetime,
+    platform_year_utc_bounds,
+    utc_isoformat,
+)
 
 # Allow Render to override the local data path
 DB_DIR = os.getenv("DB_DIR", "data")  # defaults to ./data when local
@@ -928,8 +934,8 @@ def _serialize_order(order: Order, include_rows: bool = False) -> Dict[str, Any]
             source_metadata = {}
     data: Dict[str, Any] = {
         "id": order.id,
-        "created_at": order.created_at.isoformat(),
-        "updated_at": (order.updated_at or order.created_at).isoformat(),
+        "created_at": utc_isoformat(order.created_at),
+        "updated_at": utc_isoformat(order.updated_at or order.created_at),
         "source": order.source,
         "client_name": client_name or "",
         "clientName": client_name or "",
@@ -981,8 +987,8 @@ def _serialize_telegram_file(file: TelegramFile, order: Optional[Order] = None) 
     linked_order = _serialize_order(order, include_rows=False) if order else None
     return {
         "id": file.id,
-        "created_at": file.created_at.isoformat(),
-        "received_at": file.received_at.isoformat(),
+        "created_at": utc_isoformat(file.created_at),
+        "received_at": utc_isoformat(file.received_at),
         "source": file.source,
         "telegram_update_id": file.telegram_update_id,
         "original_filename": file.original_filename,
@@ -1003,26 +1009,26 @@ def _serialize_telegram_file(file: TelegramFile, order: Optional[Order] = None) 
         "duplicate_of_file_id": file.duplicate_of_file_id,
         "duplicate_reason": file.duplicate_reason,
         "touched": bool(file.touched),
-        "touched_at": file.touched_at.isoformat() if file.touched_at else None,
+        "touched_at": utc_isoformat(file.touched_at),
         "touched_by": file.touched_by,
         "labels_printed": bool(file.labels_printed),
-        "labels_printed_at": file.labels_printed_at.isoformat() if file.labels_printed_at else None,
+        "labels_printed_at": utc_isoformat(file.labels_printed_at),
         "linked_order_opened": bool(file.linked_order_opened),
-        "linked_order_opened_at": file.linked_order_opened_at.isoformat() if file.linked_order_opened_at else None,
+        "linked_order_opened_at": utc_isoformat(file.linked_order_opened_at),
         "pdf_printed": bool(file.pdf_printed),
-        "pdf_printed_at": file.pdf_printed_at.isoformat() if file.pdf_printed_at else None,
+        "pdf_printed_at": utc_isoformat(file.pdf_printed_at),
         "deleted": bool(file.deleted),
-        "deleted_at": file.deleted_at.isoformat() if file.deleted_at else None,
-        "queued_at": file.queued_at.isoformat() if file.queued_at else None,
-        "download_started_at": file.download_started_at.isoformat() if file.download_started_at else None,
-        "downloaded_at": file.downloaded_at.isoformat() if file.downloaded_at else None,
+        "deleted_at": utc_isoformat(file.deleted_at),
+        "queued_at": utc_isoformat(file.queued_at),
+        "download_started_at": utc_isoformat(file.download_started_at),
+        "downloaded_at": utc_isoformat(file.downloaded_at),
         "download_retry_count": int(file.download_retry_count or 0),
-        "processing_started_at": file.processing_started_at.isoformat() if file.processing_started_at else None,
-        "processed_at": file.processed_at.isoformat() if file.processed_at else None,
+        "processing_started_at": utc_isoformat(file.processing_started_at),
+        "processed_at": utc_isoformat(file.processed_at),
         "retry_count": int(file.retry_count or 0),
         "last_error": file.last_error,
-        "intake_reply_sent_at": file.intake_reply_sent_at.isoformat() if file.intake_reply_sent_at else None,
-        "outcome_reply_sent_at": file.outcome_reply_sent_at.isoformat() if file.outcome_reply_sent_at else None,
+        "intake_reply_sent_at": utc_isoformat(file.intake_reply_sent_at),
+        "outcome_reply_sent_at": utc_isoformat(file.outcome_reply_sent_at),
         "view_url": f"/telegram-files/{file.id}/view",
         "download_url": f"/telegram-files/{file.id}/download",
     }
@@ -1032,8 +1038,8 @@ def _serialize_whatsapp_file(file: WhatsAppFile, order: Optional[Order] = None) 
     linked_order = _serialize_order(order, include_rows=False) if order else None
     return {
         "id": file.id,
-        "created_at": file.created_at.isoformat(),
-        "updated_at": (file.updated_at or file.created_at).isoformat(),
+        "created_at": utc_isoformat(file.created_at),
+        "updated_at": utc_isoformat(file.updated_at or file.created_at),
         "wa_message_id": file.wa_message_id,
         "source": file.source or "whatsapp",
         "sender": file.sender,
@@ -1051,7 +1057,7 @@ def _serialize_whatsapp_file(file: WhatsAppFile, order: Optional[Order] = None) 
         "linked_order": linked_order,
         "touched": bool(file.touched),
         "deleted": bool(file.deleted),
-        "deleted_at": file.deleted_at.isoformat() if file.deleted_at else None,
+        "deleted_at": utc_isoformat(file.deleted_at),
         "view_url": f"/api/whatsapp/files/{file.id}/view",
         "download_url": f"/api/whatsapp/files/{file.id}/download",
     }
@@ -1071,7 +1077,7 @@ def _serialize_status_events(events: Sequence[OrderStatusEvent]) -> List[Dict[st
                 "to_status_label": order_status_label(to_status),
                 "note": event.note,
                 "reason": event.reason,
-                "changed_at": event.changed_at.isoformat(),
+                "changed_at": utc_isoformat(event.changed_at),
             }
         )
     return serialized
@@ -1949,8 +1955,8 @@ def _serialize_manual_order(order: ManualOrder, *, include_rows: bool = True) ->
         "status": _normalize_manual_status(order.status),
         "source": "manual",
         "manual_format": _normalize_manual_format(order.manual_format),
-        "created_at": order.created_at.isoformat(),
-        "updated_at": (order.updated_at or order.created_at).isoformat(),
+        "created_at": utc_isoformat(order.created_at),
+        "updated_at": utc_isoformat(order.updated_at or order.created_at),
         "row_count": len(rows),
         "total_quantity": total_quantity,
         "total_area_m2": total_area_m2,
@@ -2264,7 +2270,7 @@ def get_orders(
     limit = max(1, min(limit or 50, 200))
     offset = max(offset or 0, 0)
 
-    now_year = datetime.now(timezone.utc).year
+    now_year = current_platform_year()
     year_text = (str(year).strip().lower() if year is not None else "")
     if not year_text:
         filter_year: Optional[int] = now_year
@@ -2278,29 +2284,18 @@ def get_orders(
     from_dt: Optional[datetime] = None
     to_dt: Optional[datetime] = None
     if date_from:
-        value = str(date_from).strip()
         try:
-            from_dt = datetime.fromisoformat(value)
-        except ValueError:
-            try:
-                from_dt = datetime.fromisoformat(f"{value}T00:00:00")
-            except ValueError as exc:
-                raise ValueError("Invalid date_from. Use ISO date like YYYY-MM-DD.") from exc
-        if from_dt.tzinfo is None:
-            from_dt = from_dt.replace(tzinfo=timezone.utc)
+            from_dt = parse_platform_filter_datetime(str(date_from))
+        except ValueError as exc:
+            raise ValueError("Invalid date_from. Use ISO date like YYYY-MM-DD.") from exc
     if date_to:
-        value = str(date_to).strip()
         try:
-            to_dt = datetime.fromisoformat(value)
-        except ValueError:
-            try:
-                to_dt = datetime.fromisoformat(f"{value}T00:00:00")
-            except ValueError as exc:
-                raise ValueError("Invalid date_to. Use ISO date like YYYY-MM-DD.") from exc
-        if to_dt.tzinfo is None:
-            to_dt = to_dt.replace(tzinfo=timezone.utc)
-        if len(str(date_to).strip()) == 10:
-            to_dt = to_dt + timedelta(days=1)
+            to_dt = parse_platform_filter_datetime(
+                str(date_to),
+                end_exclusive=len(str(date_to).strip()) == 10,
+            )
+        except ValueError as exc:
+            raise ValueError("Invalid date_to. Use ISO date like YYYY-MM-DD.") from exc
 
     with SessionLocal() as session:
         stmt = select(Order).order_by(Order.updated_at.desc(), Order.created_at.desc()).offset(offset).limit(limit)
@@ -2327,8 +2322,7 @@ def get_orders(
         elif approved_only:
             stmt = stmt.where(func.lower(Order.status) == "approved")
         if filter_year is not None:
-            start = datetime(filter_year, 1, 1, tzinfo=timezone.utc)
-            end = datetime(filter_year + 1, 1, 1, tzinfo=timezone.utc)
+            start, end = platform_year_utc_bounds(filter_year)
             stmt = stmt.where(Order.created_at >= start).where(Order.created_at < end)
         if from_dt is not None:
             stmt = stmt.where(Order.created_at >= from_dt)
@@ -2359,7 +2353,7 @@ def get_analysis_orders(
         return [
             {
                 "id": order.id,
-                "created_at": order.created_at.isoformat(),
+                "created_at": utc_isoformat(order.created_at),
                 "status": normalize_order_status(order.status),
                 "client": _normalize_client_name(
                     order.client_name,
@@ -2814,7 +2808,7 @@ def get_all_rows_for_export(
     approved_only: bool = False,
     year: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    now_year = datetime.now(timezone.utc).year
+    now_year = current_platform_year()
     year_text = (str(year).strip().lower() if year is not None else "")
     if not year_text:
         filter_year: Optional[int] = now_year
@@ -2828,29 +2822,18 @@ def get_all_rows_for_export(
     from_dt: Optional[datetime] = None
     to_dt: Optional[datetime] = None
     if date_from:
-        value = str(date_from).strip()
         try:
-            from_dt = datetime.fromisoformat(value)
-        except ValueError:
-            try:
-                from_dt = datetime.fromisoformat(f"{value}T00:00:00")
-            except ValueError as exc:
-                raise ValueError("Invalid date_from. Use ISO date like YYYY-MM-DD.") from exc
-        if from_dt.tzinfo is None:
-            from_dt = from_dt.replace(tzinfo=timezone.utc)
+            from_dt = parse_platform_filter_datetime(str(date_from))
+        except ValueError as exc:
+            raise ValueError("Invalid date_from. Use ISO date like YYYY-MM-DD.") from exc
     if date_to:
-        value = str(date_to).strip()
         try:
-            to_dt = datetime.fromisoformat(value)
-        except ValueError:
-            try:
-                to_dt = datetime.fromisoformat(f"{value}T00:00:00")
-            except ValueError as exc:
-                raise ValueError("Invalid date_to. Use ISO date like YYYY-MM-DD.") from exc
-        if to_dt.tzinfo is None:
-            to_dt = to_dt.replace(tzinfo=timezone.utc)
-        if len(str(date_to).strip()) == 10:
-            to_dt = to_dt + timedelta(days=1)
+            to_dt = parse_platform_filter_datetime(
+                str(date_to),
+                end_exclusive=len(str(date_to).strip()) == 10,
+            )
+        except ValueError as exc:
+            raise ValueError("Invalid date_to. Use ISO date like YYYY-MM-DD.") from exc
 
     with SessionLocal() as session:
         stmt = select(Order, OrderRow).join(OrderRow, Order.id == OrderRow.order_id)
@@ -2877,8 +2860,7 @@ def get_all_rows_for_export(
                 | func.lower(func.coalesce(Order.client_hint, "")).like(client_like)
             )
         if filter_year is not None:
-            start = datetime(filter_year, 1, 1, tzinfo=timezone.utc)
-            end = datetime(filter_year + 1, 1, 1, tzinfo=timezone.utc)
+            start, end = platform_year_utc_bounds(filter_year)
             stmt = stmt.where(Order.created_at >= start).where(Order.created_at < end)
         if from_dt is not None:
             stmt = stmt.where(Order.created_at >= from_dt)
@@ -2891,7 +2873,7 @@ def get_all_rows_for_export(
             result.append(
                 {
                     "order_id": order.id,
-                    "created_at": order.created_at.isoformat(),
+                    "created_at": utc_isoformat(order.created_at),
                     "source": order.source,
                     "client_name": client_name,
                     "clientName": client_name,
@@ -3071,7 +3053,7 @@ def record_workspace_action(
         session.flush()
         return {
             "id": action.id,
-            "created_at": action.created_at.isoformat(),
+            "created_at": utc_isoformat(action.created_at),
             "status": action.status,
         }
 

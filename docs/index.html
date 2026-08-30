@@ -588,21 +588,31 @@
         <div class="workspace-main">
           <div class="card">
             <div class="workspace-section-header">
-              <h3>Work Queue</h3>
+              <div>
+                <div class="workspace-title-line">
+                  <h3>Production Control</h3>
+                  <span class="workspace-copilot-badge">Deterministic preflight</span>
+                </div>
+                <p class="muted small" style="margin:4px 0 0">Priorities and plans are suggestions. Production runs only after operator confirmation.</p>
+              </div>
               <div class="workspace-selection-actions">
                 <span id="workspaceSelectionStatus" class="muted small"></span>
-                <button type="button" class="btn small" id="workspaceProcessSelected" disabled>Process selected together</button>
+                <button type="button" class="btn small primary" id="workspaceProcessSelected" disabled>Plan selected batch</button>
                 <button type="button" class="btn small" id="workspaceClearSelection" disabled>Clear selection</button>
                 <button type="button" class="btn small tertiary" id="workspaceOpenBeta">Beta operator</button>
                 <button type="button" class="btn small tertiary" id="workspaceRefresh">Refresh</button>
                 <span id="workspaceQueueStatus" class="muted small"></span>
               </div>
             </div>
+            <div id="workspaceAttention" class="workspace-attention-grid" aria-live="polite">
+              <div class="workspace-attention-card"><span>Loading production attention…</span></div>
+            </div>
             <div class="workspace-queue-toolbar">
               <label for="workspaceQueueSearch">Find an order</label>
               <input type="search" id="workspaceQueueSearch" placeholder="Search order number or client…" autocomplete="off" />
               <span id="workspaceQueueFilterStatus" class="muted small" aria-live="polite"></span>
             </div>
+            <div id="workspaceBatchPlan" class="workspace-batch-plan" hidden></div>
             <div id="workspaceQueue" class="workspace-queue-grid" style="margin-top:12px">
               <div class="workspace-empty">Loading queue...</div>
             </div>
@@ -621,57 +631,37 @@
         </div>
 
         <aside class="workspace-side-panel">
-          <section class="card workspace-assistant">
-            <div>
-              <h2 style="margin:0">Factory Assistant</h2>
-              <p class="muted small" style="margin:4px 0 0">Run approved-order workflows and prepare production files.</p>
+          <section class="card workspace-assistant workspace-copilot">
+            <div class="workspace-copilot-heading">
+              <div>
+                <div class="workspace-title-line">
+                  <h2 style="margin:0">Production Copilot</h2>
+                  <span class="workspace-copilot-badge">Operator controlled</span>
+                </div>
+                <p class="muted small" style="margin:4px 0 0">Understand the queue, plan compatible work, and run confirmed production workflows.</p>
+              </div>
             </div>
+            <div id="workspaceRecommendations" class="workspace-recommendations" aria-live="polite"></div>
             <details class="workspace-quick-actions">
-              <summary>Quick commands</summary>
+              <summary>Suggested actions</summary>
               <div class="workspace-prompt-grid" id="workspacePromptButtons">
-                <button type="button" class="btn small tertiary" data-workspace-prompt="Show approved orders">Show approved orders</button>
-                <button type="button" class="btn small tertiary" data-workspace-prompt="Process latest approved order">Process latest approved order</button>
-                <button type="button" class="btn small tertiary" data-workspace-prompt="What needs review today?">What needs review today?</button>
+                <button type="button" class="btn small tertiary" data-workspace-prompt="Plan the recommended compatible batch">Plan recommended batch</button>
+                <button type="button" class="btn small tertiary" data-workspace-prompt="What needs attention today?">What needs attention today?</button>
+                <button type="button" class="btn small tertiary" data-workspace-prompt="Show approved orders">Show ready orders</button>
                 <button type="button" class="btn small tertiary" data-workspace-prompt="Show recent production files">Show recent production files</button>
-                <button type="button" class="btn small tertiary" data-workspace-prompt="Generate labels for latest processed order">Generate labels for latest processed order</button>
-                <button type="button" class="btn small tertiary" data-workspace-prompt="Process selected orders together">Process selected together</button>
+                <button type="button" class="btn small tertiary" data-workspace-prompt="Explain this production page">Explain this page</button>
+                <button type="button" class="btn small tertiary" data-workspace-prompt="Plan selected orders">Plan selected orders</button>
               </div>
             </details>
             <div id="workspaceChatLog" class="workspace-chat-log">
-              <div class="workspace-message assistant">Ready for factory workflows. Tell me which approved orders to process or check.</div>
+              <div class="workspace-message assistant">I will suggest the safest next action and show the evidence first. Nothing runs until you confirm it.</div>
             </div>
             <div id="workspaceAssistantFiles" class="workspace-file-actions"></div>
             <form id="workspaceCommandForm" class="workspace-command-row">
-              <input id="workspaceCommandInput" type="text" placeholder="Factory workflow command..." autocomplete="off" />
+              <input id="workspaceCommandInput" type="text" placeholder="Ask about the queue or plan production…" autocomplete="off" />
               <button id="workspaceSend" type="submit" class="btn primary">Send</button>
             </form>
             <div id="workspaceAssistantStatus" class="muted small"></div>
-          </section>
-
-          <section class="card workspace-smart-chat">
-            <div>
-              <h2 style="margin:0">Smart Chat</h2>
-              <p class="muted small" style="margin:4px 0 0">Chat normally, ask questions, or get help understanding the platform.</p>
-            </div>
-            <details class="workspace-quick-actions">
-              <summary>Suggested questions</summary>
-              <div class="workspace-prompt-grid" id="workspaceSmartPromptButtons">
-                <button type="button" class="btn small tertiary" data-smart-chat-prompt="Hi 👋">Hi 👋</button>
-                <button type="button" class="btn small tertiary" data-smart-chat-prompt="Explain this page">Explain this page</button>
-                <button type="button" class="btn small tertiary" data-smart-chat-prompt="How does processing work?">How does processing work?</button>
-                <button type="button" class="btn small tertiary" data-smart-chat-prompt="What should I do next?">What should I do next?</button>
-                <button type="button" class="btn small tertiary" data-smart-chat-prompt="What day is today?">What day is today?</button>
-              </div>
-            </details>
-            <div id="workspaceSmartChatLog" class="workspace-chat-log">
-              <div class="workspace-message assistant">Ask me normal questions here. Production actions still run through Factory Assistant.</div>
-            </div>
-            <div id="workspaceSmartChatActions" class="workspace-file-actions"></div>
-            <form id="workspaceSmartChatForm" class="workspace-command-row">
-              <input id="workspaceSmartChatInput" type="text" placeholder="Ask Smart Chat anything..." autocomplete="off" />
-              <button id="workspaceSmartChatSend" type="submit" class="btn">Send</button>
-            </form>
-            <div id="workspaceSmartChatStatus" class="muted small"></div>
           </section>
         </aside>
       </div>

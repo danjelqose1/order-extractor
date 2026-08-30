@@ -142,6 +142,9 @@ def test_beta_tables_are_isolated_and_shadow_run_does_not_change_production(tmp_
 
     assert result["status"] == "completed"
     assert result["mode"] == "shadow"
+    assert result["created_at"].endswith("Z")
+    assert result["started_at"].endswith("Z")
+    assert result["completed_at"].endswith("Z")
     assert before == after
     with db.engine.connect() as connection:
         beta_tables = set(

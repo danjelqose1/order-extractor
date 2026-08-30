@@ -324,7 +324,10 @@ const workspaceState = {
   selectedOrderNumbers: new Map(),
   lastAgentAction: null,
   latestPendingAction: null,
+  batchPlan: null,
+  planLoading: false,
   queueQuery: "",
+  queueFocus: "",
   queuePageSize: 20,
   queueGroupLimits: {},
 };
@@ -645,8 +648,40 @@ function setActivityCenterOpen(open){
   activityCenterToggle.setAttribute("aria-expanded", String(open));
 }
 
+function parsePlatformDate(value){
+  if (value instanceof Date){
+    return Number.isNaN(value.getTime()) ? null : new Date(value.getTime());
+  }
+  if (typeof value === "number"){
+    const numericDate = new Date(value);
+    return Number.isNaN(numericDate.getTime()) ? null : numericDate;
+  }
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+
+  // Date-only values represent a local calendar day. Backend date-times are
+  // stored in UTC; older SQLite responses may be missing their UTC suffix.
+  let normalized = text;
+  const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(text);
+  const isIsoDateTime = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(text);
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(text);
+  if (isDateOnly){
+    normalized = `${text}T00:00:00`;
+  }else if (isIsoDateTime && !hasTimezone){
+    normalized = `${text}Z`;
+  }
+
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function platformTimestamp(value){
+  const date = parsePlatformDate(value);
+  return date ? date.getTime() : 0;
+}
+
 function activityTimeLabel(value){
-  const timestamp = new Date(value || 0).getTime();
+  const timestamp = platformTimestamp(value);
   if (!timestamp) return "Just now";
   const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
   if (seconds < 60) return "Just now";
@@ -1061,6 +1096,9 @@ const workspaceQueueStatusEl = document.getElementById("workspaceQueueStatus");
 const workspaceSelectionStatusEl = document.getElementById("workspaceSelectionStatus");
 const workspaceQueueSearchInput = document.getElementById("workspaceQueueSearch");
 const workspaceQueueFilterStatusEl = document.getElementById("workspaceQueueFilterStatus");
+const workspaceAttentionEl = document.getElementById("workspaceAttention");
+const workspaceRecommendationsEl = document.getElementById("workspaceRecommendations");
+const workspaceBatchPlanEl = document.getElementById("workspaceBatchPlan");
 const workspaceProcessSelectedBtn = document.getElementById("workspaceProcessSelected");
 const workspaceClearSelectionBtn = document.getElementById("workspaceClearSelection");
 const workspaceRecentFilesEl = document.getElementById("workspaceRecentFiles");
@@ -1754,15 +1792,8 @@ function extractOrderDate(order){
   ];
   for (const candidate of candidates){
     if (candidate == null || candidate === "") continue;
-    if (typeof candidate === "number"){
-      const date = new Date(candidate);
-      if (!Number.isNaN(date.getTime())) return date;
-      continue;
-    }
-    const str = String(candidate).trim();
-    if (!str) continue;
-    const date = new Date(str);
-    if (!Number.isNaN(date.getTime())) return date;
+    const date = parsePlatformDate(candidate);
+    if (date) return date;
   }
   return null;
 }
@@ -2139,11 +2170,7 @@ function collectAnalysisRows(orders){
 function getOrderTimestampForAnalysis(order){
   if (!order) return 0;
   const created = order.created_at || order.createdAt || null;
-  if (created){
-    const date = new Date(created);
-    if (!Number.isNaN(date.getTime())) return date.getTime();
-  }
-  return 0;
+  return platformTimestamp(created);
 }
 
 function computeAggregatesForAllTime(orders, processing, options){
@@ -2239,8 +2266,8 @@ function computeAggregatesForAllTime(orders, processing, options){
   }));
 
   recentRows.sort((a, b)=>{
-    const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
-    const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+    const ta = platformTimestamp(a.created_at);
+    const tb = platformTimestamp(b.created_at);
     return tb - ta;
   });
 
@@ -2423,8 +2450,8 @@ function persistAnalysisSnapshotRepo(){
   try{
     const entries = Array.from(analysisSnapshotRepo.map.values())
       .sort((a, b)=> {
-        const ta = new Date(a?.payload?.computedAt || 0).getTime();
-        const tb = new Date(b?.payload?.computedAt || 0).getTime();
+        const ta = platformTimestamp(a?.payload?.computedAt);
+        const tb = platformTimestamp(b?.payload?.computedAt);
         return tb - ta;
       })
       .slice(0, ANALYSIS_MAX_SNAPSHOTS);
@@ -2451,7 +2478,7 @@ function saveAnalysisSnapshot(snapshot){
 
 function getSnapshotAgeMs(snapshot){
   const computedAt = snapshot?.payload?.computedAt;
-  const computedTs = computedAt ? new Date(computedAt).getTime() : 0;
+  const computedTs = platformTimestamp(computedAt);
   if (!computedTs) return Number.POSITIVE_INFINITY;
   return Math.max(0, Date.now() - computedTs);
 }
@@ -2468,7 +2495,7 @@ function formatSnapshotFreshness(computedAt, isRefreshing = false){
   if (!computedAt){
     return isRefreshing ? "Refreshing…" : "";
   }
-  const timestamp = new Date(computedAt).getTime();
+  const timestamp = platformTimestamp(computedAt);
   if (!timestamp){
     return isRefreshing ? "Refreshing…" : "";
   }
@@ -9944,8 +9971,8 @@ function updateHistoryOfflineBadge(){
 
 function formatDate(value){
   if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
+  const date = parsePlatformDate(value);
+  if (!date) return value;
   return date.toLocaleString([], { dateStyle: "short", timeStyle: "short" });
 }
 
@@ -13581,8 +13608,8 @@ function updateHistoryCache(newItems){
     map.set(item.id, item);
   });
   const sorted = Array.from(map.values()).sort((a,b)=>{
-    const da = new Date(a.created_at || 0).getTime();
-    const db = new Date(b.created_at || 0).getTime();
+    const da = platformTimestamp(a.created_at);
+    const db = platformTimestamp(b.created_at);
     return db - da;
   });
   writeHistoryCache(sorted.slice(0, HISTORY_CACHE_LIMIT));
@@ -13830,6 +13857,12 @@ function flattenWorkspaceVisibleOrders(){
         pieces: item.total_pieces ?? null,
         area: item.total_area_m2 ?? null,
         warnings_count: item.warnings_count ?? null,
+        blocker_count: item.blocker_count ?? 0,
+        advisory_count: item.advisory_count ?? 0,
+        severity: item.severity || "",
+        production_eligibility: item.production_eligibility || "",
+        recommendation: item.recommended_action || "",
+        glass_profile: Array.isArray(item.glass_profile) ? item.glass_profile : [],
         has_processing_pdf: !!item.processing_pdf_url,
         has_labels_pdf: !!item.labels_pdf_url,
       });
@@ -13869,13 +13902,18 @@ function updateWorkspaceSelectionUI(){
     workspaceSelectionStatusEl.textContent = selectedIds.length ? `${selectedIds.length} order${selectedIds.length === 1 ? "" : "s"} selected` : "";
   }
   if (workspaceProcessSelectedBtn){
-    workspaceProcessSelectedBtn.disabled = workspaceState.assistantLoading || selectedIds.length < 1;
+    workspaceProcessSelectedBtn.disabled = workspaceState.assistantLoading || workspaceState.planLoading || selectedIds.length < 1;
+    workspaceProcessSelectedBtn.textContent = selectedIds.length
+      ? `Plan ${selectedIds.length} selected`
+      : "Plan selected batch";
   }
   if (workspaceClearSelectionBtn){
     workspaceClearSelectionBtn.disabled = workspaceState.assistantLoading || selectedIds.length < 1;
   }
   if (workspaceCommandInput){
-    workspaceCommandInput.placeholder = selectedIds.length > 1 ? `${selectedIds.length} orders selected` : "Factory workflow command...";
+    workspaceCommandInput.placeholder = selectedIds.length
+      ? `Ask about ${selectedIds.length} selected order${selectedIds.length === 1 ? "" : "s"}…`
+      : "Ask about the queue or plan production…";
   }
   document.querySelectorAll(".workspace-order-card").forEach(card => {
     const id = String(card.dataset.workspaceOrderId || "");
@@ -13883,11 +13921,13 @@ function updateWorkspaceSelectionUI(){
     const btn = card.querySelector('[data-workspace-action="select"]');
     if (btn) btn.textContent = (!!id && workspaceState.selectedOrderIds.has(id)) ? "Selected" : "Select";
   });
+  renderWorkspaceRecommendations();
 }
 
 function toggleWorkspaceOrderSelection(id, orderNumber){
   const key = String(id || "").trim();
   if (!key) return;
+  clearWorkspaceBatchPlan();
   if (workspaceState.selectedOrderIds.has(key)){
     workspaceState.selectedOrderIds.delete(key);
     workspaceState.selectedOrderNumbers.delete(key);
@@ -13985,6 +14025,21 @@ async function fetchWorkspaceQueue(){
 
 async function fetchWorkspaceRecentFiles(){
   const res = await fetch(API_BASE + "/api/workspace/recent-files");
+  if (!res.ok){
+    const text = await res.text();
+    throw new Error(text || ("HTTP " + res.status));
+  }
+  return res.json();
+}
+
+async function fetchWorkspaceBatchPlan(identifiers){
+  const refs = (identifiers || []).map(value => String(value || "").trim()).filter(Boolean);
+  if (!refs.length) throw new Error("Select at least one order to build a production plan.");
+  const res = await fetch(API_BASE + "/api/workspace/batch-plan", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ identifiers: refs, keep_order_boundaries: true }),
+  });
   if (!res.ok){
     const text = await res.text();
     throw new Error(text || ("HTTP " + res.status));
@@ -14600,13 +14655,222 @@ async function postWorkspaceConfirmAction(decision){
 
 function workspaceGroupLabel(key){
   const labels = {
-    needs_review: "Needs Review",
-    approved_ready: "Approved / Ready to Process",
-    processing_done: "Processing Done",
-    labels_ready: "Labels Ready",
+    needs_review: "Needs Decision",
+    approved_ready: "Ready",
+    processing_done: "In Production",
+    labels_ready: "QA / Labels",
     finished: "Finished",
   };
   return labels[key] || key;
+}
+
+function findWorkspaceQueueOrder(identifier){
+  const target = String(identifier || "").trim();
+  if (!target) return null;
+  return flattenWorkspaceVisibleOrders().find(item => (
+    String(item.order_id || "") === target || String(item.order_number || "") === target
+  )) || null;
+}
+
+function selectWorkspaceOrders(identifiers){
+  workspaceState.selectedOrderIds.clear();
+  workspaceState.selectedOrderNumbers.clear();
+  (identifiers || []).forEach(identifier => {
+    const item = findWorkspaceQueueOrder(identifier);
+    if (!item?.order_id) return;
+    const id = String(item.order_id);
+    workspaceState.selectedOrderIds.add(id);
+    workspaceState.selectedOrderNumbers.set(id, String(item.order_number || ""));
+    workspaceState.selectedOrderId = id;
+    workspaceState.selectedOrderNumber = String(item.order_number || "");
+  });
+  updateWorkspaceSelectionUI();
+}
+
+function renderWorkspaceAttention(queue){
+  if (!workspaceAttentionEl) return;
+  const attention = queue?.attention || {};
+  const recommended = attention.recommended_batch || null;
+  const cards = [
+    {
+      tone: Number(attention.blockers || 0) ? "danger" : "neutral",
+      label: "Blockers",
+      value: Number(attention.blockers || 0),
+      detail: Number(attention.blockers || 0) ? "Required data must be corrected" : "No required-data blockers",
+      action: "blockers",
+    },
+    {
+      tone: "success",
+      label: "Ready now",
+      value: Number(attention.ready_now || 0),
+      detail: "Approved and preflight eligible",
+      action: "ready",
+    },
+    {
+      tone: Number(attention.ageing || 0) ? "warning" : "neutral",
+      label: "Ageing 7+ days",
+      value: Number(attention.ageing || 0),
+      detail: "Approved orders waiting in the queue",
+      action: "ageing",
+    },
+    {
+      tone: recommended ? "primary" : "neutral",
+      label: "Suggested batch",
+      value: recommended ? Number(recommended.order_count || 0) : 0,
+      detail: recommended
+        ? `${Number(recommended.total_pieces || 0)} pcs · ${Number(recommended.total_area_m2 || 0).toFixed(3)} m²`
+        : "No compatible eligible orders",
+      action: recommended ? "recommended_batch" : "",
+    },
+  ];
+  workspaceAttentionEl.innerHTML = cards.map(card => `<button type="button" class="workspace-attention-card ${escapeHtml(card.tone)}" ${card.action ? `data-workspace-attention="${escapeHtml(card.action)}"` : "disabled"}>
+    <span>${escapeHtml(card.label)}</span>
+    <strong>${card.value}</strong>
+    <small>${escapeHtml(card.detail)}</small>
+  </button>`).join("");
+}
+
+function renderWorkspaceRecommendations(){
+  if (!workspaceRecommendationsEl) return;
+  const attention = workspaceState.queue?.attention || {};
+  const selectedCount = workspaceState.selectedOrderIds.size;
+  const recommendations = [];
+  if (selectedCount){
+    recommendations.push({
+      tone: "selected",
+      title: `Plan ${selectedCount} selected order${selectedCount === 1 ? "" : "s"}`,
+      body: "Preview compatibility, deterministic preflight, and material totals before confirmation.",
+      action: "plan_selected",
+      label: "Build preview",
+    });
+  }
+  if (Number(attention.blockers || 0)){
+    recommendations.push({
+      tone: "danger",
+      title: `${attention.blockers} production blocker${attention.blockers === 1 ? "" : "s"}`,
+      body: "Missing required data must be corrected before production files can be created.",
+      action: "review_blockers",
+      label: "Show blockers",
+    });
+  }
+  if (attention.recommended_batch){
+    recommendations.push({
+      tone: "primary",
+      title: `Compatible batch · ${attention.recommended_batch.order_count} order${attention.recommended_batch.order_count === 1 ? "" : "s"}`,
+      body: `${attention.recommended_batch.total_pieces} pcs · ${Number(attention.recommended_batch.total_area_m2 || 0).toFixed(3)} m². ${attention.recommended_batch.reason}`,
+      action: "plan_recommended",
+      label: "Preview batch",
+    });
+  }
+  if (!recommendations.length){
+    recommendations.push({
+      tone: "neutral",
+      title: "Queue is waiting for an operator choice",
+      body: "Select an approved order to build a safe production preview.",
+      action: "show_ready",
+      label: "Show ready",
+    });
+  }
+  workspaceRecommendationsEl.innerHTML = `<div class="workspace-recommendations-label">Recommended next actions</div>${recommendations.slice(0, 3).map(item => `<article class="workspace-recommendation ${escapeHtml(item.tone)}">
+    <div><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(item.body)}</p></div>
+    <button type="button" class="btn small" data-workspace-recommendation="${escapeHtml(item.action)}">${escapeHtml(item.label)}</button>
+  </article>`).join("")}`;
+}
+
+function clearWorkspaceBatchPlan(){
+  workspaceState.batchPlan = null;
+  if (workspaceBatchPlanEl){
+    workspaceBatchPlanEl.hidden = true;
+    workspaceBatchPlanEl.innerHTML = "";
+  }
+}
+
+function renderWorkspaceBatchPlan(plan){
+  if (!workspaceBatchPlanEl) return;
+  if (!plan){
+    clearWorkspaceBatchPlan();
+    return;
+  }
+  const summary = plan.summary || {};
+  const materials = plan.materials || {};
+  const blockers = Array.isArray(plan.blockers) ? plan.blockers : [];
+  const advisories = Array.isArray(plan.advisories) ? plan.advisories : [];
+  const spacerRows = Object.entries(materials.spacer_by_width_m || {});
+  const compatibilityLabel = summary.compatibility === "exact_profile"
+    ? "Exact glass profile match"
+    : `${Number(summary.profile_count || 0)} glass profiles — review sequence`;
+  const issueItems = [...blockers.map(item => ({ ...item, tone: "blocker" })), ...advisories.map(item => ({ ...item, tone: "advisory" }))].slice(0, 8);
+  workspaceBatchPlanEl.hidden = false;
+  workspaceBatchPlanEl.innerHTML = `<div class="workspace-plan-header">
+    <div>
+      <div class="workspace-title-line"><h3>Production plan preview</h3><span class="workspace-plan-status ${plan.can_confirm ? "ready" : "blocked"}">${plan.can_confirm ? "Ready for confirmation" : "Blocked"}</span></div>
+      <p>${escapeHtml(plan.message || "Review this plan before production.")}</p>
+    </div>
+    <button type="button" class="btn small tertiary" data-workspace-plan-action="cancel">Close</button>
+  </div>
+  <div class="workspace-plan-metrics">
+    <div><span>Orders</span><strong>${Number(summary.order_count || 0)}</strong></div>
+    <div><span>Pieces</span><strong>${Number(summary.total_pieces || 0)}</strong></div>
+    <div><span>Area</span><strong>${Number(summary.total_area_m2 || 0).toFixed(3)} m²</strong></div>
+    <div><span>Glass profiles</span><strong>${Number(summary.profile_count || 0)}</strong></div>
+  </div>
+  <div class="workspace-plan-columns">
+    <section>
+      <h4>Orders — boundaries preserved</h4>
+      <div class="workspace-plan-order-list">${(plan.orders || []).map(item => `<div><strong>${escapeHtml(item.order_number || "—")}</strong><span>${escapeHtml(item.client_name || "—")} · ${Number(item.pieces || 0)} pcs · ${Number(item.area_m2 || 0).toFixed(3)} m²</span></div>`).join("")}</div>
+      <div class="workspace-plan-compatibility">${escapeHtml(compatibilityLabel)}</div>
+    </section>
+    <section>
+      <h4>Deterministic material estimate</h4>
+      <dl class="workspace-material-summary">
+        <div><dt>Spacer</dt><dd>${Number(materials.spacer_m || 0).toFixed(2)} m</dd></div>
+        <div><dt>Butyl</dt><dd>${Number(materials.butyl_kg || 0).toFixed(3)} kg</dd></div>
+        <div><dt>Bostik boxes</dt><dd>${Number(materials.bostik_4000_boxes || 0)}</dd></div>
+        <div><dt>Stock check</dt><dd>Not connected</dd></div>
+      </dl>
+      ${spacerRows.length ? `<div class="workspace-spacer-breakdown">${spacerRows.map(([width, metres]) => `<span>${escapeHtml(width)} · ${Number(metres || 0).toFixed(2)} m</span>`).join("")}</div>` : ""}
+      <p class="muted small">${escapeHtml(materials.calculation_note || "")}</p>
+    </section>
+  </div>
+  ${issueItems.length ? `<div class="workspace-plan-issues"><h4>Preflight evidence</h4>${issueItems.map(item => `<div class="${escapeHtml(item.tone)}"><strong>${escapeHtml(item.order_number || "Order")}</strong><span>${escapeHtml(item.message || item.code || "Review required")}</span></div>`).join("")}${blockers.length + advisories.length > issueItems.length ? `<small>Showing ${issueItems.length} of ${blockers.length + advisories.length} findings.</small>` : ""}</div>` : `<div class="workspace-plan-clear">Preflight passed. No required-data blockers were found.</div>`}
+  <div class="workspace-plan-actions">
+    <button type="button" class="btn" data-workspace-plan-action="materials">Open detailed materials</button>
+    ${blockers.length ? `<button type="button" class="btn" data-workspace-plan-action="review">Open first blocked order</button>` : ""}
+    <button type="button" class="btn primary" data-workspace-plan-action="confirm" ${plan.can_confirm ? "" : "disabled"}>Confirm &amp; create production files</button>
+  </div>
+  <div class="workspace-plan-safety">No raw, approved, or history data changed while building this preview. The server will revalidate every order after confirmation.</div>`;
+}
+
+async function planWorkspaceBatch(identifiers, options = {}){
+  const refs = (identifiers || []).map(value => String(value || "").trim()).filter(Boolean);
+  if (!refs.length){
+    appendWorkspaceMessage("assistant", "Select at least one approved order before building a production plan.");
+    return null;
+  }
+  workspaceState.planLoading = true;
+  if (workspaceProcessSelectedBtn) workspaceProcessSelectedBtn.disabled = true;
+  if (workspaceAssistantStatusEl) workspaceAssistantStatusEl.textContent = "Building deterministic production preview…";
+  try{
+    selectWorkspaceOrders(refs);
+    const plan = await fetchWorkspaceBatchPlan(refs);
+    workspaceState.batchPlan = plan;
+    renderWorkspaceBatchPlan(plan);
+    if (options.announce !== false){
+      appendWorkspaceMessage("assistant", plan.can_confirm
+        ? `Plan ready: ${plan.summary?.order_count || 0} order${plan.summary?.order_count === 1 ? "" : "s"}, ${plan.summary?.total_pieces || 0} pieces, ${Number(plan.summary?.total_area_m2 || 0).toFixed(3)} m². Review the evidence and confirm when ready.`
+        : `I built the preview but stopped it: ${plan.blockers?.length || 0} required-data blocker${plan.blockers?.length === 1 ? "" : "s"} must be corrected first.`);
+    }
+    workspaceBatchPlanEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    return plan;
+  }catch(error){
+    clearWorkspaceBatchPlan();
+    appendWorkspaceMessage("assistant", "Production plan failed: " + (error.message || error));
+    return null;
+  }finally{
+    workspaceState.planLoading = false;
+    if (workspaceAssistantStatusEl) workspaceAssistantStatusEl.textContent = "";
+    updateWorkspaceSelectionUI();
+  }
 }
 
 function renderWorkspaceFiles(files){
@@ -14796,16 +15060,20 @@ function renderWorkspaceQueue(queue){
   }
   const order = ["needs_review", "approved_ready", "processing_done", "labels_ready", "finished"];
   const query = String(workspaceState.queueQuery || "").trim().toLowerCase();
+  const focus = String(workspaceState.queueFocus || "");
   let totalMatches = 0;
   workspaceQueueEl.innerHTML = order.map(key => {
     const sourceItems = Array.isArray(groups[key]) ? groups[key] : [];
-    const items = query ? sourceItems.filter(item => {
+    let items = query ? sourceItems.filter(item => {
       const haystack = [item.order_number, item.client_name, item.status]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
       return haystack.includes(query);
     }) : sourceItems;
+    if (focus === "blockers") items = items.filter(item => item.severity === "blocker");
+    if (focus === "ready") items = items.filter(item => item.production_eligibility === "eligible");
+    if (focus === "ageing") items = items.filter(item => item.production_eligibility === "eligible" && Number(item.age_days || 0) >= 7);
     totalMatches += items.length;
     const limit = Math.max(
       workspaceState.queuePageSize,
@@ -14815,29 +15083,40 @@ function renderWorkspaceQueue(queue){
     const cards = visibleItems.length ? visibleItems.map(item => {
       const processingUrl = workspaceFileUrl(item.processing_pdf_url);
       const labelsUrl = workspaceFileUrl(item.labels_pdf_url);
-      const canProcess = key === "approved_ready";
+      const canPlan = key === "approved_ready" && item.production_eligibility === "eligible";
       const itemId = String(item.order_id || item.id || "");
       const selected = workspaceState.selectedOrderIds.has(itemId);
+      const severity = String(item.severity || (Number(item.warnings_count || 0) ? "advisory" : "ready"));
+      const severityLabels = {
+        blocker: "BLOCKED",
+        advisory: "ADVISORY",
+        review: "REVIEW",
+        ready: "READY",
+        active: "ACTIVE",
+        complete: "DONE",
+      };
+      const ageText = Number(item.age_days || 0) > 0 ? `${Number(item.age_days)}d waiting` : "Added today";
       return `<div class="workspace-order-card ${selected ? "selected" : ""}" data-workspace-order-id="${escapeHtml(itemId)}" data-workspace-order-number="${escapeHtml(item.order_number || "")}">
         <div class="workspace-order-top">
           <div style="min-width:0">
             <div class="workspace-order-number mono">${escapeHtml(item.order_number || "—")}</div>
             <div class="workspace-order-client">${escapeHtml(item.client_name || "—")}</div>
           </div>
-          ${historyStatusBadgeHtml(item.status)}
+          <div class="workspace-card-badges">${historyStatusBadgeHtml(item.status)}<span class="workspace-severity ${escapeHtml(severity)}">${escapeHtml(severityLabels[severity] || severity.toUpperCase())}</span></div>
         </div>
         <div class="workspace-order-metrics">
           <span>${Number(item.total_pieces || 0)} pcs</span>
           <span>${Number(item.total_area_m2 || 0).toFixed(3)} m²</span>
-          <span>${Number(item.warnings_count || 0)} warn</span>
+          <span>${Number(item.warnings_count || 0)} finding${Number(item.warnings_count || 0) === 1 ? "" : "s"}</span>
         </div>
-        <div class="workspace-file-meta">${escapeHtml(formatDate(item.approved_at || item.created_at))}</div>
+        <div class="workspace-card-reason ${escapeHtml(severity)}"><strong>${escapeHtml(item.reason || "Order status available")}</strong><span>${escapeHtml(item.recommended_action || "Open the order for details.")}</span></div>
+        <div class="workspace-file-meta">${escapeHtml(formatDate(item.approved_at || item.created_at))} · ${escapeHtml(ageText)}</div>
         <div class="workspace-actions">
           <button type="button" class="btn small" data-workspace-action="select" data-id="${escapeHtml(itemId)}" data-order="${escapeHtml(item.order_number || "")}">${selected ? "Selected" : "Select"}</button>
           <button type="button" class="btn small" data-workspace-action="open" data-id="${escapeHtml(itemId)}">Open</button>
-          <button type="button" class="btn small" data-workspace-action="check" data-order="${escapeHtml(item.order_number || "")}">Check</button>
-          <button type="button" class="btn small primary" data-workspace-action="process" data-can-process="${canProcess ? "true" : "false"}" data-id="${escapeHtml(itemId)}" ${canProcess ? "" : "disabled"}>Process</button>
-          <button type="button" class="btn small" data-workspace-action="labels" data-order="${escapeHtml(item.order_number || "")}">Labels</button>
+          <button type="button" class="btn small" data-workspace-action="check" data-order="${escapeHtml(item.order_number || "")}">Preflight</button>
+          ${key === "approved_ready" ? `<button type="button" class="btn small primary" data-workspace-action="plan" data-id="${escapeHtml(itemId)}" ${canPlan ? "" : "disabled"}>Plan</button>` : ""}
+          ${key === "processing_done" || key === "labels_ready" ? `<button type="button" class="btn small" data-workspace-action="labels" data-order="${escapeHtml(item.order_number || "")}">Prepare labels</button>` : ""}
           ${processingUrl ? `<a class="btn small" href="${escapeHtml(processingUrl)}" target="_blank" rel="noopener">Processing PDF</a>` : ""}
           ${labelsUrl ? `<a class="btn small" href="${escapeHtml(labelsUrl)}" target="_blank" rel="noopener">Labels PDF</a>` : ""}
         </div>
@@ -14848,15 +15127,16 @@ function renderWorkspaceQueue(queue){
       <span>Showing ${visibleItems.length} of ${items.length}</span>
       ${remaining ? `<button type="button" class="btn small tertiary" data-workspace-show-more="${escapeHtml(key)}">Show ${Math.min(workspaceState.queuePageSize, remaining)} more</button>` : ""}
     </div>` : "";
-    return `<section class="workspace-group">
+    return `<section class="workspace-group" data-workspace-group="${escapeHtml(key)}">
       <div class="workspace-group-title"><span>${escapeHtml(workspaceGroupLabel(key))}</span><span class="pill">${items.length}</span></div>
       ${cards}${pagination}
     </section>`;
   }).join("");
   if (workspaceQueueFilterStatusEl){
-    workspaceQueueFilterStatusEl.textContent = query
-      ? `${totalMatches} matching order${totalMatches === 1 ? "" : "s"}`
-      : "Showing up to 20 orders per queue";
+    const focusLabels = { blockers: "required-data blockers", ready: "ready orders", ageing: "orders waiting 7+ days" };
+    workspaceQueueFilterStatusEl.textContent = focus
+      ? `${totalMatches} ${focusLabels[focus] || "focused orders"} · click the attention card again to clear`
+      : (query ? `${totalMatches} matching order${totalMatches === 1 ? "" : "s"}` : "Showing up to 20 orders per queue");
   }
 }
 
@@ -14869,8 +15149,11 @@ async function loadWorkspace(){
     const [queue, files] = await Promise.all([fetchWorkspaceQueue(), fetchWorkspaceRecentFiles()]);
     workspaceState.queue = queue;
     workspaceState.recentFiles = Array.isArray(files?.items) ? files.items : [];
+    clearWorkspaceBatchPlan();
+    renderWorkspaceAttention(queue);
     renderWorkspaceQueue(queue);
     renderWorkspaceFiles(workspaceState.recentFiles);
+    renderWorkspaceRecommendations();
     if (workspaceQueueStatusEl) workspaceQueueStatusEl.textContent = "";
     if (workspaceFilesStatusEl) workspaceFilesStatusEl.textContent = "";
   }catch(error){
@@ -17091,7 +17374,8 @@ async function handleWorkspaceAgentResponse(response){
 	  if (contextAction?.type === "open_review"){
 	    const firstId = (contextAction.order_ids || [])[0];
 	    if (firstId) await openSharedOrderDetail(firstId, { activateHistoryTab: true });
-	    appendWorkspaceMessage("assistant", response.message || "Opened review.");
+	    const findings = (response.warnings || []).slice(0, 5).map(item => `- ${item.order_number || "Order"}: ${item.message || item.code || item}`).join("\n");
+	    appendWorkspaceMessage("assistant", `${response.message || "Opened review."}${findings ? `\n${findings}` : ""}`);
 	    return true;
 	  }
   return false;
@@ -17105,6 +17389,31 @@ async function runWorkspaceCommand(message){
   setWorkspaceBusy(true, "Working...");
   try{
     const lowerText = text.toLowerCase();
+    if (lowerText.includes("plan") && lowerText.includes("recommended") && lowerText.includes("batch")){
+      const recommended = workspaceState.queue?.attention?.recommended_batch;
+      if (!recommended?.order_ids?.length){
+        appendWorkspaceMessage("assistant", "There is no compatible eligible batch to recommend yet. Review blockers or select ready orders manually.");
+        return;
+      }
+      await planWorkspaceBatch(recommended.order_ids, { announce: true });
+      return;
+    }
+    if (lowerText.includes("plan") && lowerText.includes("selected")){
+      await planWorkspaceBatch(getWorkspaceSelectedOrderIds(), { announce: true });
+      return;
+    }
+    if (lowerText.includes("what needs attention") || lowerText === "attention"){
+      const attention = workspaceState.queue?.attention || {};
+      const recommended = attention.recommended_batch;
+      appendWorkspaceMessage("assistant", `Today’s production attention:
+- ${Number(attention.blockers || 0)} required-data blocker${Number(attention.blockers || 0) === 1 ? "" : "s"}
+- ${Number(attention.ready_now || 0)} approved order${Number(attention.ready_now || 0) === 1 ? "" : "s"} ready now
+- ${Number(attention.advisories || 0)} order${Number(attention.advisories || 0) === 1 ? "" : "s"} with advisory findings
+- ${Number(attention.ageing || 0)} approved order${Number(attention.ageing || 0) === 1 ? "" : "s"} waiting 7+ days${recommended ? `
+
+Recommended next step: preview the ${recommended.order_count}-order compatible batch (${recommended.total_pieces} pieces, ${Number(recommended.total_area_m2 || 0).toFixed(3)} m²).` : ""}`);
+      return;
+    }
     if (isWorkspaceContinueMessage(text)){
       const response = workspaceState.latestPendingAction
         ? await postWorkspaceConfirmAction("continue")
@@ -17131,6 +17440,17 @@ async function runWorkspaceCommand(message){
       const response = await postWorkspaceAgent(text);
       if (await handleWorkspaceAgentResponse(response)) return;
       appendWorkspaceMessage("assistant", response.message || "Done.");
+      return;
+    }
+    const isOperationalQuestion = /\b(order|orders|queue|approved|review|warning|warnings|production|processing|label|labels|file|files|batch|ready|material|materials|spacer|butyl)\b/i.test(text);
+    if (!isOperationalQuestion){
+      const response = await postWorkspaceSmartChat(text);
+      appendWorkspaceMessage("assistant", response?.message || "I could not answer that question.");
+      const sendAction = (response?.actions || []).find(action => action?.kind === "send_to_factory");
+      if (sendAction && workspaceAssistantFilesEl){
+        const payloadMessage = sendAction.payload?.message || text;
+        workspaceAssistantFilesEl.innerHTML = `<button type="button" class="btn small" data-production-copilot-send="${escapeHtml(payloadMessage)}">${escapeHtml(sendAction.label || "Use as production command")}</button>`;
+      }
       return;
     }
     const response = await postWorkspaceAgent(text);
@@ -17200,6 +17520,7 @@ if (workspaceRefreshBtn){
 if (workspaceQueueSearchInput){
   workspaceQueueSearchInput.addEventListener("input", event => {
     workspaceState.queueQuery = String(event.target.value || "");
+    workspaceState.queueFocus = "";
     workspaceState.queueGroupLimits = {};
     renderWorkspaceQueue(workspaceState.queue);
   });
@@ -17369,11 +17690,7 @@ document.querySelectorAll("[data-beta-memory-tab]").forEach(button => {
   });
 });
 if (workspaceProcessSelectedBtn){
-  workspaceProcessSelectedBtn.addEventListener("click", ()=> {
-    const count = workspaceState.selectedOrderIds.size;
-    if (!count) return;
-    runWorkspaceCommand(count > 1 ? "Process selected orders together" : "Process selected order");
-  });
+  workspaceProcessSelectedBtn.addEventListener("click", ()=> planWorkspaceBatch(getWorkspaceSelectedOrderIds(), { announce: true }));
 }
 if (workspaceClearSelectionBtn){
   workspaceClearSelectionBtn.addEventListener("click", ()=> {
@@ -17381,6 +17698,7 @@ if (workspaceClearSelectionBtn){
     workspaceState.selectedOrderNumbers.clear();
     workspaceState.selectedOrderId = "";
     workspaceState.selectedOrderNumber = "";
+    clearWorkspaceBatchPlan();
     updateWorkspaceSelectionUI();
   });
 }
@@ -17430,6 +17748,14 @@ if (workspaceSmartChatActionsEl){
 }
 if (workspaceAssistantFilesEl){
   workspaceAssistantFilesEl.addEventListener("click", event => {
+    const copilotSendBtn = event.target.closest("[data-production-copilot-send]");
+    if (copilotSendBtn){
+      const message = copilotSendBtn.dataset.productionCopilotSend || "";
+      if (workspaceCommandInput) workspaceCommandInput.value = message;
+      workspaceAssistantFilesEl.innerHTML = "";
+      runWorkspaceCommand(message);
+      return;
+    }
     const pendingBtn = event.target.closest("[data-workspace-pending-decision]");
     if (pendingBtn){
       const decision = pendingBtn.dataset.workspacePendingDecision;
@@ -17455,6 +17781,77 @@ if (workspaceAssistantFilesEl){
       activateTab("processing");
     }else if (target === "labels"){
       activateTab("labels");
+    }
+  });
+}
+if (workspaceAttentionEl){
+  workspaceAttentionEl.addEventListener("click", event => {
+    const btn = event.target.closest("[data-workspace-attention]");
+    if (!btn) return;
+    const action = btn.dataset.workspaceAttention;
+    if (action === "recommended_batch"){
+      const ids = workspaceState.queue?.attention?.recommended_batch?.order_ids || [];
+      planWorkspaceBatch(ids, { announce: true });
+      return;
+    }
+    workspaceState.queueFocus = workspaceState.queueFocus === action ? "" : action;
+    workspaceState.queueGroupLimits = {};
+    renderWorkspaceQueue(workspaceState.queue);
+    workspaceQueueEl?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  });
+}
+if (workspaceRecommendationsEl){
+  workspaceRecommendationsEl.addEventListener("click", event => {
+    const btn = event.target.closest("[data-workspace-recommendation]");
+    if (!btn) return;
+    const action = btn.dataset.workspaceRecommendation;
+    if (action === "plan_selected"){
+      planWorkspaceBatch(getWorkspaceSelectedOrderIds(), { announce: true });
+    }else if (action === "plan_recommended"){
+      planWorkspaceBatch(workspaceState.queue?.attention?.recommended_batch?.order_ids || [], { announce: true });
+    }else if (action === "review_blockers"){
+      workspaceAttentionEl.querySelector('[data-workspace-attention="blockers"]')?.click();
+    }else if (action === "show_ready"){
+      workspaceAttentionEl.querySelector('[data-workspace-attention="ready"]')?.click();
+    }
+  });
+}
+if (workspaceBatchPlanEl){
+  workspaceBatchPlanEl.addEventListener("click", async event => {
+    const btn = event.target.closest("[data-workspace-plan-action]");
+    if (!btn) return;
+    const action = btn.dataset.workspacePlanAction;
+    const plan = workspaceState.batchPlan;
+    if (action === "cancel"){
+      clearWorkspaceBatchPlan();
+      return;
+    }
+    if (!plan) return;
+    if (action === "review"){
+      const first = plan.orders?.find(item => (plan.blockers || []).some(blocker => blocker.order_number === item.order_number));
+      if (first?.order_id) await openSharedOrderDetail(first.order_id, { activateHistoryTab: true });
+      return;
+    }
+    if (action === "materials"){
+      const orderNumbers = (plan.orders || []).map(item => item.order_number).filter(Boolean);
+      iguState.selected.clear();
+      orderNumbers.forEach(orderNumber => {
+        const card = findWorkspaceQueueOrder(orderNumber) || { order_number: orderNumber, order_numbers: [orderNumber] };
+        iguState.selected.set(orderNumber, card);
+      });
+      renderIguSelectedChips();
+      updateIguSelectionStatus();
+      await loadIguSelectedOrders();
+      document.getElementById("iguCalculator")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    if (action === "confirm" && plan.can_confirm){
+      const orderIds = (plan.orders || []).map(item => String(item.order_id || "")).filter(Boolean);
+      selectWorkspaceOrders(orderIds);
+      clearWorkspaceBatchPlan();
+      await runWorkspaceCommand(orderIds.length > 1
+        ? "Process selected orders together but keep orders separate"
+        : "Process selected order");
     }
   });
 }
@@ -17516,8 +17913,8 @@ if (workspaceQueueEl){
 	      await openSharedOrderDetail(id, { activateHistoryTab: true });
     }else if (action === "check"){
       await runWorkspaceCommand(`Check order ${orderNumber}`);
-    }else if (action === "process"){
-      await processWorkspaceOrder(id || orderNumber);
+    }else if (action === "plan"){
+      await planWorkspaceBatch([id || orderNumber], { announce: true });
     }else if (action === "labels"){
       await runWorkspaceCommand(`Generate labels for order ${orderNumber}`);
     }
@@ -17690,11 +18087,11 @@ async function loadHistory(opts={}){
       }
       if (historyState.dateFrom){
         const fromTs = new Date(`${historyState.dateFrom}T00:00:00`).getTime();
-        filtered = filtered.filter(item => new Date(item.created_at || 0).getTime() >= fromTs);
+        filtered = filtered.filter(item => platformTimestamp(item.created_at) >= fromTs);
       }
       if (historyState.dateTo){
         const toTs = new Date(`${historyState.dateTo}T23:59:59`).getTime();
-        filtered = filtered.filter(item => new Date(item.created_at || 0).getTime() <= toTs);
+        filtered = filtered.filter(item => platformTimestamp(item.created_at) <= toTs);
       }
       historyState.items = filtered;
       historyState.hasMore = false;
@@ -17856,7 +18253,7 @@ function queueDraftBucket(item){
   if (status === "reviewed") return "ready_approval";
   const warnings = Number(item.warnings_count || 0);
   if (warnings > 0) return "needs_review";
-  const created = new Date(item.created_at || 0).getTime();
+  const created = platformTimestamp(item.created_at);
   const ageHours = created ? (Date.now() - created) / 3_600_000 : Infinity;
   return ageHours <= 48 ? "new" : "ready_approval";
 }
@@ -17905,11 +18302,11 @@ function filterHistoryQueueItems(items){
   }
   if (historyState.dateFrom){
     const from = new Date(`${historyState.dateFrom}T00:00:00`).getTime();
-    filtered = filtered.filter(item => new Date(item.created_at || 0).getTime() >= from);
+    filtered = filtered.filter(item => platformTimestamp(item.created_at) >= from);
   }
   if (historyState.dateTo){
     const to = new Date(`${historyState.dateTo}T23:59:59`).getTime();
-    filtered = filtered.filter(item => new Date(item.created_at || 0).getTime() <= to);
+    filtered = filtered.filter(item => platformTimestamp(item.created_at) <= to);
   }
   return filtered;
 }
@@ -18138,7 +18535,7 @@ function renderHistoryStatusTimeline(events){
   }
   const html = events
     .slice()
-    .sort((a, b)=> new Date(b.changed_at || 0).getTime() - new Date(a.changed_at || 0).getTime())
+    .sort((a, b)=> platformTimestamp(b.changed_at) - platformTimestamp(a.changed_at))
     .map(event => {
       const toLabel = historyStatusLabel(event.to_status || event.status);
       const fromLabel = event.from_status ? historyStatusLabel(event.from_status) : "Created";
