@@ -16,6 +16,20 @@ def test_navigation_is_grouped_around_factory_workflows():
     assert 'data-tab="awa"' not in html
 
 
+def test_approved_orders_can_be_safely_reopened_for_correction():
+    html = INDEX_HTML.read_text(encoding="utf-8")
+    js = APP_JS.read_text(encoding="utf-8")
+
+    assert 'id="historyReopen"' in html
+    assert "Reopen for correction" in html
+    assert "must be approved again before production" in html
+    assert 'normalizeHistoryStatusValue(status) === "approved"' in js
+    assert "reopenApprovedOrderForCorrection" in js
+    assert "/orders/${orderId}/reopen" in js
+    assert "The current approved copy will be saved" in js
+    assert 'selectOrderDetailView("items")' in js
+
+
 def test_beta_shadow_module_is_registered_without_exposing_legacy_awa():
     html = INDEX_HTML.read_text(encoding="utf-8")
     js = APP_JS.read_text(encoding="utf-8")

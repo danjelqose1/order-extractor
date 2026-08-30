@@ -149,6 +149,8 @@
     .btn.primary:hover{background:#4352ff}
     .btn.success{background:#10b981;border-color:#0d946b;color:#fff}
     .btn.success:hover{background:#0b8360}
+    .btn.warning{border-color:#f2c46d;background:#fff4d6;color:#8a4b08}
+    .btn.warning:hover{background:#ffe9b0;border-color:#dfa53a}
     .btn.small{padding:6px 10px;font-size:13px}
     .btn.ghost{background:transparent;border:none;color:var(--primary)}
     .btn.danger{border-color:#fca5a5;background:#fee2e2;color:#b91c1c}
@@ -2148,6 +2150,15 @@
     .btn.danger:hover{
       background:#ffe6e6;
       border-color:#e49797;
+    }
+    .btn.warning{
+      background:var(--warning-soft, #fff4d6);
+      border-color:#e8bd67;
+      color:#8a4b08;
+    }
+    .btn.warning:hover{
+      background:#ffe9b0;
+      border-color:#d8a241;
     }
     .btn.small,
     .actions-cell .btn.small,

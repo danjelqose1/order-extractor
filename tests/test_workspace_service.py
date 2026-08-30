@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -1981,6 +1982,43 @@ def test_order_api_serialization_includes_explicit_utc_timezone(tmp_path, monkey
     assert order["created_at"].endswith("Z")
     assert order["updated_at"].endswith("Z")
     assert order["status_history"][-1]["changed_at"].endswith("Z")
+
+
+def test_reopen_approved_order_preserves_snapshot_and_requires_reapproval(tmp_path, monkeypatch):
+    db, _service = _load_modules(tmp_path, monkeypatch)
+    approved_row = _row(dimension="", area=0.04)
+    order_id = _insert_order(db, rows=[approved_row], status="approved")
+
+    reopened = db.reopen_order_for_correction(
+        order_id,
+        reason="Missing dimension found during production preflight.",
+    )
+
+    assert reopened["status"] == "reviewed"
+    assert reopened["reopen_revision"]["revision_number"] == 1
+    assert reopened["status_history"][-1]["from_status"] == "approved"
+    assert reopened["status_history"][-1]["to_status"] == "reviewed"
+    assert reopened["status_history"][-1]["reason"] == "correction_reopen"
+    revisions = db.list_order_revisions(order_id, include_snapshot=True)
+    assert len(revisions) == 1
+    assert revisions[0]["reason"] == "Missing dimension found during production preflight."
+    assert revisions[0]["snapshot"]["status"] == "approved"
+    assert revisions[0]["snapshot"]["rows"][0]["dimension"] == ""
+
+    corrected_row = {**approved_row, "dimension": "200x200"}
+    reapproved = db.update_order_rows(order_id, [corrected_row], status="approved")
+    assert reapproved["status"] == "approved"
+    assert reapproved["rows"][0]["dimension"] == "200x200"
+    assert db.list_order_revisions(order_id, include_snapshot=True)[0]["snapshot"]["rows"][0]["dimension"] == ""
+
+
+def test_reopen_rejects_orders_outside_approved_stage(tmp_path, monkeypatch):
+    db, _service = _load_modules(tmp_path, monkeypatch)
+    order_id = _insert_order(db, status="approved")
+    db.update_order_status(order_id, status="in_production")
+
+    with pytest.raises(ValueError, match="Only approved orders"):
+        db.reopen_order_for_correction(order_id, reason="Late correction request")
 
 
 def test_order_date_filters_follow_tirana_business_day(tmp_path, monkeypatch):

@@ -21,6 +21,7 @@ def _install_fake_db(monkeypatch) -> Dict[str, List[Dict[str, Any]]]:
         "insert_extraction_with_rows": [],
         "update_order_rows": [],
         "update_order_status": [],
+        "reopen_order_for_correction": [],
         "create_telegram_file_record": [],
         "create_or_get_telegram_intake": [],
         "update_telegram_file_record": [],
@@ -51,6 +52,14 @@ def _install_fake_db(monkeypatch) -> Dict[str, List[Dict[str, Any]]]:
     def _update_order_status(*args, **kwargs):
         calls["update_order_status"].append({"args": args, "kwargs": kwargs})
         return {"id": args[0] if args else 1, "status": kwargs.get("status")}
+
+    def _reopen_order_for_correction(*args, **kwargs):
+        calls["reopen_order_for_correction"].append({"args": args, "kwargs": kwargs})
+        return {
+            "id": args[0] if args else 1,
+            "status": "reviewed",
+            "reopen_revision": {"id": 1, "revision_number": 1},
+        }
 
     def _create_telegram_file_record(**kwargs):
         calls["create_telegram_file_record"].append(kwargs)
@@ -153,6 +162,8 @@ def _install_fake_db(monkeypatch) -> Dict[str, List[Dict[str, Any]]]:
     fake_db.list_unfinished_telegram_file_ids = lambda *args, **kwargs: []
     fake_db.get_telegram_file = lambda file_id: dict(telegram_records[int(file_id)]) if int(file_id) in telegram_records else None
     fake_db.update_order_status = _update_order_status
+    fake_db.reopen_order_for_correction = _reopen_order_for_correction
+    fake_db.list_order_revisions = lambda *args, **kwargs: []
     fake_db.get_orders = lambda *args, **kwargs: []
     fake_db.get_analysis_orders = lambda *args, **kwargs: []
     fake_db.get_orders_by_identifiers = lambda *args, **kwargs: []
@@ -1783,6 +1794,49 @@ def test_order_delete_rejects_non_draft(monkeypatch):
     assert response.status_code == 409
     assert "Archive this order instead" in response.json()["detail"]
     assert delete_calls == []
+
+
+def test_reopen_approved_order_endpoint_returns_reviewed_order_and_revision(monkeypatch):
+    app_module, _calls = _load_app(monkeypatch)
+    captured = []
+
+    def _reopen(order_id, *, reason):
+        captured.append({"order_id": order_id, "reason": reason})
+        return {
+            "id": order_id,
+            "status": "reviewed",
+            "rows": [],
+            "reopen_revision": {"id": 7, "revision_number": 2},
+        }
+
+    app_module.reopen_order_for_correction = _reopen
+    client = TestClient(app_module.app)
+    response = client.post(
+        "/orders/12/reopen",
+        json={"reason": "Missing dimension found in preflight"},
+    )
+
+    assert response.status_code == 200
+    assert captured == [{"order_id": 12, "reason": "Missing dimension found in preflight"}]
+    assert response.json()["order"]["status"] == "reviewed"
+    assert response.json()["revision"]["revision_number"] == 2
+
+
+def test_reopen_order_endpoint_rejects_nonapproved_stage(monkeypatch):
+    app_module, _calls = _load_app(monkeypatch)
+
+    def _reject(_order_id, *, reason):
+        raise ValueError(
+            "Only approved orders can be reopened for correction. "
+            "Orders already in production, completed, or archived stay locked."
+        )
+
+    app_module.reopen_order_for_correction = _reject
+    client = TestClient(app_module.app)
+    response = client.post("/orders/12/reopen", json={"reason": "Late correction request"})
+
+    assert response.status_code == 409
+    assert "Only approved orders" in response.json()["detail"]
 
 
 def test_order_delete_allows_draft(monkeypatch):

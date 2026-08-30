@@ -8,7 +8,7 @@
   <meta name="theme-color" content="#0b1018" media="(prefers-color-scheme: dark)" />
   <link rel="icon" href="data:," />
   <title>Overview — Order Extractor</title>
-  <link rel="stylesheet" href="./css/styles.css?v=20260828-beta-operator1">
+  <link rel="stylesheet" href="./css/styles.css?v=20260830-correction-reopen1">
 </head>
 <body>
   <svg class="icon-sprite" aria-hidden="true">
@@ -1655,6 +1655,7 @@
             </div>
             <div class="history-detail-actions">
               <button class="btn success" id="historyApprove" disabled>Approve & Save</button>
+              <button class="btn warning" id="historyReopen" hidden disabled>Reopen for correction</button>
               <button class="btn small" id="historyProcessing" disabled>Send to Processing</button>
               <button class="btn small" id="historyPrint" disabled>Print Labels</button>
               <button class="btn small tertiary" id="historyCsv" disabled>Download CSV</button>
@@ -1701,7 +1702,7 @@
               <div class="history-detail-subheader">
                 <div>
                   <h3 style="margin:0">Extracted items</h3>
-                  <div class="muted small">Draft and reviewed orders remain editable until approval.</div>
+                  <div class="muted small">Draft, reviewed, and reopened orders are editable. Corrected orders must be approved again before production.</div>
                 </div>
                 <label class="inline-toggle">
                   <input type="checkbox" data-group-toggle id="historyGroupToggle">
@@ -2311,6 +2312,6 @@
   <input type="file" id="scanFileInput" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple hidden />
 
 <script src="./js/living-dashboard.js?v=20260718" defer></script>
-<script src="./js/app.js?v=20260828-beta-operator1" defer></script>
+<script src="./js/app.js?v=20260830-correction-reopen1" defer></script>
 </body>
 </html>

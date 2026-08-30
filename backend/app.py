@@ -47,6 +47,8 @@ from db import (
     insert_extraction_with_rows,
     update_order_rows,
     update_order_status,
+    reopen_order_for_correction,
+    list_order_revisions,
     get_orders,
     get_analysis_orders,
     get_orders_by_identifiers,
@@ -456,6 +458,10 @@ class ExtractionRowRepairPayload(BaseModel):
 class StatusUpdatePayload(BaseModel):
     status: str
     note: Optional[str] = None
+
+
+class ReopenOrderPayload(BaseModel):
+    reason: str = Field(min_length=3, max_length=500)
 
 
 class AnalysisAskPayload(BaseModel):
@@ -4780,6 +4786,41 @@ def set_order_status(order_id: int, payload: StatusUpdatePayload) -> Dict[str, A
     except Exception as exc:
         print("[set_order_status] update failed:\n" + "".join(traceback.format_exc()))
         raise HTTPException(status_code=500, detail=f"Failed to update status: {exc}")
+
+
+@app.post("/orders/{order_id}/reopen")
+def reopen_order(order_id: int, payload: ReopenOrderPayload) -> Dict[str, Any]:
+    """Return an approved order to review while preserving its approved snapshot."""
+
+    try:
+        updated = reopen_order_for_correction(order_id, reason=payload.reason)
+        return {
+            "ok": True,
+            "order": updated,
+            "revision": updated.get("reopen_revision"),
+        }
+    except ValueError as exc:
+        message = str(exc)
+        if "not found" in message.lower():
+            code = 404
+        elif "only approved" in message.lower():
+            code = 409
+        else:
+            code = 400
+        raise HTTPException(status_code=code, detail=message)
+    except Exception as exc:
+        print("[reopen_order] update failed:\n" + "".join(traceback.format_exc()))
+        raise HTTPException(status_code=500, detail=f"Failed to reopen order: {exc}")
+
+
+@app.get("/orders/{order_id}/revisions")
+def get_order_revisions(order_id: int, include_snapshot: bool = Query(default=False)) -> Dict[str, Any]:
+    if not get_order_with_extraction(order_id):
+        raise HTTPException(status_code=404, detail="Order not found")
+    return {
+        "order_id": order_id,
+        "items": list_order_revisions(order_id, include_snapshot=include_snapshot),
+    }
 
 
 @app.post("/orders/{order_id}/archive")

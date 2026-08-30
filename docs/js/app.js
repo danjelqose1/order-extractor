@@ -1228,6 +1228,7 @@ const historyPrintBtn = document.getElementById("historyPrint");
 const historyCsvBtn = document.getElementById("historyCsv");
 const historyMetaEl = document.getElementById("historyMeta");
 const historyProcessingBtn = document.getElementById("historyProcessing");
+const historyReopenBtn = document.getElementById("historyReopen");
 const historyInvoiceBtn = document.getElementById("historyInvoice");
 const historyArchiveBtn = document.getElementById("historyArchive");
 const historyInvoiceAllBtn = document.getElementById("historyInvoiceAll");
@@ -13368,6 +13369,10 @@ function updateHistoryDetailUI(){
 	        approveBtn.hidden = false;
 	        approveBtn.disabled = true;
 	      }
+      if (historyReopenBtn){
+        historyReopenBtn.hidden = true;
+        historyReopenBtn.disabled = true;
+      }
       if (empty) empty.style.display = "block";
       historyPrintBtn.disabled = true;
       historyCsvBtn.disabled = true;
@@ -13396,6 +13401,10 @@ function updateHistoryDetailUI(){
 	    historyPrintBtn.disabled = !(order.rows && order.rows.length);
 	    historyCsvBtn.disabled = !canCsvStatus(status);
 	    if (historyProcessingBtn) historyProcessingBtn.disabled = !canProcessingStatus(status) || !(order.rows && order.rows.length);
+	    if (historyReopenBtn){
+	      historyReopenBtn.hidden = !canReopenForCorrectionStatus(status);
+	      historyReopenBtn.disabled = !canReopenForCorrectionStatus(status);
+	    }
 	    if (invoiceBtn) invoiceBtn.disabled = !canInvoiceStatus(status) || !(order.rows && order.rows.length);
 	    if (archiveBtn) archiveBtn.disabled = !canArchiveStatus(status);
 	    if (status === "draft" || status === "reviewed"){
@@ -18193,6 +18202,10 @@ function canApproveStatus(status){
   return normalized === "draft" || normalized === "reviewed";
 }
 
+function canReopenForCorrectionStatus(status){
+  return normalizeHistoryStatusValue(status) === "approved";
+}
+
 function canProcessingStatus(status){
   return ["approved", "in_production", "completed"].includes(normalizeHistoryStatusValue(status));
 }
@@ -18441,6 +18454,7 @@ function renderOrdersList(){
         <div class="history-actions-menu">
           <button data-action="open" data-id="${order.id}">Open order</button>
           <button data-action="edit-draft" data-id="${order.id}" ${canEditDraftStatus(normalizedStatus) ? "" : "disabled"}>Edit draft</button>
+          <button data-action="reopen" data-id="${order.id}" ${canReopenForCorrectionStatus(normalizedStatus) ? "" : "disabled"}>Reopen for correction</button>
           <button data-action="approve" data-id="${order.id}" ${canApproveStatus(normalizedStatus) ? "" : "disabled"}>Approve</button>
           <button data-action="processing" data-id="${order.id}" ${canProcessingStatus(normalizedStatus) ? "" : "disabled"}>Send to Processing</button>
           <button data-action="labels" data-id="${order.id}">Generate Labels</button>
@@ -18541,7 +18555,8 @@ function renderHistoryStatusTimeline(events){
       const fromLabel = event.from_status ? historyStatusLabel(event.from_status) : "Created";
       const when = formatDate(event.changed_at);
       const note = event.note ? `<div>${escapeHtml(event.note)}</div>` : "";
-      const reason = event.reason ? `<div class="meta">Reason: ${escapeHtml(event.reason)}</div>` : "";
+      const reasonLabel = event.reason === "correction_reopen" ? "Reopened for correction" : event.reason;
+      const reason = reasonLabel ? `<div class="meta">Reason: ${escapeHtml(reasonLabel)}</div>` : "";
       return `<div class="history-status-timeline-item">
         <div><strong>${escapeHtml(fromLabel)}</strong> → <strong>${escapeHtml(toLabel)}</strong></div>
         <div class="meta">${escapeHtml(when)}</div>
@@ -18954,6 +18969,63 @@ async function updateOrderStatusRequest(orderId, status, note){
   return payload?.order || payload;
 }
 
+async function reopenOrderForCorrectionRequest(orderId, reason){
+  const res = await fetch(`${API_BASE}/orders/${orderId}/reopen`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason }),
+  });
+  if (!res.ok){
+    const raw = await res.text();
+    let message = raw;
+    try{
+      const payload = JSON.parse(raw);
+      message = payload?.detail || payload?.message || raw;
+    }catch{}
+    throw new Error(message || (`HTTP ${res.status}`));
+  }
+  return res.json();
+}
+
+async function reopenApprovedOrderForCorrection(orderOrId){
+  const order = typeof orderOrId === "object" && orderOrId
+    ? orderOrId
+    : await fetchOrder(orderOrId);
+  if (!canReopenForCorrectionStatus(order?.status)){
+    setHistoryStatus("Only an approved order that has not entered production can be reopened.");
+    return null;
+  }
+  const label = getOrderLabel(order);
+  const reasonInput = window.prompt(
+    `Why does ${label} need correction?\n\nThe current approved copy will be saved. The order will return to Reviewed and must be approved again before production.`,
+    "Correction needed after approval",
+  );
+  if (reasonInput === null) return null;
+  const reason = reasonInput.trim();
+  if (reason.length < 3){
+    setHistoryStatus("Enter a short correction reason so the change is recorded in Activity.");
+    return null;
+  }
+
+  setHistoryStatus("Saving the approved copy and reopening the order…");
+  const payload = await reopenOrderForCorrectionRequest(order.id, reason);
+  const updated = payload?.order || payload;
+  historyState.selectedOrder = updated;
+  historyState.needsRefresh = true;
+  analysisState.allOrdersDirty = true;
+  analysisState.orderRowCache.delete(order.id);
+  await loadHistory({ resetOffset: false });
+  await openSharedOrderDetail(order.id);
+  selectOrderDetailView("items");
+  const revisionNumber = Number(payload?.revision?.revision_number || updated?.reopen_revision?.revision_number || 0);
+  setHistoryStatus(
+    revisionNumber
+      ? `Order reopened for correction. Approved snapshot #${revisionNumber} was saved.`
+      : "Order reopened for correction. It must be approved again before production.",
+  );
+  return updated;
+}
+
 function buildHistoryRowsPayload(rows){
   return (rows || []).map(row => ({
     order_number: row.order_number || "",
@@ -19070,6 +19142,12 @@ document.getElementById("historyListWrap").addEventListener("click", async (even
 	      await openSharedOrderDetail(id);
 	    }else if (action === "edit-draft"){
 	      await openSharedOrderDetail(id);
+  }else if (action === "reopen"){
+    try{
+      await reopenApprovedOrderForCorrection(id);
+    }catch(error){
+      setHistoryStatus("Reopen failed: " + (error.message || error));
+    }
   }else if (action === "approve"){
     try{
       setHistoryStatus("Approving order…");
@@ -19340,6 +19418,18 @@ document.getElementById("historyProcessing").addEventListener("click", async ()=
     setHistoryStatus("Failed to add to Processing: " + (error.message || error));
   }
 });
+
+if (historyReopenBtn){
+  historyReopenBtn.addEventListener("click", async ()=>{
+    const order = historyState.selectedOrder;
+    if (!order) return;
+    try{
+      await reopenApprovedOrderForCorrection(order);
+    }catch(error){
+      setHistoryStatus("Reopen failed: " + (error.message || error));
+    }
+  });
+}
 
 if (historyInvoiceBtn){
   historyInvoiceBtn.addEventListener("click", async ()=>{

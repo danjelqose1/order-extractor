@@ -242,6 +242,25 @@ class OrderStatusEvent(Base):
     order: Mapped[Order] = relationship(back_populates="status_events")
 
 
+class OrderRevision(Base):
+    """Immutable order snapshot saved before an approved order is reopened."""
+
+    __tablename__ = "order_revisions"
+    __table_args__ = (
+        UniqueConstraint("order_id", "revision_number", name="uq_order_revisions_order_number"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id", ondelete="CASCADE"), index=True)
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    snapshot_json: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+
 class ManualOrder(Base):
     __tablename__ = "manual_orders"
 
@@ -2798,6 +2817,91 @@ def update_order_status(
         return data
 
 
+def reopen_order_for_correction(order_id: int, *, reason: str) -> Dict[str, Any]:
+    """Snapshot an approved order and return it to Reviewed for correction."""
+
+    normalized_reason = str(reason or "").strip()
+    if len(normalized_reason) < 3:
+        raise ValueError("A correction reason is required.")
+    if len(normalized_reason) > 500:
+        raise ValueError("Correction reason must be 500 characters or fewer.")
+
+    with get_session() as session:
+        order = session.get(Order, int(order_id))
+        if not order:
+            raise ValueError(f"Order {order_id} not found")
+
+        current_status = normalize_order_status(order.status)
+        if current_status != "approved":
+            raise ValueError(
+                "Only approved orders can be reopened for correction. "
+                "Orders already in production, completed, or archived stay locked."
+            )
+
+        _ = order.rows
+        approved_snapshot = _serialize_order(order, include_rows=True)
+        latest_revision = session.execute(
+            select(func.max(OrderRevision.revision_number)).where(OrderRevision.order_id == order.id)
+        ).scalar_one_or_none()
+        revision = OrderRevision(
+            order_id=order.id,
+            revision_number=int(latest_revision or 0) + 1,
+            snapshot_json=json.dumps(approved_snapshot, ensure_ascii=False, sort_keys=True),
+            reason=normalized_reason,
+        )
+        session.add(revision)
+
+        order.status = "reviewed"
+        order.updated_at = datetime.now(timezone.utc)
+        _record_status_event(
+            session,
+            order_id=order.id,
+            from_status=current_status,
+            to_status="reviewed",
+            note=normalized_reason,
+            reason="correction_reopen",
+        )
+        session.flush()
+
+        _ = order.status_events
+        data = _serialize_order(order, include_rows=True)
+        data["status_history"] = _serialize_status_events(order.status_events or [])
+        data["reopen_revision"] = {
+            "id": revision.id,
+            "revision_number": revision.revision_number,
+            "reason": revision.reason,
+            "created_at": utc_isoformat(revision.created_at),
+        }
+        return data
+
+
+def list_order_revisions(order_id: int, *, include_snapshot: bool = False) -> List[Dict[str, Any]]:
+    """Return the immutable correction snapshots for one order."""
+
+    with get_session() as session:
+        revisions = session.execute(
+            select(OrderRevision)
+            .where(OrderRevision.order_id == int(order_id))
+            .order_by(OrderRevision.revision_number.desc())
+        ).scalars().all()
+        result: List[Dict[str, Any]] = []
+        for revision in revisions:
+            item: Dict[str, Any] = {
+                "id": revision.id,
+                "order_id": revision.order_id,
+                "revision_number": revision.revision_number,
+                "reason": revision.reason,
+                "created_at": utc_isoformat(revision.created_at),
+            }
+            if include_snapshot:
+                try:
+                    item["snapshot"] = json.loads(revision.snapshot_json)
+                except (TypeError, json.JSONDecodeError):
+                    item["snapshot"] = None
+            result.append(item)
+        return result
+
+
 def get_all_rows_for_export(
     *,
     query: Optional[str] = None,
@@ -3088,6 +3192,8 @@ __all__ = [
     "get_whatsapp_file",
     "mark_whatsapp_file_deleted",
     "update_order_rows",
+    "reopen_order_for_correction",
+    "list_order_revisions",
     "get_orders",
     "get_orders_by_identifiers",
     "get_order_with_extraction",
