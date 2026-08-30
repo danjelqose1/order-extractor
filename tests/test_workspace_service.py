@@ -136,6 +136,23 @@ def test_process_approved_order_delegates_clean_order_to_frontend_modules(tmp_pa
     assert before["extraction"]["raw_input"] == after["extraction"]["raw_input"]
 
 
+def test_operator_confirmed_small_dimension_is_advisory_not_blocker(tmp_path, monkeypatch):
+    db, service = _load_modules(tmp_path, monkeypatch)
+    row = _row(dimension="98x2504", quantity=1, area=0.25)
+    order_id = _insert_order(db, rows=[row])
+
+    result = service.validate_order_for_processing(order_id)
+    stored = db.get_order_with_extraction(order_id)
+
+    assert result["status"] == "ok"
+    assert result["warnings"] == []
+    assert any(
+        "outside the expected production range" in warning
+        for warning in result["advisories"]
+    )
+    assert stored["rows"][0]["dimension"] == "98x2504"
+
+
 def test_telegram_reextract_does_not_overwrite_approved_order(tmp_path, monkeypatch):
     db, _service = _load_modules(tmp_path, monkeypatch)
     source_hash = "same-telegram-file"

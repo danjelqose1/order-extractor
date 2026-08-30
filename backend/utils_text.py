@@ -8,7 +8,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 ORDER_NUMBER_RE = re.compile(r"R-?\s*\d{2}-\d{4}", re.IGNORECASE)
 TYPE_LINE_RE = re.compile(r"\b\d+\s+VETRI\b.*", re.IGNORECASE)
-DIMENSION_RE = re.compile(r"\b\d{3,4}\s*[x×]\s*\d{3,4}\b")
+DIMENSION_RE = re.compile(r"\b\d{2,4}\s*[x×]\s*\d{2,4}\b")
 CLIENT_RE = re.compile(r"CLIENTE\s*[:\-]?\s*(.+)", re.IGNORECASE)
 TOTAL_LINE_RE = re.compile(r"^(?:m2|totale)\s+(\d+)\s+([\d.,]+)", re.IGNORECASE)
 TOTAL_KEYWORD_RE = re.compile(r"\b(?:totale|total|totali)\b", re.IGNORECASE)
@@ -60,7 +60,10 @@ def clean_dimension(value: str) -> Tuple[str, Optional[Tuple[int, int]]]:
     if not value:
         return "", None
     token = value.strip().lower().replace("×", "x").replace(" ", "")
-    match = re.match(r"^(\d{3,4})x(\d{3,4})$", token)
+    # Keep this aligned with schema.Row: unusually small, operator-confirmed
+    # panes are valid data and are handled as diagnostics advisories instead of
+    # being silently erased during approval.
+    match = re.match(r"^(\d{2,4})x(\d{2,4})$", token)
     if not match:
         return "", None
     width, height = int(match.group(1)), int(match.group(2))

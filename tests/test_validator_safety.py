@@ -25,3 +25,22 @@ def test_small_piece_high_quantity_is_flagged_without_mutation():
 
     assert result["rows"][0]["quantity"] == 8
     assert "warning: unusually_high_quantity" in result["row_warnings"][0]
+
+
+def test_operator_confirmed_two_digit_dimension_is_preserved():
+    row = {
+        "order_number": "R-26-0634",
+        "type": "2 VETRI 33.1SANT +18+ 4LOWE (28MM)",
+        "dimension": "98x2504",
+        "position": "6-1",
+        "quantity": 1,
+        "area": 0.25,
+    }
+
+    result = validate_rows([row])
+
+    assert result["rows"][0]["dimension"] == "98x2504"
+    assert not any(
+        "dimension_invalid_cleared" in warning
+        for warning in result.get("row_warnings", {}).get(0, [])
+    )

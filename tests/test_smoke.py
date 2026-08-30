@@ -1662,6 +1662,43 @@ def test_approve_payload_client_name_is_passed_to_save(monkeypatch):
     assert response.json()["order"]["client_name"] == "DEDA PALLATI VAZHDIM FAZA 3"
 
 
+def test_approve_preserves_operator_confirmed_two_digit_dimension(monkeypatch):
+    app_module, _ = _load_app(monkeypatch, legacy_enabled="false")
+    row = {
+        "order_number": "R-26-0634",
+        "type": "2 VETRI 33.1SANT +18+ 4LOWE (28MM)",
+        "dimension": "98x2504",
+        "position": "6-1",
+        "quantity": 1,
+        "area": 0.25,
+    }
+    captured: List[Dict[str, Any]] = []
+
+    app_module.get_order_with_extraction = lambda order_id: {
+        "id": order_id,
+        "status": "reviewed",
+        "rows": [{**row, "dimension": ""}],
+        "extraction": {"prepared_text": ""},
+    }
+
+    def _update_order_rows(order_id, rows, **kwargs):
+        captured.append({"order_id": order_id, "rows": rows, "kwargs": kwargs})
+        return {
+            "id": order_id,
+            "status": kwargs.get("status"),
+            "rows": rows,
+        }
+
+    app_module.update_order_rows = _update_order_rows
+    client = TestClient(app_module.app)
+
+    response = client.post("/orders/12/approve", json={"rows": [row]})
+
+    assert response.status_code == 200
+    assert captured[0]["rows"][0]["dimension"] == "98x2504"
+    assert response.json()["order"]["rows"][0]["dimension"] == "98x2504"
+
+
 def test_approve_manual_override_ignores_ocr_repair_metadata(monkeypatch):
     app_module, _ = _load_app(monkeypatch, legacy_enabled="false")
     stored_row = {

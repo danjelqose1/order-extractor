@@ -24,6 +24,17 @@ def test_processing_empty_state_has_a_dark_theme_surface():
     assert ".processing-order-list.processing-empty{" in dark_theme
 
 
+def test_diagnosis_panel_uses_theme_aware_surfaces():
+    css = STYLES_CSS.read_text(encoding="utf-8")
+    panel_rule = css.split(".diagnosis-panel{", 1)[1].split("}", 1)[0]
+    evidence_rule = css.split(".diagnosis-evidence{", 1)[1].split("}", 1)[0]
+
+    assert "background:var(--card-bg)" in panel_rule
+    assert "background:#fff" not in panel_rule
+    assert "background:var(--bg)" in evidence_rule
+    assert "background:#fafafa" not in evidence_rule
+
+
 def test_late_component_rules_keep_dark_theme_surfaces():
     html = INDEX_HTML.read_text(encoding="utf-8")
     css = STYLES_CSS.read_text(encoding="utf-8")
