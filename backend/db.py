@@ -5,6 +5,7 @@ import json
 import os
 import re
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
@@ -14,6 +15,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -115,6 +117,7 @@ engine = create_engine(
 )
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False, future=True)
+_transaction_session: ContextVar[Optional[Session]] = ContextVar("platform_transaction", default=None)
 
 
 class Base(DeclarativeBase):
@@ -272,6 +275,7 @@ class ManualOrder(Base):
     status: Mapped[str] = mapped_column(String(20), default="draft", index=True)
     source: Mapped[str] = mapped_column(String(20), default="manual", nullable=False)
     manual_format: Mapped[str] = mapped_column(String(40), default="standard", nullable=False)
+    raw_values_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -840,6 +844,8 @@ def _ensure_schema() -> None:
 
         manual_order_info = conn.execute(text("PRAGMA table_info(manual_orders)")).fetchall()
         manual_order_columns = {row[1] for row in manual_order_info}
+        if manual_order_columns and "raw_values_json" not in manual_order_columns:
+            conn.execute(text("ALTER TABLE manual_orders ADD COLUMN raw_values_json TEXT"))
         if manual_order_columns and "manual_format" not in manual_order_columns:
             conn.execute(
                 text(
@@ -918,6 +924,11 @@ def init_db() -> None:
     _ensure_data_dir()
     Base.metadata.create_all(engine, checkfirst=True)
     _ensure_schema()
+    # Reserve existing identifiers so deleting an order never lets SQLite reuse
+    # its public MCP reference. No order contents are copied into these sequences.
+    with engine.begin() as conn:
+        conn.execute(text("INSERT OR IGNORE INTO manual_order_ids (id) SELECT id FROM manual_orders"))
+        conn.execute(text("INSERT OR IGNORE INTO extracted_order_ids (id) SELECT id FROM orders"))
     backfilled = backfill_telegram_file_hashes()
     print(f"[db] Backfilled SHA-256 for {backfilled} Telegram file(s).")
     backfilled_glass_types = backfill_manual_glass_types()
@@ -928,6 +939,11 @@ def init_db() -> None:
 
 @contextmanager
 def get_session() -> Iterator[Session]:
+    existing = _transaction_session.get()
+    if existing is not None:
+        yield existing
+        existing.flush()
+        return
     session = SessionLocal()
     try:
         yield session
@@ -937,6 +953,34 @@ def get_session() -> Iterator[Session]:
         raise
     finally:
         session.close()
+
+
+@contextmanager
+def read_session() -> Iterator[Session]:
+    """Reuse a service transaction when present; ordinary API reads remain unchanged."""
+    existing = _transaction_session.get()
+    if existing is not None:
+        existing.flush()
+        yield existing
+    else:
+        with SessionLocal() as session:
+            yield session
+
+
+@contextmanager
+def atomic_workflow() -> Iterator[Session]:
+    """Serialize SQLite writers before checking versions or idempotency keys."""
+    with SessionLocal() as session:
+        session.execute(text("BEGIN IMMEDIATE"))
+        token = _transaction_session.set(session)
+        try:
+            yield session
+            session.commit()
+        except BaseException:
+            session.rollback()
+            raise
+        finally:
+            _transaction_session.reset(token)
 
 
 def _serialize_order(order: Order, include_rows: bool = False) -> Dict[str, Any]:
@@ -1223,6 +1267,7 @@ def insert_extraction_with_rows(
 
         if not order:
             order = Order(
+                id=_reserve_order_id(session, ExtractedOrderId),
                 source=source,
                 client_name=normalized_client_name,
                 client_hint=client_hint,
@@ -1249,6 +1294,7 @@ def insert_extraction_with_rows(
                 next_version = _next_version_for_source_hash(session, canonical_hash or (order.source_hash or order.hash or ""))
                 versioned_hash = _build_versioned_hash(canonical_hash or (order.source_hash or order.hash or ""), next_version)
                 order = Order(
+                    id=_reserve_order_id(session, ExtractedOrderId),
                     source=source,
                     client_name=normalized_client_name,
                     client_hint=client_hint or "",
@@ -1937,7 +1983,7 @@ def next_manual_order_number(order_date: str) -> str:
 
 
 def get_manual_print_settings() -> Dict[str, Any]:
-    with SessionLocal() as session:
+    with read_session() as session:
         record = session.get(ManualPrintSetting, 1)
         if not record or not record.config_json:
             return {}
@@ -1974,6 +2020,7 @@ def _serialize_manual_order(order: ManualOrder, *, include_rows: bool = True) ->
         "status": _normalize_manual_status(order.status),
         "source": "manual",
         "manual_format": _normalize_manual_format(order.manual_format),
+        "raw_values": json.loads(order.raw_values_json) if order.raw_values_json else None,
         "created_at": utc_isoformat(order.created_at),
         "updated_at": utc_isoformat(order.updated_at or order.created_at),
         "row_count": len(rows),
@@ -2057,7 +2104,7 @@ def manual_order_number_exists(order_number: str, *, exclude_id: Optional[int] =
     normalized = str(order_number or "").strip().lower()
     if not normalized:
         return False
-    with SessionLocal() as session:
+    with read_session() as session:
         statement = select(func.count()).select_from(ManualOrder).where(
             func.lower(func.trim(ManualOrder.order_number)) == normalized
         )
@@ -2084,6 +2131,7 @@ def create_manual_order(payload: Dict[str, Any]) -> Dict[str, Any]:
     )
     with get_session() as session:
         order = ManualOrder(
+            id=_reserve_order_id(session, ManualOrderId),
             client_name=client_name,
             order_number=order_number,
             order_date=order_date,
@@ -2091,6 +2139,7 @@ def create_manual_order(payload: Dict[str, Any]) -> Dict[str, Any]:
             status=_normalize_manual_status(payload.get("status")),
             source="manual",
             manual_format=manual_format,
+            raw_values_json=json.dumps(payload["raw_values"], ensure_ascii=False) if payload.get("raw_values") else None,
         )
         session.add(order)
         _remember_manual_client(session, client_name)
@@ -2137,7 +2186,7 @@ def list_manual_orders(
 
 
 def get_manual_order(order_id: int) -> Optional[Dict[str, Any]]:
-    with SessionLocal() as session:
+    with read_session() as session:
         statement = (
             select(ManualOrder)
             .where(ManualOrder.id == int(order_id))
@@ -2174,6 +2223,7 @@ def update_manual_order(order_id: int, payload: Dict[str, Any]) -> Dict[str, Any
         order.status = _normalize_manual_status(payload.get("status"), default=order.status)
         order.source = "manual"
         order.manual_format = manual_format
+        order.raw_values_json = json.dumps(payload["raw_values"], ensure_ascii=False) if payload.get("raw_values") else None
         order.updated_at = datetime.now(timezone.utc)
         _remember_manual_client(session, client_name)
         _replace_manual_order_rows(session, order, rows)
@@ -2223,6 +2273,21 @@ def delete_manual_order(order_id: int) -> bool:
             return False
         session.delete(order)
         return True
+
+
+def update_manual_order_status(order_id: int, *, status: str) -> Dict[str, Any]:
+    """Consequential workflow transitions never replace the saved rows."""
+    with get_session() as session:
+        order = session.get(ManualOrder, order_id)
+        if not order:
+            raise ValueError("Manual order not found")
+        allowed = {"draft": {"approved"}, "approved": {"processing"}, "processing": {"finished"}}
+        if status not in allowed.get(order.status, set()):
+            raise ValueError("Invalid manual order transition")
+        order.status = status
+        order.updated_at = datetime.now(timezone.utc)
+        session.flush()
+        return _serialize_manual_order(order)
 
 
 def send_manual_order_to_processing(order_id: int) -> Dict[str, Any]:
@@ -2426,7 +2491,7 @@ def get_orders_by_identifiers(identifiers: Sequence[str]) -> List[Dict[str, Any]
 
 
 def get_order_with_extraction(order_id: int) -> Optional[Dict[str, Any]]:
-    with SessionLocal() as session:
+    with read_session() as session:
         order = session.get(Order, order_id)
         if not order:
             return None
@@ -3222,3 +3287,78 @@ __all__ = [
     "get_manual_print_settings",
     "save_manual_print_settings",
 ]
+
+
+# Integration records share the existing database; orders stay in their original tables.
+class WorkflowJob(Base):
+    __tablename__ = "workflow_jobs"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    order_ref: Mapped[str] = mapped_column(String(80), index=True)
+    order_version: Mapped[str] = mapped_column(String(64))
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    rounded: Mapped[bool] = mapped_column(Boolean, default=False)
+    grouped: Mapped[bool] = mapped_column(Boolean, default=False)
+    snapshot_json: Mapped[str] = mapped_column(Text)
+    result_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class WorkflowArtifact(Base):
+    __tablename__ = "workflow_artifacts"
+    id: Mapped[str] = mapped_column(String(48), primary_key=True)
+    order_ref: Mapped[str] = mapped_column(String(80), index=True)
+    job_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    job_version: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    kind: Mapped[str] = mapped_column(String(40))
+    media_type: Mapped[str] = mapped_column(String(80))
+    sha256: Mapped[str] = mapped_column(String(64))
+    content: Mapped[bytes] = mapped_column(LargeBinary)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class McpOperation(Base):
+    __tablename__ = "mcp_operations"
+    __table_args__ = (UniqueConstraint("actor", "tool", "idempotency_key"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    actor: Mapped[str] = mapped_column(String(80))
+    tool: Mapped[str] = mapped_column(String(80))
+    idempotency_key: Mapped[str] = mapped_column(String(128))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    result_json: Mapped[str] = mapped_column(Text)
+
+
+class McpAudit(Base):
+    __tablename__ = "mcp_audit"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    actor: Mapped[str] = mapped_column(String(80))
+    source: Mapped[str] = mapped_column(String(20), default="mcp")
+    tool: Mapped[str] = mapped_column(String(80))
+    order_ref: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    request_id: Mapped[str] = mapped_column(String(36), index=True)
+    outcome: Mapped[str] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class AppDocument(Base):
+    __tablename__ = "app_documents"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    content_json: Mapped[str] = mapped_column(Text)
+
+
+class ManualOrderId(Base):
+    __tablename__ = "manual_order_ids"
+    __table_args__ = {"sqlite_autoincrement": True}
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+
+class ExtractedOrderId(Base):
+    __tablename__ = "extracted_order_ids"
+    __table_args__ = {"sqlite_autoincrement": True}
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+
+def _reserve_order_id(session, model):
+    reservation = model()
+    session.add(reservation)
+    session.flush()
+    return reservation.id

@@ -61,6 +61,25 @@ def _pdf_row():
     }
 
 
+def test_manual_label_long_headers_fit_their_printed_columns():
+    if str(BACKEND_DIR) not in sys.path:
+        sys.path.insert(0, str(BACKEND_DIR))
+    from manual_documents import build_manual_labels_pdf
+    order = _manual_payload(client_name="Synthetic QA Client", order_number="QA-client_positions_red_index-1234")
+    order["manual_format"] = "client_positions_red_index"
+    order["rows"][0].update(client_position="P1", index_number=1, quantity=1)
+    pdf = fitz.open(stream=build_manual_labels_pdf(order), filetype="pdf")
+    spans = [s for b in pdf[0].get_text("dict")["blocks"] for line in b.get("lines",[]) for s in line["spans"]]
+    order_span = next(s for s in spans if s["text"].startswith("QA-"))
+    client_span = next(s for s in spans if s["text"].lstrip().startswith("Synthetic"))
+    position_span = next(s for s in spans if s["text"] == "POS P1")
+    # MuPDF may prepend a synthetic space spanning the gap between columns.
+    assert order_span["bbox"][2] <= client_span["bbox"][0]
+    assert client_span["bbox"][2] < position_span["bbox"][0]
+    assert order_span["size"] < 9.5 and client_span["size"] < 14
+    pdf.close()
+
+
 def test_manual_order_uses_separate_tables_and_stays_out_of_pdf_history(tmp_path, monkeypatch):
     db = _load_db(tmp_path, monkeypatch)
     pdf = db.insert_extraction_with_rows(
@@ -324,7 +343,7 @@ def test_manual_print_settings_are_persisted_separately(tmp_path, monkeypatch):
 
 def test_manual_orders_frontend_exposes_isolated_factory_workflow():
     html = INDEX_HTML.read_text(encoding="utf-8")
-    js = APP_JS.read_text(encoding="utf-8")
+    js = (APP_JS.with_name("platform-workflows.js").read_text(encoding="utf-8") + "\n" + APP_JS.read_text(encoding="utf-8"))
     app_py = APP_PY.read_text(encoding="utf-8")
 
     assert 'data-tab="manual"' in html
@@ -409,7 +428,7 @@ def test_manual_orders_frontend_exposes_isolated_factory_workflow():
 
 
 def test_manual_invoice_runs_guarded_ai_pricing_review_after_opening():
-    js = APP_JS.read_text(encoding="utf-8")
+    js = (APP_JS.with_name("platform-workflows.js").read_text(encoding="utf-8") + "\n" + APP_JS.read_text(encoding="utf-8"))
     handler = js[js.index("async function handleManualOrderAction"):js.index("function ensureManualOrdersReady")]
 
     assert "createInvoiceJobFromOrder(shared, { allowAi: false })" in handler
@@ -419,7 +438,7 @@ def test_manual_invoice_runs_guarded_ai_pricing_review_after_opening():
 
 
 def test_manual_invoice_pricing_understanding_is_explained_and_guarded():
-    js = APP_JS.read_text(encoding="utf-8")
+    js = (APP_JS.with_name("platform-workflows.js").read_text(encoding="utf-8") + "\n" + APP_JS.read_text(encoding="utf-8"))
 
     assert '"gpt-5.6-terra"' in js
     assert "analysis.safeToPrice && confident" in js
@@ -432,7 +451,7 @@ def test_manual_invoice_pricing_understanding_is_explained_and_guarded():
 
 
 def test_manual_invoice_uses_factory_component_aliases_and_auto_generates_pdf():
-    js = APP_JS.read_text(encoding="utf-8")
+    js = (APP_JS.with_name("platform-workflows.js").read_text(encoding="utf-8") + "\n" + APP_JS.read_text(encoding="utf-8"))
 
     assert '[normalizeGlassKey("Termik")]: normalizeGlassKey("4 LowE")' in js
     assert '[normalizeGlassKey("Tr")]: normalizeGlassKey("4F")' in js
@@ -446,7 +465,7 @@ def test_manual_invoice_uses_factory_component_aliases_and_auto_generates_pdf():
 
 def test_manual_order_rows_support_spreadsheet_keyboard_entry():
     html = INDEX_HTML.read_text(encoding="utf-8")
-    js = APP_JS.read_text(encoding="utf-8")
+    js = (APP_JS.with_name("platform-workflows.js").read_text(encoding="utf-8") + "\n" + APP_JS.read_text(encoding="utf-8"))
 
     assert "Start typing a saved glass type" in html
     assert "Tab across" in html

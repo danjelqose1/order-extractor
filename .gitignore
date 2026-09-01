@@ -4,3 +4,10 @@ backend/.env
 
 # Private Photo Assist evaluation data may contain client information.
 data/private-evals/
+.venv/
+node_modules/
+__pycache__/
+*.pyc
+.env
+backend/.env.*
+!.env.example

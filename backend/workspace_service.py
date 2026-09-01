@@ -1382,6 +1382,16 @@ def get_production_file(file_id: int) -> Optional[Dict[str, Any]]:
         return _serialize_file(file) | {"file_path": file.file_path}
 
 
+def list_order_production_files(order_id: int) -> List[Dict[str, Any]]:
+    """Read the existing persistent file catalogue for a single extracted order."""
+    with SessionLocal() as session:
+        files = session.scalars(select(ProductionFile).where(
+            ProductionFile.order_id == order_id,
+            ProductionFile.status == "ready",
+        ).order_by(ProductionFile.created_at)).all()
+        return [_serialize_file(file) | {"file_path": file.file_path} for file in files]
+
+
 def get_processing_batch_files(batch_id: int) -> Dict[str, Any]:
     with SessionLocal() as session:
         batch = session.get(ProcessingBatch, int(batch_id))

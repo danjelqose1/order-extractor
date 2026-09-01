@@ -265,12 +265,16 @@ def _draw_fitted_text(
         while safe and stringWidth(f"{safe}...", font, fitted) > max_width:
             safe = safe[:-1]
         safe = f"{safe}..." if safe else "-"
+    # Apply the measured font without changing the surrounding document state.
+    pdf.saveState()
+    pdf.setFont(font, fitted)
     if align == "center":
         pdf.drawCentredString(x, y, safe)
     elif align == "right":
         pdf.drawRightString(x, y, safe)
     else:
         pdf.drawString(x, y, safe)
+    pdf.restoreState()
     return fitted
 
 

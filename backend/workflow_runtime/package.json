@@ -1,0 +1,8 @@
+{
+  "name": "order-extractor-shared-workflows",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bounded local worker for the website's existing JavaScript workflows; no HTTP server",
+  "engines": { "node": ">=22 <23" },
+  "dependencies": { "pdf-lib": "1.17.1" }
+}

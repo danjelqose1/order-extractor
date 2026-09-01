@@ -123,7 +123,8 @@ from analytics_summary import ANALYTICS_STATUSES, build_analysis_summary
 from services.pdf_native_text_editor import native_text_replace
 from invoice_ai import analyze_invoice_line, match_invoice_glass_type
 ENV_PATH = Path(__file__).parent / ".env"
-load_dotenv(ENV_PATH, override=True)
+if os.getenv("ORDER_EXTRACTOR_LOAD_DOTENV", "true") == "true":
+    load_dotenv(ENV_PATH, override=True)
 
 # Data/config paths
 DATA_DIR = Path(os.getenv("DB_DIR", "data"))
@@ -343,28 +344,14 @@ def _save_price_config(config: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _load_invoices() -> Dict[str, Any]:
-    if INVOICES_PATH.exists():
-        try:
-            data = json.loads(INVOICES_PATH.read_text())
-            if isinstance(data, dict):
-                jobs = data.get("jobs")
-                if isinstance(jobs, list):
-                    return {"jobs": jobs}
-        except Exception as exc:
-            print(f"[invoices] failed to read invoices: {exc}")
-    return {"jobs": []}
+    from services.platform_repository import load_invoices
+    return load_invoices(db_module, INVOICES_PATH)
 
 
 def _save_invoices(data: Dict[str, Any]) -> Dict[str, Any]:
-    if not isinstance(data, dict):
-        raise ValueError("Invoices payload must be an object.")
-    jobs = data.get("jobs")
-    if not isinstance(jobs, list):
-        raise ValueError("jobs must be a list.")
-    INVOICES_PATH.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"jobs": jobs}
-    INVOICES_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2))
-    return payload
+    from services.platform_repository import save_invoices
+    return save_invoices(db_module, data)
+
 
 app = FastAPI(title="LLM Order Extractor (Local)", version="1.0.0")
 
@@ -5062,3 +5049,8 @@ def diag():
         "has_http_proxy_env": bool(os.getenv("HTTP_PROXY") or os.getenv("http_proxy")),
         "has_https_proxy_env": bool(os.getenv("HTTPS_PROXY") or os.getenv("https_proxy")),
     }
+
+
+# Optional private MCP endpoint; legacy routes and frontend CORS retain their behavior.
+from mcp_server import install_mcp
+install_mcp(app, db_module, _load_price_config, INVOICES_PATH)

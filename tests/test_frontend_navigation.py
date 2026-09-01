@@ -18,7 +18,7 @@ def test_navigation_is_grouped_around_factory_workflows():
 
 def test_approved_orders_can_be_safely_reopened_for_correction():
     html = INDEX_HTML.read_text(encoding="utf-8")
-    js = APP_JS.read_text(encoding="utf-8")
+    js = (APP_JS.with_name("platform-workflows.js").read_text(encoding="utf-8") + "\n" + APP_JS.read_text(encoding="utf-8"))
 
     assert 'id="historyReopen"' in html
     assert "Reopen for correction" in html
@@ -32,7 +32,7 @@ def test_approved_orders_can_be_safely_reopened_for_correction():
 
 def test_beta_shadow_module_is_registered_without_exposing_legacy_awa():
     html = INDEX_HTML.read_text(encoding="utf-8")
-    js = APP_JS.read_text(encoding="utf-8")
+    js = (APP_JS.with_name("platform-workflows.js").read_text(encoding="utf-8") + "\n" + APP_JS.read_text(encoding="utf-8"))
 
     assert 'data-tab="beta"' in html
     assert '<span>Beta</span><span class="sidebar-beta-badge" aria-hidden="true">Beta</span>' in html
@@ -51,7 +51,7 @@ def test_beta_shadow_module_is_registered_without_exposing_legacy_awa():
 
 def test_beta_frontend_has_approval_recording_but_no_execution_control():
     html = INDEX_HTML.read_text(encoding="utf-8")
-    js = APP_JS.read_text(encoding="utf-8")
+    js = (APP_JS.with_name("platform-workflows.js").read_text(encoding="utf-8") + "\n" + APP_JS.read_text(encoding="utf-8"))
     beta_html = html[html.index('id="tabBeta"'):html.index('id="tabTelegram"')]
     beta_js = js[js.index("function betaEntryMetadata"):js.index("async function refreshWorkspaceAfterAction")]
 
@@ -68,7 +68,7 @@ def test_beta_frontend_has_approval_recording_but_no_execution_control():
 
 def test_beta_memory_tabs_have_keyboard_and_panel_relationships():
     html = INDEX_HTML.read_text(encoding="utf-8")
-    js = APP_JS.read_text(encoding="utf-8")
+    js = (APP_JS.with_name("platform-workflows.js").read_text(encoding="utf-8") + "\n" + APP_JS.read_text(encoding="utf-8"))
 
     assert 'id="betaMemoryTabRules"' in html
     assert 'aria-controls="betaMemoryPanelRules"' in html
@@ -79,7 +79,7 @@ def test_beta_memory_tabs_have_keyboard_and_panel_relationships():
 
 def test_beta_teach_mode_has_persistent_recorder_comparison_and_review_boundary():
     html = INDEX_HTML.read_text(encoding="utf-8")
-    js = APP_JS.read_text(encoding="utf-8")
+    js = (APP_JS.with_name("platform-workflows.js").read_text(encoding="utf-8") + "\n" + APP_JS.read_text(encoding="utf-8"))
 
     for element_id in (
         "betaStartTeaching",
@@ -111,7 +111,7 @@ def test_beta_teach_mode_has_persistent_recorder_comparison_and_review_boundary(
 
 def test_beta_assisted_operator_reviews_then_requires_exact_human_confirmation():
     html = INDEX_HTML.read_text(encoding="utf-8")
-    js = APP_JS.read_text(encoding="utf-8")
+    js = (APP_JS.with_name("platform-workflows.js").read_text(encoding="utf-8") + "\n" + APP_JS.read_text(encoding="utf-8"))
 
     for element_id in (
         "betaOperatorCommand",
@@ -134,7 +134,7 @@ def test_beta_assisted_operator_reviews_then_requires_exact_human_confirmation()
 
 def test_production_control_tower_plans_before_processing_and_uses_one_copilot():
     html = INDEX_HTML.read_text(encoding="utf-8")
-    js = APP_JS.read_text(encoding="utf-8")
+    js = (APP_JS.with_name("platform-workflows.js").read_text(encoding="utf-8") + "\n" + APP_JS.read_text(encoding="utf-8"))
     workspace_html = html[html.index('id="tabWorkspace"'):html.index('id="tabAwa"')]
 
     for element_id in (
@@ -159,7 +159,7 @@ def test_production_control_tower_plans_before_processing_and_uses_one_copilot()
 
 
 def test_teach_mode_never_calls_a_beta_production_execution_endpoint():
-    js = APP_JS.read_text(encoding="utf-8")
+    js = (APP_JS.with_name("platform-workflows.js").read_text(encoding="utf-8") + "\n" + APP_JS.read_text(encoding="utf-8"))
     teaching_js = js[js.index("function betaTeachingIsActive"):js.index("async function loadBetaSession")]
 
     assert "/execute" not in teaching_js
@@ -170,7 +170,7 @@ def test_teach_mode_never_calls_a_beta_production_execution_endpoint():
 
 def test_teach_mode_records_full_platform_context_without_credentials_or_request_bodies():
     html = INDEX_HTML.read_text(encoding="utf-8")
-    js = APP_JS.read_text(encoding="utf-8")
+    js = (APP_JS.with_name("platform-workflows.js").read_text(encoding="utf-8") + "\n" + APP_JS.read_text(encoding="utf-8"))
 
     assert "Full platform context" in html
     assert "GPT-5.6 Terra" in html
@@ -196,7 +196,7 @@ def test_teach_mode_records_full_platform_context_without_credentials_or_request
 
 def test_manual_invoice_workspace_stays_inside_manual_orders():
     html = INDEX_HTML.read_text(encoding="utf-8")
-    js = APP_JS.read_text(encoding="utf-8")
+    js = (APP_JS.with_name("platform-workflows.js").read_text(encoding="utf-8") + "\n" + APP_JS.read_text(encoding="utf-8"))
 
     assert 'data-tab="invoices"' not in html
     assert 'id="tabInvoices"' not in html
@@ -238,7 +238,7 @@ def test_manual_invoice_workspace_stays_inside_manual_orders():
 
 def test_overview_gates_the_new_order_workspace():
     html = INDEX_HTML.read_text(encoding="utf-8")
-    js = APP_JS.read_text(encoding="utf-8")
+    js = (APP_JS.with_name("platform-workflows.js").read_text(encoding="utf-8") + "\n" + APP_JS.read_text(encoding="utf-8"))
 
     assert 'id="overviewDashboard"' in html
     assert 'id="overviewNewOrder"' in html
@@ -249,7 +249,7 @@ def test_overview_gates_the_new_order_workspace():
 
 def test_overview_quick_upload_reuses_the_order_extraction_workflow():
     html = INDEX_HTML.read_text(encoding="utf-8")
-    js = APP_JS.read_text(encoding="utf-8")
+    js = (APP_JS.with_name("platform-workflows.js").read_text(encoding="utf-8") + "\n" + APP_JS.read_text(encoding="utf-8"))
 
     assert 'id="overviewDropZone"' in html
     assert 'id="overviewUploadOrder"' in html
@@ -259,14 +259,14 @@ def test_overview_quick_upload_reuses_the_order_extraction_workflow():
 
 
 def test_history_only_enables_hard_delete_for_drafts():
-    js = APP_JS.read_text(encoding="utf-8")
+    js = (APP_JS.with_name("platform-workflows.js").read_text(encoding="utf-8") + "\n" + APP_JS.read_text(encoding="utf-8"))
 
     assert 'normalizedStatus === "draft"' in js
     assert "Only draft orders can be deleted; archive this order instead." in js
 
 
 def test_frontend_treats_legacy_timezone_less_backend_timestamps_as_utc():
-    js = APP_JS.read_text(encoding="utf-8")
+    js = (APP_JS.with_name("platform-workflows.js").read_text(encoding="utf-8") + "\n" + APP_JS.read_text(encoding="utf-8"))
 
     parser = js[js.index("function parsePlatformDate"):js.index("function activityTimeLabel")]
     formatter_start = js.index("function formatDate")

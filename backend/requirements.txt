@@ -12,3 +12,8 @@ reportlab==4.2.2
 PyMuPDF==1.24.9
 SQLAlchemy==2.0.35
 python-dotenv==1.1.1
+mcp==1.26.0
+# Retain compatibility with FastAPI 0.111 / Starlette 0.37 / AnyIO 4.6.
+sse-starlette==2.1.3
+# Used directly for OAuth signature and registered-claim verification.
+PyJWT[crypto]==2.13.0
