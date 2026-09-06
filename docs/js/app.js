@@ -16495,7 +16495,7 @@ function renderOrdersList(){
     const confidence = formatHistoryConfidence(order.confidence);
     const actions = `
       <div class="history-order-actions">
-      <button class="btn small primary" data-action="open" data-id="${escapeHtml(orderId)}" aria-label="Open order ${escapeHtml(orderNumbers)}">Open</button>
+      <button class="btn small" data-action="open" data-id="${escapeHtml(orderId)}" aria-label="Open order ${escapeHtml(orderNumbers)}">Open</button>
       <details class="history-row-actions">
         <summary class="btn small">Actions</summary>
         <div class="history-actions-menu">
