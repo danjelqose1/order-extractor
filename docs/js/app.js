@@ -7,14 +7,14 @@ const API_BASE = API_BASE_OVERRIDE || (IS_LOCAL_FRONTEND ? LOCAL_API_BASE : REND
 console.log("API_BASE:", API_BASE);
 const LIVING_DASHBOARD_STORAGE_KEY = "extractallorder.dashboard.layout.v1";
 const LIVING_DASHBOARD_DEFAULT_LAYOUT = Object.freeze([
-  Object.freeze({ id: "today-overview", x: 0, y: 0, w: 12, h: 3, collapsed: false }),
-  Object.freeze({ id: "order-counts", x: 0, y: 3, w: 12, h: 3, collapsed: false }),
-  Object.freeze({ id: "needs-attention", x: 0, y: 6, w: 6, h: 6, collapsed: false }),
-  Object.freeze({ id: "recent-orders", x: 6, y: 6, w: 6, h: 6, collapsed: false }),
+  Object.freeze({ id: "today-overview", x: 0, y: 0, w: 12, h: 2, collapsed: false }),
+  Object.freeze({ id: "order-counts", x: 0, y: 2, w: 12, h: 2, collapsed: false }),
+  Object.freeze({ id: "needs-attention", x: 0, y: 4, w: 6, h: 6, collapsed: false }),
+  Object.freeze({ id: "recent-orders", x: 6, y: 4, w: 6, h: 6, collapsed: false }),
 ]);
 const LIVING_DASHBOARD_WIDGETS = Object.freeze([
-  Object.freeze({ id: "today-overview", title: "Today overview", minW: 6, maxW: 12, minH: 3, maxH: 5 }),
-  Object.freeze({ id: "order-counts", title: "Order counts", minW: 6, maxW: 12, minH: 3, maxH: 6 }),
+  Object.freeze({ id: "today-overview", title: "Today overview", minW: 6, maxW: 12, minH: 2, maxH: 5 }),
+  Object.freeze({ id: "order-counts", title: "Order counts", minW: 6, maxW: 12, minH: 2, maxH: 6 }),
   Object.freeze({ id: "needs-attention", title: "Needs attention", minW: 6, maxW: 12, minH: 4, maxH: 9 }),
   Object.freeze({ id: "recent-orders", title: "Recent orders", minW: 6, maxW: 12, minH: 4, maxH: 9 }),
 ]);
@@ -1001,8 +1001,8 @@ async function loadOverview(){
     renderOverviewWidgetSafely("today-overview", () => {
       if (overviewHeadline){
         overviewHeadline.textContent = needsReviewCount
-          ? `${needsReviewCount} order${needsReviewCount === 1 ? "" : "s"} need review and ${readyCount} are ready for production.`
-          : `${readyCount} order${readyCount === 1 ? "" : "s"} are ready for production. Nothing currently needs review.`;
+          ? `${needsReviewCount} order${needsReviewCount === 1 ? " awaits" : "s await"} approval. ${readyCount} ready for production.`
+          : `${readyCount} ready for production. No orders awaiting approval.`;
       }
     });
     renderOverviewWidgetSafely("order-counts", () => {
@@ -1015,7 +1015,7 @@ async function loadOverview(){
       if (overviewAttentionList){
         overviewAttentionList.innerHTML = needsReviewItems.length
           ? needsReviewItems.slice(0, 4).map(item => overviewOrderRowHtml(item)).join("")
-          : '<div class="overview-empty success">No orders need review right now.</div>';
+          : '<div class="overview-empty success">No orders awaiting approval right now.</div>';
       }
     });
     renderOverviewWidgetSafely("recent-orders", () => {
@@ -16290,7 +16290,7 @@ const HISTORY_QUEUE_LABELS = {
   ready_approval: "Ready for approval",
   ready_production: "Ready for production",
   failed: "Failed",
-  completed: "Completed",
+  completed: "Completed / archived",
 };
 
 function normalizeQueueOrder(item){
@@ -16494,10 +16494,11 @@ function renderOrdersList(){
     const pieces = Number(order.units_total || 0);
     const confidence = formatHistoryConfidence(order.confidence);
     const actions = `
+      <div class="history-order-actions">
+      <button class="btn small primary" data-action="open" data-id="${escapeHtml(orderId)}" aria-label="Open order ${escapeHtml(orderNumbers)}">Open</button>
       <details class="history-row-actions">
         <summary class="btn small">Actions</summary>
         <div class="history-actions-menu">
-          <button data-action="open" data-id="${order.id}">Open order</button>
           <button data-action="edit-draft" data-id="${order.id}" ${canEditDraftStatus(normalizedStatus) ? "" : "disabled"}>Edit draft</button>
           <button data-action="reopen" data-id="${order.id}" ${canReopenForCorrectionStatus(normalizedStatus) ? "" : "disabled"}>Reopen for correction</button>
           <button data-action="approve" data-id="${order.id}" ${canApproveStatus(normalizedStatus) ? "" : "disabled"}>Approve</button>
@@ -16507,17 +16508,25 @@ function renderOrdersList(){
           <button data-action="delete" data-id="${order.id}" class="warn" ${normalizedStatus === "draft" ? "" : 'disabled title="Only draft orders can be deleted; archive this order instead."'}>Delete order</button>
         </div>
       </details>
+      </div>
     `;
     return `<tr data-id="${escapeHtml(orderId)}" class="${historyState.selectedIds.has(orderId) ? "selected" : ""}">
       <td class="history-select-cell" data-label="Select"><input type="checkbox" data-history-select="${escapeHtml(orderId)}" aria-label="Select order ${escapeHtml(orderNumbers)}" ${historyState.selectedIds.has(orderId) ? "checked" : ""}></td>
-      <td class="mono" data-label="Order number">${escapeHtml(orderNumbers)}</td>
+      <td data-col="order" data-label="Order number"><div class="history-order-identity">
+        <strong class="mono">${escapeHtml(orderNumbers)}</strong>
+        <details class="history-order-details">
+          <summary aria-label="Details for order ${escapeHtml(orderNumbers)}">Details</summary>
+          <dl>
+            <dt>Date</dt><dd>${escapeHtml(created)}</dd>
+            <dt>Confidence</dt><dd>${escapeHtml(confidence)}</dd>
+            <dt>Last updated</dt><dd>${escapeHtml(updated)}</dd>
+          </dl>
+        </details>
+      </div></td>
       <td data-col="client" data-label="Client">${escapeHtml(client)}</td>
-      <td data-label="Date">${escapeHtml(created)}</td>
       <td data-label="Status">${historyStatusBadgeHtml(normalizedStatus)}</td>
       <td class="mono" data-label="Units">${pieces}</td>
-      <td class="mono" data-label="Area">${formatArea(order.area_total || 0)}</td>
-      <td data-col="confidence" data-label="Confidence">${escapeHtml(confidence)}</td>
-      <td class="history-last-updated" data-col="updated" data-label="Last updated">${escapeHtml(updated)}</td>
+      <td class="mono" data-label="Area (m²)">${formatArea(order.area_total || 0)}</td>
       <td data-col="actions" data-label="Actions">${actions}</td>
     </tr>`;
   }).join("");
@@ -16525,14 +16534,11 @@ function renderOrdersList(){
     <thead>
       <tr>
         <th class="history-select-cell"><input type="checkbox" id="historySelectAllVisible" aria-label="Select all visible orders"></th>
-        <th>Order number</th>
+        <th data-col="order">Order number</th>
         <th>Client</th>
-        <th>Date</th>
         <th>Status</th>
-        <th>Total pieces</th>
-        <th>Total area</th>
-        <th data-col="confidence">Confidence</th>
-        <th class="history-last-updated" data-col="updated">Last updated</th>
+        <th>Pieces</th>
+        <th>Area (m²)</th>
         <th data-col="actions">Actions</th>
       </tr>
     </thead>

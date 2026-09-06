@@ -8,7 +8,7 @@
   <meta name="theme-color" content="#0b1018" media="(prefers-color-scheme: dark)" />
   <link rel="icon" href="data:," />
   <title>Overview — Order Extractor</title>
-  <link rel="stylesheet" href="./css/styles.css?v=20260830-small-dimension-dark1">
+  <link rel="stylesheet" href="./css/styles.css?v=20260906-ui-clarity1">
 </head>
 <body>
   <svg class="icon-sprite" aria-hidden="true">
@@ -157,6 +157,20 @@
 
 	    <section id="tabExtract" class="tab-panel active">
       <div id="overviewDashboard" class="overview-dashboard">
+        <section id="overviewDropZone" class="overview-upload-card" aria-labelledby="overviewUploadHeading">
+          <span class="overview-upload-icon" aria-hidden="true"><svg><use href="#icon-pdf"></use></svg></span>
+          <div class="overview-upload-copy">
+            <p class="section-eyebrow">Quick import</p>
+            <h2 id="overviewUploadHeading">Drop an order PDF here</h2>
+            <p>or choose a PDF or text file to start extraction immediately.</p>
+          </div>
+          <div class="overview-upload-actions">
+            <span id="overviewUploadStatus" class="muted small" aria-live="polite"></span>
+            <button type="button" class="btn primary" id="overviewUploadOrder">Choose order file</button>
+          </div>
+          <input type="file" id="overviewPdfInput" accept="application/pdf,text/plain,.pdf,.txt" hidden />
+        </section>
+
         <div id="overviewLayoutToolbar" class="overview-layout-toolbar" hidden aria-label="Dashboard layout controls">
           <div>
             <button type="button" class="btn small" id="overviewEditLayout">Edit layout</button>
@@ -179,24 +193,10 @@
           </div>
         </section>
 
-        <section id="overviewDropZone" class="overview-upload-card" aria-labelledby="overviewUploadHeading">
-          <span class="overview-upload-icon" aria-hidden="true"><svg><use href="#icon-pdf"></use></svg></span>
-          <div class="overview-upload-copy">
-            <p class="section-eyebrow">Quick import</p>
-            <h2 id="overviewUploadHeading">Drop an order PDF here</h2>
-            <p>or choose a PDF or text file to start extraction immediately.</p>
-          </div>
-          <div class="overview-upload-actions">
-            <span id="overviewUploadStatus" class="muted small" aria-live="polite"></span>
-            <button type="button" class="btn primary" id="overviewUploadOrder">Choose order file</button>
-          </div>
-          <input type="file" id="overviewPdfInput" accept="application/pdf,text/plain,.pdf,.txt" hidden />
-        </section>
-
         <div class="overview-kpi-grid" aria-label="Current order workload" data-dashboard-widget="order-counts">
           <button type="button" class="overview-kpi-card" data-overview-route="history">
             <span class="overview-kpi-icon review" aria-hidden="true"><svg><use href="#icon-history"></use></svg></span>
-            <span class="overview-kpi-copy"><span>Needs review</span><strong id="overviewNeedsReview">—</strong><small>Drafts and warning cases</small></span>
+            <span class="overview-kpi-copy"><span>Awaiting approval</span><strong id="overviewNeedsReview">—</strong><small>New, needs review, and ready for approval</small></span>
           </button>
           <button type="button" class="overview-kpi-card" data-overview-route="workspace">
             <span class="overview-kpi-icon ready" aria-hidden="true"><svg><use href="#icon-workspace"></use></svg></span>
@@ -208,7 +208,7 @@
           </button>
           <button type="button" class="overview-kpi-card" data-overview-route="history">
             <span class="overview-kpi-icon complete" aria-hidden="true"><svg><use href="#icon-analysis"></use></svg></span>
-            <span class="overview-kpi-copy"><span>Completed</span><strong id="overviewCompleted">—</strong><small>Finished or archived</small></span>
+            <span class="overview-kpi-copy"><span>Completed / archived</span><strong id="overviewCompleted">—</strong><small>Finished or archived</small></span>
           </button>
         </div>
 
@@ -1154,7 +1154,7 @@
           </button>
           <button type="button" class="order-queue-card" data-history-queue="completed">
             <span class="order-queue-tone completed" aria-hidden="true"></span>
-            <span><strong id="historyQueueCompleted">—</strong><b>Completed</b><small>Finished or archived</small></span>
+            <span><strong id="historyQueueCompleted">—</strong><b>Completed / archived</b><small>Finished or archived</small></span>
           </button>
         </div>
         <div id="historyBatchToolbar" class="history-batch-toolbar">
@@ -2313,6 +2313,6 @@
 
 <script src="./js/living-dashboard.js?v=20260718" defer></script>
 <script src="./js/platform-workflows.js?v=20260901-mcp1" defer></script>
-<script src="./js/app.js?v=20260901-mcp1" defer></script>
+<script src="./js/app.js?v=20260906-ui-clarity1" defer></script>
 </body>
 </html>
