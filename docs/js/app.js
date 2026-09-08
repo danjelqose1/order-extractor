@@ -22736,19 +22736,22 @@ function renderManualOrdersList(){
     return `<tr>
       <td class="mono">${escapeHtml(order.order_number)}</td>
       <td data-col="client">${escapeHtml(order.client_name)}</td>
-      <td>${escapeHtml(order.order_date)}</td>
+      <td data-col="date">${escapeHtml(order.order_date)}</td>
       <td>${Number(order.row_count || 0)}</td>
       <td>${Number(order.total_quantity || 0)}</td>
       <td>${Number(order.total_area_m2 || 0).toFixed(3)}</td>
       <td>${manualStatusBadge(order.status)}</td>
       <td data-col="actions"><div class="manual-order-actions">
-        <button type="button" class="btn small tertiary" data-manual-action="open" data-id="${order.id}">Open</button>
+        <button type="button" class="btn small" data-manual-action="open" data-id="${order.id}">Open</button>
         <button type="button" class="btn small" data-manual-action="edit" data-id="${order.id}">Edit</button>
-        <button type="button" class="btn small tertiary" data-manual-action="duplicate" data-id="${order.id}">Duplicate</button>
+        <button type="button" class="btn small manual-order-menu-toggle" popovertarget="manual-order-menu-${escapeHtml(order.id)}" aria-label="Actions for ${escapeHtml(order.order_number)}">Actions ▾</button>
+        <div popover="auto" id="manual-order-menu-${escapeHtml(order.id)}" class="manual-order-menu" role="group" aria-label="Actions for ${escapeHtml(order.order_number)}">
         <button type="button" class="btn small" data-manual-action="processing-choice" data-id="${order.id}" ${canProduce ? "" : "disabled"}>Processing sheet ▾</button>
         <button type="button" class="btn small" data-manual-action="labels" data-id="${order.id}" ${canOutput ? "" : "disabled"}>Labels 100×40</button>
         <button type="button" class="btn small" data-manual-action="invoice" data-id="${order.id}" ${canOutput ? "" : "disabled"}>Invoice</button>
+        <button type="button" class="btn small" data-manual-action="duplicate" data-id="${order.id}">Duplicate</button>
         <button type="button" class="btn small danger" data-manual-action="delete" data-id="${order.id}">Delete</button>
+        </div>
       </div></td>
     </tr>`;
   }).join("");
@@ -23354,8 +23357,22 @@ function initManualOrders(){
     manualSearchTimer = setTimeout(loadManualOrders, 250);
   });
   manualOrdersList?.addEventListener("click", event => {
+    const toggle = event.target.closest(".manual-order-menu-toggle");
+    if (toggle){
+      const menu = document.getElementById(toggle.getAttribute("popovertarget"));
+      const rect = toggle.getBoundingClientRect();
+      const left = Math.max(12, Math.min(rect.right - 220, window.innerWidth - 232));
+      menu.style.left = `${left}px`;
+      // Anchor above when the actions would extend below the viewport.
+      const menuHeight = Math.min(260, window.innerHeight - 24);
+      const top = rect.bottom + 6 + menuHeight <= window.innerHeight
+        ? rect.bottom + 6 : Math.max(12, rect.top - menuHeight - 6);
+      menu.style.top = `${top}px`;
+      return;
+    }
     const button = event.target.closest("[data-manual-action]");
     if (!button || button.disabled) return;
+    button.closest(".manual-order-menu")?.hidePopover();
     handleManualOrderAction(button.dataset.manualAction, button.dataset.id);
   });
 }

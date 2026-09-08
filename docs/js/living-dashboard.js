@@ -286,6 +286,9 @@
         parts.wrapper.style.top = `${item.y * (rowHeight + gap)}px`;
         parts.wrapper.style.width = `${item.w * columnWidth + (item.w - 1) * gap}px`;
         parts.wrapper.style.height = `${heightRows * rowHeight + (heightRows - 1) * gap}px`;
+        parts.wrapper.style.setProperty("--widget-column", item.x + 1);
+        parts.wrapper.style.setProperty("--widget-columns", item.w);
+        parts.wrapper.style.setProperty("--widget-order", item.y * columns + item.x);
         parts.wrapper.classList.toggle("is-collapsed", item.collapsed);
         parts.collapseButton.textContent = item.collapsed ? "Expand" : "Collapse";
         parts.collapseButton.setAttribute("aria-label", `${item.collapsed ? "Expand" : "Collapse"} ${specs[item.id].title}`);
