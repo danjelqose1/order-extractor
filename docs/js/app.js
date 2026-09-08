@@ -8201,6 +8201,7 @@ function refreshRowRepairWarning(row){
 
 function clearOcrRepairForField(row, field){
   if (!row || !OCR_FIELD_REPAIR_KEYS[field]) return;
+  if (field === "dimension") delete row.dimension_prefilled;
   const repairKey = repairKeyForField(field);
   delete row[repairKey];
   if (field === "type") delete row.glass_type_repaired;
@@ -8226,6 +8227,34 @@ function rowHasOcrRepair(row, field){
   return row && row[repairKey] != null && String(row[repairKey]).trim() !== "";
 }
 
+function prefillRecoveredDimension(row, status){
+  // Fill only the editable working copy. Saved source rows remain the audit baseline
+  // until the operator saves/approves through the existing order action.
+  if (!row || !["draft", "reviewed"].includes(String(status || "").toLowerCase())) return false;
+  if (!isCriticalFieldMissing(row, "dimension") || !rowHasOcrRepair(row, "dimension")) return false;
+  const confidence = Number(row.repair_confidence);
+  if (!Number.isFinite(confidence) || confidence < OCR_REPAIR_CONFIDENCE_MIN || confidence > 1) return false;
+  if (row.repair_warnings?.dimension) return false;
+  const candidate = String(row.dimension_repaired).trim().replace(/[X×]/g, "x").replace(/\s/g, "");
+  const match = candidate.match(/^(\d{2,4})x(\d{2,4})$/);
+  if (!match || Number(match[1]) <= 0 || Number(match[2]) <= 0) return false;
+  row.dimension = `${Number(match[1])}x${Number(match[2])}`;
+  row.dimension_prefilled = true;
+  // Keep unrelated issues, replacing the now-stale missing-dimension finding.
+  const previous = getRowDiagnostics(row) || {};
+  const issues = (previous.issues || []).filter(issue => issue.code !== "MISSING_DIMENSION");
+  issues.push({ code: "RECOVERED_DIMENSION_REVIEW", severity: "warning", field: "dimension",
+    message: "Recovered cutting dimension. Compare maximum width and height with the original PDF before approval." });
+  row.diagnostics = { ...previous, issues, severity: issues.some(issue => issue.severity === "error") ? "error" : "warning",
+    requires_human_review: true };
+  return true;
+}
+
+function rowWarningsAfterDimensionPrefill(row, warnings){
+  if (!row.dimension_prefilled || !Array.isArray(warnings)) return warnings;
+  return warnings.filter(warning => !String(warning).includes("missing_required_field:dimension"));
+}
+
 function rowRepairBadgeTitle(row, field){
   const repairKey = repairKeyForField(field);
   const repaired = row?.[repairKey];
@@ -8237,6 +8266,9 @@ function rowRepairBadgeTitle(row, field){
     `base64: ${rawBase ?? ""}`,
     `OCR: ${rawOcr ?? repaired ?? ""}`,
   ];
+  if (field === "dimension" && row.dimension_prefilled){
+    pieces.unshift("Recovered cutting dimension; compare maximum width and height with the PDF before approval.");
+  }
   if (Number.isFinite(confidence)) pieces.push(`confidence: ${Math.round(confidence * 100)}%`);
   if (row?.repaired_by) pieces.push(`method: ${row.repaired_by}`);
   return pieces.join(" | ");
@@ -8246,7 +8278,8 @@ function renderOcrRepairBadges(row){
   const badges = [];
   Object.keys(OCR_FIELD_REPAIR_KEYS).forEach(field => {
     if (rowHasOcrRepair(row, field)){
-      badges.push(`<span class="ocr-repair-badge" title="${escapeHtml(rowRepairBadgeTitle(row, field))}">OCR ${escapeHtml(criticalFieldLabel(field))}</span>`);
+      const prefilled = field === "dimension" && row.dimension_prefilled;
+      badges.push(`<span class="ocr-repair-badge${prefilled ? " review" : ""}" title="${escapeHtml(rowRepairBadgeTitle(row, field))}">${prefilled ? "Recovered · review" : `OCR ${escapeHtml(criticalFieldLabel(field))}`}</span>`);
     }
   });
   const repairWarnings = row?.repair_warnings && typeof row.repair_warnings === "object" ? row.repair_warnings : {};
@@ -8258,7 +8291,7 @@ function renderOcrRepairBadges(row){
   return badges;
 }
 
-function applyOcrFallbackResultToRow(row, field, result){
+function applyOcrFallbackResultToRow(row, field, result, status){
   if (!row) return false;
   row.raw_base64_value = row.raw_base64_value && typeof row.raw_base64_value === "object" ? row.raw_base64_value : {};
   if (!Object.prototype.hasOwnProperty.call(row.raw_base64_value, field)){
@@ -8285,6 +8318,7 @@ function applyOcrFallbackResultToRow(row, field, result){
       delete row.repair_warnings[field];
     }
     refreshRowRepairWarning(row);
+    if (field === "dimension") prefillRecoveredDimension(row, status);
     return true;
   }
   row.repair_warnings = row.repair_warnings && typeof row.repair_warnings === "object" ? row.repair_warnings : {};
@@ -8335,7 +8369,10 @@ async function recheckMissingFieldsWithOcr(){
       });
       if (!response.ok) throw new Error(await response.text());
       const result = await response.json();
-      if (applyOcrFallbackResultToRow(target.row, target.field, result)){
+      if (applyOcrFallbackResultToRow(target.row, target.field, result, bucket.status)){
+        if (target.row._rid){
+          bucket.rowWarnings[target.row._rid] = rowWarningsAfterDimensionPrefill(target.row, bucket.rowWarnings[target.row._rid]);
+        }
         repairedCount += 1;
       }else{
         manualCount += 1;
@@ -16976,9 +17013,11 @@ function renderOrderDetail(){
   appState.historyDetail.rows = rows.map((row, idx) => {
     const rid = row._rid || `hist-${timestampBase}-${appState.historyDetail.nextRid++}`;
     const enriched = { ...row, _rid: rid };
-    const rowWarn = Array.isArray(warningsSource)
+    prefillRecoveredDimension(enriched, order.status);
+    const sourceWarnings = Array.isArray(warningsSource)
       ? warningsSource[idx]
       : warningsSource[idx] || warningsSource[rid];
+    const rowWarn = rowWarningsAfterDimensionPrefill(enriched, sourceWarnings);
     if (rowWarn && rowWarn.length){
       warningsMap[rid] = rowWarn;
     }
@@ -18454,6 +18493,7 @@ async function approveDraft(orderId, rows, notes, clientSource = {}){
 
 function applyExtractionResult(data){
   const rows = Array.isArray(data?.rows) ? data.rows.map(row => ({ ...row })) : [];
+  const status = data?.status || (data?.saved_order_id ? "approved" : "draft");
   appState.extract.originalRows = rows.map(row => ({ ...row }));
   const warningsSource = data?.row_warnings || {};
   appState.extract.nextRid = 0;
@@ -18462,9 +18502,11 @@ function applyExtractionResult(data){
   appState.extract.rows = rows.map((row, idx) => {
     const rid = row._rid || `ex-${timestampBase}-${appState.extract.nextRid++}`;
     const enriched = { ...row, _rid: rid };
-    const rowWarn = Array.isArray(warningsSource)
+    prefillRecoveredDimension(enriched, status);
+    const sourceWarnings = Array.isArray(warningsSource)
       ? warningsSource[idx]
       : warningsSource[idx] || warningsSource[rid];
+    const rowWarn = rowWarningsAfterDimensionPrefill(enriched, sourceWarnings);
     if (rowWarn && rowWarn.length){
       warningsMap[rid] = rowWarn;
     }
@@ -18481,7 +18523,7 @@ function applyExtractionResult(data){
     ];
   }
   appState.extract.draftId = data?.draft_order_id || null;
-  appState.extract.status = data?.status || (data?.saved_order_id ? "approved" : "draft");
+  appState.extract.status = status;
   appState.extract.savedOrderId = data?.saved_order_id || null;
   appState.extract.source_hash = data?.source_hash || "";
   appState.extract.extractionMethod = data?.extraction_method || "";

@@ -531,6 +531,52 @@ def test_pdf_visual_llm_uses_input_file_payload(monkeypatch):
     assert bundle["data"]["order_number"] == "R-26-9901"
 
 
+def test_terra_extraction_default_preserves_request_contracts_and_model_override(monkeypatch):
+    llm_module = _load_llm(monkeypatch)
+    monkeypatch.delenv("EXTRACTION_MODEL")
+    llm_module = importlib.reload(llm_module)
+    assert llm_module.EXTRACTION_MODEL == "gpt-5.6-terra"
+    payload = {"order_number": "R-26-9901", "client_name": "A", "rows": [
+        {"order_number": "R-26-9901", "type": "LOWE", "dimension": "632x1157", "position": "1-1", "quantity": 1, "area": 0.731}
+    ], "warnings": [], "confidence": 0.9}
+    captured = []
+
+    def fake_post(url, headers, json, timeout):
+        captured.append(json)
+        return types.SimpleNamespace(status_code=200, json=lambda: {
+            "model": json["model"], "output_text": __import__("json").dumps(payload),
+        })
+
+    def fake_completion(**kwargs):
+        captured.append(kwargs)
+        return types.SimpleNamespace(usage=None, choices=[types.SimpleNamespace(
+            message=types.SimpleNamespace(content=json.dumps(payload)),
+        )])
+
+    monkeypatch.setattr(llm_module.httpx, "post", fake_post)
+    monkeypatch.setattr(llm_module, "get_client", lambda: types.SimpleNamespace(
+        chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=fake_completion)),
+    ))
+    for model in ("gpt-5.6-terra", "gpt-5.4-nano"):
+        if model != "gpt-5.6-terra":
+            monkeypatch.setenv("EXTRACTION_MODEL", model)
+        captured.clear()
+        pdf = llm_module.call_llm_for_pdf_base64_visual(b"%PDF-1.7\nfixture", "fixture.pdf")
+        image = llm_module.call_llm_for_image_visual(b"image-fixture", "fixture.png", "image/png")
+        text = llm_module.call_llm_for_extraction("R-26-9901 1-1 LOWE 632x1157 1 0.731")
+        pages = llm_module.call_llm_for_extraction_multi(["R-26-9901 1-1 LOWE 632x1157 1 0.731"])
+        assert len(captured) == 4
+        assert all(bundle["model_used"] == model for bundle in (pdf, image, text, pages))
+        for index, request in enumerate(captured):
+            assert request["model"] == model
+            if index < 2:
+                assert request["text"]["format"]["strict"] is True
+                assert request.get("reasoning") == ({"effort": "none"} if model == "gpt-5.6-terra" else None)
+            else:
+                assert request["response_format"]["json_schema"]["strict"] is True
+                assert request.get("reasoning_effort") == ("none" if model == "gpt-5.6-terra" else None)
+
+
 def test_scanned_pdf_extracts_rows(monkeypatch):
     app_module, _ = _load_app(monkeypatch, legacy_enabled="false")
 
@@ -588,7 +634,7 @@ def test_invalid_rows_are_flagged(monkeypatch):
     assert any("missing_required_field:type" in msg for msg in flattened)
 
 
-def test_pdf_missing_dimension_gets_ocr_overlay_without_overwriting_base64_rows(monkeypatch):
+def test_pdf_missing_dimension_is_recovered_before_saving_draft_and_keeps_raw_reading(monkeypatch):
     app_module, calls = _load_app(monkeypatch, legacy_enabled="false")
 
     app_module.call_llm_for_pdf_base64_visual = lambda pdf_bytes, filename: _bundle(
@@ -639,17 +685,51 @@ def test_pdf_missing_dimension_gets_ocr_overlay_without_overwriting_base64_rows(
     assert len(repair_calls) == 1
     assert repair_calls[0]["row_index"] == 0
     assert repair_calls[0]["target_field"] == "dimension"
-    assert body["rows"][0]["dimension"] == ""
+    assert body["rows"][0]["dimension"] == "600x1200"
+    assert body["rows"][0]["dimension_prefilled"] is True
     assert body["rows"][0]["dimension_repaired"] == "600x1200"
     assert body["rows"][0]["raw_base64_value"]["dimension"] == ""
     assert body["rows"][0]["raw_ocr_value"]["dimension"] == "600x1200"
     assert "dimension_repaired" not in body["rows"][1]
 
     stored_rows = calls["insert_extraction_with_rows"][0]["rows"]
-    assert stored_rows[0]["dimension"] == ""
-    assert "dimension_repaired" not in stored_rows[0]
+    assert stored_rows[0]["dimension"] == "600x1200"
+    assert stored_rows[0]["raw_base64_value"]["dimension"] == ""
+    stored_meta = json.loads(calls["insert_extraction_with_rows"][0]["llm_output_json"])
+    assert stored_meta["rows"][0]["dimension"] == ""
+    assert stored_meta["_meta"]["ocr_row_overlays"][0]["dimension_prefilled"] is True
+    assert not any("missing_required_field:dimension" in warning for warning in body["row_warnings"].get("0", []))
+    assert "RECOVERED_DIMENSION_REVIEW" in [issue["code"] for issue in body["rows"][0]["diagnostics"]["issues"]]
     assert stored_rows[1]["dimension"] == "500x1000"
     assert "dimension_repaired" not in stored_rows[1]
+
+    extraction = {"llm_output_json": calls["insert_extraction_with_rows"][0]["llm_output_json"]}
+    canonical = [{key: stored_rows[0][key] for key in ("order_number", "type", "dimension", "position", "quantity", "area")}]
+    reviewed = app_module._with_stored_ocr_overlays(canonical, extraction, editable=True)
+    assert reviewed[0]["dimension"] == "600x1200"
+    assert reviewed[0]["dimension_prefilled"] is True
+    assert "dimension_prefilled" not in canonical[0]
+    approved = app_module._with_stored_ocr_overlays(canonical, extraction, editable=False)
+    assert "dimension_prefilled" not in approved[0]
+    manually_corrected = [{**canonical[0], "dimension": "700x900"}]
+    corrected = app_module._with_stored_ocr_overlays(manually_corrected, extraction, editable=True)
+    assert corrected[0]["dimension"] == "700x900"
+    assert "dimension_prefilled" not in corrected[0]
+
+
+def test_automatic_dimension_recovery_does_not_fill_uncertain_or_malformed_results(monkeypatch):
+    app_module, _ = _load_app(monkeypatch, legacy_enabled="false")
+    row = {"order_number": "R-26-0781", "type": "LOWE", "position": "1-1", "dimension": "", "quantity": 1, "area": 0.73}
+    for value, confidence in [("632x1157", 0.79), ("632x1157", 1.1), ("632x0000", 0.9), ("632x1157 or 637x1098", 0.9)]:
+        app_module.ocr_fallback_row_repair = lambda **kwargs: {
+            "success": True, "suggested_value": value, "confidence": confidence,
+            "method": "openai_vision_page_ocr",
+        }
+        result = app_module._run_targeted_ocr_repair_for_missing_fields([row], [row], pdf_bytes=b"pdf", pdf_id="test")
+        assert result["rows"][0]["dimension"] == ""
+        assert result["rows"][0]["needs_manual_review"] is True
+        assert result["repair_attempts"][0]["success"] is False
+        assert row["dimension"] == ""
 
 
 def test_extraction_removes_dimension_from_type_once(monkeypatch):

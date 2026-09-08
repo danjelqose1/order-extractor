@@ -41,6 +41,7 @@ EXTRACTION RULES (follow ALL):
 
 5) dimension
    - Return as `WIDTHxHEIGHT` in mm with NO spaces (e.g., `520x1168`).
+   - For a shaped piece, use the maximum overall horizontal width and maximum overall vertical height of its rectangular cutting blank, only when both are explicitly identified in the source text. Do not use a shorter side or a sloping edge, swap axes, add cutting allowances, or infer geometry from unlabeled numbers.
    - If a dimension is missing, unclear, or split such that you cannot be certain, set `dimension` to the empty string `""`. Do NOT guess or back-calculate from area.
 
 6) quantity
@@ -109,7 +110,12 @@ EXTRACTION RULES (follow ALL):
 
 5) dimension
    - Return as `WIDTHxHEIGHT` in mm with NO spaces (e.g., `520x1168`).
+   - The factory first cuts a rectangle, then cuts the final shape. For shaped glass (trapezoids, slopes, arches, etc.), dimension MUST be the maximum overall horizontal width x maximum overall vertical height of that rectangular cutting blank, in the drawing's orientation.
+   - Read the dimension labels and their extension lines on the drawing belonging to this position. Prefer explicitly labeled overall dimensions. Do not choose the two largest numbers indiscriminately, a shorter side, a sloping edge, or a partial segment. Do not swap axes, rotate the shape to optimize it, measure pixels, or add cutting allowances.
+   - Example: width 632, shorter vertical side 909, maximum overall height 1157 -> `632x1157`.
+   - If overall width or height is not unambiguous from the source, leave dimension empty and warn; do not invent a bounding rectangle.
    - If a dimension is missing, unclear, or split such that you cannot be certain, set `dimension` to the empty string `""`. Do NOT guess or back-calculate from area.
+   - For ordinary rectangular rows, follow the visual table alignment even when the dimension is above the position in the text reading order, wrapped, or separated by a repeated glass-type header. Never borrow a neighboring row's dimension.
 
 6) quantity
    - If a quantity is clearly tied to the same row/line, use it.
@@ -128,6 +134,11 @@ EXTRACTION RULES (follow ALL):
 
 10) confidence
    - Return a numeric confidence in [0, 1], where 1 means highly confident extraction.
+
+11) Completeness check before returning
+   - Revisit every page, including the first and last item around each page break or repeated header. Match each position to its dimension/drawing, type, quantity and area.
+   - Check that every source item appears exactly once. Compare piece counts with printed totals when present; totals are checks, never a reason to invent or remove rows.
+   - Reinspect every empty dimension against its own source row or drawing before returning. Report fields that remain unreadable or ambiguous in warnings.
 
 Return ONLY the JSON.
 ''',

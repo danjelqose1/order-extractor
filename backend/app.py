@@ -133,7 +133,7 @@ INVOICES_PATH = DATA_DIR / "invoices.json"
 
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "*")
 APP_KEY = os.getenv("APP_KEY")  # optional shared secret
-EXTRACTION_MODEL = os.getenv("EXTRACTION_MODEL", "gpt-5.4-nano")
+EXTRACTION_MODEL = os.getenv("EXTRACTION_MODEL", "gpt-5.6-terra")
 LEGACY_OCR_ENABLED = os.getenv("LEGACY_OCR_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
 ENABLE_LIVING_DASHBOARD = os.getenv("ENABLE_LIVING_DASHBOARD", "false").strip().lower() in {"1", "true", "yes", "on"}
 TELEGRAM_MAX_FILE_BYTES = 5 * 1024 * 1024
@@ -1001,12 +1001,13 @@ def _extract_ocr_overlay(row: Dict[str, Any]) -> Dict[str, Any]:
         "ocr_repaired_fields",
         "ocr_repair_attempted_fields",
         "glass_type_repaired",
+        "dimension_prefilled",
         *REPAIR_FIELD_KEYS.values(),
     }
     return {key: deepcopy(row.get(key)) for key in keys if key in row}
 
 
-def _apply_ocr_overlay_to_row(row: Dict[str, Any], overlay: Dict[str, Any]) -> Dict[str, Any]:
+def _apply_ocr_overlay_to_row(row: Dict[str, Any], overlay: Dict[str, Any], *, editable: bool = False) -> Dict[str, Any]:
     working = dict(row)
     if not isinstance(overlay, dict):
         return working
@@ -1018,9 +1019,15 @@ def _apply_ocr_overlay_to_row(row: Dict[str, Any], overlay: Dict[str, Any]) -> D
     for field, repair_key in REPAIR_FIELD_KEYS.items():
         if repair_key not in overlay:
             continue
-        if not _is_critical_field_missing(working, field):
+        retained_dimension = (
+            editable and field == "dimension" and overlay.get("dimension_prefilled") is True
+            and str(working.get("dimension") or "") == str(overlay.get(repair_key) or "")
+        )
+        if not _is_critical_field_missing(working, field) and not retained_dimension:
             continue
         working[repair_key] = deepcopy(overlay[repair_key])
+        if retained_dimension:
+            working["dimension_prefilled"] = True
         if field == "type":
             working["glass_type_repaired"] = deepcopy(overlay[repair_key])
     active_repair_warnings: Dict[str, str] = {}
@@ -1044,6 +1051,8 @@ def _apply_ocr_overlay_to_row(row: Dict[str, Any], overlay: Dict[str, Any]) -> D
 def _with_stored_ocr_overlays(
     rows: List[Dict[str, Any]],
     extraction: Dict[str, Any],
+    *,
+    editable: bool = False,
 ) -> List[Dict[str, Any]]:
     raw_json = extraction.get("llm_output_json") if isinstance(extraction, dict) else None
     if not raw_json:
@@ -1061,7 +1070,7 @@ def _with_stored_ocr_overlays(
     output: List[Dict[str, Any]] = []
     for index, row in enumerate(rows or []):
         overlay = overlays[index] if index < len(overlays) and isinstance(overlays[index], dict) else {}
-        output.append(_apply_ocr_overlay_to_row(dict(row), overlay))
+        output.append(_apply_ocr_overlay_to_row(dict(row), overlay, editable=editable))
     return output
 
 
@@ -1134,11 +1143,21 @@ def _run_targeted_ocr_repair_for_missing_fields(
             accepted = (
                 bool(result.get("success"))
                 and result.get("suggested_value") not in (None, "")
-                and confidence >= _repair_confidence_threshold(field)
+                and _repair_confidence_threshold(field) <= confidence <= 1.0
             )
+            dimension_value = ""
+            if accepted and field == "dimension":
+                dimension_value, dimensions = clean_dimension(str(result.get("suggested_value") or ""))
+                accepted = bool(dimensions and all(value > 0 for value in dimensions))
             if accepted:
                 repair_key = REPAIR_FIELD_KEYS[field]
                 repaired_value = _coerce_repair_value(field, result.get("suggested_value"))
+                if field == "dimension":
+                    # This pass runs inside extraction, before the new draft is saved.
+                    # Preserve the original reading in raw_base64_value and the overlay.
+                    repaired_value = dimension_value
+                    working["dimension"] = dimension_value
+                    working["dimension_prefilled"] = True
                 working[repair_key] = repaired_value
                 if field == "type":
                     working["glass_type_repaired"] = repaired_value
@@ -2641,6 +2660,19 @@ def _extract_order_file_bytes(
             enabled=bool(is_pdf and extraction_method == "base64_pdf_visual"),
         )
         localized_response_rows = targeted_ocr["rows"]
+        if any(row.get("dimension_prefilled") for row in localized_response_rows):
+            # Persist recovered cutting sizes as part of this new draft. Revalidate
+            # the completed rows so missing-field warnings and calculated areas agree.
+            validation = validate_rows(
+                localized_response_rows,
+                context={
+                    "prepared_text": prepared_text,
+                    "preserve_order_prefixed_positions": order_metadata_was_normalized,
+                },
+            )
+            final_rows = apply_area_dimension_validation(validation["rows"])
+            localized_response_rows = final_rows
+            row_warnings = _merge_critical_row_warnings(validation.get("row_warnings", {}), final_rows)
 
         combined_warnings: List[str] = []
         for source_list in (
@@ -4594,7 +4626,10 @@ def get_order_detail(order_id: int) -> Dict[str, Any]:
     normalized_rows = validation.get("rows", rows)
     order["rows"] = apply_area_dimension_validation(normalized_rows)
     order["rows"] = _with_stored_row_locations(order["rows"], extraction)
-    order["rows"] = _with_stored_ocr_overlays(order["rows"], extraction)
+    order["rows"] = _with_stored_ocr_overlays(
+        order["rows"], extraction,
+        editable=normalize_order_status(order.get("status")) in {"draft", "reviewed"},
+    )
     order["row_warnings"] = validation.get("row_warnings", {})
     order["row_warnings"] = _merge_critical_row_warnings(order["row_warnings"], order["rows"])
     order["warnings"] = validation.get("warnings", [])

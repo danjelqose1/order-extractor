@@ -18,7 +18,15 @@ if not API_KEY:
 
 SYSTEM_PROMPT = PROMPTS["extraction"]["system"]
 PDF_VISUAL_SYSTEM_PROMPT = PROMPTS["extraction"]["pdf_visual_system"]
-EXTRACTION_MODEL = os.getenv("EXTRACTION_MODEL", "gpt-5.4-nano")
+EXTRACTION_MODEL = os.getenv("EXTRACTION_MODEL", "gpt-5.6-terra")
+
+
+def _extraction_reasoning_options(model_name: str, *, responses: bool) -> Dict[str, Any]:
+    # The previous Nano extraction used no reasoning. GPT-5.6 defaults to medium,
+    # so preserve that baseline explicitly while keeping older model overrides compatible.
+    if not model_name.startswith("gpt-5.6"):
+        return {}
+    return {"reasoning": {"effort": "none"}} if responses else {"reasoning_effort": "none"}
 
 
 def _env_float(name: str, default: float) -> float:
@@ -231,6 +239,7 @@ def call_llm_for_pdf_base64_visual(pdf_bytes: bytes, filename: str) -> Dict[str,
     )
     payload = {
         "model": model_name,
+        **_extraction_reasoning_options(model_name, responses=True),
         "input": [
             {
                 "role": "system",
@@ -341,6 +350,7 @@ def call_llm_for_image_visual(image_bytes: bytes, filename: str, mime_type: str 
     )
     payload = {
         "model": model_name,
+        **_extraction_reasoning_options(model_name, responses=True),
         "input": [
             {
                 "role": "system",
@@ -536,6 +546,7 @@ def call_llm_for_extraction(pasted_text: str) -> Dict[str, Any]:
         try:
             completion = client.chat.completions.create(
                 model=model_name,
+                **_extraction_reasoning_options(model_name, responses=False),
                 messages=messages,
                 response_format={
                     "type": "json_schema",
@@ -722,6 +733,7 @@ def call_llm_for_extraction_multi(pages_text: List[str]) -> Dict[str, Any]:
             try:
                 completion = client.chat.completions.create(
                     model=model_name,
+                    **_extraction_reasoning_options(model_name, responses=False),
                     messages=messages,
                     response_format={"type": "json_schema", "json_schema": JSON_SCHEMA},
                     temperature=0.0,

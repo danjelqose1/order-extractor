@@ -917,8 +917,16 @@ def _build_openai_vision_repair_prompt(
     quantity = row.get("quantity")
     if target_field == "dimension":
         target_instruction = (
-            "Return only dimension candidates in WIDTHxHEIGHT format, one per line. "
-            "Use millimeters. If no candidate is visible, return NO_VALUE."
+            "Return exactly one unambiguous dimension in WIDTHxHEIGHT format, in millimeters, for this position. "
+            "For shaped glass, the factory cuts a rectangle first: use the maximum overall horizontal width "
+            "x maximum overall vertical height of the rectangular cutting blank in the drawing's orientation. "
+            "Follow the labeled dimension lines; prefer explicit overall dimensions. Never select the two largest "
+            "numbers indiscriminately, the shorter side, a sloping edge or a partial segment. "
+            "Do not swap axes, measure pixels, add allowances or back-calculate from area. "
+            "For example width 632, shorter side 909 and overall height 1157 means 632x1157. "
+            "For a rectangle, follow visual row alignment across wrapped lines and repeated type headers; "
+            "do not borrow a neighboring row's value. If the row match or either overall dimension is unclear, "
+            "or multiple competing pairs remain, return NO_VALUE."
         )
     elif target_field == "position":
         target_instruction = "Return only position candidates, one per line. If no candidate is visible, return NO_VALUE."
@@ -1105,8 +1113,11 @@ def _type_candidates_from_text(text: str) -> List[str]:
 
 def _openai_vision_candidate_from_text(text: str, target_field: str) -> Optional[str]:
     if target_field == "dimension":
+        if re.search(r"\bNO_VALUE\b", text or "", flags=re.IGNORECASE):
+            return None
         candidates = _dimension_candidates_from_text(text)
-        return candidates[0] if candidates else None
+        # A first candidate is not a resolved row match. Keep conflicting readings for review.
+        return candidates[0] if len(candidates) == 1 else None
     if target_field == "position":
         candidates = _position_candidates_from_text(text)
         return candidates[0] if candidates else None
@@ -1610,6 +1621,14 @@ def diagnose_extraction_row_issue(row: dict) -> dict:
                     "HUMAN_REVIEW_POSITION",
                 )
             )
+
+    if row.get("dimension_prefilled") and width_mm is not None and height_mm is not None:
+        issues.append(_issue(
+            "RECOVERED_DIMENSION_REVIEW",
+            "Recovered cutting dimension. Compare maximum width and height with the original PDF before approval.",
+            "dimension",
+            "HUMAN_REVIEW_DIMENSION",
+        ))
 
     severity = "ok"
     if issues:
