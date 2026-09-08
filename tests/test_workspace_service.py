@@ -2069,6 +2069,26 @@ def test_order_date_filters_follow_tirana_business_day(tmp_path, monkeypatch):
     assert [item["id"] for item in items] == [after_local_midnight_id]
 
 
+def test_orders_are_newest_received_first_across_statuses_and_pages(tmp_path, monkeypatch):
+    db, _service = _load_modules(tmp_path, monkeypatch)
+    order_ids = []
+    with db.SessionLocal() as session:
+        for index, status in enumerate(db.ORDER_STATUS_SEQUENCE):
+            order = db.Order(
+                source="pdf", status=status, order_numbers_raw=f"R-26-{index:04d}",
+                created_at=datetime(2026, 9, 1 + index // 2, tzinfo=timezone.utc),
+                updated_at=datetime(2026, 9, 20 - index, tzinfo=timezone.utc),
+            )
+            session.add(order)
+            session.flush()
+            order_ids.append(order.id)
+        session.commit()
+    pages = [db.get_orders(year="all", limit=2, offset=offset) for offset in (0, 2, 4)]
+    assert [item["id"] for page in pages for item in page] == order_ids[::-1]
+    approved = db.get_orders(year="all", status="approved")
+    assert [item["id"] for item in approved] == [order_ids[2]]
+
+
 def test_recent_production_files_include_explicit_utc_timezone(tmp_path, monkeypatch):
     db, service = _load_modules(tmp_path, monkeypatch)
     order_id = _insert_order(db)

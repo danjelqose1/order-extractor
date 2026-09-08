@@ -1971,3 +1971,28 @@ def test_order_delete_allows_draft(monkeypatch):
     assert response.status_code == 200
     assert response.json() == {"ok": True}
     assert delete_calls == [12]
+
+
+def test_order_and_row_review_ignore_similarity_but_keep_invalid_fields(monkeypatch):
+    app_module, calls = _load_app(monkeypatch)
+    rows = [
+        {"order_number": "R-26-0781", "position": position, "type": "LOWE",
+         "dimension": dimension, "quantity": 1, "area": 1.31}
+        for position, dimension in [("5-1", "629x2087"), ("5-2", "629x2087"),
+                                    ("11-1", "624x2092"), ("11-2", "624x2092")]
+    ]
+    reviewed = app_module._with_extraction_diagnostics(rows)
+    assert all(row["diagnostics"]["severity"] == "ok" for row in reviewed)
+    client = TestClient(app_module.app)
+    response = client.post("/api/extraction/diagnose-row", json={
+        "row": rows[0], "order_context": {"order_rows": rows},
+    })
+    assert response.status_code == 200
+    assert response.json()["diagnostics"]["issues"] == []
+    response = client.post("/api/extraction/diagnose-row", json={
+        "row": {**rows[0], "dimension": ""}, "order_context": {"order_rows": rows},
+    })
+    assert response.status_code == 200
+    assert "MISSING_DIMENSION" in [issue["code"] for issue in response.json()["diagnostics"]["issues"]]
+    assert not calls["update_order_rows"]
+    assert not calls["insert_extraction_with_rows"]

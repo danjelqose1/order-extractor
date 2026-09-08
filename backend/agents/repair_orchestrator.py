@@ -8,12 +8,11 @@ from backend.agents.skills.extraction_diagnostics import (
     diagnose_extraction_row_issue,
     diagnose_extraction_row_warning,
     ocr_fallback_row_repair,
+    without_retired_pattern_warning,
 )
-from backend.agents.skills.family_pattern import analyze_dimension_family
 from backend.agents.skills.pattern_repair import suggest_pattern_repair
 
 
-FAMILY_REPAIR_THRESHOLD = 0.65
 PATTERN_REPAIR_CONFIDENCE_THRESHOLD = 0.8
 
 
@@ -37,7 +36,6 @@ def _select_target_field(diagnostics: Dict[str, Any], requested: Optional[str] =
         "SUSPICIOUS_DIMENSION_SIZE",
         "AREA_MISMATCH",
         "POSSIBLE_DIMENSION_OCR_ERROR",
-        "POSSIBLE_DIMENSION_FAMILY_MISMATCH",
     }:
         return "dimension"
     if codes & {"INVALID_AREA", "MISSING_EXTRACTED_AREA", "INVALID_EXTRACTED_AREA"}:
@@ -121,9 +119,10 @@ def repair_suspicious_row(
     working_row = deepcopy(row or {})
     working_context = deepcopy(order_context or {})
     working_nearby_rows = deepcopy(nearby_rows or [])
-    working_order_rows = deepcopy(order_rows or [])
     working_pdf_context = deepcopy(optional_pdf_context or {})
-    working_diagnostics = deepcopy(diagnostics) if isinstance(diagnostics, dict) else diagnose_extraction_row_issue(working_row)
+    working_diagnostics = without_retired_pattern_warning(
+        diagnostics if isinstance(diagnostics, dict) else diagnose_extraction_row_issue(working_row)
+    )
     target = _select_target_field(working_diagnostics, target_field)
     original = _original_value(working_row, target)
     codes = _issue_codes(working_diagnostics)
@@ -142,37 +141,6 @@ def repair_suspicious_row(
     )
     trace.append(f"Deterministic diagnostics recommended {diagnosis.get('recommended_action') or 'MANUAL_REVIEW'}")
 
-    family_result: Optional[Dict[str, Any]] = None
-    if target == "dimension":
-        family_result = analyze_dimension_family(
-            deepcopy(working_row),
-            nearby_rows=working_nearby_rows,
-            order_rows=working_order_rows,
-            order_context=working_context,
-        )
-        for step in family_result.get("trace") or []:
-            if step not in trace:
-                trace.append(str(step))
-        if family_result.get("success") and float(family_result.get("confidence") or 0.0) >= FAMILY_REPAIR_THRESHOLD:
-            methods_used.append("family_pattern_repair")
-            return _response(
-                success=True,
-                target_field="dimension",
-                original_value=family_result.get("original_value"),
-                suggested_value=family_result.get("suggested_value"),
-                confidence=float(family_result.get("confidence") or 0.0),
-                recommended_action="PATTERN_REPAIR",
-                reasoning=family_result.get("reasoning") or "Family pattern analysis found a supported candidate.",
-                evidence={
-                    "diagnostic_codes": codes,
-                    "diagnosis": diagnosis,
-                    "family_pattern": family_result.get("evidence") or {},
-                },
-                trace=trace,
-                methods_used=methods_used,
-            )
-        trace.append(f"Family pattern confidence {float(family_result.get('confidence') or 0.0):.2f} below threshold")
-
     if str(working_diagnostics.get("severity") or "ok") not in {"warning", "error"}:
         trace.append("Repair skipped because diagnostics severity is ok")
         return _response(
@@ -186,7 +154,6 @@ def repair_suspicious_row(
             evidence={
                 "diagnostic_codes": codes,
                 "diagnosis": diagnosis,
-                "family_pattern": (family_result or {}).get("evidence") or {},
             },
             trace=trace,
             methods_used=methods_used,
@@ -223,7 +190,6 @@ def repair_suspicious_row(
                     **openai_evidence,
                     "diagnostic_codes": codes,
                     "diagnosis": diagnosis,
-                    "family_pattern": (family_result or {}).get("evidence") or {},
                     "ocr_fallback": openai_evidence,
                 },
                 trace=trace,
@@ -244,7 +210,6 @@ def repair_suspicious_row(
                     **openai_evidence,
                     "diagnostic_codes": codes,
                     "diagnosis": diagnosis,
-                    "family_pattern": (family_result or {}).get("evidence") or {},
                     "ocr_fallback": openai_evidence,
                 },
                 trace=trace,
@@ -277,7 +242,6 @@ def repair_suspicious_row(
                 evidence={
                     "diagnostic_codes": codes,
                     "diagnosis": diagnosis,
-                    "family_pattern": (family_result or {}).get("evidence") or {},
                     "pattern_repair": pattern_result.get("evidence") or {},
                 },
                 trace=trace,
@@ -311,7 +275,6 @@ def repair_suspicious_row(
                 evidence={
                     "diagnostic_codes": codes,
                     "diagnosis": diagnosis,
-                    "family_pattern": (family_result or {}).get("evidence") or {},
                     "pattern_repair": (pattern_result or {}).get("evidence") or {},
                     "ocr_fallback": ocr_result.get("evidence") or {},
                 },
@@ -327,16 +290,12 @@ def repair_suspicious_row(
         target_field=target,
         original_value=original,
         suggested_value=None,
-        confidence=max(
-            float((family_result or {}).get("confidence") or 0.0),
-            float((pattern_result or {}).get("confidence") or 0.0),
-        ),
+        confidence=float((pattern_result or {}).get("confidence") or 0.0),
         recommended_action="MANUAL_REVIEW",
         reasoning="No repair method produced a reliable supported suggestion.",
         evidence={
             "diagnostic_codes": codes,
             "diagnosis": diagnosis,
-            "family_pattern": (family_result or {}).get("evidence") or {},
             "pattern_repair": (pattern_result or {}).get("evidence") or {},
         },
         trace=trace,

@@ -2382,7 +2382,7 @@ def get_orders(
             raise ValueError("Invalid date_to. Use ISO date like YYYY-MM-DD.") from exc
 
     with SessionLocal() as session:
-        stmt = select(Order).order_by(Order.updated_at.desc(), Order.created_at.desc()).offset(offset).limit(limit)
+        stmt = select(Order).order_by(Order.created_at.desc(), Order.id.desc()).offset(offset).limit(limit)
         if query:
             like_term = f"%{query.lower()}%"
             stmt = stmt.where(

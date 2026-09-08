@@ -7719,7 +7719,18 @@ function withPreservedFocus(callback, options = {}){
 function getRowDiagnostics(row){
   if (!row || typeof row !== "object") return null;
   const diagnostics = row.diagnostics || row.extraction_diagnostics || row.extractionDiagnostics;
-  return diagnostics && typeof diagnostics === "object" ? diagnostics : null;
+  if (!diagnostics || typeof diagnostics !== "object") return null;
+  // Older saved responses may still contain the retired similarity warning.
+  const issues = Array.isArray(diagnostics.issues) ? diagnostics.issues : [];
+  const activeIssues = issues.filter(issue => String(issue?.code || "").toUpperCase() !== "POSSIBLE_DIMENSION_FAMILY_MISMATCH");
+  if (activeIssues.length === issues.length) return diagnostics;
+  const { family_pattern, ...activeDiagnostics } = diagnostics;
+  return {
+    ...activeDiagnostics,
+    issues: activeIssues,
+    severity: activeIssues.length ? diagnostics.severity : "ok",
+    requires_human_review: activeIssues.length ? diagnostics.requires_human_review : false,
+  };
 }
 
 function hasActionableDiagnostics(row){
@@ -7740,7 +7751,7 @@ function hasDiagnosticIssue(row, code){
 function chooseFallbackTargetField(row){
   const codes = getDiagnosticIssues(row).map(issue => String(issue?.code || "").toUpperCase());
   const hasAny = (...items) => items.some(item => codes.includes(item));
-  if (hasAny("MISSING_DIMENSION", "INVALID_DIMENSION", "INVALID_DIMENSION_FORMAT", "DIMENSION_OUT_OF_RANGE", "SUSPICIOUS_DIMENSION_SIZE", "AREA_MISMATCH", "POSSIBLE_DIMENSION_OCR_ERROR", "POSSIBLE_DIMENSION_FAMILY_MISMATCH")){
+  if (hasAny("MISSING_DIMENSION", "INVALID_DIMENSION", "INVALID_DIMENSION_FORMAT", "DIMENSION_OUT_OF_RANGE", "SUSPICIOUS_DIMENSION_SIZE", "AREA_MISMATCH", "POSSIBLE_DIMENSION_OCR_ERROR")){
     return "dimension";
   }
   if (hasAny("INVALID_AREA", "MISSING_EXTRACTED_AREA", "INVALID_EXTRACTED_AREA")){
@@ -7959,9 +7970,6 @@ function acceptRowSuggestion(scope, rowKey){
     methods_used: suggestion.methods_used || [],
     accepted_at: new Date().toISOString(),
   });
-  if ((suggestion.methods_used || []).includes("family_pattern_repair") || suggestion.method === "family_pattern_repair"){
-    row.repaired_by_family_pattern = true;
-  }
   if ((suggestion.methods_used || []).includes("pattern_repair") || suggestion.method === "pattern_repair"){
     row.repaired_by_pattern_engine = true;
   }
@@ -8521,7 +8529,6 @@ function renderEditableTable(scope, containerId, rows, rowWarnings){
       const diagnostics = getRowDiagnostics(row);
       const diagnosticIssues = getDiagnosticIssues(row);
       const mismatch = hasDiagnosticIssue(row, "AREA_MISMATCH");
-      const familyMismatch = hasDiagnosticIssue(row, "POSSIBLE_DIMENSION_FAMILY_MISMATCH");
       const computed = diagnosticCalculatedArea(row);
       const extractedArea = Number(diagnostics?.computed?.extracted_area ?? row.area ?? 0);
       if (mismatch && computed != null){
@@ -8531,12 +8538,7 @@ function renderEditableTable(scope, containerId, rows, rowWarnings){
           : `Computed ${computed.toFixed(3)}`;
         warningBadges.push(`<span class="pill warn" title="${escapeHtml(title)}">Δ ${escapeHtml(delta)} m²</span>`);
       }
-      if (familyMismatch){
-        warningBadges.push(
-          `<span class="pill warn" title="Dimension is valid but may not match the nearby/order pattern.">Pattern</span>`
-        );
-      }
-      const otherIssues = diagnosticIssues.filter(issue => !["AREA_MISMATCH", "POSSIBLE_DIMENSION_FAMILY_MISMATCH"].includes(String(issue?.code || "")));
+      const otherIssues = diagnosticIssues.filter(issue => String(issue?.code || "") !== "AREA_MISMATCH");
       if (otherIssues.length){
         const issueText = otherIssues.map(issue => issue?.message || issue?.code || "Diagnostic warning").join("; ");
         warningBadges.push(`<span class="editable-badge" title="${escapeHtml(issueText)}">!</span>`);
@@ -16506,6 +16508,13 @@ function clearHistorySelection(){
 	  return `${Math.round(number * 100)}%`;
 	}
 
+function historyOrdersNewestFirst(items){
+  return (items || []).slice().sort((a, b) => {
+    const received = platformTimestamp(b.created_at) - platformTimestamp(a.created_at);
+    return received || (Number(b.id ?? b.order_id) || 0) - (Number(a.id ?? a.order_id) || 0);
+  });
+}
+
 function renderOrdersList(){
   const container = document.getElementById("historyListWrap");
   if (!container) return;
@@ -16521,7 +16530,7 @@ function renderOrdersList(){
     container.innerHTML = '<div class="empty-state">No orders found for the selected filters.</div>';
     return;
   }
-  const rows = historyState.items.map(order=>{
+  const rows = historyOrdersNewestFirst(historyState.items).map(order=>{
     const orderId = String(order.id ?? order.order_id ?? "");
     const normalizedStatus = normalizeHistoryStatusValue(order.status);
     const orderNumbers = (order.order_numbers || []).join(", ") || "—";
