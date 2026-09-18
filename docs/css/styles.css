@@ -8805,8 +8805,6 @@
 .bridge-card { display:grid; gap:14px; min-width:0; }
 .bridge-card h2, .bridge-card p { margin:0; }
 .bridge-actions { display:flex; flex-wrap:wrap; gap:8px; }
-.bridge-pass { display:grid; gap:6px; max-width:600px; }
-.bridge-pass input, .bridge-dialog select { width:100%; background:var(--field-bg,var(--card-bg)); color:var(--text); padding:10px; border:1px solid var(--border); border-radius:8px; }
 .bridge-summary { font-weight:600; }
 .bridge-errors { color:var(--danger,#b93737); overflow-wrap:anywhere; }
 .bridge-errors:empty { display:none; }
@@ -8818,7 +8816,6 @@
 .bridge-dialog table, .bridge-card table { width:100%; min-width:610px; border-collapse:collapse; }
 .bridge-dialog th, .bridge-dialog td, .bridge-card th, .bridge-card td { padding:10px 8px; text-align:left; border-bottom:1px solid var(--border); vertical-align:top; }
 .bridge-dialog input[type="checkbox"], .bridge-card input[type="checkbox"] { min-width:20px; min-height:20px; vertical-align:middle; }
-.bridge-order th { background:var(--field-bg,var(--card-bg)); }
 .bridge-dialog td small { display:block; max-width:140px; }
 .bridge-card .table-responsive, .bridge-dialog .table-responsive { overflow-x:auto; }
 @media (max-width:600px) {

@@ -78,18 +78,20 @@ test('multiple orders in a section retain clients, including merged origins and 
   assert.equal(merged.sections[0].rows.length,8); assert.equal(merged.sections[0].rows[0].quantity,4);
   assert.equal(new Set(merged.sections[0].rows[0].sources.map(s=>s.client)).size,2);
 });
-test('different source sections cannot be combined, even with identical display headers',()=>{
+test('different source sections import in Processing order, even with identical display headers',()=>{
   const second=clone(fixture); second.id=99; second.rows.forEach(r=>r.type='6F');
   const {sections}=prepare([fixture,second],{headerOverrides:{'6F':'Same','2 vetri 4F + 16 + 4 LowE':'Same'}});
-  assert.throws(()=>bridge.add(bridge.emptyJob(),[sections[0].rows[0],sections[1].rows[0]]),/one source/);
+  const job=bridge.importPrepared(bridge.emptyJob(),sections);
+  assert.equal(job.rows.length,16);
+  assert.deepEqual(job.rows.map(r=>r.id),clone(sections.flatMap(s=>s.rows.map(r=>r.id))));
 });
 test('changed values and missing/regrouped rows require explicit snapshot replacement',()=>{
   const {sections}=prepare(); const job=bridge.add(bridge.emptyJob(),sections[0].rows);
   const order=clone(fixture); order.rows[0].dimension='320x790';
   const fresh=prepare([order]); assert.equal(bridge.changes(job,fresh.sections).length,1);
   assert.equal(job.rows[0].width,315);
-  const replaced=bridge.add({...job,pass:'4F',confirmed:true},fresh.sections[0].rows,true);
-  assert.equal(replaced.rows[0].width,320); assert.equal(replaced.confirmed,false);
+  const replaced=bridge.importPrepared(job,fresh.sections);
+  assert.equal(replaced.rows[0].width,320);
   assert.equal(bridge.changes(replaced,fresh.sections).length,0);
   assert.equal(bridge.changes(job,[]).length,8);
 });
@@ -159,4 +161,21 @@ test('actual asynchronous Processing import keeps busy guard through fetch and r
   resolveFetch(null);
   await assert.rejects(pending,/no rows/);
   assert.equal(ctx.processingBridgeBusy,0);
+});
+
+test('R-26-0830 matches both screenshots exactly across glass types and repeated imports',()=>{
+  const order=require('./fixtures/perfect_cut_processing_order.json');
+  const plain=prepare([order],{rounded:true});
+  const grouped=prepare([order],{rounded:true,groupDimensions:true});
+  let job=bridge.importPrepared(bridge.emptyJob(),plain.sections);
+  assert.equal(bridge.csv(job.rows),'quantity,width,height\r\n1,738,1835\r\n1,815,1903\r\n1,815,1903\r\n1,1268,168\r\n1,433,848\r\n');
+  const before=JSON.stringify(grouped.processing);
+  job=bridge.importPrepared(job,grouped.sections);
+  const expected='quantity,width,height\r\n1,738,1835\r\n2,815,1903\r\n1,1268,168\r\n1,433,848\r\n';
+  assert.equal(bridge.csv(job.rows),expected);
+  assert.equal(job.rows.reduce((sum,row)=>sum+row.quantity,0),5);
+  assert.equal(job.rows.at(-1).width,433); // No global sorting or glass filtering.
+  job=bridge.importPrepared(job,grouped.sections);
+  assert.equal(bridge.csv(job.rows),expected);
+  assert.equal(JSON.stringify(grouped.processing),before);
 });

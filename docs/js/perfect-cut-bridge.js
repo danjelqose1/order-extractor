@@ -57,7 +57,6 @@
   function validate(rows){
     const errors = rows.flatMap(row => reasons(row).map(reason => `${describe(row)}: ${reason}`));
     if (!rows.length) errors.push("Select at least one prepared row.");
-    if (new Set(rows.map(row => row.section)).size > 1) errors.push("Only one source glass/type section may be exported per job.");
     const seen = new Set();
     rows.forEach(row => row.sourceIds.forEach(id => {
       if (seen.has(id)) errors.push(`${describe(row)}: source row occurs more than once`);
@@ -68,7 +67,7 @@
       quantity: Number(row.quantity), width: Number(row.width), height: Number(row.height),
     })) };
   }
-  const emptyJob = () => ({ rows: [], pass: "", confirmed: false, capturedAt: null });
+  const emptyJob = () => ({ rows: [], capturedAt: null });
   function add(job, rows, replace = false){
     const candidate = copy(rows);
     if (!candidate.length) throw new Error("Select at least one prepared row.");
@@ -76,7 +75,12 @@
     const combined = [...previous, ...candidate];
     const result = validate(combined);
     if (result.errors.length) throw new Error(result.errors.join("\n"));
-    return { ...job, rows: copy(result.rows), confirmed: false, capturedAt: new Date().toISOString() };
+    return { ...job, rows: copy(result.rows), capturedAt: new Date().toISOString() };
+  }
+  // An explicit import replaces the draft with the entire current prepared sheet.
+  // Flatten in preview order; never sort or merge across its glass sections.
+  function importPrepared(job, sections){
+    return add(job, sections.flatMap(section => section.rows), true);
   }
   function changes(job, sections){
     const current = new Map(sections.flatMap(section => section.rows).map(row => [row.id, row]));
@@ -91,7 +95,7 @@
     if (result.errors.length) throw new Error(result.errors.join("\n"));
     return "quantity,width,height\r\n" + validatedRows.map(row => `${row.quantity},${row.width},${row.height}\r\n`).join("");
   }
-  const api = { collect, reasons, validate, emptyJob, add, changes, csv, integer, describe };
+  const api = { collect, reasons, validate, emptyJob, add, importPrepared, changes, csv, integer, describe };
   root.PerfectCutBridge = api;
   if (typeof module !== "undefined") module.exports = api;
   if (typeof document === "undefined" || !document.getElementById("bridgePicker")) return;
@@ -116,9 +120,7 @@
     el("bridgeErrors").innerHTML = errorList(errors);
     el("bridgeRefresh").disabled = !job.rows.length;
     el("bridgeClear").disabled = !job.rows.length;
-    el("bridgePass").value = job.pass;
-    el("bridgeConfirmed").checked = job.confirmed;
-    el("bridgeDownload").disabled = !previewRows.length || errors.length > 0 || !job.pass.trim() || !job.confirmed;
+    el("bridgeDownload").disabled = !previewRows.length || errors.length > 0;
     const rows = previewRows.length ? previewRows : job.rows;
     const pieces = previewRows.reduce((sum,row) => sum + row.quantity, 0);
     const area = previewRows.reduce((sum,row) => sum + row.quantity * row.width * row.height, 0) / 1000000;
@@ -127,19 +129,14 @@
     rows.forEach(row => row.sources.forEach(s => {
       if (s.bridgeSource?.declaredArea != null) orderAreas.set(s.orderId, s.bridgeSource.declaredArea);
     }));
-    el("bridgeSourceSummary").innerHTML = rows.length ? `<p><strong>Glass section:</strong> ${esc(rows[0].sectionLabel)}${rows[0].sectionLabel !== rows[0].section ? `<br><small>Source: ${esc(rows[0].section)}</small>` : ""}</p><p class="muted small">Source order areas (whole orders, not selected cutting area): ${orderAreas.size ? [...orderAreas].map(([order,area]) => `${esc(order)}: ${esc(area)} m²`).join("; ") : "not declared"}. Values are preserved separately.</p>` : "<p>Nothing added. Prepare a sheet in Processing, then select rows for this job.</p>";
+    el("bridgeSourceSummary").innerHTML = rows.length ? `<p class="muted small">Source order areas (whole orders, not selected cutting area): ${orderAreas.size ? [...orderAreas].map(([order,area]) => `${esc(order)}: ${esc(area)} m²`).join("; ") : "not declared"}. Values are preserved separately.</p>` : "<p>Nothing added. Prepare a sheet in Processing, then add it here.</p>";
     el("bridgeRows").innerHTML = rows.length ? `<table>${tableHead("Action")}<tbody>${rows.map((row,i) => `<tr><td><button class="btn small muted" data-bridge-remove="${i}" aria-label="Remove ${esc(describe(row))}">Remove</button></td>${sourceCells(row)}${numericCells(row)}</tr>`).join("")}</tbody></table>` : "";
   }
   function openPicker(replace = false){
     let sections;
     try{ sections = current(); }catch(error){ el("bridgeStatus").textContent = error.message; render(); return; }
-    const sectionKey = job.rows[0]?.section;
-    const initial = sections.find(section => section.key === sectionKey) || sections[0];
-    const oldIds = new Set(job.rows.flatMap(row => row.sourceIds));
-    picker = { sections, sectionKey: initial?.key, selected: new Set(), replace };
-    if (replace && initial) initial.rows.forEach(row => {
-      if (row.sourceIds.some(id => oldIds.has(id))) picker.selected.add(row.id);
-    });
+    const rows = sections.flatMap(section => section.rows);
+    picker = { sections, rows, selected: new Set(rows.map(row => row.id)), replace };
     el("bridgePickerTitle").textContent = replace ? "Review replacement snapshot" : "Add from Processing";
     el("bridgePickerAdd").textContent = replace ? "Replace job with selected" : "Add selected";
     el("bridgePickerErrors").innerHTML = "";
@@ -147,41 +144,32 @@
     el("bridgePicker").showModal();
   }
   function renderPicker(){
-    const section = picker.sections.find(s => s.key === picker.sectionKey);
-    const occupied = new Set((picker.replace ? [] : job.rows).flatMap(row => row.sourceIds));
-    let html = picker.replace ? "<p><strong>Explicit refresh:</strong> the selected current rows will replace the entire Bridge snapshot. Check changed quantities and grouping before accepting. Unselected or missing rows will be removed from this job.</p>" : "";
-    if (!picker.sections.length){
+    let html = "<p>The selected current rows will replace the Bridge snapshot, in Processing order.</p>";
+    if (!picker.rows.length){
       html += '<p class="processing-empty">Processing is empty. Open Processing to prepare a sheet.</p>';
     }else{
-      html += `<label>Glass/type section <select id="bridgePickerSection">${picker.sections.map((s,i) => `<option value="${i}" ${s.key === picker.sectionKey ? "selected" : ""} ${!picker.replace && job.rows.length && s.key !== job.rows[0].section ? "disabled" : ""}>${esc(s.label)}</option>`).join("")}</select></label>`;
       const buckets = new Map();
-      section.rows.forEach((row,i) => {
-        const key = [...new Set(row.sources.map(s => `${s.orderId} — ${s.client}`))].join(" / ");
-        if (!buckets.has(key)) buckets.set(key, []);
-        buckets.get(key).push({row,i});
+      picker.rows.forEach(row => {
+        const label = [...new Set(row.sources.map(s => `${s.orderId} — ${s.client}`))].join(" / ");
+        if (!buckets.has(label)) buckets.set(label, []);
+        buckets.get(label).push(row.id);
       });
-      html += `<p class="muted small">Prepared section source area: ${esc(section.sourceArea)} m² (full section; separate from selected cutting area).</p>`;
+      picker.buckets = [...buckets.values()];
+      html += '<div class="bridge-actions">' + [...buckets].map(([label,ids],i) =>
+        `<label><input type="checkbox" data-bridge-order="${i}" ${ids.every(id => picker.selected.has(id)) ? "checked" : ""}> ${esc(label)}</label>`
+      ).join("") + '</div>';
       html += '<div class="table-responsive"><table>' + tableHead("Select") + '<tbody>';
-      let orderIndex = 0;
-      picker.buckets = [];
-      for (const [label, items] of buckets){
-        const available = items.filter(({row}) => !row.sourceIds.some(id => occupied.has(id)));
-        picker.buckets.push(available.map(({row}) => row.id));
-        const all = available.length && available.every(({row}) => picker.selected.has(row.id));
-        html += `<tr class="bridge-order"><th colspan="6"><label><input type="checkbox" data-bridge-order="${orderIndex++}" ${all ? "checked" : ""} ${!available.length ? "disabled" : ""}> ${esc(label)}</label></th></tr>`;
-        items.forEach(({row,i}) => {
-          const duplicate = row.sourceIds.some(id => occupied.has(id));
-          const issues = reasons(row);
-          html += `<tr><td><input type="checkbox" data-bridge-select="${i}" aria-label="Select ${esc(describe(row))}" ${picker.selected.has(row.id) ? "checked" : ""} ${duplicate ? "disabled" : ""}>${duplicate ? '<small>Already added. Use refresh to review changes.</small>' : ""}</td>${sourceCells(row)}${numericCells(row)}</tr>`;
-          if (issues.length) html += `<tr><td colspan="6" class="bridge-errors">${esc(describe(row))}: ${esc(issues.join("; "))}</td></tr>`;
-        });
-      }
+      picker.rows.forEach((row,i) => {
+        const issues = reasons(row);
+        html += `<tr><td><input type="checkbox" data-bridge-select="${i}" aria-label="Select ${esc(describe(row))}" ${picker.selected.has(row.id) ? "checked" : ""}></td>${sourceCells(row)}${numericCells(row)}</tr>`;
+        if (issues.length) html += `<tr><td colspan="6" class="bridge-errors">${esc(describe(row))}: ${esc(issues.join("; "))}</td></tr>`;
+      });
       html += "</tbody></table></div>";
     }
     el("bridgePickerBody").innerHTML = html;
     updateSelection();
   }
-  function selectedRows(){ return (picker.sections.find(s => s.key === picker.sectionKey)?.rows || []).filter(row => picker.selected.has(row.id)); }
+  function selectedRows(){ return picker.rows.filter(row => picker.selected.has(row.id)); }
   function updateSelection(){
     const rows = selectedRows();
     const validQty = rows.every(row => integer(row.quantity,999));
@@ -193,11 +181,8 @@
   el("bridgePickerBody").addEventListener("change", event => {
     if (!picker) return;
     const target = event.target;
-    if (target.id === "bridgePickerSection"){
-      picker.sectionKey = picker.sections[Number(target.value)].key;
-      picker.selected.clear();
-    }else if (target.hasAttribute("data-bridge-select")){
-      const row = picker.sections.find(s => s.key === picker.sectionKey).rows[Number(target.dataset.bridgeSelect)];
+    if (target.hasAttribute("data-bridge-select")){
+      const row = picker.rows[Number(target.dataset.bridgeSelect)];
       if (target.checked) picker.selected.add(row.id); else picker.selected.delete(row.id);
     }else if (target.hasAttribute("data-bridge-order")){
       picker.buckets[Number(target.dataset.bridgeOrder)].forEach(id => {
@@ -209,7 +194,6 @@
     const focusValue = focusAttribute ? target.getAttribute(focusAttribute) : null;
     renderPicker();
     if (focusAttribute) el("bridgePickerBody").querySelector(`[${focusAttribute}="${focusValue}"]`)?.focus();
-    else el("bridgePickerSection")?.focus();
   });
   el("bridgePickerAdd").addEventListener("click", () => {
     if (!picker) return; // Synchronous guard also covers rapid duplicate clicks.
@@ -217,10 +201,10 @@
       const rows = selectedRows();
       const stale = changes({rows},current());
       if (stale.length) throw new Error("Processing changed while this review was open. Cancel and reopen to review current values.\n" + stale.join("\n"));
-      job = add(job, rows, picker.replace);
+      job = add(job, rows, true);
       picker = null;
       el("bridgePicker").close();
-      el("bridgeStatus").textContent = "Snapshot saved in this session. Review the pass and confirm before downloading.";
+      el("bridgeStatus").textContent = "Prepared rows copied in Processing order. Ready to download.";
       render();
     }catch(error){ el("bridgePickerErrors").innerHTML = errorList(error.message.split("\n")); }
   });
@@ -229,7 +213,19 @@
   const openProcessing = () => { if (el("bridgePicker").open) el("bridgePicker").close(); activateTab("processing"); };
   el("bridgeOpenProcessing").addEventListener("click",openProcessing);
   el("bridgePickerProcessing").addEventListener("click",openProcessing);
-  el("bridgeAdd").addEventListener("click", () => openPicker(false));
+  el("bridgeAdd").addEventListener("click", () => {
+    let sections;
+    try{ sections = current(); }catch(error){ el("bridgeStatus").textContent = error.message; render(); return; }
+    if (!sections.some(section => section.rows.length)){ openPicker(true); return; }
+    try{
+      job = importPrepared(job, sections);
+      el("bridgeStatus").textContent = "Prepared rows copied in Processing order. Ready to download.";
+      render();
+    }catch(error){
+      // Keep every invalid row visible and selected for explicit review/deselection.
+      openPicker(true);
+    }
+  });
   el("bridgeRefresh").addEventListener("click", () => openPicker(true));
   el("bridgeClear").addEventListener("click", () => {
     if (!window.confirm("Clear this Bridge job? Processing, Labels and source orders will remain unchanged.")) return;
@@ -238,10 +234,8 @@
   el("bridgeRows").addEventListener("click", event => {
     const button = event.target.closest("[data-bridge-remove]");
     if (!button) return;
-    job.rows.splice(Number(button.dataset.bridgeRemove),1); job.confirmed = false; render();
+    job.rows.splice(Number(button.dataset.bridgeRemove),1); render();
   });
-  el("bridgePass").addEventListener("input", event => { job.pass = event.target.value; job.confirmed = false; render(); });
-  el("bridgeConfirmed").addEventListener("change", event => { job.confirmed = event.target.checked; render(); });
   el("bridgeDownload").addEventListener("click", () => {
     render(); // Revalidate source versions and preview immediately before download.
     if (el("bridgeDownload").disabled) return;

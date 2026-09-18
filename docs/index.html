@@ -8,7 +8,7 @@
   <meta name="theme-color" content="#181818" media="(prefers-color-scheme: dark)" />
   <link rel="icon" href="data:," />
   <title>Overview — Order Extractor</title>
-  <link rel="stylesheet" href="./css/styles.css?v=20260918-bridge">
+  <link rel="stylesheet" href="./css/styles.css?v=20260918-bridge-sheet2">
   <link rel="stylesheet" href="./css/interface.css?v=20260908-neutral3" media="screen">
 </head>
 <body>
@@ -1840,7 +1840,7 @@
     <section id="tabPerfectCut" class="tab-panel" hidden>
       <div class="card bridge-card">
         <h2>Perfect Cut Bridge</h2>
-        <p class="muted">Prepare one glass section for one cutting pass. This session draft is cleared when you reload or close this page.</p>
+        <p class="muted">Copy the whole prepared sheet in Processing order, with its current grouping, dimensions and quantities. Each import replaces this Bridge draft. Reloading or closing the page clears it.</p>
         <div class="bridge-actions">
           <button class="btn primary" id="bridgeAdd">Add from Processing</button>
           <button class="btn muted" id="bridgeOpenProcessing">Open Processing</button>
@@ -1849,11 +1849,7 @@
         </div>
         <p id="bridgeStatus" role="status" aria-live="polite"></p>
         <div id="bridgeSourceSummary"></div>
-        <label class="bridge-pass">Intended cutting material / pass
-          <input id="bridgePass" type="text" maxlength="160" placeholder="Identify the material and pass to cut">
-        </label>
-        <label class="inline-toggle"><input id="bridgeConfirmed" type="checkbox"> I confirm these are rectangular pieces without special requirements, for this material / pass.</label>
-        <p class="muted small">Dimensions are read-only; use Open Processing for corrections. The CSV does not select a glass family. Select the correct material inside Perfect Cut. Quantities are for this pass; IGU descriptions never multiply them.</p>
+        <p class="muted small">Dimensions are read-only; use Open Processing for corrections. Glass types do not filter this list. Select the material inside Perfect Cut.</p>
         <div id="bridgeSummary" class="bridge-summary"></div>
         <div id="bridgeRows" class="table-responsive"></div>
         <div id="bridgeErrors" class="bridge-errors" role="alert"></div>
@@ -1865,7 +1861,7 @@
     </section>
     <dialog id="bridgePicker" class="bridge-dialog" aria-labelledby="bridgePickerTitle">
       <h2 id="bridgePickerTitle">Add from Processing</h2>
-      <p>Choose one glass/type section. Grouped rows stay together, including any orders already merged by Processing. Dimensions are read-only; correct them in Processing.</p>
+      <p>All prepared rows appear in Processing order, across glass types. Grouped rows stay together. Deselect rows only if you want a partial export.</p>
       <div id="bridgePickerBody"></div>
       <p id="bridgePickerCount" aria-live="polite"></p>
       <div id="bridgePickerErrors" class="bridge-errors" role="alert"></div>
@@ -2353,8 +2349,8 @@
   <input type="file" id="scanFileInput" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple hidden />
 
 <script src="./js/living-dashboard.js?v=20260908-compact" defer></script>
-<script src="./js/platform-workflows.js?v=20260918-bridge" defer></script>
-<script src="./js/app.js?v=20260918-bridge" defer></script>
-<script src="./js/perfect-cut-bridge.js?v=20260918-bridge" defer></script>
+<script src="./js/platform-workflows.js?v=20260918-bridge-sheet2" defer></script>
+<script src="./js/app.js?v=20260918-bridge-sheet2" defer></script>
+<script src="./js/perfect-cut-bridge.js?v=20260918-bridge-sheet2" defer></script>
 </body>
 </html>
