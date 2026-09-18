@@ -8800,3 +8800,29 @@
         box-shadow:0 12px 30px rgba(0,0,0,.28);
       }
     }
+
+/* Perfect Cut Bridge: compact review tables, also usable on small monitors. */
+.bridge-card { display:grid; gap:14px; min-width:0; }
+.bridge-card h2, .bridge-card p { margin:0; }
+.bridge-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.bridge-pass { display:grid; gap:6px; max-width:600px; }
+.bridge-pass input, .bridge-dialog select { width:100%; background:var(--field-bg,var(--card-bg)); color:var(--text); padding:10px; border:1px solid var(--border); border-radius:8px; }
+.bridge-summary { font-weight:600; }
+.bridge-errors { color:var(--danger,#b93737); overflow-wrap:anywhere; }
+.bridge-errors:empty { display:none; }
+.bridge-errors ul { margin:4px 0; padding-left:22px; }
+.bridge-dialog { width:min(1000px,calc(100vw - 24px)); max-height:90vh; box-sizing:border-box; overflow:auto; border:1px solid var(--border); border-radius:12px; padding:20px; background:var(--card-bg); color:var(--text); }
+.bridge-dialog::backdrop { background:rgba(0,0,0,.55); }
+.bridge-dialog h2 { margin-top:0; }
+.bridge-dialog .bridge-actions { position:sticky; bottom:-20px; padding:14px 0; background:var(--card-bg); }
+.bridge-dialog table, .bridge-card table { width:100%; min-width:610px; border-collapse:collapse; }
+.bridge-dialog th, .bridge-dialog td, .bridge-card th, .bridge-card td { padding:10px 8px; text-align:left; border-bottom:1px solid var(--border); vertical-align:top; }
+.bridge-dialog input[type="checkbox"], .bridge-card input[type="checkbox"] { min-width:20px; min-height:20px; vertical-align:middle; }
+.bridge-order th { background:var(--field-bg,var(--card-bg)); }
+.bridge-dialog td small { display:block; max-width:140px; }
+.bridge-card .table-responsive, .bridge-dialog .table-responsive { overflow-x:auto; }
+@media (max-width:600px) {
+  .bridge-dialog { padding:12px; }
+  .bridge-dialog .bridge-actions { bottom:-12px; }
+  .bridge-actions .btn { flex:1 1 140px; }
+}

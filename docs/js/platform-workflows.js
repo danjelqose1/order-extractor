@@ -745,6 +745,18 @@ function convertOrderToProcessingEntry(order){
     ].map(value => (value == null ? "" : String(value).trim())).find(value => value.length) || "";
     return {
       key: row.id || `${order.id}-${idx}`,
+      // Provenance only: does not participate in Processing rounding or grouping.
+      bridgeSource: {
+        orderId: String(order.id), rowId: String(row.id ?? `index:${idx}`), source: orderSource,
+        version: order.version ?? null, updatedAt: order.updated_at ?? order.updatedAt ?? null,
+        quantity: row.quantity ?? null,
+        shape: row.shape ?? row.geometry ?? row.shape_type ?? null,
+        rectangular: row.is_rectangular ?? null,
+        requirements: row.special_requirements ?? row.requirements ?? null,
+        notes: row.notes ?? row.row_notes ?? null,
+        orderNotes: order.notes ?? null,
+        declaredArea: order.declared_area ?? order.area_total ?? order.total_area_m2 ?? null,
+      },
       composition_raw: (row.type || row.glass_type || "").trim() || "(Header not set)",
       width: parsed.width,
       height: parsed.height,
@@ -1039,6 +1051,7 @@ function buildOriginRowPayload(item){
     red_index: item.red_index ?? null,
     row_notes: item.row_notes || "",
     source_row_id: item.key ?? null,
+    bridgeSource: item.bridgeSource ? { ...item.bridgeSource } : null,
     positions: positionValue && positionValue !== "(Grouped)" ? [positionValue] : [],
     quantity,
     orderId: (item.orderId && String(item.orderId).trim()) || "",

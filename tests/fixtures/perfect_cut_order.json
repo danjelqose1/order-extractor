@@ -1,0 +1,14 @@
+{
+  "id": 826, "order_number": "R-26-0826", "client_name": "MALVINI VARESE 72",
+  "area_total": "10.080", "status": "approved",
+  "rows": [
+    {"id": 1, "position": "1", "type": "2 vetri 4F + 16 + 4 LowE", "quantity": 2, "dimension": "315x790", "area": "0.500"},
+    {"id": 2, "position": "2", "type": "2 vetri 4F + 16 + 4 LowE", "quantity": 2, "dimension": "365x1260", "area": "0.920"},
+    {"id": 3, "position": "3", "type": "2 vetri 4F + 16 + 4 LowE", "quantity": 2, "dimension": "375x390", "area": "0.293"},
+    {"id": 4, "position": "4", "type": "2 vetri 4F + 16 + 4 LowE", "quantity": 2, "dimension": "535x1030", "area": "1.103"},
+    {"id": 5, "position": "5", "type": "2 vetri 4F + 16 + 4 LowE", "quantity": 4, "dimension": "535x1240", "area": "2.656"},
+    {"id": 6, "position": "6", "type": "2 vetri 4F + 16 + 4 LowE", "quantity": 2, "dimension": "535x1250", "area": "1.338"},
+    {"id": 7, "position": "7", "type": "2 vetri 4F + 16 + 4 LowE", "quantity": 2, "dimension": "535x1280", "area": "1.370"},
+    {"id": 8, "position": "8", "type": "2 vetri 4F + 16 + 4 LowE", "quantity": 6, "dimension": "575x530", "area": "1.900"}
+  ]
+}

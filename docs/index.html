@@ -8,7 +8,7 @@
   <meta name="theme-color" content="#181818" media="(prefers-color-scheme: dark)" />
   <link rel="icon" href="data:," />
   <title>Overview — Order Extractor</title>
-  <link rel="stylesheet" href="./css/styles.css?v=20260906-color-contrast1">
+  <link rel="stylesheet" href="./css/styles.css?v=20260918-bridge">
   <link rel="stylesheet" href="./css/interface.css?v=20260908-neutral3" media="screen">
 </head>
 <body>
@@ -56,6 +56,7 @@
       <button class="tab" data-tab="workspace" data-nav-section="production"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-workspace"></use></svg></span><span>Production</span></button>
       <div class="sidebar-subnav" aria-label="Production tools">
         <button class="tab" data-tab="processing" data-nav-parent="production"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-processing"></use></svg></span><span>Processing</span></button>
+        <button class="tab" data-tab="perfectcut" data-nav-parent="production"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-processing"></use></svg></span><span>Perfect Cut Bridge</span></button>
         <button class="tab" data-tab="labels" data-nav-parent="production"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-label"></use></svg></span><span>Labels</span></button>
       </div>
       <button class="tab" data-tab="beta"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-sparkles"></use></svg></span><span>Beta</span><span class="sidebar-beta-badge" aria-hidden="true">Beta</span></button>
@@ -1836,6 +1837,45 @@
       </div>
     </section>
 
+    <section id="tabPerfectCut" class="tab-panel" hidden>
+      <div class="card bridge-card">
+        <h2>Perfect Cut Bridge</h2>
+        <p class="muted">Prepare one glass section for one cutting pass. This session draft is cleared when you reload or close this page.</p>
+        <div class="bridge-actions">
+          <button class="btn primary" id="bridgeAdd">Add from Processing</button>
+          <button class="btn muted" id="bridgeOpenProcessing">Open Processing</button>
+          <button class="btn muted" id="bridgeRefresh">Review / refresh from Processing</button>
+          <button class="btn danger" id="bridgeClear">Clear job</button>
+        </div>
+        <p id="bridgeStatus" role="status" aria-live="polite"></p>
+        <div id="bridgeSourceSummary"></div>
+        <label class="bridge-pass">Intended cutting material / pass
+          <input id="bridgePass" type="text" maxlength="160" placeholder="Identify the material and pass to cut">
+        </label>
+        <label class="inline-toggle"><input id="bridgeConfirmed" type="checkbox"> I confirm these are rectangular pieces without special requirements, for this material / pass.</label>
+        <p class="muted small">Dimensions are read-only; use Open Processing for corrections. The CSV does not select a glass family. Select the correct material inside Perfect Cut. Quantities are for this pass; IGU descriptions never multiply them.</p>
+        <div id="bridgeSummary" class="bridge-summary"></div>
+        <div id="bridgeRows" class="table-responsive"></div>
+        <div id="bridgeErrors" class="bridge-errors" role="alert"></div>
+        <button class="btn primary" id="bridgeDownload">Download job.csv</button>
+        <p>Save as job.csv in your PerfectCutBridge folder, replacing the previous job when intended. Check the filename before pressing F8.</p>
+        <p class="muted small">A browser-renamed copy (for example job (1).csv) is not the file the bridge reads. Your browser controls saving and replacement.</p>
+        <p class="muted small">Limits: quantity 1–999; width and height 1–10000 mm, whole numbers only. These are bridge parser limits, not machine capacity. F8 enters Quantity → Tab → Width → Tab → Height → Down. F9 stops entry; Escape does not. Downloading does not enter, verify, optimise, produce or cut anything.</p>
+      </div>
+    </section>
+    <dialog id="bridgePicker" class="bridge-dialog" aria-labelledby="bridgePickerTitle">
+      <h2 id="bridgePickerTitle">Add from Processing</h2>
+      <p>Choose one glass/type section. Grouped rows stay together, including any orders already merged by Processing. Dimensions are read-only; correct them in Processing.</p>
+      <div id="bridgePickerBody"></div>
+      <p id="bridgePickerCount" aria-live="polite"></p>
+      <div id="bridgePickerErrors" class="bridge-errors" role="alert"></div>
+      <div class="bridge-actions">
+        <button class="btn primary" id="bridgePickerAdd">Add selected</button>
+        <button class="btn muted" id="bridgePickerCancel">Cancel</button>
+        <button class="btn muted" id="bridgePickerProcessing">Open Processing</button>
+      </div>
+    </dialog>
+
     <section id="tabLabels" class="tab-panel">
       <div class="card">
         <h2 style="margin-top:0">Labels</h2>
@@ -2313,7 +2353,8 @@
   <input type="file" id="scanFileInput" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple hidden />
 
 <script src="./js/living-dashboard.js?v=20260908-compact" defer></script>
-<script src="./js/platform-workflows.js?v=20260901-mcp1" defer></script>
-<script src="./js/app.js?v=20260908-interface2" defer></script>
+<script src="./js/platform-workflows.js?v=20260918-bridge" defer></script>
+<script src="./js/app.js?v=20260918-bridge" defer></script>
+<script src="./js/perfect-cut-bridge.js?v=20260918-bridge" defer></script>
 </body>
 </html>

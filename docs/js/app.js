@@ -277,6 +277,8 @@ const activityState = {
   retryHandlers: new Map(),
 };
 
+let processingBridgeBusy = 0;
+
 const processingState = {
   processedRows: [],
   previewGroups: [],
@@ -463,6 +465,7 @@ const panels = {
   manual: document.getElementById("tabManualOrders"),
   orderdetail: document.getElementById("tabOrderDetail"),
   processing: document.getElementById("tabProcessing"),
+  perfectcut: document.getElementById("tabPerfectCut"),
   spacer: document.getElementById("tabSpacer"),
   labels: document.getElementById("tabLabels"),
   analysis: document.getElementById("tabAnalysis"),
@@ -519,6 +522,11 @@ const PAGE_META = Object.freeze({
     eyebrow: "Factory",
     title: "Production Processing",
     subtitle: "Prepare approved orders for the production floor.",
+  },
+  perfectcut: {
+    eyebrow: "Production",
+    title: "Perfect Cut Bridge",
+    subtitle: "Prepare and review a CSV job from Processing.",
   },
   spacer: {
     eyebrow: "Production",
@@ -1440,6 +1448,7 @@ function activateTab(name){
 	  const navParentByTab = {
 	    workspace: "production",
 	    processing: "production",
+	    perfectcut: "production",
 	    labels: "production",
 	    awa: "production",
 	    telegram: "documents",
@@ -1515,6 +1524,8 @@ function activateTab(name){
     ensureHistoryLoaded();
     rebuildProcessingRows();
     updateProcessingUI();
+  }else if (name === "perfectcut"){
+    window.PerfectCutBridgeUI?.render();
   }else if (name === "spacer"){
     updateSpacerProcessingUI();
   }else if (name === "analysis"){
@@ -7353,30 +7364,33 @@ function updateLabelsUI(){
 }
 
 async function sendOrderToProcessing(orderId, options = {}){
-  const order = await fetchOrder(orderId);
-  if (!order || !order.rows || !order.rows.length){
-    throw new Error("Order has no rows");
-  }
-  if (!canProcessingStatus(order.status)){
-    throw new Error(`Order status ${historyStatusLabel(order.status)} is not eligible for Processing.`);
-  }
-  addOrderToProcessing(order);
-  const {
-    skipStatus = false,
-    skipTab = false,
-    showToast = false,
-    statusMessage = "Order added to Processing.",
-    toastMessage = "Added to Processing",
-  } = options;
-  if (showToast){
-    showProcessingToast(toastMessage);
-  }
-  if (!skipStatus){
-    setStatusMessage(statusMessage);
-  }
-  if (!skipTab){
-    activateTab("processing");
-  }
+  processingBridgeBusy++;
+  try{
+    const order = await fetchOrder(orderId);
+    if (!order || !order.rows || !order.rows.length){
+      throw new Error("Order has no rows");
+    }
+    if (!canProcessingStatus(order.status)){
+      throw new Error(`Order status ${historyStatusLabel(order.status)} is not eligible for Processing.`);
+    }
+    addOrderToProcessing(order);
+    const {
+      skipStatus = false,
+      skipTab = false,
+      showToast = false,
+      statusMessage = "Order added to Processing.",
+      toastMessage = "Added to Processing",
+    } = options;
+    if (showToast){
+      showProcessingToast(toastMessage);
+    }
+    if (!skipStatus){
+      setStatusMessage(statusMessage);
+    }
+    if (!skipTab){
+      activateTab("processing");
+    }
+  }finally{ processingBridgeBusy--; }
 }
 
 function syncProcessingHeaderEditor(){
@@ -15169,6 +15183,7 @@ async function processValidatedOrdersViaExistingModules(orders, mode = "combined
   const steps = [];
   const manualSnapshot = snapshotManualProcessingWorkspace();
   let tempLabelNextId = Number(manualSnapshot.labels?.nextId || 1);
+  processingBridgeBusy++;
   const mergeAcrossOrders = mode === "combined" && !!options.mergeAcrossOrders;
   try{
     beginWorkspaceIsolatedProcessingState(manualSnapshot);
@@ -15291,7 +15306,8 @@ async function processValidatedOrdersViaExistingModules(orders, mode = "combined
       warningNotes: getWorkspaceWarningNotes(orders),
     };
   }finally{
-    restoreManualProcessingWorkspace(manualSnapshot, { labelNextIdFloor: tempLabelNextId });
+    try{ restoreManualProcessingWorkspace(manualSnapshot, { labelNextIdFloor: tempLabelNextId }); }
+    finally{ processingBridgeBusy--; }
   }
 }
 
