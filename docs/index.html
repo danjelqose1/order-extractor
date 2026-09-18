@@ -8,7 +8,7 @@
   <meta name="theme-color" content="#10151d" media="(prefers-color-scheme: dark)" />
   <link rel="icon" href="data:," />
   <title>Overview — Order Extractor</title>
-  <link rel="stylesheet" href="./css/styles.css?v=20260918-bridge-sheet2">
+  <link rel="stylesheet" href="./css/styles.css?v=20260918-bridge-manual1">
   <link rel="stylesheet" href="./css/interface.css?v=20260918-contrast1" media="screen">
 </head>
 <body>
@@ -1840,16 +1840,17 @@
     <section id="tabPerfectCut" class="tab-panel" hidden>
       <div class="card bridge-card">
         <h2>Perfect Cut Bridge</h2>
-        <p class="muted">Copy the whole prepared sheet in Processing order, with its current grouping, dimensions and quantities. Each import replaces this Bridge draft. Reloading or closing the page clears it.</p>
+        <p class="muted">Copy the whole prepared Processing sheet, or select saved Manual Orders. Dimensions, quantities and source row order are preserved. Each import replaces this Bridge draft. Reloading or closing the page clears it.</p>
         <div class="bridge-actions">
           <button class="btn primary" id="bridgeAdd">Add from Processing</button>
+          <button class="btn" id="bridgeManualAdd">Add from Manual Orders</button>
           <button class="btn muted" id="bridgeOpenProcessing">Open Processing</button>
           <button class="btn muted" id="bridgeRefresh">Review / refresh from Processing</button>
           <button class="btn danger" id="bridgeClear">Clear job</button>
         </div>
         <p id="bridgeStatus" role="status" aria-live="polite"></p>
         <div id="bridgeSourceSummary"></div>
-        <p class="muted small">Dimensions are read-only; use Open Processing for corrections. Glass types do not filter this list. Select the material inside Perfect Cut.</p>
+        <p class="muted small">Dimensions are read-only; make corrections in the source module. Glass types do not filter this list. Select the material inside Perfect Cut.</p>
         <div id="bridgeSummary" class="bridge-summary"></div>
         <div id="bridgeRows" class="table-responsive"></div>
         <div id="bridgeErrors" class="bridge-errors" role="alert"></div>
@@ -1861,7 +1862,7 @@
     </section>
     <dialog id="bridgePicker" class="bridge-dialog" aria-labelledby="bridgePickerTitle">
       <h2 id="bridgePickerTitle">Add from Processing</h2>
-      <p>All prepared rows appear in Processing order, across glass types. Grouped rows stay together. Deselect rows only if you want a partial export.</p>
+      <p id="bridgePickerDescription">All prepared rows appear in Processing order, across glass types. Grouped rows stay together. Deselect rows only if you want a partial export.</p>
       <div id="bridgePickerBody"></div>
       <p id="bridgePickerCount" aria-live="polite"></p>
       <div id="bridgePickerErrors" class="bridge-errors" role="alert"></div>
@@ -1869,6 +1870,23 @@
         <button class="btn primary" id="bridgePickerAdd">Add selected</button>
         <button class="btn muted" id="bridgePickerCancel">Cancel</button>
         <button class="btn muted" id="bridgePickerProcessing">Open Processing</button>
+      </div>
+    </dialog>
+
+    <dialog id="bridgeManualPicker" class="bridge-dialog" aria-labelledby="bridgeManualTitle">
+      <h2 id="bridgeManualTitle">Add from Manual Orders</h2>
+      <p>Select saved approved or processing orders, then review their rows. This replaces the Bridge draft; order statuses stay unchanged.</p>
+      <form id="bridgeManualSearchForm" class="bridge-actions">
+        <input id="bridgeManualSearch" type="search" placeholder="Order number or client" aria-label="Search manual orders">
+        <button class="btn" type="submit">Search</button>
+      </form>
+      <div id="bridgeManualList" class="table-responsive"></div>
+      <p id="bridgeManualStatus" role="status" aria-live="polite"></p>
+      <div class="bridge-actions">
+        <button class="btn muted" id="bridgeManualPrevious">Previous</button>
+        <button class="btn muted" id="bridgeManualNext">Next</button>
+        <button class="btn primary" id="bridgeManualReview">Review selected orders</button>
+        <button class="btn muted" id="bridgeManualCancel">Cancel</button>
       </div>
     </dialog>
 
@@ -2349,8 +2367,8 @@
   <input type="file" id="scanFileInput" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple hidden />
 
 <script src="./js/living-dashboard.js?v=20260908-compact" defer></script>
-<script src="./js/platform-workflows.js?v=20260918-bridge-sheet2" defer></script>
-<script src="./js/app.js?v=20260918-bridge-sheet2" defer></script>
-<script src="./js/perfect-cut-bridge.js?v=20260918-bridge-sheet2" defer></script>
+<script src="./js/platform-workflows.js?v=20260918-bridge-manual1" defer></script>
+<script src="./js/app.js?v=20260918-bridge-manual1" defer></script>
+<script src="./js/perfect-cut-bridge.js?v=20260918-bridge-manual1" defer></script>
 </body>
 </html>

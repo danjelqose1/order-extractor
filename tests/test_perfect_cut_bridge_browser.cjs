@@ -11,11 +11,26 @@ async function run(engine,name,base){
   const browser = await engine.launch({headless:true});
   try{
     const page = await browser.newPage({viewport:{width:1366,height:900},acceptDownloads:true});
+    const manualFixture=require('./fixtures/perfect_cut_manual_order.json');
+    const manualOrders={31:structuredClone(manualFixture),32:{...structuredClone(manualFixture),id:32,order_number:'M-032',status:'processing'}};
+    const manualRequests=[];
     const errors=[]; page.on('pageerror',error=>errors.push(error.message));
     // Isolated UI fixture: no calls to deployed services or production data.
     await page.route('**/*',route=>{
       const url=route.request().url();
       if(url.startsWith(base)) return route.continue();
+      const parsed=new URL(url);
+      if(parsed.pathname.startsWith('/manual-orders')){
+        manualRequests.push(route.request().method());
+        if(parsed.pathname==='/manual-orders'){
+          const query=parsed.searchParams.get('query');
+          if(query==='failed') return route.fulfill({status:500,json:{detail:'Fixture request failed'}});
+          const items=query==='missing'?[]:parsed.searchParams.get('offset')==='50'?[manualOrders[32]]:[manualOrders[31],{...manualFixture,id:33,order_number:'M-DRAFT',status:'draft'}];
+          return route.fulfill({status:200,json:{items:items.map(o=>({...o,rows:undefined,row_count:o.rows.length,total_quantity:6})),has_more:!query && parsed.searchParams.get('offset')==='0'}});
+        }
+        const order=manualOrders[Number(parsed.pathname.split('/').at(-1))];
+        return route.fulfill({status:order?200:404,json:order||{detail:'Not found'}});
+      }
       if(url.includes('/events/')) return route.fulfill({status:204,body:''});
       return route.fulfill({status:200,contentType:'application/json',body:'{}'});
     });
@@ -111,8 +126,75 @@ async function run(engine,name,base){
     const groupedDownload=await groupedDownloadPromise;
     assert.equal(fs.readFileSync(await groupedDownload.path(),'utf8'),expectedScreenshot);
     await page.screenshot({path:`/tmp/perfect-cut-${name}-screenshot-order.png`,fullPage:true});
+    // Manual Orders is an independent GET-only source; saved millimetres are never rounded.
+    const modulesBefore=await page.evaluate(()=>JSON.stringify({processing:appState.processing,labels:appState.labels}));
+    await page.locator('#bridgeManualAdd').click();
+    await page.locator('[data-bridge-manual-order="0"]').waitFor();
+    assert(await page.locator('[data-bridge-manual-order="1"]').isDisabled()); // Draft
+    await page.locator('[data-bridge-manual-order="0"]').check();
+    await page.locator('#bridgeManualNext').click();
+    await page.locator('[data-bridge-manual-order="0"]').waitFor();
+    await page.locator('[data-bridge-manual-order="0"]').check();
+    assert.match(await page.locator('#bridgeManualStatus').innerText(),/2 selected orders/);
+    await page.locator('#bridgeManualReview').click();
+    await page.locator('#bridgePicker').waitFor();
+    assert.equal(await page.locator('[data-bridge-select]:checked').count(),6);
+    await page.locator('#bridgePickerAdd').click();
+    await page.locator('#bridgePicker').waitFor({state:'hidden'});
+    assert.equal(await page.locator('#bridgeRows tbody tr').count(),6);
+    assert.equal(await page.locator('#bridgeRows tbody tr').first().locator('td').nth(4).innerText(),'791');
+    assert.match(await page.locator('#bridgeRefresh').innerText(),/Manual Orders/);
+    await page.locator('#bridgeRefresh').click();
+    await page.locator('[data-bridge-order="1"]').uncheck();
+    await page.locator('[data-bridge-select="1"]').uncheck();
+    await page.locator('#bridgePickerAdd').click();
+    await page.locator('#bridgePicker').waitFor({state:'hidden'});
+    const manualDownloadPromise=page.waitForEvent('download');
+    await page.locator('#bridgeDownload').click();
+    const manualDownload=await manualDownloadPromise;
+    assert.equal(fs.readFileSync(await manualDownload.path(),'utf8'),'quantity,width,height\r\n2,791,314\r\n1,791,314\r\n');
+    assert.equal(await page.evaluate(()=>JSON.stringify({processing:appState.processing,labels:appState.labels})),modulesBefore);
+    await page.screenshot({path:`/tmp/perfect-cut-${name}-manual.png`,fullPage:true});
+    // A source edit blocks download without silently editing the captured dimensions.
+    manualOrders[31].rows[0].width_mm=800;
+    await page.locator('#bridgeDownload').click();
+    await page.waitForFunction(()=>document.getElementById('bridgeErrors').textContent.includes('changed'));
+    assert(await page.locator('#bridgeDownload').isDisabled());
+    assert.equal(await page.locator('#bridgeRows tbody tr').first().locator('td').nth(4).innerText(),'791');
+    await page.locator('#bridgeRefresh').click();
+    await page.locator('#bridgePickerAdd').click();
+    await page.locator('#bridgePicker').waitFor({state:'hidden'});
+    assert.equal(await page.locator('#bridgeRows tbody tr').first().locator('td').nth(4).innerText(),'800');
+    // Reopening as a draft revokes eligibility even when dimensions have not changed.
+    manualOrders[31].status='draft';
+    await page.locator('#bridgeDownload').click();
+    await page.waitForFunction(()=>document.getElementById('bridgeErrors').textContent.includes('only approved'));
+    assert(await page.locator('#bridgeDownload').isDisabled());
+    manualOrders[31].status='approved';
+    // Request failures and empty searches do not destroy the existing snapshot.
+    await page.locator('#bridgeManualAdd').click();
+    await page.locator('#bridgeManualSearch').fill('missing');
+    await page.locator('#bridgeManualSearchForm button').click();
+    await page.waitForFunction(()=>document.getElementById('bridgeManualList').textContent.includes('No manual orders'));
+    await page.locator('#bridgeManualSearch').fill('failed');
+    await page.locator('#bridgeManualSearchForm button').click();
+    await page.waitForFunction(()=>document.getElementById('bridgeManualStatus').textContent.includes('Fixture request failed'));
+    await page.locator('#bridgeManualSearch').fill('');
+    await page.locator('#bridgeManualSearchForm button').click();
+    await page.locator('[data-bridge-manual-order="0"]').waitFor();
+    await page.setViewportSize({width:390,height:844});
+    await page.screenshot({path:`/tmp/perfect-cut-${name}-manual-picker-mobile.png`,fullPage:true});
+    const manualBox=await page.locator('#bridgeManualPicker').boundingBox();
+    assert(manualBox.x>=0 && manualBox.x+manualBox.width<=391);
+    await page.locator('#bridgeManualCancel').click();
+    assert.equal(await page.locator('#bridgeRows tbody tr').count(),3);
+    assert(manualRequests.length>0 && manualRequests.every(request=>request==='GET'));
+    // Importing Processing again returns to Processing version checks and exact grouping.
+    await page.locator('#bridgeAdd').click();
+    assert.equal(await page.locator('#bridgeRows tbody tr').count(),4);
+
     assert.deepEqual(errors,[]);
-    console.log(`${name}: empty, selection, rapid clicks, exact downloaded CSV, duplicates, source changes, refresh, busy guard, removal/clear isolation, geometry, whole-sheet grouped/ungrouped import across glass types and mobile checks passed`);
+    console.log(`${name}: empty, selection, rapid clicks, exact downloaded CSV, duplicates, source changes, refresh, busy guard, removal/clear isolation, geometry, whole-sheet grouped/ungrouped imports, Manual Orders search/paging/review/GET-only isolation/stale checks and mobile checks passed`);
   }finally{await browser.close();}
 }
 const server=http.createServer((req,res)=>{

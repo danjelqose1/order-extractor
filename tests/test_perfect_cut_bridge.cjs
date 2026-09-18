@@ -179,3 +179,39 @@ test('R-26-0830 matches both screenshots exactly across glass types and repeated
   assert.equal(bridge.csv(job.rows),expected);
   assert.equal(JSON.stringify(grouped.processing),before);
 });
+test('manual import preserves saved mm, interleaved types, positions, quantities and independent area',()=>{
+  const order=clone(require('./fixtures/perfect_cut_manual_order.json'));
+  const before=JSON.stringify(order);
+  const sections=bridge.collectManual([order]);
+  const job=bridge.importPrepared(bridge.emptyJob(),sections);
+  assert.equal(bridge.csv(job.rows),'quantity,width,height\r\n2,791,314\r\n3,500,1200\r\n1,791,314\r\n');
+  assert.equal(job.rows[2].sources[0].position,'A-2');
+  assert.equal(job.rows[0].sources[0].bridgeSource.declaredArea,'4.100');
+  assert.equal(JSON.stringify(order),before);
+  order.rows[0].width_mm=900;
+  assert.equal(job.rows[0].width,791);
+  assert.equal(bridge.changes(job,bridge.collectManual([order]),'Manual Orders').length,1);
+  assert.equal(bridge.importPrepared(job,sections).rows.length,3);
+});
+test('manual status guards and malformed saved values fail closed without coercion',()=>{
+  const fixture=require('./fixtures/perfect_cut_manual_order.json');
+  for(const status of ['draft','cancelled','finished','unexpected']){
+    assert.throws(()=>bridge.collectManual([{...fixture,status}]),/only approved or processing/);
+  }
+  assert.equal(bridge.collectManual([{...fixture,status:'processing'}]).length,1);
+  assert.throws(()=>bridge.collectManual([{...fixture,rows:[]}]),/no saved rows/);
+  for(const field of ['quantity','width_mm','height_mm']) for(const value of [null,true,'1e2','5.0',1.5,0,-1]){
+    const order=clone(fixture); order.rows[0][field]=value;
+    assert(bridge.validate(bridge.collectManual([order])[0].rows).errors.length);
+  }
+  const order=clone(fixture); order.rows[0].shape='triangle';
+  assert(bridge.validate(bridge.collectManual([order])[0].rows).errors.some(e=>e.includes('triangle')));
+});
+test('manual source identity is separate from PDFs and preserves equal-sized rows across orders',()=>{
+  const fixture=require('./fixtures/perfect_cut_manual_order.json');
+  const sections=bridge.collectManual([fixture,{...fixture,id:32,order_number:'M-032'}]);
+  const job=bridge.importPrepared(bridge.emptyJob(),sections);
+  assert.equal(job.rows.length,6);
+  assert.equal(new Set(job.rows.flatMap(r=>r.sourceIds)).size,6);
+  assert.equal(bridge.validate(job.rows).errors.length,0);
+});

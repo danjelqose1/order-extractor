@@ -31,13 +31,41 @@
       }),
     }));
   }
+  const manualEligible = order => ["approved", "processing"].includes(order?.status);
+  function collectManual(orders){
+    return orders.map(order => {
+      if (!manualEligible(order)) throw new Error(`${order.order_number || order.id}: only approved or processing manual orders can be imported.`);
+      if (order.id == null) throw new Error("Manual order identity is missing.");
+      if (!order.rows?.length) throw new Error(`${order.order_number || order.id}: manual order has no saved rows.`);
+      return { key: `manual-${order.id}`, label: order.order_number, rows: (order.rows || []).map((item,index) => {
+        const source = {
+          source: "manual", orderId: `manual-${order.id}`, rowId: String(item.id ?? `index:${index}`),
+          version: order.version ?? null, updatedAt: order.updated_at ?? null, status: order.status,
+          quantity: item.quantity, shape: item.shape ?? item.geometry ?? item.shape_type ?? null,
+          rectangular: item.is_rectangular ?? null, requirements: item.special_requirements ?? item.requirements ?? null,
+          notes: item.notes ?? null, orderNotes: order.notes ?? null, declaredArea: order.total_area_m2 ?? null,
+        };
+        const origin = { bridgeSource: source, orderId: order.order_number, client: order.client_name,
+          position: item.position || item.client_position || String(item.index_number ?? index + 1),
+          section: item.section || "", red_index: item.index_number ?? null };
+        const sourceIds = [sourceKey(origin)];
+        const row = {
+          id: JSON.stringify(sourceIds), section: item.glass_type || "", sectionLabel: item.glass_type || "",
+          quantity: item.quantity, width: item.width_mm, height: item.height_mm, invalid: false,
+          sources: [origin], sourceIds, sourceArea: item.final_area_m2 ?? null,
+        };
+        row.version = JSON.stringify(row);
+        return copy(row);
+      }) };
+    });
+  }
   function reasons(row){
     const errors = [];
     for (const [key, max] of [["quantity",999],["width",10000],["height",10000]]){
       if (!integer(row[key], max)) errors.push(`${key} must be a whole number from 1 through ${max}${key === "quantity" ? "" : " mm"}`);
     }
-    if (row.invalid) errors.push("Processing marks these dimensions invalid");
-    if (!row.sources.length || row.sourceIds.length !== row.sources.length) errors.push("source identity is missing; prepare this order again in Processing");
+    if (row.invalid) errors.push("Source marks these dimensions invalid");
+    if (!row.sources.length || row.sourceIds.length !== row.sources.length) errors.push("source identity is missing; reload this order from its source");
     for (const origin of row.sources){
       const source = origin.bridgeSource;
       if (!source) continue;
@@ -48,7 +76,7 @@
       }
       // Free-form instructions have no equivalent in the three-column CSV. Fail closed.
       if (present(source.requirements) || present(source.notes) || present(source.orderNotes)){
-        errors.push(`${at}: notes or special requirements cannot be represented by this CSV; review in Processing`);
+        errors.push(`${at}: notes or special requirements cannot be represented by this CSV; review in the source module`);
       }
     }
     if (/triang|trapez|shaped|sagomat|\b(?:arch|circle|oval|rhomboid|polygon)\b/i.test(row.section)) errors.push("glass section indicates unsupported geometry");
@@ -82,11 +110,11 @@
   function importPrepared(job, sections){
     return add(job, sections.flatMap(section => section.rows), true);
   }
-  function changes(job, sections){
+  function changes(job, sections, sourceLabel = "Processing"){
     const current = new Map(sections.flatMap(section => section.rows).map(row => [row.id, row]));
     return job.rows.flatMap(row => {
       const match = current.get(row.id);
-      return !match ? [`${describe(row)}: no longer available with the same grouping in Processing.`]
+      return !match ? [`${describe(row)}: no longer available with the same grouping in ${sourceLabel}.`]
         : match.version !== row.version ? [`${describe(row)}: prepared values, section or source information changed.`] : [];
     });
   }
@@ -95,7 +123,7 @@
     if (result.errors.length) throw new Error(result.errors.join("\n"));
     return "quantity,width,height\r\n" + validatedRows.map(row => `${row.quantity},${row.width},${row.height}\r\n`).join("");
   }
-  const api = { collect, reasons, validate, emptyJob, add, importPrepared, changes, csv, integer, describe };
+  const api = { collect, collectManual, manualEligible, reasons, validate, emptyJob, add, importPrepared, changes, csv, integer, describe };
   root.PerfectCutBridge = api;
   if (typeof module !== "undefined") module.exports = api;
   if (typeof document === "undefined" || !document.getElementById("bridgePicker")) return;
@@ -104,6 +132,10 @@
   let job = emptyJob();
   let picker = null;
   let previewRows = [];
+  let busy = false;
+  let manualSections = [];
+  let manualError = "";
+  const manualPicker = { selected: new Map(), offset: 0, items: [], hasMore: false, request: 0, loading: false };
   const el = id => document.getElementById(id);
   const esc = value => String(value ?? "—").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
   const current = () => collect(appState.processing, processingBridgeBusy > 0);
@@ -115,12 +147,18 @@
     const validation = validate(job.rows);
     previewRows = validation.rows;
     let stale = [];
-    try{ stale = changes(job, current()); }catch(error){ stale = [error.message]; }
+    try{ stale = job.sourceKind === "manual"
+      ? (manualError ? [manualError] : changes(job, manualSections, "Manual Orders"))
+      : changes(job, current()); }catch(error){ stale = [error.message]; }
     const errors = [...(job.rows.length ? validation.errors : []), ...stale];
     el("bridgeErrors").innerHTML = errorList(errors);
-    el("bridgeRefresh").disabled = !job.rows.length;
-    el("bridgeClear").disabled = !job.rows.length;
-    el("bridgeDownload").disabled = !previewRows.length || errors.length > 0;
+    el("bridgeOpenProcessing").textContent = job.sourceKind === "manual" ? "Open Manual Orders" : "Open Processing";
+    el("bridgeAdd").disabled = busy;
+    el("bridgeManualAdd").disabled = busy;
+    el("bridgeRefresh").textContent = job.sourceKind === "manual" ? "Review / refresh Manual Orders" : "Review / refresh from Processing";
+    el("bridgeRefresh").disabled = busy || !job.rows.length;
+    el("bridgeClear").disabled = busy || !job.rows.length;
+    el("bridgeDownload").disabled = busy || !previewRows.length || errors.length > 0;
     const rows = previewRows.length ? previewRows : job.rows;
     const pieces = previewRows.reduce((sum,row) => sum + row.quantity, 0);
     const area = previewRows.reduce((sum,row) => sum + row.quantity * row.width * row.height, 0) / 1000000;
@@ -130,23 +168,27 @@
       if (s.bridgeSource?.declaredArea != null) orderAreas.set(s.orderId, s.bridgeSource.declaredArea);
     }));
     el("bridgeSourceSummary").innerHTML = rows.length ? `<p class="muted small">Source order areas (whole orders, not selected cutting area): ${orderAreas.size ? [...orderAreas].map(([order,area]) => `${esc(order)}: ${esc(area)} m²`).join("; ") : "not declared"}. Values are preserved separately.</p>` : "<p>Nothing added. Prepare a sheet in Processing, then add it here.</p>";
-    el("bridgeRows").innerHTML = rows.length ? `<table>${tableHead("Action")}<tbody>${rows.map((row,i) => `<tr><td><button class="btn small muted" data-bridge-remove="${i}" aria-label="Remove ${esc(describe(row))}">Remove</button></td>${sourceCells(row)}${numericCells(row)}</tr>`).join("")}</tbody></table>` : "";
+    el("bridgeRows").innerHTML = rows.length ? `<table>${tableHead("Action")}<tbody>${rows.map((row,i) => `<tr><td><button class="btn small muted" data-bridge-remove="${i}" ${busy ? "disabled" : ""} aria-label="Remove ${esc(describe(row))}">Remove</button></td>${sourceCells(row)}${numericCells(row)}</tr>`).join("")}</tbody></table>` : "";
   }
-  function openPicker(replace = false){
+  function openPicker(replace = false, suppliedSections = null, manualIds = null){
     let sections;
-    try{ sections = current(); }catch(error){ el("bridgeStatus").textContent = error.message; render(); return; }
+    try{ sections = suppliedSections || current(); }catch(error){ el("bridgeStatus").textContent = error.message; render(); return; }
     const rows = sections.flatMap(section => section.rows);
-    picker = { sections, rows, selected: new Set(rows.map(row => row.id)), replace };
-    el("bridgePickerTitle").textContent = replace ? "Review replacement snapshot" : "Add from Processing";
+    picker = { sections, rows, selected: new Set(rows.map(row => row.id)), replace, manualIds };
+    el("bridgePickerDescription").textContent = manualIds
+      ? "Saved Manual Orders rows, in their original order and millimetres. No rounding or grouping is applied. Deselect rows for a partial export."
+      : "All prepared rows appear in Processing order, across glass types. Grouped rows stay together. Deselect rows only if you want a partial export.";
+    el("bridgePickerProcessing").textContent = manualIds ? "Open Manual Orders" : "Open Processing";
+    el("bridgePickerTitle").textContent = manualIds ? "Review Manual Orders" : replace ? "Review replacement snapshot" : "Add from Processing";
     el("bridgePickerAdd").textContent = replace ? "Replace job with selected" : "Add selected";
     el("bridgePickerErrors").innerHTML = "";
     renderPicker();
     el("bridgePicker").showModal();
   }
   function renderPicker(){
-    let html = "<p>The selected current rows will replace the Bridge snapshot, in Processing order.</p>";
+    let html = "<p>The selected rows will replace the Bridge snapshot in the order shown below.</p>";
     if (!picker.rows.length){
-      html += '<p class="processing-empty">Processing is empty. Open Processing to prepare a sheet.</p>';
+      html += picker.manualIds ? '<p>No saved rows in these manual orders.</p>' : '<p class="processing-empty">Processing is empty. Open Processing to prepare a sheet.</p>';
     }else{
       const buckets = new Map();
       picker.rows.forEach(row => {
@@ -176,10 +218,10 @@
     el("bridgePickerCount").textContent = `${rows.length} selected rows · ${validQty ? rows.reduce((sum,row) => sum + Number(row.quantity),0) : "Invalid"} total quantity`;
     const errors = rows.length ? validate(rows).errors : [];
     el("bridgePickerErrors").innerHTML = errorList(errors);
-    el("bridgePickerAdd").disabled = !rows.length || errors.length > 0;
+    el("bridgePickerAdd").disabled = busy || !rows.length || errors.length > 0;
   }
   el("bridgePickerBody").addEventListener("change", event => {
-    if (!picker) return;
+    if (!picker || busy) return;
     const target = event.target;
     if (target.hasAttribute("data-bridge-select")){
       const row = picker.rows[Number(target.dataset.bridgeSelect)];
@@ -195,30 +237,46 @@
     renderPicker();
     if (focusAttribute) el("bridgePickerBody").querySelector(`[${focusAttribute}="${focusValue}"]`)?.focus();
   });
-  el("bridgePickerAdd").addEventListener("click", () => {
-    if (!picker) return; // Synchronous guard also covers rapid duplicate clicks.
+  el("bridgePickerAdd").addEventListener("click", async () => {
+    if (!picker || busy) return; // Synchronous guard also covers rapid duplicate clicks.
+    const activePicker = picker;
+    busy = true; updateSelection(); render();
+    el("bridgePickerBody").querySelectorAll("input").forEach(input => { input.disabled = true; });
     try{
       const rows = selectedRows();
-      const stale = changes({rows},current());
-      if (stale.length) throw new Error("Processing changed while this review was open. Cancel and reopen to review current values.\n" + stale.join("\n"));
-      job = add(job, rows, true);
+      const selectedManualIds = activePicker.manualIds?.filter(id => rows.some(row => row.sources.some(source => source.bridgeSource.orderId === `manual-${id}`))) || null;
+      const latest = selectedManualIds ? await fetchManualSections(selectedManualIds) : current();
+      if (picker !== activePicker) return;
+      const stale = changes({rows},latest, activePicker.manualIds ? "Manual Orders" : "Processing");
+      if (stale.length) throw new Error(`${activePicker.manualIds ? "Manual Orders" : "Processing"} changed while this review was open. Cancel and reopen to review current values.\n` + stale.join("\n"));
+      job = { ...add(job, rows, true), sourceKind: activePicker.manualIds ? "manual" : "processing", manualIds: selectedManualIds };
+      if (activePicker.manualIds){ manualSections = latest; manualError = ""; }
       picker = null;
       el("bridgePicker").close();
-      el("bridgeStatus").textContent = "Prepared rows copied in Processing order. Ready to download.";
-      render();
-    }catch(error){ el("bridgePickerErrors").innerHTML = errorList(error.message.split("\n")); }
+      el("bridgeStatus").textContent = activePicker.manualIds ? "Manual Orders rows copied in their saved order. Ready to download." : "Prepared rows copied in Processing order. Ready to download.";
+    }catch(error){ if (picker === activePicker) el("bridgePickerErrors").innerHTML = errorList(error.message.split("\n")); }
+    finally{
+      busy = false; render();
+      if (picker === activePicker){
+        el("bridgePickerBody").querySelectorAll("input").forEach(input => { input.disabled = false; });
+        el("bridgePickerAdd").disabled = !selectedRows().length || validate(selectedRows()).errors.length > 0;
+      }
+    }
   });
   el("bridgePicker").addEventListener("close", () => { picker = null; });
   el("bridgePickerCancel").addEventListener("click", () => el("bridgePicker").close());
-  const openProcessing = () => { if (el("bridgePicker").open) el("bridgePicker").close(); activateTab("processing"); };
+  const openProcessing = () => { if (el("bridgePicker").open) el("bridgePicker").close(); activateTab(job.sourceKind === "manual" ? "manual" : "processing"); };
   el("bridgeOpenProcessing").addEventListener("click",openProcessing);
-  el("bridgePickerProcessing").addEventListener("click",openProcessing);
+  el("bridgePickerProcessing").addEventListener("click", () => {
+    const manual = !!picker?.manualIds;
+    el("bridgePicker").close(); activateTab(manual ? "manual" : "processing");
+  });
   el("bridgeAdd").addEventListener("click", () => {
     let sections;
     try{ sections = current(); }catch(error){ el("bridgeStatus").textContent = error.message; render(); return; }
     if (!sections.some(section => section.rows.length)){ openPicker(true); return; }
     try{
-      job = importPrepared(job, sections);
+      job = { ...importPrepared(job, sections), sourceKind: "processing", manualIds: null };
       el("bridgeStatus").textContent = "Prepared rows copied in Processing order. Ready to download.";
       render();
     }catch(error){
@@ -226,7 +284,14 @@
       openPicker(true);
     }
   });
-  el("bridgeRefresh").addEventListener("click", () => openPicker(true));
+  el("bridgeRefresh").addEventListener("click", async () => {
+    if (busy) return;
+    if (job.sourceKind !== "manual"){ openPicker(true); return; }
+    busy = true; render();
+    try{ openPicker(true, await fetchManualSections(job.manualIds), job.manualIds); }
+    catch(error){ manualError = error.message; el("bridgeStatus").textContent = error.message; }
+    finally{ busy = false; render(); if (picker) updateSelection(); }
+  });
   el("bridgeClear").addEventListener("click", () => {
     if (!window.confirm("Clear this Bridge job? Processing, Labels and source orders will remain unchanged.")) return;
     job = emptyJob(); el("bridgeStatus").textContent = "Bridge job cleared."; render();
@@ -234,9 +299,18 @@
   el("bridgeRows").addEventListener("click", event => {
     const button = event.target.closest("[data-bridge-remove]");
     if (!button) return;
-    job.rows.splice(Number(button.dataset.bridgeRemove),1); render();
+    job.rows.splice(Number(button.dataset.bridgeRemove),1);
+    if (job.manualIds) job.manualIds = job.manualIds.filter(id => job.rows.some(row => row.sources.some(source => source.bridgeSource.orderId === `manual-${id}`)));
+    render();
   });
-  el("bridgeDownload").addEventListener("click", () => {
+  el("bridgeDownload").addEventListener("click", async () => {
+    if (busy) return;
+    if (job.sourceKind === "manual"){
+      busy = true; render();
+      try{ manualSections = await fetchManualSections(job.manualIds); manualError = ""; }
+      catch(error){ manualError = error.message; }
+      finally{ busy = false; }
+    }
     render(); // Revalidate source versions and preview immediately before download.
     if (el("bridgeDownload").disabled) return;
     const blob = new Blob([csv(previewRows)], {type:"text/csv;charset=utf-8"});
@@ -247,6 +321,80 @@
     setTimeout(() => URL.revokeObjectURL(url),1000);
     el("bridgeStatus").textContent = "CSV download requested. Check the saved filename and the material selected in Perfect Cut before pressing F8.";
   });
+  async function fetchManualSections(ids){
+    const orders = await Promise.all(ids.map(async id => {
+      const order = await manualApi(`/manual-orders/${encodeURIComponent(id)}`);
+      if (!order || String(order.id) !== String(id)) throw new Error(`Manual order ${id}: unexpected or missing response.`);
+      return order;
+    }));
+    return collectManual(orders);
+  }
+  function renderManualList(){
+    const state = manualPicker;
+    el("bridgeManualPrevious").disabled = state.loading || state.offset === 0;
+    el("bridgeManualNext").disabled = state.loading || !state.hasMore;
+    el("bridgeManualReview").disabled = state.loading || !state.selected.size;
+    el("bridgeManualStatus").textContent = state.loading ? "Loading Manual Orders…" : `${state.selected.size} selected orders · Page ${state.offset / 50 + 1}`;
+    el("bridgeManualList").innerHTML = state.loading ? "" : state.items.length ? `<table><thead><tr><th>Select</th><th>Order / client</th><th>Status</th><th>Rows</th><th>Pieces</th></tr></thead><tbody>${state.items.map((order,index) => `<tr><td><input type="checkbox" data-bridge-manual-order="${index}" aria-label="Select manual order ${esc(order.order_number)}" ${state.selected.has(String(order.id)) ? "checked" : ""} ${manualEligible(order) ? "" : "disabled"}></td><td>${esc(order.order_number)}<br><small>${esc(order.client_name)}</small></td><td>${esc(order.status)}</td><td>${esc(order.row_count)}</td><td>${esc(order.total_quantity)}</td></tr>`).join("")}</tbody></table>` : '<p>No manual orders found. Try a different search, or save an order in Manual Orders.</p>';
+  }
+  async function loadManualList(){
+    const request = ++manualPicker.request;
+    manualPicker.loading = true; renderManualList();
+    const params = new URLSearchParams({ limit: "50", offset: String(manualPicker.offset), query: el("bridgeManualSearch").value.trim() });
+    try{
+      const result = await manualApi(`/manual-orders?${params}`);
+      if (request !== manualPicker.request) return;
+      manualPicker.items = Array.isArray(result?.items) ? result.items : [];
+      manualPicker.hasMore = !!result?.has_more;
+      // A returned status change invalidates an earlier selection on this page.
+      manualPicker.items.forEach(order => { if (!manualEligible(order)) manualPicker.selected.delete(String(order.id)); });
+      manualPicker.loading = false; renderManualList();
+    }catch(error){
+      if (request !== manualPicker.request) return;
+      manualPicker.items = []; manualPicker.hasMore = false; manualPicker.loading = false;
+      renderManualList(); el("bridgeManualStatus").textContent = error.message;
+    }
+  }
+  el("bridgeManualAdd").addEventListener("click", () => {
+    if (busy) return;
+    manualPicker.selected.clear(); manualPicker.offset = 0;
+    el("bridgeManualPicker").showModal(); loadManualList();
+  });
+  el("bridgeManualSearchForm").addEventListener("submit", event => {
+    event.preventDefault(); if (busy) return;
+    manualPicker.offset = 0; loadManualList();
+  });
+  el("bridgeManualPrevious").addEventListener("click", () => { manualPicker.offset -= 50; loadManualList(); });
+  el("bridgeManualNext").addEventListener("click", () => { manualPicker.offset += 50; loadManualList(); });
+  el("bridgeManualList").addEventListener("change", event => {
+    if (manualPicker.loading || !event.target.hasAttribute("data-bridge-manual-order")) return;
+    const order = manualPicker.items[Number(event.target.dataset.bridgeManualOrder)];
+    if (!manualEligible(order)) return;
+    if (event.target.checked) manualPicker.selected.set(String(order.id),order.order_number);
+    else manualPicker.selected.delete(String(order.id));
+    el("bridgeManualReview").disabled = !manualPicker.selected.size;
+    el("bridgeManualStatus").textContent = `${manualPicker.selected.size} selected orders · Page ${manualPicker.offset / 50 + 1}`;
+  });
+  el("bridgeManualCancel").addEventListener("click", () => el("bridgeManualPicker").close());
+  el("bridgeManualPicker").addEventListener("close", () => { manualPicker.request++; });
+  el("bridgeManualReview").addEventListener("click", async () => {
+    if (busy || manualPicker.loading || !manualPicker.selected.size) return;
+    const request = ++manualPicker.request;
+    const ids = [...manualPicker.selected.keys()];
+    busy = true; manualPicker.loading = true; render(); renderManualList();
+    try{
+      const sections = await fetchManualSections(ids);
+      if (request !== manualPicker.request || !el("bridgeManualPicker").open) return;
+      el("bridgeManualPicker").close(); openPicker(true, sections, ids);
+    }catch(error){
+      if (request === manualPicker.request){
+        manualPicker.loading = false; renderManualList(); el("bridgeManualStatus").textContent = error.message;
+      }
+    }finally{
+      busy = false; manualPicker.loading = false; render(); if (picker) updateSelection();
+    }
+  });
+
   root.PerfectCutBridgeUI = { render };
   render();
 })(typeof window !== "undefined" ? window : globalThis);

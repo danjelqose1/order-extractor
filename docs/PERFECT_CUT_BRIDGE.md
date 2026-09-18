@@ -2,6 +2,16 @@
 
 Under Production → Perfect Cut Bridge, click **Add from Processing**, then download `job.csv`. The button copies the entire current prepared sheet across glass types, in its displayed order. Each click explicitly replaces the Bridge snapshot, so repeated clicks cannot duplicate rows. **Review / refresh** offers optional row/order selection for a partial export. No material/pass input or confirmation is required.
 
+## Add from Manual Orders
+
+**Add from Manual Orders** opens a searchable, paginated list of saved orders. Choose one or more approved/processing orders, then review all rows or deselect rows for a partial export. As with Processing, committing the import replaces the current Bridge draft. Draft, finished and cancelled orders are ineligible, matching the existing Manual Orders production action.
+
+The dedicated adapter copies saved `width_mm`, `height_mm` and `quantity` exactly, in each order's saved row order. It does not round, regroup, swap dimensions, filter glass types, expand quantities, or mutate the Processing cart. Repeated imports cannot duplicate rows. Source positions, IDs, status, update timestamp and declared area are retained separately.
+
+Only the existing GET list/detail endpoints are used. Details are re-fetched before committing the reviewed selection and again before download. Changes, deletion, revoked approval or a fetch failure block export without silently updating the snapshot. **Review / refresh Manual Orders** explicitly reviews fresh values. **Open Manual Orders** opens the source module for corrections. No order statuses or stored orders are changed.
+
+Manual-specific validation uses the same numeric/geometry/notes checks as Processing. Only saved values are imported; unsaved edits in the Manual Orders form are not included.
+
 ## Behavior and boundaries
 
 - Reads `appState.processing.preview.groups[].lines`, the canonical Mother Sheet output. No extra rounding, dimension swapping, grouping, quantity expansion, PDF parsing or label expansion occurs.
@@ -26,7 +36,7 @@ Under Production → Perfect Cut Bridge, click **Add from Processing**, then dow
 | `docs/js/perfect-cut-bridge.js` | Adapter, validation, immutable import, duplicate/change detection, selection/review UI and CSV download |
 | `tests/fixtures/perfect_cut_processing_order.json` | R-26-0830 screenshot regression: five ungrouped rows become four grouped rows across two glass types, still five pieces |
 | `tests/fixtures/perfect_cut_order.json` | Requested R-26-0826 dimensions/quantities and source total; synthetic per-row source areas for regression testing |
-| `tests/test_perfect_cut_bridge.cjs` | 15 data-contract, isolation, canonical transformation, safety and async-guard tests |
+| `tests/test_perfect_cut_bridge.cjs` | 18 data-contract, isolation, canonical transformation, safety and async-guard tests |
 | `tests/test_perfect_cut_bridge_browser.cjs` | Isolated Chromium/WebKit browser acceptance checks; no production service access |
 | `docs/PERFECT_CUT_BRIDGE.md` | Implementation and validation notes |
 
@@ -34,7 +44,7 @@ Under Production → Perfect Cut Bridge, click **Add from Processing**, then dow
 
 Passed locally:
 
-- `node --test tests/test_perfect_cut_bridge.cjs` — 15 tests.
+- `node --test tests/test_perfect_cut_bridge.cjs` — 18 tests.
 - `python -m pytest -q tests/test_frontend_navigation.py tests/test_frontend_security.py tests/test_frontend_theme.py tests/test_pdf_editor_static.py tests/test_order_detail_review_ui.py tests/test_work_queue_activity_ui.py` — 49 tests.
 - `python -m pytest -q tests/test_manual_orders.py tests/test_mcp_platform.py -k 'processing or label or danko'` — 16 tests, including real Processing/Labels document generation. Existing dependency deprecation warnings only.
 - `node tests/test_perfect_cut_bridge_browser.cjs` with an external Playwright installation on `NODE_PATH` — Chromium and WebKit passed: empty state, subsets/order selection, rapid duplicate clicks, byte-exact download, stale picker, explicit refresh, busy guards, removal/confirmed clear isolation, unsupported shapes, multiple orders, whole-sheet imports across glass types, the screenshot order before/after grouping, and 390px mobile layout. The script starts and stops its own static fixture server and mocks all external requests.
@@ -54,3 +64,5 @@ quantity,width,height
 1,1268,168
 1,433,848
 ```
+
+Manual Orders extension verification: 18 Bridge contract tests and 68 frontend/Manual Orders regression tests passed. Chromium and WebKit browser checks passed for search, empty/error states, pagination with retained selections, disabled draft selection, multi-order import, partial row selection, exact CSV bytes, unchanged Processing/Labels, changed-source and approval rechecks, switching back to Processing, and mobile layout. Fixture: `tests/fixtures/perfect_cut_manual_order.json`. No live manual records were modified.
