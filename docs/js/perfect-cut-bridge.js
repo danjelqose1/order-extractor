@@ -12,6 +12,10 @@
     return source ? JSON.stringify([source.source, source.orderId, source.rowId]) : null;
   };
   const describe = row => row.sources.map(s => `${s.orderId || "Unknown order"} / position ${s.position || "—"}`).join("; ") || "Unknown order / position";
+  // References and filenames are metadata, not machining instructions. Recognize
+  // explicit unsupported features in free text; structured requirements still block.
+  const unsupportedNote = value => typeof value === "string" &&
+    /\b(?:holes?|drill(?:ed|ing)?|cut[ -]?outs?|notch(?:es|ed)?|triang(?:le|ular)|trapez(?:oid|ium|oidal)|oval|rhomboid|polygon|arched|circular)\b/i.test(value);
   function collect(processing, busy = false){
     if (busy || processing?.loading || processing?.recalculating) throw new Error("Processing is busy. Wait until preparation finishes, then reopen this review.");
     return (processing?.preview?.groups || []).map(group => ({
@@ -61,29 +65,31 @@
   }
   function reasons(row){
     const errors = [];
+    const report = (message, origin) => errors.push(`${origin ? describe({sources:[origin]}) : describe(row)}: ${message}`);
     for (const [key, max] of [["quantity",999],["width",10000],["height",10000]]){
-      if (!integer(row[key], max)) errors.push(`${key} must be a whole number from 1 through ${max}${key === "quantity" ? "" : " mm"}`);
+      if (!integer(row[key], max)) report(`${key} must be a whole number from 1 through ${max}${key === "quantity" ? "" : " mm"}`);
     }
-    if (row.invalid) errors.push("Source marks these dimensions invalid");
-    if (!row.sources.length || row.sourceIds.length !== row.sources.length) errors.push("source identity is missing; reload this order from its source");
+    if (row.invalid) report("Source marks these dimensions invalid");
+    if (!row.sources.length || row.sourceIds.length !== row.sources.length) report("source identity is missing; reload this order from its source");
     for (const origin of row.sources){
       const source = origin.bridgeSource;
       if (!source) continue;
-      const at = `${origin.orderId} / position ${origin.position}`;
-      if (!integer(source.quantity, 999)) errors.push(`${at}: source quantity is malformed or outside 1–999`);
+      if (!integer(source.quantity, 999)) report("source quantity is malformed or outside 1–999", origin);
       if ((present(source.shape) && !/^(rectangle|rectangular|rect)$/i.test(String(source.shape))) || source.rectangular === false){
-        errors.push(`${at}: unsupported geometry (${String(source.shape || "non-rectangular")})`);
+        report(`unsupported geometry (${String(source.shape || "non-rectangular")})`, origin);
       }
-      // Free-form instructions have no equivalent in the three-column CSV. Fail closed.
-      if (present(source.requirements) || present(source.notes) || present(source.orderNotes)){
-        errors.push(`${at}: notes or special requirements cannot be represented by this CSV; review in the source module`);
+      if (present(source.requirements)){
+        report("special requirements cannot be represented by this CSV; review in the source module", origin);
+      }
+      for (const [label, note] of [["Row note", source.notes], ["Order note", source.orderNotes]]){
+        if (unsupportedNote(note)) report(`${label} mentions unsupported geometry or machining: ${note}`, origin);
       }
     }
-    if (/triang|trapez|shaped|sagomat|\b(?:arch|circle|oval|rhomboid|polygon)\b/i.test(row.section)) errors.push("glass section indicates unsupported geometry");
+    if (/triang|trapez|shaped|sagomat|\b(?:arch|circle|oval|rhomboid|polygon)\b/i.test(row.section)) report("glass section indicates unsupported geometry");
     return errors;
   }
   function validate(rows){
-    const errors = rows.flatMap(row => reasons(row).map(reason => `${describe(row)}: ${reason}`));
+    const errors = rows.flatMap(reasons);
     if (!rows.length) errors.push("Select at least one prepared row.");
     const seen = new Set();
     rows.forEach(row => row.sourceIds.forEach(id => {
@@ -143,6 +149,15 @@
   const sourceCells = row => `<td>${esc(row.sources.map(s => s.position || "—").join(", "))}</td><td>${esc([...new Set(row.sources.map(s => s.orderId))].join(", "))}<br><small>${esc([...new Set(row.sources.map(s => s.client))].join(", "))}</small></td>`;
   const numericCells = row => `<td>${esc(row.quantity)}</td><td>${esc(row.width)}</td><td>${esc(row.height)}</td>`;
   const tableHead = first => `<thead><tr><th>${first}</th><th>Source position</th><th>Order / client</th><th>Qty</th><th>Width (mm)</th><th>Height (mm)</th></tr></thead>`;
+  function sourceNotes(rows){
+    const notes = new Set();
+    rows.forEach(row => row.sources.forEach(origin => {
+      const source = origin.bridgeSource;
+      if (source?.orderNotes?.trim()) notes.add(`${origin.orderId}: ${source.orderNotes}`);
+      if (source?.notes?.trim()) notes.add(`${describe({sources:[origin]})}: ${source.notes}`);
+    }));
+    return notes.size ? `<details class="muted small"><summary>Source notes (not included in CSV)</summary>${errorList([...notes])}</details>` : "";
+  }
   function render(){
     const validation = validate(job.rows);
     previewRows = validation.rows;
@@ -168,6 +183,7 @@
       if (s.bridgeSource?.declaredArea != null) orderAreas.set(s.orderId, s.bridgeSource.declaredArea);
     }));
     el("bridgeSourceSummary").innerHTML = rows.length ? `<p class="muted small">Source order areas (whole orders, not selected cutting area): ${orderAreas.size ? [...orderAreas].map(([order,area]) => `${esc(order)}: ${esc(area)} m²`).join("; ") : "not declared"}. Values are preserved separately.</p>` : "<p>Nothing added. Prepare a sheet in Processing, then add it here.</p>";
+    el("bridgeSourceSummary").innerHTML += sourceNotes(rows);
     el("bridgeRows").innerHTML = rows.length ? `<table>${tableHead("Action")}<tbody>${rows.map((row,i) => `<tr><td><button class="btn small muted" data-bridge-remove="${i}" ${busy ? "disabled" : ""} aria-label="Remove ${esc(describe(row))}">Remove</button></td>${sourceCells(row)}${numericCells(row)}</tr>`).join("")}</tbody></table>` : "";
   }
   function openPicker(replace = false, suppliedSections = null, manualIds = null){
@@ -200,11 +216,12 @@
       html += '<div class="bridge-actions">' + [...buckets].map(([label,ids],i) =>
         `<label><input type="checkbox" data-bridge-order="${i}" ${ids.every(id => picker.selected.has(id)) ? "checked" : ""}> ${esc(label)}</label>`
       ).join("") + '</div>';
+      html += sourceNotes(picker.rows);
       html += '<div class="table-responsive"><table>' + tableHead("Select") + '<tbody>';
       picker.rows.forEach((row,i) => {
         const issues = reasons(row);
         html += `<tr><td><input type="checkbox" data-bridge-select="${i}" aria-label="Select ${esc(describe(row))}" ${picker.selected.has(row.id) ? "checked" : ""}></td>${sourceCells(row)}${numericCells(row)}</tr>`;
-        if (issues.length) html += `<tr><td colspan="6" class="bridge-errors">${esc(describe(row))}: ${esc(issues.join("; "))}</td></tr>`;
+        if (issues.length) html += `<tr><td colspan="6" class="bridge-errors">${esc(issues.join("; "))}</td></tr>`;
       });
       html += "</tbody></table></div>";
     }

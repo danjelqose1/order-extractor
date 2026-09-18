@@ -139,11 +139,20 @@ async function run(engine,name,base){
     await page.locator('#bridgeManualReview').click();
     await page.locator('#bridgePicker').waitFor();
     assert.equal(await page.locator('[data-bridge-select]:checked').count(),6);
+    assert.equal(await page.locator('#bridgePickerErrors').innerText(),'');
+    assert.equal(await page.locator('#bridgePickerBody .bridge-errors').count(),0);
+    assert(!await page.locator('#bridgePickerAdd').isDisabled());
+    await page.locator('#bridgePickerBody details summary').click();
+    assert.match(await page.locator('#bridgePickerBody details').innerText(),/Reference: Altini/);
+    assert.equal(await page.locator('#bridgePickerBody details li').count(),4); // One reference per order, one row note each.
+    await page.screenshot({path:`/tmp/perfect-cut-${name}-manual-notes-review.png`,fullPage:true});
     await page.locator('#bridgePickerAdd').click();
     await page.locator('#bridgePicker').waitFor({state:'hidden'});
     assert.equal(await page.locator('#bridgeRows tbody tr').count(),6);
     assert.equal(await page.locator('#bridgeRows tbody tr').first().locator('td').nth(4).innerText(),'791');
     assert.match(await page.locator('#bridgeRefresh').innerText(),/Manual Orders/);
+    await page.locator('#bridgeSourceSummary details summary').click();
+    assert.match(await page.locator('#bridgeSourceSummary details').innerText(),/Client reference: A-1/);
     await page.locator('#bridgeRefresh').click();
     await page.locator('[data-bridge-order="1"]').uncheck();
     await page.locator('[data-bridge-select="1"]').uncheck();

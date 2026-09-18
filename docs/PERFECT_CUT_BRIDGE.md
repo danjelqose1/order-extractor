@@ -21,7 +21,7 @@ Manual-specific validation uses the same numeric/geometry/notes checks as Proces
 - Asynchronous order fetches and isolated Workspace document generation block imports/exports. Synchronous Processing transformations cannot interleave with capture.
 - Drafts live only in this page session, matching the current Processing/Labels session convention. Reloading or closing the page clears the draft. No storage keys, backend changes, migrations, production statuses or AutoHotkey changes.
 - Quantities must be integers 1–999 and dimensions integers 1–10000 mm. Original quantity syntax is also retained to prevent the existing numeric conversion/grouping from hiding malformed quantities. Every invalid selected position is reported; no row is silently skipped.
-- Known nonrectangular geometry, shape markers and any nonempty source/order notes or special requirements block export. This is intentionally conservative, even for harmless notes. Checks depend on metadata available in Processing; no original drawing inspection is performed. Material selection belongs in Perfect Cut; glass descriptions are retained as internal provenance only.
+- Known nonrectangular geometry, shape markers and structured special requirements block export. Ordinary order/row reference notes and source filenames do not block export; they are retained in the snapshot and available under **Source notes (not included in CSV)**. Explicit geometry/machining terms in notes (such as holes, drilling, cutouts or notches) still block with the relevant note and one source-position prefix. This is a limited keyword check, not a complete interpretation of free-form instructions or an inspection of original drawings. Material selection belongs in Perfect Cut; glass descriptions are retained as internal provenance only.
 - Declared/source order areas are displayed separately, without rescaling for selections. The cutting area uses only validated prepared quantities and dimensions.
 - CSV is exactly three columns: `quantity,width,height`, comma-delimited, CRLF, UTF-8 without BOM, with a final CRLF. The preview and export use the same validated rows. Browser saving does not guarantee overwrite.
 
@@ -36,7 +36,7 @@ Manual-specific validation uses the same numeric/geometry/notes checks as Proces
 | `docs/js/perfect-cut-bridge.js` | Adapter, validation, immutable import, duplicate/change detection, selection/review UI and CSV download |
 | `tests/fixtures/perfect_cut_processing_order.json` | R-26-0830 screenshot regression: five ungrouped rows become four grouped rows across two glass types, still five pieces |
 | `tests/fixtures/perfect_cut_order.json` | Requested R-26-0826 dimensions/quantities and source total; synthetic per-row source areas for regression testing |
-| `tests/test_perfect_cut_bridge.cjs` | 18 data-contract, isolation, canonical transformation, safety and async-guard tests |
+| `tests/test_perfect_cut_bridge.cjs` | Data-contract, isolation, canonical transformation, validation and async-guard tests |
 | `tests/test_perfect_cut_bridge_browser.cjs` | Isolated Chromium/WebKit browser acceptance checks; no production service access |
 | `docs/PERFECT_CUT_BRIDGE.md` | Implementation and validation notes |
 
@@ -66,3 +66,5 @@ quantity,width,height
 ```
 
 Manual Orders extension verification: 18 Bridge contract tests and 68 frontend/Manual Orders regression tests passed. Chromium and WebKit browser checks passed for search, empty/error states, pagination with retained selections, disabled draft selection, multi-order import, partial row selection, exact CSV bytes, unchanged Processing/Labels, changed-source and approval rechecks, switching back to Processing, and mobile layout. Fixture: `tests/fixtures/perfect_cut_manual_order.json`. No live manual records were modified.
+
+Reference-note fix verification: 21 Bridge tests and 23 frontend navigation/security/theme tests passed. The 56-row regression uses the reported first three dimensions with synthetic repeats to check order, quantity and reference-note handling; it is not a verification of the complete live Eldi order. Chromium and WebKit passed import/review/download with order and row reference notes, no blocking errors, one reference entry per order, and byte-exact CSV. The populated WebKit review screenshot was visually checked. Syntax and diff checks passed. This fix was tested locally; no deployment or live order changes were performed.

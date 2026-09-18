@@ -1,8 +1,9 @@
 {
   "id": 31, "order_number": "M-031", "client_name": "Manual client", "status": "approved",
-  "updated_at": "2026-09-18T10:00:00", "total_area_m2": "4.100", "notes": "",
+  "updated_at": "2026-09-18T10:00:00", "total_area_m2": "4.100",
+  "notes": "Reference: Altini. Source: IMG_0653.jpeg, revised glass types in IMG_278F86C3-47DA-4242-8DBB-7184.jpeg",
   "rows": [
-    {"id": 301, "position": "A-1", "glass_type": "4F", "width_mm": 791, "height_mm": 314, "quantity": 2, "final_area_m2": 0.5},
+    {"id": 301, "position": "A-1", "glass_type": "4F", "width_mm": 791, "height_mm": 314, "quantity": 2, "final_area_m2": 0.5, "notes": "Client reference: A-1"},
     {"id": 302, "position": "B-1", "glass_type": "6F", "width_mm": 500, "height_mm": 1200, "quantity": 3, "final_area_m2": 1.8},
     {"id": 303, "position": "A-2", "glass_type": "4F", "width_mm": 791, "height_mm": 314, "quantity": 1, "final_area_m2": 0.25}
   ]

@@ -127,6 +127,49 @@ test('unsupported shapes and special requirements list every affected source pos
   for(let pos=1;pos<=4;pos++) assert(result.errors.some(e=>e.includes(`position ${pos}`)));
   assert.throws(()=>bridge.csv(rows),/unsupported/);
   assert.equal(bridge.validate(rows.slice(4)).errors.length,0);
+  for (const error of result.errors) assert.equal((error.match(/R-26-0826 \/ position/g)||[]).length,1);
+});
+
+test('ordinary order and row notes do not block Processing or change its CSV',()=>{
+  const order=clone(fixture);
+  order.notes='Reference: Altini. Source: IMG_0653.jpeg, revised glass types in IMG_278F86C3.jpeg';
+  order.rows[0].notes='Client reference: A-1';
+  const job=bridge.importPrepared(bridge.emptyJob(),prepare([order]).sections);
+  assert.equal(bridge.csv(job.rows),expected);
+  assert.equal(job.rows[0].sources[0].bridgeSource.orderNotes,order.notes);
+  assert.equal(job.rows[0].sources[0].bridgeSource.notes,order.rows[0].notes);
+});
+
+test('56 manual rows with reference notes import in saved order without losing notes',()=>{
+  const order=clone(require('./fixtures/perfect_cut_manual_order.json'));
+  // Reproduce the reported scale and first three dimensions with synthetic repeats.
+  const dimensions=[[410,1825],[880,1940],[785,1850]];
+  order.rows=Array.from({length:56},(_,i)=>({id:i+1,position:String(i+1),
+    glass_type:'tr + 16 + termik + gas',quantity:1,width_mm:dimensions[i%3][0],height_mm:dimensions[i%3][1]}));
+  const before=JSON.stringify(order);
+  const job=bridge.importPrepared(bridge.emptyJob(),bridge.collectManual([order]));
+  assert.equal(job.rows.length,56);
+  assert.equal(job.rows.reduce((sum,row)=>sum+row.quantity,0),56);
+  assert.equal(bridge.csv(job.rows),'quantity,width,height\r\n'+order.rows.map(row=>`1,${row.width_mm},${row.height_mm}\r\n`).join(''));
+  assert.equal(job.rows[0].sources[0].bridgeSource.orderNotes,order.notes);
+  assert.equal(JSON.stringify(order),before);
+});
+
+test('manual explicit requirements still block with one source prefix and the relevant note',()=>{
+  const order=clone(require('./fixtures/perfect_cut_manual_order.json'));
+  for (const note of ['2 holes Ø10', 'drilling required', 'edge cut-out', 'notched', 'oval']){
+    order.rows[0].notes=note;
+    const result=bridge.validate(bridge.collectManual([order])[0].rows);
+    assert.equal(result.errors.length,1);
+    assert.equal(result.errors[0],`M-031 / position A-1: Row note mentions unsupported geometry or machining: ${note}`);
+  }
+  order.rows[0].notes='Client reference: A-1';
+  order.rows[1].special_requirements=['custom edge work'];
+  assert.deepEqual(bridge.validate(bridge.collectManual([order])[0].rows).errors,
+    ['M-031 / position B-1: special requirements cannot be represented by this CSV; review in the source module']);
+  delete order.rows[1].special_requirements;
+  order.notes='Drilling required for this order';
+  assert.equal(bridge.validate(bridge.collectManual([order])[0].rows).errors.length,3);
 });
 test('remove and clear are isolated; source area and Labels are unchanged',()=>{
   const {processing,sections,ctx}=prepare();
