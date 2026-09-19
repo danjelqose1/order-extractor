@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from copy import deepcopy
+import math
+import re
 from io import BytesIO
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from reportlab.lib import colors
 from reportlab.lib.units import mm
+from reportlab.lib.utils import simpleSplit
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
 
@@ -17,6 +21,35 @@ A4_LANDSCAPE_PAGE_SIZE = (297 * mm, 210 * mm)
 PROCESSING_PRINT_LAYOUT_SLIP = "slip"
 PROCESSING_PRINT_LAYOUT_A4_PORTRAIT = "a4_portrait"
 PROCESSING_PRINT_LAYOUT_A4_2UP = "a4_landscape_2up"
+
+
+def group_manual_dimensions(rows: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Match ManualDimensionGroups.buckets: stable width/height groups, no rotation."""
+    groups: List[Dict[str, Any]] = []
+    by_size: Dict[tuple[float, float], Dict[str, Any]] = {}
+    for index, row in enumerate(rows):
+        values = [row.get(key) for key in ("width_mm", "height_mm", "quantity")]
+        valid = all(
+            not isinstance(value, bool)
+            and isinstance(value, (int, float, str))
+            and (not isinstance(value, str) or re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", value))
+            and math.isfinite(float(value)) and float(value) > 0
+            for value in values
+        )
+        quantity = row.get("quantity")
+        valid = valid and float(quantity).is_integer() and float(quantity) <= 2**53 - 1
+        valid = valid and (not isinstance(quantity, str) or bool(re.fullmatch(r"[0-9]+", quantity)))
+        key = (float(values[0]), float(values[1])) if valid else None
+        group = by_size.get(key) if key is not None else None
+        if group is not None and group["quantity"] + int(quantity) <= 2**53 - 1:
+            group["indexes"].append(index)
+            group["quantity"] += int(quantity)
+        else:
+            group = {"indexes": [index], "quantity": int(quantity) if valid else quantity}
+            groups.append(group)
+            if key is not None:
+                by_size[key] = group
+    return groups
 
 DEFAULT_MANUAL_PRINT_SETTINGS: Dict[str, Any] = {
     "label_font_family": "Helvetica",
@@ -658,9 +691,110 @@ def _build_red_index_processing_pdf(
     return output.getvalue()
 
 
+def _manual_source_reference(row: Dict[str, Any]) -> str:
+    parts = [str(row.get("section") or "")]
+    if row.get("client_position") or row.get("index_number") is not None:
+        parts.append(f"Pos {row.get('client_position') or '-'}")
+    else:
+        parts.append(f"Pos {row.get('position') or '-'}")
+    return " / ".join(part for part in parts if part)
+
+
+def _build_grouped_manual_processing_pdf(order: Dict[str, Any], config: Dict[str, Any]) -> bytes:
+    """Print the dimension list plus every original reference, with safe pagination."""
+    rows = order["rows"]
+    groups = group_manual_dimensions(rows)
+    two_up, _, _, width, height, output_size = _processing_page_geometry(config)
+    margin = config["processing_margin_mm"] * mm
+    usable = width - 2 * margin
+    regular, bold = _font(config, "processing", "regular"), _font(config, "processing", "bold")
+    size = min(config["processing_row_size"], 11)
+    step = max(5 * mm, size * 1.4 + config["processing_row_spacing_mm"] * mm)
+    detail_size = min(8, size)
+    detail_step = max(3.5 * mm, detail_size * 1.4)
+    top = height - margin
+    bottom = margin + 8 * mm
+    pages: List[List[tuple[str, bool]]] = []
+    page: List[tuple[str, bool]] = []
+    used = 0.0
+    capacity = top - 32 * mm - bottom
+    for number, group in enumerate(groups, 1):
+        first = rows[group["indexes"][0]]
+        unit = config["processing_dimension_unit"]
+        divisor = 10 if unit == "cm" else 1
+        dimensions = f"{_format_mm(float(first['width_mm']) / divisor)} x {_format_mm(float(first['height_mm']) / divisor)} {unit}"
+        heading = f"Index {number}   {dimensions}   Qty {group['quantity']}"
+        lines = []
+        for index in group["indexes"]:
+            row = rows[index]
+            detail = f"{_manual_source_reference(row)} | Qty {row['quantity']} | {_pdf_text(row.get('glass_type'), '-')}"
+            if config["processing_show_notes"] and row.get("notes"):
+                detail += f" | {_pdf_text(row['notes'])}"
+            lines.extend(simpleSplit(detail, regular, detail_size, usable))
+        if page and used + step + detail_step > capacity:
+            pages.append(page)
+            page, used = [], 0.0
+        page.append((heading, True))
+        used += step
+        for line in lines:
+            if page and used + detail_step > capacity:
+                pages.append(page)
+                page, used = [(f"Index {number} (continued)", True)], step
+            page.append((line, False))
+            used += detail_step
+        page.append(("", False))
+        used += detail_step
+    if page:
+        pages.append(page)
+    output = BytesIO()
+    pdf = canvas.Canvas(output, pagesize=output_size, pageCompression=1)
+    for page_number, lines in enumerate(pages, 1):
+        if two_up:
+            pdf.beginForm(f"grouped-{page_number}", 0, 0, width, height)
+        pdf.setFillColor(colors.HexColor("#101828"))
+        for offset, value, font_size in [
+            (0, _pdf_text(order.get("order_number"), "Manual order"), 12),
+            (7, _pdf_text(order.get("client_name"), "-"), 13),
+            (14, f"Grouped dimensions | {len(groups)} rows | {sum(int(row['quantity']) for row in rows)} pieces", 8),
+            (20, _display_date(order.get("order_date")), 8),
+        ]:
+            _draw_fitted_text(pdf, value, x=margin, y=top-offset*mm, max_width=usable, font=bold, size=font_size, min_size=6)
+        y = top - 30 * mm
+        for text, heading in lines:
+            if heading:
+                _draw_fitted_text(pdf, text, x=margin, y=y, max_width=usable, font=bold, size=size, min_size=7)
+            else:
+                pdf.setFont(regular, detail_size)
+                pdf.drawString(margin, y, text)
+            y -= step if heading else detail_step
+        pdf.setFont(regular, 7)
+        pdf.drawString(margin, margin, "Manual Orders - grouped dimensions")
+        pdf.drawRightString(width-margin, margin, f"{page_number}/{len(pages)}")
+        if two_up:
+            pdf.endForm()
+            gap = 8 * mm
+            first_x = (output_size[0] - 2 * width - gap) / 2
+            for x in (first_x, first_x + width + gap):
+                pdf.saveState()
+                pdf.translate(x, 0)
+                pdf.doForm(f"grouped-{page_number}")
+                pdf.restoreState()
+            if config["processing_show_cut_guide"]:
+                pdf.saveState()
+                pdf.setStrokeColor(colors.HexColor("#999999"))
+                pdf.setDash(2 * mm, 2 * mm)
+                pdf.line(output_size[0]/2, 3*mm, output_size[0]/2, output_size[1]-3*mm)
+                pdf.restoreState()
+        pdf.showPage()
+    pdf.save()
+    return output.getvalue()
+
+
 def build_manual_processing_pdf(
     order: Dict[str, Any],
     settings: Optional[Dict[str, Any]] = None,
+    *,
+    group_dimensions: bool = False,
 ) -> bytes:
     """Build the Manual Orders-only workshop slip.
 
@@ -673,6 +807,8 @@ def build_manual_processing_pdf(
         raise ValueError("Manual order has no rows")
 
     config = normalize_manual_print_settings(settings)
+    if group_dimensions:
+        return _build_grouped_manual_processing_pdf(order, config)
     if order.get("manual_format") == "client_positions_red_index":
         return _build_red_index_processing_pdf(order, config)
     (
@@ -954,12 +1090,23 @@ def build_manual_processing_pdf(
 def build_manual_labels_pdf(
     order: Dict[str, Any],
     settings: Optional[Dict[str, Any]] = None,
+    *,
+    group_dimensions: bool = False,
 ) -> bytes:
     """Build one dedicated 100 x 40 mm label per manual-order piece."""
 
     rows = list(order.get("rows") or [])
     if not rows:
         raise ValueError("Manual order has no rows")
+
+    if group_dimensions:
+        grouped_rows = []
+        for number, group in enumerate(group_manual_dimensions(rows), 1):
+            for index in group["indexes"]:
+                row = deepcopy(rows[index])
+                row["index_number"] = number
+                grouped_rows.append(row)
+        rows = grouped_rows
 
     config = normalize_manual_print_settings(settings)
     output = BytesIO()
@@ -1092,7 +1239,7 @@ def build_manual_labels_pdf(
                 size=config["label_glass_size"],
                 min_size=7,
             )
-            if red_index_format:
+            if red_index_format or group_dimensions:
                 index_size = config["label_index_size"]
                 pdf.setFillColor(colors.HexColor("#DC2626"))
                 pdf.setFont(bold_font, index_size)

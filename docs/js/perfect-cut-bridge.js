@@ -1,6 +1,7 @@
 /* The Bridge consumes prepared Mother Sheet lines. It never rounds, groups or expands them. */
 (function(root){
   "use strict";
+  const manualGrouping = root.ManualDimensionGroups || (typeof module !== "undefined" ? require("./manual-dimension-groups.js") : null);
   const copy = value => JSON.parse(JSON.stringify(value));
   const present = value => value != null && value !== false && value !== "" &&
     !(Array.isArray(value) && !value.length);
@@ -41,7 +42,7 @@
       if (!manualEligible(order)) throw new Error(`${order.order_number || order.id}: only approved or processing manual orders can be imported.`);
       if (order.id == null) throw new Error("Manual order identity is missing.");
       if (!order.rows?.length) throw new Error(`${order.order_number || order.id}: manual order has no saved rows.`);
-      return { key: `manual-${order.id}`, label: order.order_number, rows: (order.rows || []).map((item,index) => {
+      const rows = order.rows.map((item,index) => {
         const source = {
           source: "manual", orderId: `manual-${order.id}`, rowId: String(item.id ?? `index:${index}`),
           version: order.version ?? null, updatedAt: order.updated_at ?? null, status: order.status,
@@ -51,6 +52,7 @@
         };
         const origin = { bridgeSource: source, orderId: order.order_number, client: order.client_name,
           position: item.position || item.client_position || String(item.index_number ?? index + 1),
+          client_position: order.manual_format === "client_positions_red_index" ? item.client_position || "" : item.position || "",
           section: item.section || "", red_index: item.index_number ?? null };
         const sourceIds = [sourceKey(origin)];
         const row = {
@@ -60,7 +62,22 @@
         };
         row.version = JSON.stringify(row);
         return copy(row);
-      }) };
+      });
+      const grouped = manualGrouping.isGrouped(order.id);
+      const prepared = grouped ? manualGrouping.buckets(order.rows).map((group, groupIndex) => {
+        const members = group.indexes.map(index => rows[index]);
+        const sources = members.flatMap(row => row.sources);
+        const sourceIds = sources.map(sourceKey).sort();
+        const section = [...new Set(members.map(row => row.section))].join(" / ");
+        const row = { ...members[0], id:JSON.stringify(sourceIds), sources, sourceIds,
+          quantity:group.quantity, section, sectionLabel:section, manualGroup:groupIndex+1,
+          sourceArea:members.every(row => typeof row.sourceArea === "number" && Number.isFinite(row.sourceArea))
+            ? members.reduce((sum,row) => sum + row.sourceArea,0) : null };
+        delete row.version;
+        row.version = JSON.stringify(row);
+        return row;
+      }) : rows;
+      return { key:`manual-${order.id}`, label:order.order_number, grouped, rows:prepared };
     });
   }
   function reasons(row){
@@ -146,7 +163,7 @@
   const esc = value => String(value ?? "—").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
   const current = () => collect(appState.processing, processingBridgeBusy > 0);
   const errorList = errors => errors.length ? `<ul>${errors.map(error => `<li>${esc(error)}</li>`).join("")}</ul>` : "";
-  const sourceCells = row => `<td>${esc(row.sources.map(s => s.position || "—").join(", "))}</td><td>${esc([...new Set(row.sources.map(s => s.orderId))].join(", "))}<br><small>${esc([...new Set(row.sources.map(s => s.client))].join(", "))}</small></td>`;
+  const sourceCells = row => `<td>${row.manualGroup ? `<strong>Index ${row.manualGroup}</strong><br>${esc(row.sources.map(s => s.client_position || "—").join(", "))}` : esc(row.sources.map(s => s.position || "—").join(", "))}</td><td>${esc([...new Set(row.sources.map(s => s.orderId))].join(", "))}<br><small>${esc([...new Set(row.sources.map(s => s.client))].join(", "))}</small></td>`;
   const numericCells = row => `<td>${esc(row.quantity)}</td><td>${esc(row.width)}</td><td>${esc(row.height)}</td>`;
   const tableHead = first => `<thead><tr><th>${first}</th><th>Source position</th><th>Order / client</th><th>Qty</th><th>Width (mm)</th><th>Height (mm)</th></tr></thead>`;
   function sourceNotes(rows){
@@ -192,7 +209,7 @@
     const rows = sections.flatMap(section => section.rows);
     picker = { sections, rows, selected: new Set(rows.map(row => row.id)), replace, manualIds };
     el("bridgePickerDescription").textContent = manualIds
-      ? "Saved Manual Orders rows, in their original order and millimetres. No rounding or grouping is applied. Deselect rows for a partial export."
+      ? "Saved Manual Orders dimensions in millimetres, using the grouping chosen in Manual Orders. Grouped rows stay together; all original positions are retained. Deselect rows for a partial export."
       : "All prepared rows appear in Processing order, across glass types. Grouped rows stay together. Deselect rows only if you want a partial export.";
     el("bridgePickerProcessing").textContent = manualIds ? "Open Manual Orders" : "Open Processing";
     el("bridgePickerTitle").textContent = manualIds ? "Review Manual Orders" : replace ? "Review replacement snapshot" : "Add from Processing";
@@ -270,7 +287,7 @@
       if (activePicker.manualIds){ manualSections = latest; manualError = ""; }
       picker = null;
       el("bridgePicker").close();
-      el("bridgeStatus").textContent = activePicker.manualIds ? "Manual Orders rows copied in their saved order. Ready to download." : "Prepared rows copied in Processing order. Ready to download.";
+      el("bridgeStatus").textContent = activePicker.manualIds ? "Manual Orders rows copied with the grouping chosen in Manual Orders. Ready to download." : "Prepared rows copied in Processing order. Ready to download.";
     }catch(error){ if (picker === activePicker) el("bridgePickerErrors").innerHTML = errorList(error.message.split("\n")); }
     finally{
       busy = false; render();

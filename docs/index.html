@@ -1417,10 +1417,11 @@
                 </select>
               </label>
               <button type="button" class="btn small" id="manualOrderAddRow">+ Add row</button>
+              <button type="button" class="btn small tertiary" id="manualOrderGroupDimensions" aria-pressed="false" hidden>Group dimensions</button>
             </div>
           </div>
 
-          <div class="table-responsive manual-row-table-wrap">
+          <div class="table-responsive manual-row-table-wrap" id="manualOriginalRows">
             <table class="manual-row-table">
               <thead>
                 <tr id="manualRowHeader"></tr>
@@ -1428,6 +1429,7 @@
               <tbody id="manualOrderRows"></tbody>
             </table>
           </div>
+          <div id="manualGroupedPreview" hidden></div>
 
           <div class="manual-order-form-footer">
             <div id="manualOrderFormSummary" class="muted small">0 rows · 0 pieces · 0.000 m²</div>
@@ -2368,7 +2370,8 @@
 
 <script src="./js/living-dashboard.js?v=20260908-compact" defer></script>
 <script src="./js/platform-workflows.js?v=20260918-bridge-manual1" defer></script>
-<script src="./js/app.js?v=20260918-bridge-manual1" defer></script>
-<script src="./js/perfect-cut-bridge.js?v=20260918-bridge-notes2" defer></script>
+<script src="./js/manual-dimension-groups.js?v=20260919-manual-group1" defer></script>
+<script src="./js/app.js?v=20260919-manual-index2" defer></script>
+<script src="./js/perfect-cut-bridge.js?v=20260919-manual-index2" defer></script>
 </body>
 </html>

@@ -22265,6 +22265,10 @@ async function saveManualPrintSettings(settings, successMessage){
 }
 
 async function downloadManualOrderDocument(orderId, documentPath, filename){
+  const grouped = ManualDimensionGroups.isGrouped(orderId);
+  if (grouped){
+    documentPath += `${documentPath.includes("?") ? "&" : "?"}group_dimensions=true`;
+  }
   const response = await fetch(API_BASE + `/manual-orders/${orderId}/${documentPath}`);
   if (!response.ok){
     let detail = null;
@@ -22274,6 +22278,9 @@ async function downloadManualOrderDocument(orderId, documentPath, filename){
       detail = null;
     }
     throw new Error(manualErrorMessage(detail, `Document request failed (${response.status}).`));
+  }
+  if (grouped && response.headers.get("X-Manual-Dimension-Grouping") !== "grouped-v1"){
+    throw new Error("Grouped documents are not available from this backend yet. Update the backend before printing grouped sheets or labels.");
   }
   const blob = await response.blob();
   const url = URL.createObjectURL(blob);
@@ -22550,6 +22557,38 @@ function renderManualRows(){
   }).join("");
   updateManualFormSummary();
   updateManualIndexDuplicateWarning();
+  renderManualGrouping();
+}
+
+function renderManualGrouping(){
+  const toggle = document.getElementById("manualOrderGroupDimensions");
+  const preview = document.getElementById("manualGroupedPreview");
+  const original = document.getElementById("manualOriginalRows");
+  if (!toggle || !preview || !original) return;
+  const available = manualOrdersState.viewOnly && manualOrdersState.editingId != null;
+  const grouped = available && ManualDimensionGroups.isGrouped(manualOrdersState.editingId);
+  toggle.hidden = !available;
+  toggle.textContent = grouped ? "Ungroup dimensions" : "Group dimensions";
+  toggle.setAttribute("aria-pressed", String(grouped));
+  original.hidden = grouped;
+  preview.hidden = !grouped;
+  preview.innerHTML = "";
+  if (!grouped) return;
+  const groups = ManualDimensionGroups.buckets(manualOrdersState.rows);
+  const unit = manualOrdersState.dimensionUnit === "cm" ? "cm" : "mm";
+  const reference = row => manualIsRedIndexMode()
+    ? [row.section, `Pos ${row.client_position || "—"}`].filter(Boolean).join(" / ")
+    : row.position || "—";
+  preview.innerHTML = `<p class="muted small">Matching dimensions share a new index. Each label uses this index and its piece’s client position. Print and Perfect Cut Bridge follow the same list. Ungroup to restore the original indexes. This choice lasts until you reload the page.</p>
+    <div class="table-responsive"><table><thead><tr><th>Index</th><th>Client positions</th><th>Width (${unit})</th><th>Height (${unit})</th><th>Qty</th><th>Glass types</th><th>Row notes</th></tr></thead><tbody>${groups.map((group, groupIndex) => {
+      const rows = group.indexes.map(index => manualOrdersState.rows[index]);
+      const first = rows[0];
+      return `<tr data-manual-dimension-group><td>${groupIndex+1}</td><td>${rows.map(row => escapeHtml(reference(row))).join("<br>")}</td>
+        <td>${escapeHtml(manualDimensionInputValue(first.width_mm))}</td><td>${escapeHtml(manualDimensionInputValue(first.height_mm))}</td>
+        <td>${escapeHtml(group.quantity)}</td><td>${[...new Set(rows.map(row => row.glass_type))].map(escapeHtml).join("<br>")}</td>
+        <td>${rows.filter(row => row.notes).map(row => `${escapeHtml(reference(row))}: ${escapeHtml(row.notes)}`).join("<br>")}</td></tr>`;
+    }).join("")}</tbody></table></div>`;
+  manualOrderFormSummary.textContent = `${groups.length} grouped dimension rows · ${manualOrderFormSummary.textContent}`;
 }
 
 function updateManualRowComputed(tr, row){
@@ -23015,6 +23054,12 @@ function ensureManualOrdersReady(){
 function initManualOrders(){
   if (!manualOrderForm) return;
   resetManualOrderForm();
+  document.getElementById("manualOrderGroupDimensions")?.addEventListener("click", () => {
+    if (!manualOrdersState.viewOnly || manualOrdersState.editingId == null) return;
+    const id = manualOrdersState.editingId;
+    ManualDimensionGroups.setGrouped(id, !ManualDimensionGroups.isGrouped(id));
+    renderManualRows();
+  });
   loadManualPhotoAssistConfig();
   manualPhotoBrowse?.addEventListener("click", event => {
     event.stopPropagation();

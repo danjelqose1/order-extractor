@@ -376,6 +376,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Manual-Dimension-Grouping"],
 )
 
 # Root route for basic health/info, quiets 404s on /
@@ -4388,6 +4389,7 @@ def _manual_pdf_response(
     document: str,
     *,
     processing_layout: Optional[str] = None,
+    group_dimensions: bool = False,
 ) -> Response:
     order = db_module.get_manual_order(order_id)
     if not order:
@@ -4401,10 +4403,10 @@ def _manual_pdf_response(
         settings["processing_print_layout"] = processing_layout
     try:
         if document == "processing-sheet":
-            content = build_manual_processing_pdf(order, settings)
+            content = build_manual_processing_pdf(order, settings, group_dimensions=group_dimensions)
             suffix = "processing-sheet"
         else:
-            content = build_manual_labels_pdf(order, settings)
+            content = build_manual_labels_pdf(order, settings, group_dimensions=group_dimensions)
             suffix = "labels-100x40"
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -4413,7 +4415,10 @@ def _manual_pdf_response(
     return Response(
         content=content,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Manual-Dimension-Grouping": "grouped-v1" if group_dimensions else "original",
+        },
     )
 
 
@@ -4421,17 +4426,19 @@ def _manual_pdf_response(
 def download_manual_processing_sheet(
     order_id: int,
     layout: Optional[str] = Query(default=None),
+    group_dimensions: bool = False,
 ) -> Response:
     return _manual_pdf_response(
         order_id,
         "processing-sheet",
         processing_layout=layout,
+        group_dimensions=group_dimensions,
     )
 
 
 @app.get("/manual-orders/{order_id}/labels.pdf")
-def download_manual_labels(order_id: int) -> Response:
-    return _manual_pdf_response(order_id, "labels")
+def download_manual_labels(order_id: int, group_dimensions: bool = False) -> Response:
+    return _manual_pdf_response(order_id, "labels", group_dimensions=group_dimensions)
 
 
 @app.delete("/manual-orders/{order_id}")

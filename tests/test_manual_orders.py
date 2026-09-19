@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from copy import deepcopy
 import importlib
+import json
+import ast
+import re
+from types import SimpleNamespace
+from typing import Optional
 import sqlite3
 import sys
 from pathlib import Path
@@ -15,6 +20,91 @@ BACKEND_DIR = ROOT_DIR / "backend"
 INDEX_HTML = ROOT_DIR / "docs" / "index.html"
 APP_JS = ROOT_DIR / "docs" / "js" / "app.js"
 APP_PY = ROOT_DIR / "backend" / "app.py"
+
+
+def test_manual_dimension_groups_match_sheet_labels_and_original_references(tmp_path):
+    if str(BACKEND_DIR) not in sys.path:
+        sys.path.insert(0, str(BACKEND_DIR))
+    from manual_documents import group_manual_dimensions, build_manual_labels_pdf, build_manual_processing_pdf
+    order = json.loads((ROOT_DIR / "tests/fixtures/perfect_cut_manual_order.json").read_text())
+    order["manual_format"] = "client_positions_red_index"
+    for i, row in enumerate(order["rows"], 1):
+        row.update(section=f"Section-{i}", client_position=f"P{i}", index_number=i*13)
+    order["rows"][2]["glass_type"] = "Different glass"
+    before = deepcopy(order)
+    assert group_manual_dimensions(order["rows"]) == [
+        {"indexes": [0, 2], "quantity": 3}, {"indexes": [1], "quantity": 3},
+    ]
+    labels = fitz.open(stream=build_manual_labels_pdf(order, group_dimensions=True), filetype="pdf")
+    assert len(labels) == 6
+    for i, (group, piece, original) in enumerate([(1, 1, 1), (1, 2, 1), (1, 3, 3), (2, 1, 2), (2, 2, 2), (2, 3, 2)]):
+        text = labels[i].get_text()
+        assert "Group" not in text and "Piece" not in text
+        assert f"POS P{original}" in text and f"#{group}" in text
+        assert f"#{original*13}" not in text
+        assert f"Section-{original}" in text
+        assert ("791 x 314 mm" if group == 1 else "500 x 1200 mm") in text
+    assert "Different glass" in labels[2].get_text()
+    for layout in ["a4_portrait", "slip", "a4_landscape_2up"]:
+        sheet = fitz.open(stream=build_manual_processing_pdf(order, {"processing_print_layout": layout}, group_dimensions=True), filetype="pdf")
+        text = "".join(page.get_text() for page in sheet)
+        assert text.index("Index 1") < text.index("Index 2")
+        for i in range(1, 4):
+            assert f"Section-{i} / Pos P{i}" in text
+            assert f"Index {i*13}" not in text
+        assert "6 pieces" in text
+    original = fitz.open(stream=build_manual_labels_pdf(order), filetype="pdf")
+    assert "Group 1" not in original[0].get_text()
+    assert "POS P2" in original[2].get_text()
+    assert "#26" in original[2].get_text()
+    assert order == before
+
+
+def test_grouped_manual_sheet_paginates_large_groups_without_losing_references():
+    if str(BACKEND_DIR) not in sys.path:
+        sys.path.insert(0, str(BACKEND_DIR))
+    from manual_documents import build_manual_processing_pdf
+    order = json.loads((ROOT_DIR / "tests/fixtures/perfect_cut_manual_order.json").read_text())
+    order["rows"] = [{**order["rows"][0], "position": f"UNIQUE-{i:03}", "quantity": 1} for i in range(90)]
+    pdf = fitz.open(stream=build_manual_processing_pdf(order, {"processing_print_layout": "slip"}, group_dimensions=True), filetype="pdf")
+    assert len(pdf) > 1
+    text = "".join(page.get_text() for page in pdf)
+    assert "Index 1 (continued)" in text
+    for i in range(90):
+        assert f"UNIQUE-{i:03}" in text
+    for page in pdf:
+        for block in page.get_text("blocks"):
+            assert block[0] >= 0 and block[1] >= 0 and block[2] <= page.rect.width and block[3] <= page.rect.height
+
+
+def test_manual_document_routes_apply_grouping_without_changing_saved_order():
+    from fastapi import FastAPI, HTTPException, Query, Response
+    from fastapi.testclient import TestClient
+    if str(BACKEND_DIR) not in sys.path:
+        sys.path.insert(0, str(BACKEND_DIR))
+    from manual_documents import build_manual_labels_pdf, build_manual_processing_pdf, normalize_manual_print_settings
+    order = json.loads((ROOT_DIR / "tests/fixtures/perfect_cut_manual_order.json").read_text())
+    before = deepcopy(order)
+    # Run the real document routes in isolation from unrelated extraction services.
+    app = FastAPI()
+    env = dict(app=app, HTTPException=HTTPException, Query=Query, Response=Response,
+        Optional=Optional, re=re, build_manual_labels_pdf=build_manual_labels_pdf,
+        build_manual_processing_pdf=build_manual_processing_pdf, normalize_manual_print_settings=normalize_manual_print_settings,
+        db_module=SimpleNamespace(get_manual_order=lambda _id: order, get_manual_print_settings=lambda: {}))
+    names = {"_manual_pdf_response", "download_manual_processing_sheet", "download_manual_labels"}
+    tree = ast.parse(APP_PY.read_text())
+    exec(compile(ast.Module(body=[node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in names], type_ignores=[]), str(APP_PY), "exec"), env)
+    client = TestClient(app)
+    for document in ["labels", "processing-sheet"]:
+        response = client.get(f"/manual-orders/31/{document}.pdf?group_dimensions=true")
+        assert response.status_code == 200
+        assert response.headers["X-Manual-Dimension-Grouping"] == "grouped-v1"
+        pdf = fitz.open(stream=response.content, filetype="pdf")
+        assert ("#1" if document == "labels" else "Index 1") in pdf[0].get_text()
+        original = client.get(f"/manual-orders/31/{document}.pdf")
+        assert original.headers["X-Manual-Dimension-Grouping"] == "original"
+        assert ("#1" if document == "labels" else "Index 1") not in fitz.open(stream=original.content, filetype="pdf")[0].get_text()
+    assert order == before
 
 
 def _load_db(tmp_path, monkeypatch):

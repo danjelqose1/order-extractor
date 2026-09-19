@@ -14,6 +14,8 @@ async function run(engine,name,base){
     const manualFixture=require('./fixtures/perfect_cut_manual_order.json');
     const manualOrders={31:structuredClone(manualFixture),32:{...structuredClone(manualFixture),id:32,order_number:'M-032',status:'processing'}};
     const manualRequests=[];
+    const documentRequests=[];
+    let groupedDocumentSupport=true;
     const errors=[]; page.on('pageerror',error=>errors.push(error.message));
     // Isolated UI fixture: no calls to deployed services or production data.
     await page.route('**/*',route=>{
@@ -22,6 +24,13 @@ async function run(engine,name,base){
       const parsed=new URL(url);
       if(parsed.pathname.startsWith('/manual-orders')){
         manualRequests.push(route.request().method());
+        if(parsed.pathname.endsWith('.pdf')){
+          documentRequests.push(parsed.href);
+          return route.fulfill({status:200,contentType:'application/pdf',
+            headers:groupedDocumentSupport ? {'X-Manual-Dimension-Grouping':parsed.searchParams.get('group_dimensions')==='true'?'grouped-v1':'original',
+              'Access-Control-Expose-Headers':'X-Manual-Dimension-Grouping'} : {},
+            body:'%PDF-1.4\n% Mock download; rendered PDFs are covered by backend tests.\n'});
+        }
         if(parsed.pathname==='/manual-orders'){
           const query=parsed.searchParams.get('query');
           if(query==='failed') return route.fulfill({status:500,json:{detail:'Fixture request failed'}});
@@ -201,6 +210,64 @@ async function run(engine,name,base){
     // Importing Processing again returns to Processing version checks and exact grouping.
     await page.locator('#bridgeAdd').click();
     assert.equal(await page.locator('#bridgeRows tbody tr').count(),4);
+
+    // Group in Manual Orders, then use the same choice for labels, print and Bridge.
+    manualOrders[31]=structuredClone(manualFixture);
+    await page.setViewportSize({width:1366,height:900});
+    manualOrders[31].manual_format='client_positions_red_index';
+    manualOrders[31].rows.forEach((row,i)=>Object.assign(row,{section:'K.1',client_position:`P${i+1}`,index_number:(i+1)*13}));
+    await page.evaluate(async()=>{activateTab('manual'); await openManualOrder(31,true);});
+    const manualBefore=await page.evaluate(()=>JSON.stringify(manualOrdersState.rows));
+    await page.locator('#manualOrderGroupDimensions').click();
+    assert.equal(await page.locator('[data-manual-dimension-group]').count(),2);
+    assert.match(await page.locator('#manualGroupedPreview').innerText(),/Pos P3/);
+    assert(!/Index (13|26|39)/.test(await page.locator('#manualGroupedPreview').innerText()));
+    assert.deepEqual(await page.locator('[data-manual-dimension-group] td:first-child').allTextContents(),['1','2']);
+    assert.match(await page.locator('#manualOrderFormSummary').innerText(),/2 grouped dimension rows.*6 pieces/);
+    await page.locator('#manualDimensionUnit').selectOption('cm');
+    assert.match(await page.locator('#manualGroupedPreview').innerText(),/79.1/);
+    await page.screenshot({path:`/tmp/perfect-cut-${name}-manual-grouped.png`,fullPage:true});
+    const labelDownload=page.waitForEvent('download');
+    await page.locator('#manualRedIndexLabels').click();
+    await labelDownload;
+    assert(documentRequests.at(-1).endsWith('/labels.pdf?group_dimensions=true'));
+    const sheetDownload=page.waitForEvent('download');
+    await page.evaluate(()=>downloadManualOrderDocument(31,'processing-sheet.pdf?layout=slip','grouped-sheet.pdf'));
+    await sheetDownload;
+    assert(documentRequests.at(-1).endsWith('/processing-sheet.pdf?layout=slip&group_dimensions=true'));
+    groupedDocumentSupport=false;
+    assert.match(await page.evaluate(async()=>{
+      try{await downloadManualOrderDocument(31,'labels.pdf','labels.pdf');return '';}
+      catch(error){return error.message;}
+    }),/Grouped documents are not available/);
+    groupedDocumentSupport=true;
+    await page.locator('[data-tab="perfectcut"]').click();
+    await page.locator('#bridgeManualAdd').click();
+    await page.locator('[data-bridge-manual-order="0"]').check();
+    await page.locator('#bridgeManualReview').click();
+    await page.locator('#bridgePicker').waitFor();
+    assert.equal(await page.locator('[data-bridge-select]').count(),2);
+    await page.locator('#bridgePickerAdd').click();
+    await page.locator('#bridgePicker').waitFor({state:'hidden'});
+    assert.match(await page.locator('#bridgeRows').innerText(),/Index 1/);
+    assert.match(await page.locator('#bridgeRows').innerText(),/P1, P3/);
+    const groupedManualDownload=page.waitForEvent('download');
+    await page.locator('#bridgeDownload').click();
+    assert.equal(fs.readFileSync(await (await groupedManualDownload).path(),'utf8'),'quantity,width,height\r\n3,791,314\r\n3,500,1200\r\n');
+    await page.locator('[data-tab="manual"]').click();
+    await page.locator('#manualOrderGroupDimensions').click();
+    assert(await page.locator('#manualGroupedPreview').isHidden());
+    assert.equal(await page.evaluate(()=>JSON.stringify(manualOrdersState.rows)),manualBefore);
+    const originalLabelDownload=page.waitForEvent('download');
+    await page.locator('#manualRedIndexLabels').click();
+    await originalLabelDownload;
+    assert(documentRequests.at(-1).endsWith('/labels.pdf'));
+    await page.locator('[data-tab="perfectcut"]').click();
+    await page.locator('#bridgeDownload').click();
+    await page.waitForFunction(()=>document.getElementById('bridgeErrors').textContent.length>0);
+    assert(await page.locator('#bridgeDownload').isDisabled());
+    assert.match(await page.locator('#bridgeErrors').innerText(),/grouping|changed/);
+    assert(manualRequests.every(request=>request==='GET'));
 
     assert.deepEqual(errors,[]);
     console.log(`${name}: empty, selection, rapid clicks, exact downloaded CSV, duplicates, source changes, refresh, busy guard, removal/clear isolation, geometry, whole-sheet grouped/ungrouped imports, Manual Orders search/paging/review/GET-only isolation/stale checks and mobile checks passed`);
