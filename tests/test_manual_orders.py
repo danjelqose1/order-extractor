@@ -22,6 +22,13 @@ APP_JS = ROOT_DIR / "docs" / "js" / "app.js"
 APP_PY = ROOT_DIR / "backend" / "app.py"
 
 
+def _printed_red_indexes(pdf):
+    return [int(span["text"]) for page in pdf for block in page.get_text("dict")["blocks"]
+            for line in block.get("lines", []) for span in line["spans"]
+            if (span["color"] >> 16) & 0xFF > 200 and (span["color"] >> 8) & 0xFF < 80
+            and span["text"].isdigit()]
+
+
 def test_manual_dimension_groups_match_sheet_labels_and_original_references(tmp_path):
     if str(BACKEND_DIR) not in sys.path:
         sys.path.insert(0, str(BACKEND_DIR))
@@ -48,11 +55,13 @@ def test_manual_dimension_groups_match_sheet_labels_and_original_references(tmp_
     for layout in ["a4_portrait", "slip", "a4_landscape_2up"]:
         sheet = fitz.open(stream=build_manual_processing_pdf(order, {"processing_print_layout": layout}, group_dimensions=True), filetype="pdf")
         text = "".join(page.get_text() for page in sheet)
-        assert text.index("Index 1") < text.index("Index 2")
+        assert "MANUAL PROCESSING" in text and "INDEX" in text and "DIMENSIONS (CM)" in text and "QTY" in text
+        assert "POS" not in text
+        assert _printed_red_indexes(sheet) == ([1, 2, 1, 2] if layout == "a4_landscape_2up" else [1, 2])
         for i in range(1, 4):
-            assert f"Section-{i} / Pos P{i}" in text
+            assert f"Pos P{i}" not in text
             assert f"Index {i*13}" not in text
-        assert "6 pieces" in text
+        assert "79.1 x 31.4" in text and "50 x 120" in text and "x 3" in text
     original = fitz.open(stream=build_manual_labels_pdf(order), filetype="pdf")
     assert "Group 1" not in original[0].get_text()
     assert "POS P2" in original[2].get_text()
@@ -60,21 +69,50 @@ def test_manual_dimension_groups_match_sheet_labels_and_original_references(tmp_
     assert order == before
 
 
-def test_grouped_manual_sheet_paginates_large_groups_without_losing_references():
+def test_grouped_manual_sheet_stays_compact_and_paginates_new_indexes():
     if str(BACKEND_DIR) not in sys.path:
         sys.path.insert(0, str(BACKEND_DIR))
     from manual_documents import build_manual_processing_pdf
     order = json.loads((ROOT_DIR / "tests/fixtures/perfect_cut_manual_order.json").read_text())
     order["rows"] = [{**order["rows"][0], "position": f"UNIQUE-{i:03}", "quantity": 1} for i in range(90)]
     pdf = fitz.open(stream=build_manual_processing_pdf(order, {"processing_print_layout": "slip"}, group_dimensions=True), filetype="pdf")
-    assert len(pdf) > 1
+    assert len(pdf) == 1
     text = "".join(page.get_text() for page in pdf)
-    assert "Index 1 (continued)" in text
-    for i in range(90):
-        assert f"UNIQUE-{i:03}" in text
+    assert "UNIQUE-" not in text and "x 90" in text
+    assert _printed_red_indexes(pdf) == [1]
+    for i, row in enumerate(order["rows"]):
+        row["width_mm"] = 1000+i
+    pdf = fitz.open(stream=build_manual_processing_pdf(order, {"processing_print_layout": "slip"}, group_dimensions=True), filetype="pdf")
+    assert len(pdf) > 1
+    assert _printed_red_indexes(pdf) == list(range(1, 91))
     for page in pdf:
         for block in page.get_text("blocks"):
             assert block[0] >= 0 and block[1] >= 0 and block[2] <= page.rect.width and block[3] <= page.rect.height
+
+
+def test_eldi_grouped_sheet_uses_original_compact_layout_without_positions():
+    if str(BACKEND_DIR) not in sys.path:
+        sys.path.insert(0, str(BACKEND_DIR))
+    from manual_documents import build_manual_processing_pdf, build_manual_labels_pdf, group_manual_dimensions
+    order = json.loads((ROOT_DIR / "tests/fixtures/manual_eldi_grouped_sheet.json").read_text())
+    before = deepcopy(order)
+    assert len(group_manual_dimensions(order["rows"])) == 44
+    pdf = fitz.open(stream=build_manual_processing_pdf(order, group_dimensions=True), filetype="pdf")
+    assert len(pdf) <= 2
+    assert _printed_red_indexes(pdf) == list(range(1,45))
+    text = "".join(page.get_text() for page in pdf)
+    assert "POS" not in text and " / Pos " not in text and "Qty " not in text
+    assert "41 x 182.5" in text and "x 3" in text and "88 x 194" in text and "x 4" in text
+    assert "tr + 16 + termik + gas" in text and "4 mm satin + 16 + termik + gas" in text
+    assert sum(float(value) for value in re.findall(r"([\d.]+) m²", text)) == pytest.approx(
+        sum(row["final_area_m2"] for row in order["rows"]), abs=0.003)
+    labels = fitz.open(stream=build_manual_labels_pdf(order, group_dimensions=True), filetype="pdf")
+    assert len(labels) == 56
+    for page, position in zip(labels, [1, 2, 9]):
+        assert "#1" in page.get_text() and f"POS {position}" in page.get_text()
+    original = fitz.open(stream=build_manual_processing_pdf(order), filetype="pdf")
+    assert "POS" in original[0].get_text()
+    assert order == before
 
 
 def test_manual_document_routes_apply_grouping_without_changing_saved_order():
@@ -100,10 +138,13 @@ def test_manual_document_routes_apply_grouping_without_changing_saved_order():
         assert response.status_code == 200
         assert response.headers["X-Manual-Dimension-Grouping"] == "grouped-v1"
         pdf = fitz.open(stream=response.content, filetype="pdf")
-        assert ("#1" if document == "labels" else "Index 1") in pdf[0].get_text()
+        if document == "labels":
+            assert "#1" in pdf[0].get_text()
+        else:
+            assert _printed_red_indexes(pdf) == [1, 2]
         original = client.get(f"/manual-orders/31/{document}.pdf")
         assert original.headers["X-Manual-Dimension-Grouping"] == "original"
-        assert ("#1" if document == "labels" else "Index 1") not in fitz.open(stream=original.content, filetype="pdf")[0].get_text()
+        assert ("#1" if document == "labels" else "INDEX") not in fitz.open(stream=original.content, filetype="pdf")[0].get_text()
     assert order == before
 
 

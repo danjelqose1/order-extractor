@@ -9,7 +9,6 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from reportlab.lib import colors
 from reportlab.lib.units import mm
-from reportlab.lib.utils import simpleSplit
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
 
@@ -354,6 +353,8 @@ def _processing_page_geometry(config: Dict[str, Any]) -> tuple[bool, float, floa
 def _build_red_index_processing_pdf(
     order: Dict[str, Any],
     config: Dict[str, Any],
+    *,
+    hide_position: bool = False,
 ) -> bytes:
     rows = list(order.get("rows") or [])
     (
@@ -369,7 +370,16 @@ def _build_red_index_processing_pdf(
         5.5,
         config["processing_row_size"] * 0.46 + config["processing_row_spacing_mm"],
     )
-    groups = _group_red_index_rows(rows)
+    if hide_position:
+        # Preserve the grouped index sequence, even when glass types alternate.
+        groups = []
+        for row in rows:
+            glass = _pdf_text(row.get("glass_type"), "Unspecified glass")
+            if not groups or groups[-1][0] != glass:
+                groups.append((glass, [("", [])]))
+            groups[-1][1][0][1].append(row)
+    else:
+        groups = _group_red_index_rows(rows)
 
     def row_height_mm(row: Dict[str, Any]) -> float:
         notes_height = (
@@ -524,7 +534,7 @@ def _build_red_index_processing_pdf(
                 pdf.setFillColor(colors.HexColor("#101828"))
                 pdf.setFont(glass_font, config["processing_glass_size"])
                 area_width = usable_width * 0.26
-                glass_total_rows = [
+                glass_total_rows = page_rows if hide_position else [
                     row
                     for _page_section, page_glass, section_rows, _show_glass in page_sections
                     if page_glass == glass_type
@@ -560,13 +570,14 @@ def _build_red_index_processing_pdf(
                     y -= 5 * mm
                 y -= 5 * mm
             pos_x = margin
-            index_x = margin + (usable_width * 0.15)
-            dimension_x = margin + (usable_width * 0.31)
+            index_x = margin if hide_position else margin + (usable_width * 0.15)
+            dimension_x = margin + (usable_width * (0.18 if hide_position else 0.31))
             if show_glass or config["processing_repeat_headers_per_section"]:
                 y -= 5.5 * mm
                 pdf.setFillColor(colors.HexColor("#667085"))
                 pdf.setFont(bold_font, config["processing_header_size"])
-                pdf.drawString(pos_x, y, "POS")
+                if not hide_position:
+                    pdf.drawString(pos_x, y, "POS")
                 pdf.drawString(index_x, y, "INDEX")
                 pdf.drawString(dimension_x, y, f"DIMENSIONS ({dimension_unit})")
                 pdf.drawRightString(page_width - margin, y, "QTY")
@@ -598,16 +609,17 @@ def _build_red_index_processing_pdf(
                 position_size = max(8.0, config["processing_row_size"] - 1)
                 pdf.setFillColor(colors.HexColor("#101828"))
                 pdf.setFont(row_font, position_size)
-                _draw_fitted_text(
-                    pdf,
-                    _pdf_text(row.get("client_position"), "-"),
-                    x=pos_x,
-                    y=y,
-                    max_width=index_x - pos_x - (3 * mm),
-                    font=row_font,
-                    size=position_size,
-                    min_size=8,
-                )
+                if not hide_position:
+                    _draw_fitted_text(
+                        pdf,
+                        _pdf_text(row.get("client_position"), "-"),
+                        x=pos_x,
+                        y=y,
+                        max_width=index_x - pos_x - (3 * mm),
+                        font=row_font,
+                        size=position_size,
+                        min_size=8,
+                    )
                 pdf.setFillColor(colors.HexColor("#DC2626"))
                 pdf.setFont(row_font, position_size)
                 _draw_fitted_text(
@@ -691,103 +703,24 @@ def _build_red_index_processing_pdf(
     return output.getvalue()
 
 
-def _manual_source_reference(row: Dict[str, Any]) -> str:
-    parts = [str(row.get("section") or "")]
-    if row.get("client_position") or row.get("index_number") is not None:
-        parts.append(f"Pos {row.get('client_position') or '-'}")
-    else:
-        parts.append(f"Pos {row.get('position') or '-'}")
-    return " / ".join(part for part in parts if part)
-
-
 def _build_grouped_manual_processing_pdf(order: Dict[str, Any], config: Dict[str, Any]) -> bytes:
-    """Print the dimension list plus every original reference, with safe pagination."""
+    """Use the existing workshop layout: new red index, dimensions and quantity."""
     rows = order["rows"]
-    groups = group_manual_dimensions(rows)
-    two_up, _, _, width, height, output_size = _processing_page_geometry(config)
-    margin = config["processing_margin_mm"] * mm
-    usable = width - 2 * margin
-    regular, bold = _font(config, "processing", "regular"), _font(config, "processing", "bold")
-    size = min(config["processing_row_size"], 11)
-    step = max(5 * mm, size * 1.4 + config["processing_row_spacing_mm"] * mm)
-    detail_size = min(8, size)
-    detail_step = max(3.5 * mm, detail_size * 1.4)
-    top = height - margin
-    bottom = margin + 8 * mm
-    pages: List[List[tuple[str, bool]]] = []
-    page: List[tuple[str, bool]] = []
-    used = 0.0
-    capacity = top - 32 * mm - bottom
-    for number, group in enumerate(groups, 1):
-        first = rows[group["indexes"][0]]
-        unit = config["processing_dimension_unit"]
-        divisor = 10 if unit == "cm" else 1
-        dimensions = f"{_format_mm(float(first['width_mm']) / divisor)} x {_format_mm(float(first['height_mm']) / divisor)} {unit}"
-        heading = f"Index {number}   {dimensions}   Qty {group['quantity']}"
-        lines = []
-        for index in group["indexes"]:
-            row = rows[index]
-            detail = f"{_manual_source_reference(row)} | Qty {row['quantity']} | {_pdf_text(row.get('glass_type'), '-')}"
-            if config["processing_show_notes"] and row.get("notes"):
-                detail += f" | {_pdf_text(row['notes'])}"
-            lines.extend(simpleSplit(detail, regular, detail_size, usable))
-        if page and used + step + detail_step > capacity:
-            pages.append(page)
-            page, used = [], 0.0
-        page.append((heading, True))
-        used += step
-        for line in lines:
-            if page and used + detail_step > capacity:
-                pages.append(page)
-                page, used = [(f"Index {number} (continued)", True)], step
-            page.append((line, False))
-            used += detail_step
-        page.append(("", False))
-        used += detail_step
-    if page:
-        pages.append(page)
-    output = BytesIO()
-    pdf = canvas.Canvas(output, pagesize=output_size, pageCompression=1)
-    for page_number, lines in enumerate(pages, 1):
-        if two_up:
-            pdf.beginForm(f"grouped-{page_number}", 0, 0, width, height)
-        pdf.setFillColor(colors.HexColor("#101828"))
-        for offset, value, font_size in [
-            (0, _pdf_text(order.get("order_number"), "Manual order"), 12),
-            (7, _pdf_text(order.get("client_name"), "-"), 13),
-            (14, f"Grouped dimensions | {len(groups)} rows | {sum(int(row['quantity']) for row in rows)} pieces", 8),
-            (20, _display_date(order.get("order_date")), 8),
-        ]:
-            _draw_fitted_text(pdf, value, x=margin, y=top-offset*mm, max_width=usable, font=bold, size=font_size, min_size=6)
-        y = top - 30 * mm
-        for text, heading in lines:
-            if heading:
-                _draw_fitted_text(pdf, text, x=margin, y=y, max_width=usable, font=bold, size=size, min_size=7)
-            else:
-                pdf.setFont(regular, detail_size)
-                pdf.drawString(margin, y, text)
-            y -= step if heading else detail_step
-        pdf.setFont(regular, 7)
-        pdf.drawString(margin, margin, "Manual Orders - grouped dimensions")
-        pdf.drawRightString(width-margin, margin, f"{page_number}/{len(pages)}")
-        if two_up:
-            pdf.endForm()
-            gap = 8 * mm
-            first_x = (output_size[0] - 2 * width - gap) / 2
-            for x in (first_x, first_x + width + gap):
-                pdf.saveState()
-                pdf.translate(x, 0)
-                pdf.doForm(f"grouped-{page_number}")
-                pdf.restoreState()
-            if config["processing_show_cut_guide"]:
-                pdf.saveState()
-                pdf.setStrokeColor(colors.HexColor("#999999"))
-                pdf.setDash(2 * mm, 2 * mm)
-                pdf.line(output_size[0]/2, 3*mm, output_size[0]/2, output_size[1]-3*mm)
-                pdf.restoreState()
-        pdf.showPage()
-    pdf.save()
-    return output.getvalue()
+    prepared = []
+    for number, group in enumerate(group_manual_dimensions(rows), 1):
+        members = [rows[index] for index in group["indexes"]]
+        prepared.append({
+            "index_number": number,
+            "width_mm": members[0]["width_mm"],
+            "height_mm": members[0]["height_mm"],
+            "quantity": group["quantity"],
+            "glass_type": " / ".join(dict.fromkeys(
+                _pdf_text(row.get("glass_type") or row.get("type"), "Unspecified glass")
+                for row in members
+            )),
+            "final_area_m2": sum(_row_final_area_m2(row) for row in members),
+        })
+    return _build_red_index_processing_pdf({**order, "rows": prepared}, config, hide_position=True)
 
 
 def build_manual_processing_pdf(
