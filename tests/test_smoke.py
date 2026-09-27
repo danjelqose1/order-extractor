@@ -531,11 +531,11 @@ def test_pdf_visual_llm_uses_input_file_payload(monkeypatch):
     assert bundle["data"]["order_number"] == "R-26-9901"
 
 
-def test_terra_extraction_default_preserves_request_contracts_and_model_override(monkeypatch):
+def test_sol_extraction_default_preserves_request_contracts_and_model_override(monkeypatch):
     llm_module = _load_llm(monkeypatch)
     monkeypatch.delenv("EXTRACTION_MODEL")
     llm_module = importlib.reload(llm_module)
-    assert llm_module.EXTRACTION_MODEL == "gpt-5.6-terra"
+    assert llm_module.EXTRACTION_MODEL == "gpt-6-sol"
     payload = {"order_number": "R-26-9901", "client_name": "A", "rows": [
         {"order_number": "R-26-9901", "type": "LOWE", "dimension": "632x1157", "position": "1-1", "quantity": 1, "area": 0.731}
     ], "warnings": [], "confidence": 0.9}
@@ -557,8 +557,8 @@ def test_terra_extraction_default_preserves_request_contracts_and_model_override
     monkeypatch.setattr(llm_module, "get_client", lambda: types.SimpleNamespace(
         chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=fake_completion)),
     ))
-    for model in ("gpt-5.6-terra", "gpt-5.4-nano"):
-        if model != "gpt-5.6-terra":
+    for model in ("gpt-6-sol", "gpt-5.6-terra", "gpt-5.4-nano"):
+        if model != "gpt-6-sol":
             monkeypatch.setenv("EXTRACTION_MODEL", model)
         captured.clear()
         pdf = llm_module.call_llm_for_pdf_base64_visual(b"%PDF-1.7\nfixture", "fixture.pdf")
@@ -571,10 +571,16 @@ def test_terra_extraction_default_preserves_request_contracts_and_model_override
             assert request["model"] == model
             if index < 2:
                 assert request["text"]["format"]["strict"] is True
-                assert request.get("reasoning") == ({"effort": "none"} if model == "gpt-5.6-terra" else None)
+                expected_effort = "medium" if model == "gpt-6-sol" else "none" if model == "gpt-5.6-terra" else None
+                assert request.get("reasoning") == ({"effort": expected_effort} if expected_effort else None)
             else:
                 assert request["response_format"]["json_schema"]["strict"] is True
-                assert request.get("reasoning_effort") == ("none" if model == "gpt-5.6-terra" else None)
+                expected_effort = "medium" if model == "gpt-6-sol" else "none" if model == "gpt-5.6-terra" else None
+                assert request.get("reasoning_effort") == expected_effort
+                if model == "gpt-6-sol":
+                    assert "temperature" not in request
+                else:
+                    assert request["temperature"] == 0.0
 
 
 def test_scanned_pdf_extracts_rows(monkeypatch):

@@ -18,15 +18,22 @@ if not API_KEY:
 
 SYSTEM_PROMPT = PROMPTS["extraction"]["system"]
 PDF_VISUAL_SYSTEM_PROMPT = PROMPTS["extraction"]["pdf_visual_system"]
-EXTRACTION_MODEL = os.getenv("EXTRACTION_MODEL", "gpt-5.6-terra")
+EXTRACTION_MODEL = os.getenv("EXTRACTION_MODEL", "gpt-6-sol")
 
 
 def _extraction_reasoning_options(model_name: str, *, responses: bool) -> Dict[str, Any]:
-    # The previous Nano extraction used no reasoning. GPT-5.6 defaults to medium,
-    # so preserve that baseline explicitly while keeping older model overrides compatible.
-    if not model_name.startswith("gpt-5.6"):
+    if model_name == "gpt-6-sol":
+        effort = "medium"
+    elif model_name.startswith("gpt-5.6"):
+        effort = "none"
+    else:
         return {}
-    return {"reasoning": {"effort": "none"}} if responses else {"reasoning_effort": "none"}
+    return {"reasoning": {"effort": effort}} if responses else {"reasoning_effort": effort}
+
+
+def _extraction_temperature_options(model_name: str) -> Dict[str, Any]:
+    # GPT-6 Sol does not accept temperature with reasoning above none.
+    return {} if model_name == "gpt-6-sol" else {"temperature": 0.0}
 
 
 def _env_float(name: str, default: float) -> float:
@@ -552,7 +559,7 @@ def call_llm_for_extraction(pasted_text: str) -> Dict[str, Any]:
                     "type": "json_schema",
                     "json_schema": JSON_SCHEMA,
                 },
-                temperature=0.0,
+                **_extraction_temperature_options(model_name),
             )
             model_used = model_name
             break  # success
@@ -736,7 +743,7 @@ def call_llm_for_extraction_multi(pages_text: List[str]) -> Dict[str, Any]:
                     **_extraction_reasoning_options(model_name, responses=False),
                     messages=messages,
                     response_format={"type": "json_schema", "json_schema": JSON_SCHEMA},
-                    temperature=0.0,
+                    **_extraction_temperature_options(model_name),
                 )
                 model_used = model_name
                 model_used_global = model_used

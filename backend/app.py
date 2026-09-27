@@ -132,7 +132,7 @@ INVOICES_PATH = DATA_DIR / "invoices.json"
 
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "*")
 APP_KEY = os.getenv("APP_KEY")  # optional shared secret
-EXTRACTION_MODEL = os.getenv("EXTRACTION_MODEL", "gpt-5.6-terra")
+EXTRACTION_MODEL = os.getenv("EXTRACTION_MODEL", "gpt-6-sol")
 LEGACY_OCR_ENABLED = os.getenv("LEGACY_OCR_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
 ENABLE_LIVING_DASHBOARD = os.getenv("ENABLE_LIVING_DASHBOARD", "false").strip().lower() in {"1", "true", "yes", "on"}
 TELEGRAM_MAX_FILE_BYTES = 5 * 1024 * 1024

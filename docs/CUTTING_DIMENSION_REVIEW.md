@@ -24,9 +24,18 @@ or approve anything. The original model reading, repair history and PDF remain
 available for audit in both flows. Confidence is a screening heuristic, not
 proof that a value was read correctly; the operator still compares it with the PDF.
 
+## GPT-6 Sol extraction (27 September 2026)
+
+The extraction code default is `gpt-6-sol` with `medium` reasoning for PDF,
+image and text requests. Text requests omit `temperature`, which GPT-6 Sol does
+not support with reasoning above `none`. The deployment `EXTRACTION_MODEL`
+override takes precedence, so update it to `gpt-6-sol` when deploying this
+change. The separate `OCR_MODEL` fallback remains unchanged. Compare results
+against operator-verified PDFs before relying on any accuracy improvement.
+
 ## Terra trial (8 September 2026)
 
-The extraction default is **gpt-5.6-terra**. **gpt-5.6-sol** remains a candidate for
+The extraction default for this trial was **gpt-5.6-terra**. **gpt-5.6-sol** remained a candidate for
 difficult-page review. Both support image input and structured output. Terra is the documented
 intelligence/cost balance; Sol is the flagship for complex professional work.
 This is a candidate selection, not a measured accuracy improvement on factory PDFs.
