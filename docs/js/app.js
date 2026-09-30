@@ -1329,6 +1329,7 @@ const scanPrintCurrentBtn = document.getElementById("scanPrintCurrent");
 const labelsSummaryEl = document.getElementById("labelsSummary");
 const labelsStatusEl = document.getElementById("labelsStatus");
 const labelsFromProcessingBtn = document.getElementById("labelsFromProcessing");
+const labelsClearBtn = document.getElementById("labelsClear");
 const analysisStatusEl = document.getElementById("analysisStatus");
 const analysisDateStartInput = document.getElementById("analysisDateStart");
 const analysisDateEndInput = document.getElementById("analysisDateEnd");
@@ -7306,6 +7307,9 @@ function updateLabelsSummary(){
 }
 
 function updateLabelsUI(){
+  if (labelsClearBtn){
+    labelsClearBtn.disabled = !(appState.labels.jobs || []).length;
+  }
   if (labelsFromProcessingBtn){
     const hasProcessing = !!(appState.processing.cart && appState.processing.cart.length);
     labelsFromProcessingBtn.disabled = !hasProcessing;
@@ -17812,6 +17816,16 @@ if (processingExportCsvBtn){
 if (labelsFromProcessingBtn){
   labelsFromProcessingBtn.addEventListener("click", ()=>{
     addLabelJobsFromProcessing();
+  });
+}
+
+if (labelsClearBtn){
+  labelsClearBtn.addEventListener("click", ()=>{
+    if (!(appState.labels.jobs || []).length) return;
+    if (!window.confirm("Clear all label jobs?")) return;
+    appState.labels.jobs = [];
+    setLabelsStatus("All label jobs cleared.");
+    updateLabelsUI();
   });
 }
 
