@@ -29,7 +29,8 @@
   if (!dialog) return;
   const fields = [...dialog.querySelectorAll("[data-sheet-setting]")];
   const state = {snapshot:null, settings:{...defaults}, current:null, proposal:null, shown:null,
-    pdf:null, page:1, canvas:null, generation:0, controller:null, busy:"", dirty:false, stale:false, draft:null, zoom:false};
+    pdf:null, page:1, canvas:null, generation:0, controller:null, busy:"", dirty:false, stale:false, draft:null, zoom:false,
+    sourceAvailable:false, aiResult:null};
   const status = message => { el("productionSheetStatus").textContent = message; };
   const take = () => capture(appState.processing, processingBridgeBusy > 0);
   function form(settings){
@@ -55,6 +56,8 @@
   function controls(){
     const pending = !!state.proposal;
     const unavailable = state.stale || state.dirty || !state.current || pending;
+    el("productionSheetOpen").disabled = !state.sourceAvailable || !!state.busy;
+    el("productionSheetAuto").disabled = !state.sourceAvailable || !!state.busy;
     el("productionSheetPrint").disabled = unavailable || !!state.busy;
     el("productionSheetSave").disabled = unavailable || !!state.busy;
     el("productionSheetAsk").disabled = state.stale || state.dirty || !state.pdf || !!state.busy || pending;
@@ -66,7 +69,9 @@
       el("productionSheetColumns").disabled = true;
       el("productionSheetOrientation").disabled = true;
     }
-    el("productionSheetProposal").hidden = !pending;
+    el("productionSheetProposal").hidden = !pending && !state.aiResult;
+    el("productionSheetResultTitle").textContent = pending ? "AI proposal" : "AI chosen layout";
+    el("productionSheetReview").hidden = !pending;
     el("productionSheetStale").hidden = !state.stale;
     el("productionSheetPrev").disabled = !!state.busy || state.page <= 1;
     el("productionSheetNext").disabled = !!state.busy || !state.pdf || state.page >= state.pdf.numPages;
@@ -140,7 +145,7 @@
   }
   async function render(settings){
     stop(); const generation = state.generation;
-    state.busy = "render"; state.dirty = true; controls(); status("Preparing your two production copies…");
+    state.busy = "render"; state.dirty = true; state.aiResult = null; controls(); status("Preparing your two production copies…");
     try{
       fresh();
       const preview = await post("preview",{source:state.snapshot.source,settings},45000);
@@ -151,32 +156,34 @@
       state.current = preview; state.settings = settings; state.dirty = false;
       state.draft = {signature:state.snapshot.signature, settings:{...settings}};
       status("Ready to print. The document includes both copies; set the printer’s Copies to 1.");
+      return true;
     }catch(error){
       if (generation === state.generation) status(error.message);
     }finally{
       if (generation === state.generation){ state.busy = ""; controls(); }
     }
   }
-  async function open(refresh=false){
+  async function open(refresh=false, automatic=false){
+    if (state.busy) return;
     try{
       const snapshot = take();
       stop();
-      state.snapshot = snapshot; state.stale = false; state.proposal = null; state.current = null;
-      const saved = !refresh && state.draft?.signature === snapshot.signature ? state.draft.settings : defaults;
+      state.snapshot = snapshot; state.stale = false; state.proposal = null; state.aiResult = null; state.current = null;
+      const saved = !refresh && !automatic && state.draft?.signature === snapshot.signature ? state.draft.settings : defaults;
       state.settings = {...saved}; form(state.settings);
       state.zoom=false; el("productionSheetPages").classList.remove("is-zoomed"); el("productionSheetZoom").textContent="Zoom in";
       if (!dialog.open) dialog.showModal();
       el("productionSheetRequest").value = "";
-      await render(state.settings);
+      if (await render(state.settings) && automatic) await askAI(true);
     }catch(error){
       if (dialog.open) status(error.message);
       else setStatusMessage(error.message);
     }
   }
-  async function askAI(){
+  async function askAI(automatic=false){
     if (state.busy || state.stale || state.dirty || !state.pdf) return;
     stop(); const generation = state.generation;
-    state.busy = "ai"; controls(); status("AI is looking at the sheet and checking the layout…");
+    state.busy = "ai"; state.aiResult = null; controls(); status("AI is looking at the sheet and checking the layout…");
     try{
       fresh();
       const count = state.current.pages_per_copy;
@@ -192,7 +199,7 @@
         canvas.width = canvas.height = 0;
       }
       if (generation !== state.generation) return;
-      const instruction = el("productionSheetRequest").value.trim()
+      const instruction = (!automatic && el("productionSheetRequest").value.trim())
         || "Look at this production sheet and choose the clearest readable layout, using two production copies and saving paper where practical.";
       const current = state.current;
       const result = await post("ai",{source:state.snapshot.source,settings:state.settings,instruction,images,
@@ -201,14 +208,25 @@
       if (generation !== state.generation || !dialog.open) return;
       fresh();
       if (result.preview?.source_digest !== current.source_digest) throw new Error("The AI proposal belongs to a different sheet. Refresh and try again.");
-      state.proposal = result;
+      if (!automatic) state.proposal = result;
       form(result.proposal.settings);
       el("productionSheetExplanation").textContent = result.proposal.explanation;
       el("productionSheetWarnings").textContent = result.proposal.warnings.join(" · ");
       await show(result.preview,generation);
-      status(`AI proposal · reviewed ${sampled.length} page${sampled.length === 1 ? "" : "s"} from one copy. Apply or discard before printing.`);
+      if (generation !== state.generation || !dialog.open) return;
+      fresh();
+      if (automatic){
+        applyResult(result); state.aiResult = result;
+        downloadPdf();
+        status(`AI prepared your PDF and started the download · reviewed ${sampled.length} page${sampled.length === 1 ? "" : "s"} from one copy. Both copies are included; printer Copies should be 1.`);
+      }else{
+        status(`AI proposal · reviewed ${sampled.length} page${sampled.length === 1 ? "" : "s"} from one copy. Apply or discard before printing.`);
+      }
     }catch(error){
-      if (generation === state.generation) status(error.message);
+      if (generation === state.generation){
+        if (state.shown !== state.current && !state.proposal) state.dirty = true;
+        status(error.message);
+      }
     }finally{
       if (generation === state.generation){ state.busy = ""; controls(); }
     }
@@ -217,9 +235,21 @@
     const orders = appState.processing.preview?.meta?.orders || [];
     return `Mother Sheet ${orders.join(" ") || "production"}`.replace(/[<>:"/\\|?*]/g,"-") + ".pdf";
   }
+  function applyResult(result){
+    state.current = result.preview; state.settings = result.proposal.settings;
+    state.draft = {signature:state.snapshot.signature, settings:{...state.settings}};
+    state.proposal = null;
+  }
+  function downloadPdf(){
+    fresh();
+    const url=URL.createObjectURL(new Blob([bytes(state.current)],{type:"application/pdf"}));
+    const link=document.createElement("a"); link.href=url; link.download=filename(); link.click();
+    setTimeout(() => URL.revokeObjectURL(url),60000);
+  }
   el("productionSheetOpen").addEventListener("click",() => open());
+  el("productionSheetAuto").addEventListener("click",() => open(false,true));
   el("productionSheetClose").addEventListener("click",() => dialog.close());
-  dialog.addEventListener("close",() => { stop(); state.busy = ""; state.proposal = null; });
+  dialog.addEventListener("close",() => { stop(); state.busy = ""; state.proposal = null; controls(); });
   el("productionSheetRefresh").addEventListener("click",() => open(true));
   el("productionSheetReset").addEventListener("click",() => {state.proposal=null; form(defaults); render({...defaults});});
   fields.forEach(field => field.addEventListener("change",() => {
@@ -228,7 +258,7 @@
     if (settings.layout === "cuttable"){settings.columns="1"; settings.orientation="landscape"; form(settings);}
     render(settings);
   }));
-  el("productionSheetAsk").addEventListener("click",askAI);
+  el("productionSheetAsk").addEventListener("click",() => askAI());
   el("productionSheetZoom").addEventListener("click",() => {
     state.zoom=!state.zoom;
     el("productionSheetPages").classList.toggle("is-zoomed",state.zoom);
@@ -237,9 +267,8 @@
   el("productionSheetApply").addEventListener("click",() => {
     try{
       fresh();
-      state.current = state.proposal.preview; state.settings = state.proposal.proposal.settings;
-      state.draft = {signature:state.snapshot.signature, settings:{...state.settings}};
-      state.proposal = null; controls(); status("AI layout applied. Ready to print two copies.");
+      applyResult(state.proposal); state.aiResult = null;
+      controls(); status("AI layout applied. Ready to print two copies.");
     }catch(error){ status(error.message); }
   });
   el("productionSheetDiscard").addEventListener("click",async () => {
@@ -258,10 +287,7 @@
   }
   el("productionSheetSave").addEventListener("click",() => {
     try{
-      fresh();
-      const url=URL.createObjectURL(new Blob([bytes(state.current)],{type:"application/pdf"}));
-      const link=document.createElement("a"); link.href=url; link.download=filename(); link.click();
-      setTimeout(() => URL.revokeObjectURL(url),60000);
+      downloadPdf();
     }catch(error){status(error.message);}
   });
   el("productionSheetPrint").addEventListener("click",async () => {
@@ -298,12 +324,13 @@
     let snapshot;
     // Busy state is checked again at every action. Async Processing imports may
     // release their busy guard after their final UI update.
-    try{snapshot=capture(appState.processing); el("productionSheetOpen").disabled=false;}
-    catch{el("productionSheetOpen").disabled=true;}
+    try{snapshot=capture(appState.processing); state.sourceAvailable=true;}
+    catch{state.sourceAvailable=false;}
     if(dialog.open && (!snapshot || snapshot.signature!==state.snapshot?.signature)){
-      stop(); state.busy=""; state.stale=true; state.proposal=null;
-      status("Processing changed. Refresh to prepare the current orders."); controls();
+      stop(); state.busy=""; state.stale=true; state.proposal=null; state.aiResult=null;
+      status("Processing changed. Refresh to prepare the current orders.");
     }
+    controls();
   }
   root.ProductionSheetUI={sourceChanged};
   sourceChanged();

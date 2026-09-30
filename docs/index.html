@@ -8,7 +8,7 @@
   <meta name="theme-color" content="#10151d" media="(prefers-color-scheme: dark)" />
   <link rel="icon" href="data:," />
   <title>Overview — Order Extractor</title>
-  <link rel="stylesheet" href="./css/styles.css?v=20260930-production-sheet2">
+  <link rel="stylesheet" href="./css/styles.css?v=20260930-production-sheet3">
   <link rel="stylesheet" href="./css/interface.css?v=20260918-contrast1" media="screen">
 </head>
 <body>
@@ -1828,7 +1828,8 @@
             <p class="processing-warning" id="processingHeaderHint" hidden></p>
           </div>
       <div class="card processing-actions">
-        <button type="button" class="btn primary" id="productionSheetOpen" disabled>Prepare production sheet</button>
+        <button type="button" class="btn primary" id="productionSheetAuto" disabled>Let AI do it for you</button>
+        <button type="button" class="btn" id="productionSheetOpen" disabled>Prepare production sheet</button>
         <button class="btn" id="processingRoundingToggle">Apply Danko Rounding</button>
         <button class="btn" id="processingGroup">Group Dimensions</button>
         <button class="btn" id="processingCopy">Copy Text</button>
@@ -1879,8 +1880,8 @@
             <p class="muted small">AI reviews page images. Dimensions and quantities come from Processing.</p>
           </section>
           <section id="productionSheetProposal" class="production-sheet-proposal" hidden>
-            <h3>AI proposal</h3><p id="productionSheetExplanation"></p><p id="productionSheetWarnings" class="muted small"></p>
-            <div class="production-sheet-buttons"><button type="button" class="btn primary" id="productionSheetApply">Apply</button><button type="button" class="btn" id="productionSheetDiscard">Discard</button></div>
+            <h3 id="productionSheetResultTitle">AI proposal</h3><p id="productionSheetExplanation"></p><p id="productionSheetWarnings" class="muted small"></p>
+            <div class="production-sheet-buttons" id="productionSheetReview"><button type="button" class="btn primary" id="productionSheetApply">Apply</button><button type="button" class="btn" id="productionSheetDiscard">Discard</button></div>
           </section>
         </aside>
         <section class="production-sheet-preview" aria-label="Production sheet print preview">
@@ -2427,8 +2428,8 @@
 <script src="./js/living-dashboard.js?v=20260908-compact" defer></script>
 <script src="./js/platform-workflows.js?v=20260930-labels-print-margin1" defer></script>
 <script src="./js/manual-dimension-groups.js?v=20260919-manual-group1" defer></script>
-<script src="./js/app.js?v=20260930-production-sheet2" defer></script>
-<script src="./js/production-sheet.js?v=20260930-production-sheet2" defer></script>
+<script src="./js/app.js?v=20260930-production-sheet3" defer></script>
+<script src="./js/production-sheet.js?v=20260930-production-sheet3" defer></script>
 <script src="./js/perfect-cut-bridge.js?v=20260919-manual-index2" defer></script>
 </body>
 </html>

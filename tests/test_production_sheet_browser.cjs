@@ -49,7 +49,9 @@ async function run(engine,name,base){
     const page=await context.newPage();
     const errors=[], aiBodies=[];
     page.on('pageerror',error=>errors.push(error.message));
-    let aiFailure=false;
+    let aiFailure=false, aiGate=null;
+    const downloads=[];
+    page.on('download',download=>downloads.push(download));
     await page.route('**/*',async route=>{
       const url=new URL(route.request().url());
       if(route.request().headers().accept?.includes('text/event-stream')) return route.fulfill({status:204,body:''});
@@ -61,6 +63,11 @@ async function run(engine,name,base){
       if(url.origin===base){
         if(url.pathname==='/api/production-sheets/ai'){
           aiBodies.push(route.request().postDataJSON());
+          if(aiGate){
+            const gate=aiGate;
+            await gate.wait;
+            if(gate.cancelled) return route.abort('aborted').catch(()=>{});
+          }
           if(aiFailure) return route.fulfill({status:502,json:{detail:'AI unavailable. Your current sheet is still ready to print.'}});
           return route.continue();
         }
@@ -75,6 +82,7 @@ async function run(engine,name,base){
     await page.goto(base,{waitUntil:'networkidle'});
     await page.locator('[data-tab="processing"]').click();
     assert(await page.locator('#productionSheetOpen').isDisabled());
+    assert(await page.locator('#productionSheetAuto').isDisabled());
     await page.evaluate(order=>addOrderToProcessing(order),fixture);
     const original=await page.evaluate(()=>JSON.stringify({processing:appState.processing,labels:appState.labels}));
     await page.locator('#productionSheetOpen').click();
@@ -168,8 +176,76 @@ async function run(engine,name,base){
     assert(box.x>=0 && box.x+box.width<=391);
     assert(await page.evaluate(()=>document.getElementById('productionSheetDialog').scrollWidth<=document.getElementById('productionSheetDialog').clientWidth+1));
     await page.locator('#productionSheetClose').click();
+    await page.setViewportSize({width:1440,height:1000});
+    const largeBefore=await page.evaluate(()=>JSON.stringify({processing:appState.processing,labels:appState.labels}));
+    const largeSource=await page.evaluate(()=>ProductionSheets.capture(appState.processing).source);
+    const autoLargePromise=page.waitForEvent('download');
+    await page.locator('#productionSheetAuto').click();
+    const autoLarge=await autoLargePromise;
+    await autoLarge.saveAs(path.join(output,`${name}-automatic-large.pdf`));
+    await page.waitForFunction(()=>!document.getElementById('productionSheetPrint').disabled);
+    assert.equal(await page.locator('#productionSheetResultTitle').innerText(),'AI chosen layout');
+    assert(await page.locator('#productionSheetReview').isHidden());
+    assert.match(await page.locator('#productionSheetStatus').innerText(),/AI prepared your PDF and started the download/);
+    assert.deepEqual(aiBodies.at(-1).source,largeSource);
+    assert.deepEqual(aiBodies.at(-1).rendered.sampled_pages,[1,2]);
+    assert.equal(await page.locator('#productionSheetColumns').inputValue(),'3');
+    assert.equal(await page.evaluate(()=>JSON.stringify({processing:appState.processing,labels:appState.labels})),largeBefore);
+    await page.screenshot({path:path.join(output,`${name}-automatic-large.png`),fullPage:true});
+    await page.locator('#productionSheetClose').click();
+    await page.evaluate(order=>{clearProcessing();addOrderToProcessing(order);},fixture);
+    const smallBefore=await page.evaluate(()=>JSON.stringify({processing:appState.processing,labels:appState.labels}));
+    const smallSource=await page.evaluate(()=>ProductionSheets.capture(appState.processing).source);
+    const autoSmallPromise=page.waitForEvent('download');
+    await page.locator('#productionSheetAuto').click();
+    const autoSmall=await autoSmallPromise;
+    await autoSmall.saveAs(path.join(output,`${name}-automatic-short.pdf`));
+    await page.waitForFunction(()=>!document.getElementById('productionSheetPrint').disabled);
+    assert.deepEqual(aiBodies.at(-1).source,smallSource);
+    assert.deepEqual(aiBodies.at(-1).rendered.sampled_pages,[1]);
+    assert.match(await page.locator('#productionSheetSummary').innerText(),/3 columns per copy · 2 copies · 2/);
+    assert.equal(await page.evaluate(()=>JSON.stringify({processing:appState.processing,labels:appState.labels})),smallBefore);
+    await page.screenshot({path:path.join(output,`${name}-automatic-short.png`),fullPage:true});
+    await page.setViewportSize({width:390,height:844});
+    await page.screenshot({path:path.join(output,`${name}-automatic-mobile.png`),fullPage:true});
+    assert(await page.locator('#productionSheetPrint').isVisible());
+    assert(await page.evaluate(()=>document.getElementById('productionSheetDialog').scrollWidth<=document.getElementById('productionSheetDialog').clientWidth+1));
+    await page.locator('#productionSheetClose').click();
+    await page.setViewportSize({width:1440,height:1000});
+    const downloaded=downloads.length;
+    aiFailure=true;
+    await page.locator('#productionSheetAuto').click();
+    await page.waitForFunction(()=>document.getElementById('productionSheetStatus').textContent.includes('AI unavailable'));
+    assert.equal(downloads.length,downloaded);
+    assert(!await page.locator('#productionSheetPrint').isDisabled());
+    assert(await page.locator('#productionSheetProposal').isHidden());
+    aiFailure=false;
+    await page.locator('#productionSheetClose').click();
+    for(const cancel of ['close','source']){
+      let release;
+      aiGate={wait:new Promise(resolve=>{release=resolve;}),cancelled:false};
+      const requested=page.waitForRequest(request=>request.url().endsWith('/api/production-sheets/ai'));
+      await page.locator('#productionSheetAuto').click();
+      await requested;
+      assert(await page.locator('#productionSheetAuto').isDisabled());
+      assert(await page.locator('#productionSheetOpen').isDisabled());
+      if(cancel==='close'){
+        await page.locator('#productionSheetClose').click();
+        await page.locator('#productionSheetOpen').click();
+        await page.waitForFunction(()=>!document.getElementById('productionSheetPrint').disabled);
+      }else{
+        await page.evaluate(()=>{appState.processing.rows[0].width+=5;recalcProcessingPreview();updateProcessingUI();});
+        assert(await page.locator('#productionSheetStale').isVisible());
+        assert(await page.locator('#productionSheetPrint').isDisabled());
+      }
+      aiGate.cancelled=true;release();aiGate=null;
+      await page.waitForTimeout(100);
+      assert.equal(downloads.length,downloaded);
+      assert(await page.locator('#productionSheetProposal').isHidden());
+      await page.locator('#productionSheetClose').click();
+    }
     assert.equal(errors.length,0,errors.join('\n'));
-    console.log(`${name}: preview, PDF, Print, visual AI proposal, Apply/Discard, failure recovery, stale source, large jobs, reset and responsive themes passed`);
+    console.log(`${name}: preview, PDF, Print, visual AI proposal, Apply/Discard, one-click AI downloads, cancellation, failure recovery, stale source, large jobs, reset and responsive themes passed`);
   }finally{await browser.close();}
 }
 (async()=>{
