@@ -2091,7 +2091,42 @@ async function resolveGlassType(rawName, knownTypes = [], options = {}){
   return pending;
 }
 
-async function generateLabelsPdf(rows){
+function fitLabelDescription(text, font, maxWidth, maxHeight){
+  const words = String(text).trim().split(/\s+/);
+  for (let fontSize = 10; fontSize >= 6; fontSize -= 0.5){
+    const lines = [];
+    let line = "";
+    for (const word of words){
+      const candidate = line ? `${line} ${word}` : word;
+      if (font.widthOfTextAtSize(candidate, fontSize) <= maxWidth){
+        line = candidate;
+        continue;
+      }
+      if (line && font.widthOfTextAtSize(word, fontSize) <= maxWidth){
+        lines.push(line);
+        line = "";
+      }else if (line){
+        line += " ";
+      }
+      for (const character of word){
+        if (line && font.widthOfTextAtSize(line + character, fontSize) > maxWidth){
+          lines.push(line.trimEnd());
+          line = "";
+        }
+        line += character;
+      }
+    }
+    if (line) lines.push(line);
+    const lineHeight = fontSize * 1.2;
+    // Include space below the final baseline so descenders clear the footer.
+    if ((lines.length - 1) * lineHeight + fontSize * 0.35 <= maxHeight){
+      return { lines, fontSize, lineHeight };
+    }
+  }
+  throw new Error("Glass type is too long to fit on a 100 × 40 mm label.");
+}
+
+async function generateLabelsPdf(rows, { fitDescription = false } = {}){
   await ensurePdfLib();
   const { PDFDocument, StandardFonts } = PDFLib;
   const pdfDoc = await PDFDocument.create();
@@ -2139,9 +2174,26 @@ async function generateLabelsPdf(rows){
         x: margin, y, size: 9, font: bold, maxWidth: pageSize.w - margin * 2
       });
       y -= 14;
+      const showProcessingMsIndex = isProcessingLabel && Number.isFinite(msIndexValue);
+      if (fitDescription){
+        const footerSize = showProcessingMsIndex ? 18 : 10;
+        const footerY = 8;
+        const footerTop = footerY + footerSize * 1.1;
+        const description = fitLabelDescription(`Glass Type: ${type}`, bold, pageSize.w - margin * 2, y - footerTop - 4);
+        description.lines.forEach((line, index)=>{
+          page.drawText(line, { x: margin, y: y - index * description.lineHeight, size: description.fontSize, font: bold });
+        });
+        if (showProcessingMsIndex){
+          const footerText = String(Math.trunc(msIndexValue));
+          const textWidth = bold.widthOfTextAtSize(footerText, footerSize);
+          page.drawText(footerText, { x: (pageSize.w - textWidth) / 2, y: footerY, size: footerSize, font: bold });
+        }else{
+          page.drawText("KELI ALBANIA PVC", { x: margin, y: footerY, size: footerSize, font: regular });
+        }
+        continue;
+      }
       page.drawText(`Glass Type: ${type}`, { x: margin, y, size: 10, font: bold, maxWidth: pageSize.w - margin * 2 });
       y -= 16;
-      const showProcessingMsIndex = isProcessingLabel && Number.isFinite(msIndexValue);
       if (showProcessingMsIndex){
         const footerText = String(Math.trunc(msIndexValue));
         const footerSize = 18;

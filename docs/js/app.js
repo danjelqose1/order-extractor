@@ -17844,7 +17844,7 @@ if (labelsJobsWrap){
     const job = appState.labels.jobs[index];
     if (action === "labels-download"){
       try{
-        await handlePrint(job.rows);
+        await handlePrint(job.rows, { fitDescription: true });
         setLabelsStatus("Labels ready (downloaded).");
       }catch(error){
         console.error("Label download failed", error);
@@ -18818,11 +18818,11 @@ async function handlePrint(rows, options = {}){
     type: "labels",
     detail: `Preparing labels from ${rows.length} row${rows.length === 1 ? "" : "s"}…`,
     openTab: "labels",
-    retry: retryId => handlePrint(rows, { activityId: retryId }),
+    retry: retryId => handlePrint(rows, { ...options, activityId: retryId }),
   });
   try{
     updateBackgroundActivity(activityId, { detail: "Building label pages…", progress: 30 });
-    const blob = await buildLabelsPdfBlob(rows);
+    const blob = await buildLabelsPdfBlob(rows, { fitDescription: options.fitDescription });
     updateBackgroundActivity(activityId, { detail: "Preparing label download…", progress: 88 });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -18843,11 +18843,11 @@ async function handlePrint(rows, options = {}){
   }
 }
 
-async function buildLabelsPdfBlob(rows){
+async function buildLabelsPdfBlob(rows, options = {}){
   if (!rows || !rows.length){
     throw new Error("No rows to print.");
   }
-  const pdfBytes = await generateLabelsPdf(rows);
+  const pdfBytes = await generateLabelsPdf(rows, options);
   return new Blob([pdfBytes], { type: "application/pdf" });
 }
 
