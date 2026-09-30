@@ -352,7 +352,7 @@ def suggest_sheet(client, request: SheetAIRequest):
         timeout=httpx.Timeout(900, connect=15, write=30, pool=15), max_retries=0,
     ).responses.create(
         model=os.getenv("PRODUCTION_SHEET_MODEL", "gpt-6.1-sol"),
-        reasoning={"effort": "medium"}, store=False, max_output_tokens=6000,
+        reasoning={"effort": "medium"}, store=True, max_output_tokens=6000,
         instructions=(
             "You format production sheets for a glass factory. Inspect the supplied rendered page images for readability, "
             "heading wrapping, spacing and density. Images show sampled pages, not necessarily every page. "
@@ -383,4 +383,5 @@ def suggest_sheet(client, request: SheetAIRequest):
     # Even a schema-valid suggestion must fit before it can be offered for Apply.
     rendered = render_sheet(SheetRequest(source=request.source, settings=proposal.settings))
     return {"proposal": proposal.model_dump(), "preview": rendered,
-            "model": getattr(response, "model", None) or os.getenv("PRODUCTION_SHEET_MODEL", "gpt-6.1-sol"), "reasoning": "medium"}
+            "model": getattr(response, "model", None) or os.getenv("PRODUCTION_SHEET_MODEL", "gpt-6.1-sol"),
+            "reasoning": "medium", "response_id": getattr(response, "id", None)}

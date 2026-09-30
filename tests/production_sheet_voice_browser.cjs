@@ -1,36 +1,32 @@
-// Transport fixtures exercise the real sheet UI and renderer without audio/API billing.
+// Transport fixtures exercise the real editable prompt and PDF renderer without API billing.
 const assert=require('node:assert/strict');
 const path=require('node:path');
-module.exports=async function voiceQA(page,name,output,aiBodies){
-  let decision={action:'clarify',instruction:'',reply:'Si mund t’ju ndihmoj?'}, turnGate=null, sessionGate=null;
-  const turns=[],sessions=[],closes=[],downloads=[];
+module.exports=async function dictationQA(page,name,output,aiBodies){
+  let sessionGate=null;
+  const sessions=[],closes=[],unexpected=[],downloads=[];
   page.on('download',item=>downloads.push(item));
   await page.route('**/api/production-sheets/voice/**',async route=>{
     const body=route.request().postDataJSON(),url=route.request().url();
     if(url.endsWith('/session')){
       sessions.push(body);if(sessionGate)await sessionGate;
-      return route.fulfill({json:{session_id:'live_fixture',token:'t'.repeat(43),sdp:'v=0 fixture answer'}});
+      return route.fulfill({json:{session_id:'rtc_fixture',token:'t'.repeat(43),sdp:'v=0 fixture answer',model:'gpt-live-transcribe'}});
     }
     if(url.endsWith('/close')){closes.push(body);return route.fulfill({json:{ok:true}});}
-    turns.push(body);const result={...decision};if(turnGate)await turnGate;
-    return route.fulfill({json:result});
+    unexpected.push(body);return route.fulfill({status:410,json:{detail:'No spoken actions'}});
   });
   await page.evaluate(()=>{
-    const now=Date.now;window.__voice={sent:[],stopped:0,offset:0,levels:{input:0,output:0},denied:false,noClosed:false};
-    Date.now=()=>now()+__voice.offset;
-    const track=()=>({enabled:true,kind:'audio',stop(){__voice.stopped++;}});
+    const now=Date.now;window.__dict={sent:[],stopped:0,offset:0,level:0,denied:false};
+    Date.now=()=>now()+__dict.offset;
     const fixtureMicrophone=async()=>{
-      if(__voice.denied)throw new DOMException('Denied','NotAllowedError');
-      const t=track();__voice.mic=t;return {role:'input',getTracks:()=>[t],getAudioTracks:()=>[t]};
+      if(__dict.denied)throw new DOMException('Denied','NotAllowedError');
+      const track={enabled:true,kind:'audio',stop(){if(!this.stopped)__dict.stopped++;this.stopped=true;}};
+      __dict.mic=track;return {getTracks:()=>[track],getAudioTracks:()=>[track]};
     };
-    // WebKit may recreate the MediaDevices wrapper after collection; patch its
-    // prototype so reconnects retain the fixture rather than opening a real mic.
     Object.defineProperty(Object.getPrototypeOf(navigator.mediaDevices),'getUserMedia',{configurable:true,value:fixtureMicrophone});
-    window.MediaStream=class{constructor(){this.role='output';}};
     window.AudioContext=class{
       resume(){return Promise.resolve();}close(){return Promise.resolve();}
-      createMediaStreamSource(stream){return {connect(analyser){analyser.role=stream.role;}};}
-      createAnalyser(){return {fftSize:1024,getFloatTimeDomainData(data){data.fill(__voice.levels[this.role]||0);}};}
+      createMediaStreamSource(){return {connect(){}};}
+      createAnalyser(){return {fftSize:1024,getFloatTimeDomainData(data){data.fill(__dict.level);}};}
     };
     window.RTCPeerConnection=class extends EventTarget{
       constructor(){super();this.iceGatheringState='complete';this.connectionState='connected';}
@@ -38,130 +34,133 @@ module.exports=async function voiceQA(page,name,output,aiBodies){
       setLocalDescription(value){this.localDescription=value;return Promise.resolve();}
       setRemoteDescription(){
         this.channel.readyState='open';
-        setTimeout(()=>__voice.emit({type:'session.started',event_id:'start-'+Math.random()}),5);
+        setTimeout(()=>__dict.emit({type:'session.created',session:{type:'transcription'},event_id:'start-'+Math.random()}),5);
         return Promise.resolve();
       }
       createDataChannel(label){
-        __voice.channelLabel=label;const channel=new EventTarget();channel.readyState='connecting';
-        channel.send=data=>{
-          const event=JSON.parse(data);__voice.sent.push(event);
-          if(event.type==='session.close' && !__voice.noClosed)setTimeout(()=>__voice.emit({type:'session.closed',usage:{seconds:15}}),5);
-        };
-        this.channel=channel;__voice.emit=event=>channel.dispatchEvent(new MessageEvent('message',{data:JSON.stringify(event)}));
-        __voice.track=()=>{const event=new Event('track');event.track=track();this.dispatchEvent(event);};
+        __dict.channelLabel=label;const channel=new EventTarget();channel.readyState='connecting';
+        channel.send=data=>__dict.sent.push(JSON.parse(data));
+        this.channel=channel;__dict.emit=event=>channel.dispatchEvent(new MessageEvent('message',{data:JSON.stringify(event)}));
         return channel;
       }
       close(){this.connectionState='closed';}
     };
-    // Suppress fixture autoplay failure; real autoplay has a separate Play control.
-    HTMLMediaElement.prototype.play=()=>Promise.resolve();
-    Object.defineProperty(HTMLMediaElement.prototype,'srcObject',{configurable:true,get(){return this._fixtureStream;},set(value){this._fixtureStream=value;}});
     ProductionSheetVoice.update();
   });
   const original=await page.evaluate(()=>JSON.stringify({processing:appState.processing,labels:appState.labels}));
+  const input=page.locator('#productionSheetRequest');
+  const idle=async()=>page.waitForFunction(()=>!document.getElementById('productionSheetVoiceStart').disabled);
   const start=async()=>{
     await page.locator('#productionSheetVoiceStart').click();
-    try{await page.waitForFunction(()=>!document.getElementById('productionSheetVoiceMute').hidden);}catch(error){
-      console.error(await page.evaluate(()=>({status:document.getElementById('productionSheetVoiceStatus').textContent,sent:__voice.sent.slice(-4),disabled:document.getElementById('productionSheetVoiceStart').disabled})));
-      throw error;
-    }
-    assert.equal(await page.evaluate(()=>__voice.channelLabel),'oai-events');
+    await page.waitForFunction(()=>document.getElementById('productionSheetVoiceStatus').textContent.includes('Listening'));
+    assert.equal(await page.evaluate(()=>__dict.channelLabel),'oai-events');
   };
-  const spoken=async(text,id)=>page.evaluate(({text,id})=>{
-    __voice.emit({type:'session.input_transcript.delta',delta:text,event_id:id+'-text'});
-    __voice.emit({type:'session.delegation.created',event_id:id+'-event',delegation:{id,type:'delegation',target:'client'}});
-  },{text,id});
-  const result=async id=>page.waitForFunction(id=>__voice.sent.some(e=>e.type==='session.commentary.append' && e.delegation_id===id),id);
-  const idle=async()=>page.waitForFunction(()=>!document.getElementById('productionSheetVoiceStart').disabled);
+  const emit=event=>page.evaluate(event=>__dict.emit(event),event);
+  const completed=async(id,text,previous=null)=>{
+    await emit({type:'input_audio_buffer.committed',item_id:id,previous_item_id:previous});
+    await emit({type:'conversation.item.input_audio_transcription.completed',item_id:id,transcript:text,event_id:id+'-final'});
+  };
+  const count=aiBodies.length;
+  await input.fill('Rrite shkrimin.');
   await start();
-  assert((await page.evaluate(()=>__voice.sent)).some(e=>e.type==='session.instructions.append' && /Albanian/.test(e.content)));
-  decision={action:'propose',instruction:'Rrite shkrimin dhe shto hapësirë pas llojit të xhamit.',reply:'Po.'};
-  await spoken(decision.instruction,'format-sq');await result('format-sq');
-  assert.equal(aiBodies.at(-1).instruction,decision.instruction);
-  assert(aiBodies.at(-1).images[0].startsWith('data:image/jpeg;base64,'));
-  assert(await page.locator('#productionSheetProposal').isVisible());
-  assert(await page.locator('#productionSheetPrint').isDisabled());
-  assert.match(turns.at(-1).transcript,/USER: Rrite/);
-  await page.locator('#productionSheetVoiceTranscript').evaluate(e=>e.parentElement.open=true);
-  await page.screenshot({path:path.join(output,`${name}-voice-proposal.png`),fullPage:true});
-  decision={action:'apply',instruction:'',reply:'Po.'};
-  await spoken('Po, aplikoje këtë propozim.','apply-sq');await result('apply-sq');
-  assert(!await page.locator('#productionSheetPrint').isDisabled());
-  const count=turns.length;
-  await page.evaluate(()=>__voice.emit({type:'session.delegation.created',delegation:{id:'apply-sq',target:'client'}}));
-  await page.waitForTimeout(80);assert.equal(turns.length,count,'duplicate delegation must not repeat actions');
-  decision={action:'save_pdf',instruction:'',reply:'Po.'};
-  await spoken('Salva il PDF, per favore.','save-it');await result('save-it');
-  assert.equal(await page.evaluate(()=>document.activeElement.id),'productionSheetSave');
+  await emit({type:'input_audio_buffer.committed',item_id:'sq',previous_item_id:null});
+  const delta={type:'conversation.item.input_audio_transcription.delta',item_id:'sq',delta:'Vendos tri ',event_id:'sq-delta'};
+  await emit(delta);await emit(delta);
+  assert.equal(await input.inputValue(),'Rrite shkrimin. Vendos tri');
+  await emit({type:'conversation.item.input_audio_transcription.delta',item_id:'sq',delta:'kolona.',event_id:'sq-delta2'});
+  await completed('it','Lascia spazio dopo il tipo di vetro.','sq');
+  await emit({type:'conversation.item.input_audio_transcription.completed',item_id:'sq',transcript:'Vendos tri kolona.',event_id:'sq-final'});
+  assert.equal(await input.inputValue(),'Rrite shkrimin. Vendos tri kolona. Lascia spazio dopo il tipo di vetro.');
+  assert.equal(aiBodies.length,count,'dictation must not send to Sol automatically');
   assert.equal(downloads.length,0);
+  assert(await page.locator('#productionSheetProposal').isHidden());
+  assert(!await page.locator('#productionSheetPrint').isDisabled());
+  await page.screenshot({path:path.join(output,name+'-dictation-draft.png'),fullPage:true});
+  await page.locator('#productionSheetVoiceEnd').click();await idle();
+  await input.fill('Rrite shkrimin. Vendos tri kolona. Shto hapësirë pas llojit të xhamit.');
+  const text=await input.inputValue();
+  await page.locator('#productionSheetAsk').click();
+  await page.waitForFunction(()=>!document.getElementById('productionSheetApply').disabled);
+  assert.equal(aiBodies.length,count+1);
+  assert.equal(aiBodies.at(-1).instruction,text);
+  assert(aiBodies.at(-1).images[0].startsWith('data:image/jpeg;base64,'));
+  assert(await page.locator('#productionSheetPrint').isDisabled());
+  assert(await page.locator('#productionSheetVoiceStart').isDisabled(),'apply/discard remains an explicit button action');
+  await page.locator('#productionSheetApply').click();
   const downloadEvent=page.waitForEvent('download');
   await page.locator('#productionSheetSave').click();await downloadEvent;
-  assert.equal(downloads.length,1);await downloads[0].saveAs(path.join(output,`${name}-voice.pdf`));
+  await downloads[0].saveAs(path.join(output,name+'-dictation.pdf'));
   assert.equal(await page.evaluate(()=>JSON.stringify({processing:appState.processing,labels:appState.labels})),original);
-  decision={action:'clarify',instruction:'',reply:'説明'.repeat(200)};
-  await spoken('もっと説明してください。','clarify-ja');await result('clarify-ja');
-  const shortReply=await page.evaluate(()=>__voice.sent.find(e=>e.delegation_id==='clarify-ja').content);
-  assert([...shortReply].length<=220,'multilingual voice messages must remain short');
-  await page.locator('#productionSheetVoiceMute').click();
-  assert.equal(await page.locator('#productionSheetVoiceMute').getAttribute('aria-pressed'),'true');
-  assert((await page.evaluate(()=>__voice.sent)).some(e=>e.type==='session.input_audio.mute'));
-  await page.locator('#productionSheetVoiceMute').click();
-  await page.evaluate(()=>{__voice.track();__voice.levels.output=.03;__voice.offset+=70000;});
-  await page.waitForTimeout(300);
-  assert(await page.locator('#productionSheetVoiceStart').isDisabled(),'playback pauses inactivity');
-  await page.evaluate(()=>{__voice.levels.output=0;__voice.offset+=61000;});await idle();
+
+  // A Send click stops capture and waits for the final text; no extra intent-routing call.
+  await input.fill('');await start();
+  await emit({type:'conversation.item.input_audio_transcription.delta',item_id:'flush',delta:'Utilizza due',event_id:'flush-delta'});
+  const beforeFlush=aiBodies.length;
+  await page.locator('#productionSheetAsk').click();
+  await page.waitForFunction(()=>__dict.sent.some(event=>event.type==='input_audio_buffer.commit'));
+  assert.equal(await page.evaluate(()=>__dict.mic.enabled),false);
+  await page.waitForTimeout(120);assert.equal(aiBodies.length,beforeFlush);
+  await completed('flush','Utilizza due colonne.');
+  await page.waitForFunction(()=>!document.getElementById('productionSheetApply').disabled);
+  assert.equal(aiBodies.length,beforeFlush+1);
+  assert.equal(aiBodies.at(-1).instruction,'Utilizza due colonne.');
+  await page.locator('#productionSheetDiscard').click();
+  await page.waitForFunction(()=>!document.getElementById('productionSheetPrint').disabled);
+  assert.equal(unexpected.length,0);
+  assert(!(await page.evaluate(()=>__dict.sent)).some(event=>/response.create|session.commentary|delegation/.test(event.type)));
+
+  // A handwritten correction wins over late transcription.
+  await input.fill('');await start();
+  await emit({type:'conversation.item.input_audio_transcription.delta',item_id:'edit',delta:'Wrong draft',event_id:'edit-delta'});
+  await input.fill('My corrected request');await idle();
+  await emit({type:'conversation.item.input_audio_transcription.completed',item_id:'edit',transcript:'Late overwrite'});
+  assert.equal(await input.inputValue(),'My corrected request');
+
+  // A failed finalization keeps the partial draft, requires review, and does not send.
+  await input.fill('');await start();
+  await emit({type:'conversation.item.input_audio_transcription.delta',item_id:'timeout',delta:'Bëj tre kolona',event_id:'timeout-delta'});
+  const beforeTimeout=aiBodies.length;
+  await page.locator('#productionSheetAsk').click();await idle();
+  assert.equal(aiBodies.length,beforeTimeout);
+  assert.equal(await input.inputValue(),'Bëj tre kolona');
+  assert.match(await page.locator('#productionSheetStatus').innerText(),/Check the dictated text/);
+
+  // Silence disconnects; typing/scrolling cannot keep paid transcription alive.
+  await input.fill('');await start();
+  await page.evaluate(()=>{__dict.offset+=61000;});await idle();
   assert.match(await page.locator('#productionSheetVoiceStatus').innerText(),/1 minute/);
-  assert(closes.length>=1 && await page.evaluate(()=>__voice.stopped>0));
+  assert(closes.length>=1 && await page.evaluate(()=>__dict.stopped>0));
 
-  // Pending routing and the slower visual formatter pause idle; no stale approval.
-  await start();let release;
-  turnGate=new Promise(resolve=>{release=resolve;});decision={action:'apply',instruction:'',reply:'Po.'};
-  const requested=page.waitForRequest(r=>r.url().endsWith('/voice/turn'));
-  await spoken('Po','pending');await requested;
-  await page.evaluate(()=>{__voice.offset+=70000;});await page.waitForTimeout(250);
-  assert(await page.locator('#productionSheetVoiceStart').isDisabled(),'backend work pauses inactivity');
-  await page.locator('#productionSheetVoiceEnd').click();await idle();release();turnGate=null;
-  await page.waitForTimeout(100);
-  assert(!await page.evaluate(()=>__voice.sent.some(e=>e.delegation_id==='pending' && e.type==='session.commentary.append')));
-
-  // Cancel during session creation: microphone stops and the late session is hung up.
-  sessionGate=new Promise(resolve=>{release=resolve;});
-  const creating=page.waitForRequest(r=>r.url().endsWith('/voice/session'));
-  await page.locator('#productionSheetVoiceStart').click();
-  try{await creating;}catch(error){
-    console.error(await page.evaluate(()=>({status:document.getElementById('productionSheetVoiceStatus').textContent,sent:__voice.sent.slice(-4),disabled:document.getElementById('productionSheetVoiceStart').disabled})));
-    throw error;
-  }
+  // Cancel creation and hang up the late negotiated call.
+  let release;sessionGate=new Promise(resolve=>{release=resolve;});
+  const creating=page.waitForRequest(request=>request.url().endsWith('/voice/session'));
+  await page.locator('#productionSheetVoiceStart').click();await creating;
   await page.locator('#productionSheetVoiceEnd').click();await idle();
   const closeCount=closes.length;release();sessionGate=null;
-  await page.waitForFunction(()=>!document.getElementById('productionSheetVoiceStart').disabled);
   await page.waitForTimeout(100);assert.equal(closes.length,closeCount+1);
 
-  // Manual changes while a routed request is pending invalidate its result.
-  await start();turnGate=new Promise(resolve=>{release=resolve;});
-  decision={action:'save_pdf',instruction:'',reply:'Po.'};
-  const changedRequest=page.waitForRequest(r=>r.url().endsWith('/voice/turn'));
-  await spoken('Save PDF','changed');await changedRequest;
-  await page.locator('#productionSheetReset').click();
-  await page.waitForFunction(()=>!document.getElementById('productionSheetPrint').disabled);
-  release();turnGate=null;await result('changed');assert.equal(downloads.length,1);
-  assert.match(await page.evaluate(()=>__voice.sent.find(e=>e.delegation_id==='changed').content),/sheet changed/i);
+  await start();
+  await emit({type:'conversation.item.input_audio_transcription.delta',item_id:'failure',delta:'Rrite shkrimin',event_id:'failure-delta'});
+  await emit({type:'error',error:{message:'transport failure'}});await idle();
+  assert.equal(await input.inputValue(),'Rrite shkrimin');
+  assert(!await page.locator('#productionSheetPrint').isDisabled());
+
+  await start();
   await page.evaluate(()=>{appState.processing.rows[0].width+=5;recalcProcessingPreview();updateProcessingUI();});
   await page.waitForFunction(()=>document.getElementById('productionSheetVoiceEnd').hidden);
   assert(await page.locator('#productionSheetVoiceStart').isDisabled());
   await page.locator('#productionSheetRefresh').click();
   await page.waitForFunction(()=>!document.getElementById('productionSheetPrint').disabled);
-  await page.evaluate(()=>{__voice.denied=true;});await page.locator('#productionSheetVoiceStart').click();await idle();
+  await page.evaluate(()=>{__dict.denied=true;});await page.locator('#productionSheetVoiceStart').click();await idle();
   assert.match(await page.locator('#productionSheetVoiceStatus').innerText(),/Allow microphone/);
-  await page.evaluate(()=>{__voice.denied=false;});await start();
-  // Graceful close silences the mic immediately, then bounded fallback releases it.
-  const stopped=await page.evaluate(()=>{__voice.noClosed=true;return __voice.stopped;});
-  await page.locator('#productionSheetVoiceEnd').click();
-  assert.equal(await page.evaluate(()=>__voice.mic.enabled),false);
-  assert.equal(await page.evaluate(()=>__voice.stopped),stopped);
-  await idle();assert(await page.evaluate(()=>__voice.stopped)>stopped);
-  await page.evaluate(()=>{__voice.noClosed=false;});await start();
-  await page.locator('#productionSheetClose').click();await page.waitForFunction(()=>document.getElementById('productionSheetVoiceEnd').hidden);
-  assert(sessions.every(s=>s.context.source_digest.length===64));
-  console.log(`${name}: multilingual voice proposals/apply/PDF, duplicate events, playback/work-aware idle, late connection cleanup, cancellation, source changes and microphone denial passed`);
+  await page.evaluate(()=>{__dict.denied=false;});await start();
+  await emit({type:'conversation.item.input_audio_transcription.delta',item_id:'long',delta:'ë'.repeat(2100)});
+  await idle();assert.equal((await input.inputValue()).length,2000);
+  assert.match(await page.locator('#productionSheetVoiceStatus').innerText(),/limit/);
+  await input.fill('');await start();
+  await page.locator('#productionSheetClose').click();
+  await page.waitForFunction(()=>document.getElementById('productionSheetVoiceEnd').hidden);
+  assert.equal(await page.evaluate(()=>__dict.mic.stopped),true);
+  assert(sessions.every(session=>Object.keys(session).join(',')==='sdp'),'no production data is sent to the transcription service');
+  console.log(name+': multilingual editable dictation, manual Send only, ordered/duplicate transcripts, final-text flush, corrections, timeout, PDF review/save, idle cleanup, cancellation, source changes and microphone denial passed');
 };

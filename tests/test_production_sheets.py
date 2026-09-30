@@ -9,7 +9,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import fitz
+import httpx
 import pytest
+from openai import OpenAI
 from PIL import Image
 from pydantic import ValidationError
 
@@ -213,7 +215,7 @@ def test_ai_uses_sol_61_medium_vision_and_returns_only_a_validated_proposal(monk
     assert result["preview"]["source_digest"] == render_sheet(SheetRequest(source=request.source))["source_digest"]
     call = calls[0]
     assert call["model"] == "gpt-6.1-sol" and call["reasoning"] == {"effort":"medium"}
-    assert "temperature" not in call and call["store"] is False
+    assert "temperature" not in call and call["store"] is True
     assert call["input"][0]["content"][1]["type"] == "input_image"
     assert options[0]["max_retries"] == 0
     timeout = options[0]["timeout"]
@@ -239,6 +241,25 @@ def test_ai_cannot_rewrite_dimensions_or_return_incomplete_or_unreadable_changes
     client,_,_ = fake_client(payload)
     with pytest.raises(ValueError,match="does not fit"):
         suggest_sheet(client,request)
+
+
+def test_sol_dashboard_storage_and_medium_reasoning_are_sent_by_the_installed_sdk(monkeypatch):
+    monkeypatch.delenv("PRODUCTION_SHEET_MODEL", raising=False)
+    requests = []
+    payload = {"settings": SheetSettings().model_dump(), "explanation": "Ready for review.", "warnings": []}
+    def transport(request):
+        requests.append(request)
+        return httpx.Response(200, json={"id": "resp_logged_test", "object": "response", "created_at": 0,
+            "status": "completed", "model": "gpt-6.1-sol", "output": [{"id": "msg_test", "type": "message",
+            "status": "completed", "role": "assistant", "content": [{"type": "output_text",
+            "text": json.dumps(payload), "annotations": []}]}]})
+    client = OpenAI(api_key="test-only", http_client=httpx.Client(transport=httpx.MockTransport(transport)))
+    result = suggest_sheet(client, ai_request())
+    sent = json.loads(requests[0].content)
+    assert requests[0].url.path == "/v1/responses"
+    assert sent["store"] is True and sent["model"] == "gpt-6.1-sol"
+    assert sent["reasoning"] == {"effort": "medium"} and "temperature" not in sent
+    assert result["response_id"] == "resp_logged_test"
 
 
 def test_invalid_images_are_rejected_before_an_api_call():

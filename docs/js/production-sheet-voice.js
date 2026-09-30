@@ -1,213 +1,192 @@
-/* GPT-Live carries speech; the existing immutable PDF workflow owns every sheet action. */
+/* Dictation fills an editable prompt. Only the user's Send click can ask the PDF formatter. */
 (function(root){
   "use strict";
-  const el=id=>document.getElementById(id), dialog=el("productionSheetDialog");
-  if (!dialog || !el("productionSheetVoiceStart")) return;
-  const idleMs=60000, maxSessionMs=15*60000;
+  const el=id=>document.getElementById(id), dialog=el("productionSheetDialog"), request=el("productionSheetRequest");
+  if (!dialog || !el("productionSheetVoiceStart") || !request) return;
+  const idleMs=60000, maxSessionMs=15*60000, silenceMs=900, finalizeMs=2500;
   let connection=null;
   const supported=()=>!!(root.RTCPeerConnection && navigator.mediaDevices?.getUserMedia && (root.AudioContext || root.webkitAudioContext));
-  function status(text){el("productionSheetVoiceStatus").textContent=text;}
-  function context(){return root.ProductionSheetUI.voiceContext();}
+  const status=text=>{el("productionSheetVoiceStatus").textContent=text;};
+  function context(){return root.ProductionSheetUI.dictationContext();}
   function update(){
     let ready=false;try{context();ready=true;}catch{}
     el("productionSheetVoiceStart").disabled=!!connection || !ready || !supported();
+    el("productionSheetVoiceStart").hidden=!!connection;
     el("productionSheetVoiceEnd").hidden=!connection;
-    el("productionSheetVoiceMute").hidden=!connection?.started || connection.closing;
-    if(!supported()) status("Ky shfletues nuk mbështet zërin. / Voice needs a browser with microphone support.");
-    if(connection?.started && !connection.closing && ready){
-      const text=JSON.stringify(context());
-      if(text!==connection.contextText){
-        connection.contextText=text;
-        const sheet=context(),s=sheet.settings;
-        send(connection,"session.thinking.append",{delegation_id:null,content:
-          `Read-only sheet: ${sheet.row_count} rows, ${sheet.piece_count} pieces, two complete copies. `+
-          `Layout ${s.layout}, columns ${s.columns}, ${s.font_size} pt, line spacing ${s.line_spacing}, after glass heading ${s.glass_after_pt} pt. `+
-          `Proposal pending: ${!!sheet.proposal}. Delegate for current sheet details; order data is unchanged.`});
-      }
-    }
+    el("productionSheetVoiceEnd").disabled=!!connection?.closing;
+    if(!supported())status("Ky shfletues nuk mbështet mikrofonin. / Microphone support is required.");
   }
-  function send(c,type,fields={}){
-    if(c.channel?.readyState!=="open") return false;
-    c.channel.send(JSON.stringify({type,event_id:`sheet_${crypto.randomUUID()}`,...fields}));return true;
+  function send(c,type){
+    if(c.channel?.readyState!=="open")return false;
+    c.channel.send(JSON.stringify({type,event_id:"dictation_"+crypto.randomUUID()}));return true;
   }
-  async function post(path,body,signal){
-    const response=await fetch(`${API_BASE}/api/production-sheets/voice/${path}`,{
-      method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body),signal});
+  async function post(body){
+    const response=await fetch(API_BASE+"/api/production-sheets/voice/session",{
+      method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
     const result=await response.json().catch(()=>({}));
-    if(!response.ok) throw new Error(typeof result.detail==="string"?result.detail:"Voice is unavailable. Your sheet is unchanged.");
+    if(!response.ok)throw new Error("Diktimi nuk u lidh. Mund ta shkruani kërkesën. / Dictation did not connect. Type your request instead.");
     return result;
   }
   function hangup(c,keepalive=false){
-    if(!c.owner || c.hangupSent) return;
-    c.hangupSent=true;
-    // Ownership token is scoped to this conversation; the OpenAI key never reaches the browser.
-    fetch(`${API_BASE}/api/production-sheets/voice/close`,{method:"POST",keepalive,
+    if(!c.owner || c.hangupSent)return;c.hangupSent=true;
+    fetch(API_BASE+"/api/production-sheets/voice/close",{method:"POST",keepalive,
       headers:{"Content-Type":"application/json"},body:JSON.stringify(c.owner)}).catch(()=>{});
   }
-  function release(c){
+  function release(c,complete=true,unloading=false){
+    if(c.released)return;c.released=true;
+    if(connection===c)connection=null;
     clearInterval(c.timer);clearTimeout(c.closeTimer);clearTimeout(c.startTimer);
-    c.controller?.abort();c.stream?.getTracks().forEach(track=>track.stop());
-    c.peer?.close();c.audio?.pause();if(c.audio)c.audio.srcObject=null;
-    c.audioContext?.close().catch(()=>{});
-    if(connection===c){connection=null;el("productionSheetVoicePlay").hidden=true;update();}
+    c.stream?.getTracks().forEach(track=>track.stop());c.peer?.close();
+    c.audioContext?.close().catch(()=>{});hangup(c,unloading);
+    update();
+    c.resolveDone(complete);
   }
-  function end(message="Biseda përfundoi. / Conversation ended.",unloading=false){
-    const c=connection;if(!c || c.closing)return;
-    c.closing=true;status(message);
-    c.controller?.abort();c.stream?.getTracks().forEach(track=>{track.enabled=false;});c.audio?.pause();
-    clearInterval(c.timer);clearTimeout(c.startTimer);update();
-    const sent=send(c,"session.close");
-    // Silence input/output now, retain the negotiated transport until final usage.
-    // A server hangup is a fallback, since racing it with close can lose session.closed.
-    if(unloading || !sent){hangup(c,unloading);release(c);}
-    else c.closeTimer=setTimeout(()=>{hangup(c);release(c);},10000);
+  function commit(c){
+    if(!c.uncommitted)return;
+    c.uncommitted=false;c.voicedMs=0;
+    if(send(c,"input_audio_buffer.commit"))c.outstanding++;
   }
-  function record(c,role,delta){
-    if(typeof delta!=="string" || !delta)return;
-    c.lastActivity=Date.now();if(role==="user")c.inputVersion++;
-    const last=c.messages.at(-1);
-    if(last?.role===role)last.text+=delta;else c.messages.push({role,text:delta});
-    // Full-duplex fragments remain separate and preserve their original spaces.
-    while(c.messages.length>60)c.messages.shift();
-    for(const item of c.messages)item.text=item.text.slice(-8000);
-    el("productionSheetVoiceTranscript").textContent=c.messages.slice(-8)
-      .map(item=>`${item.role==="user"?"Ju / You":"AI"}: ${item.text}`).join("\n");
-    el("productionSheetVoiceTranscript").scrollTop=el("productionSheetVoiceTranscript").scrollHeight;
+  function end(message="Diktimi përfundoi. Kontrolloni tekstin dhe shtypni Dërgo. / Dictation stopped. Review the text, then tap Send.",immediate=false,unloading=false){
+    const c=connection;if(!c)return Promise.resolve(true);
+    if(c.closing){if(immediate)release(c,false,unloading);return c.done;}
+    c.closing=true;status(message);clearInterval(c.timer);clearTimeout(c.startTimer);
+    c.stream?.getTracks().forEach(track=>{track.enabled=false;});update();
+    if(immediate || !c.started){release(c,!c.started,unloading);return c.done;}
+    commit(c);
+    if(!c.outstanding && [...c.items.values()].every(item=>item.final)){release(c);return c.done;}
+    c.closeTimer=setTimeout(()=>{
+      status("Kontrolloni tekstin para se të dërgoni. / Final transcript unavailable. Review the text before sending.");
+      release(c,false);
+    },finalizeMs);
+    return c.done;
   }
-  async function delegate(c,event){
-    const id=event.delegation?.id;
-    if(!id || event.delegation.target!=="client" || c.delegations.has(id) || c.closing)return;
-    c.delegations.add(id);
-    if(c.working){send(c,"session.commentary.append",{delegation_id:id,content:"A sheet review is already running. Wait for its proposal before another action."});return;}
-    c.working=true;c.lastActivity=Date.now();status("AI po kontrollon kërkesën dhe fletën… / Reviewing your request and sheet…");
-    c.controller=new AbortController();const controller=c.controller;
-    const timeout=setTimeout(()=>controller.abort(),100000);
-    try{
-      const expected=context(), version=c.inputVersion;
-      const transcript=c.messages.map(m=>`${m.role.toUpperCase()}: ${m.text}`).join("\n").slice(-16000);
-      if(!transcript)throw new Error("Nuk e dëgjova kërkesën. / Please repeat your request.");
-      const decision=await post("turn",{...c.owner,transcript,context:expected},controller.signal);
-      if(connection!==c || c.closing)return;
-      if(version!==c.inputVersion)throw new Error("Dëgjova diçka tjetër. Përsëriteni kërkesën. / Please repeat your latest request.");
-      const result=await root.ProductionSheetUI.voiceAction(decision,expected);
-      if(connection!==c || c.closing)return;
-      send(c,"session.commentary.append",{delegation_id:id,content:[...("Verified application result: "+result)].slice(0,220).join("")});
-    }catch(error){
-      if(connection===c && !c.closing){
-        const text=error.name==="AbortError"?"Kërkesa zgjati shumë. Provoni përsëri. / Please try again.":error.message;
-        status(text);send(c,"session.commentary.append",{delegation_id:id,content:[...("The requested action did not complete. Explain in the user's language: "+text)].slice(0,220).join("")});
-      }
-    }finally{
-      clearTimeout(timeout);c.working=false;c.lastActivity=Date.now();
-      if(c.controller===controller)c.controller=null;
-      if(connection===c && !c.closing){status("Po dëgjoj… / Listening…");update();}
-    }
+  function item(c,id){
+    if(typeof id!=="string" || !id || id.length>200)return null;
+    if(!c.items.has(id)){c.items.set(id,{id,text:"",final:false});c.order.push(id);}
+    return c.items.get(id);
+  }
+  function publish(c){
+    if(c.freeze || connection!==c)return;
+    const words=c.order.map(id=>c.items.get(id).text.trim()).filter(Boolean).join(" ");
+    const text=c.prefix+(c.prefix && words && !/\s$/.test(c.prefix)?" ":"")+words;
+    request.value=text.slice(0,request.maxLength);
+    if(text.length>request.maxLength)void end("Kërkesa arriti kufirin. Kontrollojeni para se ta dërgoni. / Request limit reached. Review before sending.",true);
   }
   function onEvent(c,raw){
     if(connection!==c || typeof raw!=="string" || raw.length>100000)return;
     let event;try{event=JSON.parse(raw);}catch{return;}
-    if(event.event_id){if(c.events.has(event.event_id))return;c.events.add(event.event_id);if(c.events.size>1000)c.events.delete(c.events.values().next().value);}
-    if(event.type==="session.closed"){
-      c.usage=event.usage?.seconds;hangup(c);release(c);
-      if(!c.closing)status("Biseda përfundoi. / Conversation ended.");return;
+    if(event.event_id){
+      if(c.events.has(event.event_id))return;c.events.add(event.event_id);
+      if(c.events.size>1000)c.events.delete(c.events.values().next().value);
     }
-    if(c.closing)return;
-    switch(event.type){
-      case "session.started":
-        c.started=true;c.lastActivity=Date.now();clearTimeout(c.startTimer);
-        status("Po dëgjoj… Flisni shqip ose në një gjuhë tjetër. / Listening… Speak in your language.");
-        send(c,"session.instructions.append",{delegation_id:null,content:"Greet the user now briefly in Albanian: you can help format this production sheet. Then listen; follow the language the user speaks."});update();break;
-      case "session.input_transcript.delta":record(c,"user",event.delta);break;
-      case "session.output_transcript.delta":record(c,"assistant",event.delta);break;
-      case "session.delegation.created":void delegate(c,event);break;
-      case "session.usage.updated":c.usage=event.usage?.seconds;break;
-      case "error":case "session.error":end("Zëri nuk është i disponueshëm. / Voice is unavailable. Your sheet is unchanged.");break;
+    if(["session.created","session.updated","transcription_session.created","transcription_session.updated"].includes(event.type)){
+      if(c.closing)return;
+      if(event.session?.type && event.session.type!=="transcription"){
+        void end("Rifreskoni faqen për diktimin e ri. / Reload the page for dictation.",true);return;
+      }
+      c.started=true;c.lastActivity=Date.now();clearTimeout(c.startTimer);
+      status("Po dëgjoj… Teksti shfaqet më poshtë. / Listening… Your request appears below.");update();return;
+    }
+    if(event.type==="input_audio_buffer.committed"){
+      const current=item(c,event.item_id);if(!current)return;
+      current.committed=true;
+      // Commit events establish speech order; final transcripts can arrive out of order.
+      c.order=c.order.filter(id=>id!==event.item_id);
+      const previous=c.order.indexOf(event.previous_item_id);
+      c.order.splice(event.previous_item_id===null?0:previous<0?c.order.length:previous+1,0,event.item_id);
+      publish(c);return;
+    }
+    if(event.type==="conversation.item.input_audio_transcription.delta" || event.type==="conversation.item.input_audio_transcription.completed"){
+      const current=item(c,event.item_id);if(!current || current.final || c.freeze)return;
+      if(event.type.endsWith(".delta")){
+        if(typeof event.delta!=="string")return;current.text+=event.delta;
+        if(!current.committed)c.uncommitted=true;
+      }else{
+        if(typeof event.transcript!=="string")return;current.text=event.transcript;current.final=true;
+        c.outstanding=Math.max(0,c.outstanding-1);
+      }
+      c.lastActivity=Date.now();publish(c);
+      if(c.closing && !c.outstanding && [...c.items.values()].every(part=>part.final))release(c);
+      return;
+    }
+    if(event.type==="error" || event.type==="conversation.item.input_audio_transcription.failed"){
+      void end("Diktimi u ndërpre. Kontrolloni ose shkruani kërkesën. / Dictation interrupted. Review or type your request.",true);
     }
   }
   function meter(c,stream){
     const source=c.audioContext.createMediaStreamSource(stream),analyser=c.audioContext.createAnalyser();
     analyser.fftSize=1024;source.connect(analyser);
-    return {source,analyser,data:new Float32Array(analyser.fftSize),floor:0.01};
-  }
-  function energy(m){
-    if(!m)return 0;m.analyser.getFloatTimeDomainData(m.data);
-    return Math.sqrt(m.data.reduce((sum,value)=>sum+value*value,0)/m.data.length);
+    return {source,analyser,data:new Float32Array(analyser.fftSize),floor:.01};
   }
   function tick(c){
     if(connection!==c || c.closing || !c.started)return;
-    const now=Date.now(),output=energy(c.output),input=c.muted?0:energy(c.input);
-    // Learn steady background noise; speech rises above it. Playback is measured,
-    // since transcript gaps alone do not prove the assistant has finished speaking.
-    c.input.floor=c.input.floor*.98+Math.min(input,c.input.floor*1.5)*.02;
-    if(input>Math.max(.018,c.input.floor*2.8) || output>.004 || c.working)c.lastActivity=now;
-    if(now-c.created>maxSessionMs && !c.working && output<=.004)end("Biseda përfundoi pas 15 minutash. Mund ta nisni sërish. / Start again to continue.");
-    else if(now-c.lastActivity>=idleMs)end("U shkëput pas 1 minute pa aktivitet. / Disconnected after 1 minute of inactivity.");
+    const now=Date.now(),input=c.input;
+    input.analyser.getFloatTimeDomainData(input.data);
+    const level=Math.sqrt(input.data.reduce((sum,value)=>sum+value*value,0)/input.data.length);
+    if(level>Math.max(.018,input.floor*2.8)){
+      c.lastSpeech=now;c.lastActivity=now;c.voicedMs+=200;c.uncommitted=true;
+    }else{
+      input.floor=input.floor*.98+Math.min(level,input.floor*1.5)*.02;
+      if(c.uncommitted && c.voicedMs>=200 && now-c.lastSpeech>=silenceMs)commit(c);
+    }
+    if(now-c.created>=maxSessionMs)void end("Diktimi përfundoi pas 15 minutash. / Dictation stopped after 15 minutes.");
+    else if(now-c.lastActivity>=idleMs)void end("U shkëput pas 1 minute pa të folur. / Disconnected after 1 minute of inactivity.");
   }
   async function start(){
     if(connection)return;
     let sheet;try{sheet=context();}catch(error){status(error.message);return;}
     if(!supported()){update();return;}
-    const c={created:Date.now(),lastActivity:Date.now(),messages:[],events:new Set(),delegations:new Set(),
-      started:false,closing:false,working:false,muted:false,inputVersion:0,contextText:JSON.stringify(sheet)};
-    connection=c;el("productionSheetVoiceTranscript").textContent="";status("Po lidh mikrofonin… / Connecting microphone…");update();
-    el("productionSheetVoiceMute").textContent="Hesht mikrofonin / Mute";
-    el("productionSheetVoiceMute").setAttribute("aria-pressed","false");
+    if(request.value.length>=request.maxLength){status("Shkurtoni kërkesën para diktimit. / Shorten the request before dictating.");return;}
+    const c={created:Date.now(),lastActivity:Date.now(),lastSpeech:0,voicedMs:0,uncommitted:false,outstanding:0,
+      prefix:request.value,items:new Map(),order:[],events:new Set(),started:false,closing:false,freeze:false};
+    c.done=new Promise(resolve=>{c.resolveDone=resolve;});
+    connection=c;status("Po lidh mikrofonin… / Connecting microphone…");update();
     try{
       c.audioContext=new (root.AudioContext || root.webkitAudioContext)();await c.audioContext.resume();
       c.stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
-      if(connection!==c || c.closing){c.stream.getTracks().forEach(t=>t.stop());return;}
-      c.input=meter(c,c.stream);c.audio=document.createElement("audio");c.audio.autoplay=true;
-      c.peer=new RTCPeerConnection();c.stream.getTracks().forEach(track=>c.peer.addTrack(track,c.stream));
-      c.peer.addEventListener("track",event=>{
-        if(connection!==c || c.closing)return;
-        const stream=new MediaStream([event.track]);c.output=meter(c,stream);c.audio.srcObject=stream;
-        c.audio.play().catch(()=>{if(connection===c && !c.closing)el("productionSheetVoicePlay").hidden=false;});
-      });
+      if(connection!==c || c.closing){c.stream.getTracks().forEach(track=>track.stop());return;}
+      c.input=meter(c,c.stream);c.peer=new RTCPeerConnection();
+      c.stream.getTracks().forEach(track=>c.peer.addTrack(track,c.stream));
       c.peer.addEventListener("connectionstatechange",()=>{
-        if(connection===c && !c.closing && ["failed","disconnected","closed"].includes(c.peer.connectionState))end("Lidhja u ndërpre. / Connection lost. Start voice again.");
+        if(connection===c && !c.closing && ["failed","disconnected","closed"].includes(c.peer.connectionState))
+          void end("Lidhja u ndërpre. Teksti mbetet i shkruar. / Connection lost. Your draft is kept.",true);
       });
       c.channel=c.peer.createDataChannel("oai-events");
       c.channel.addEventListener("message",event=>onEvent(c,event.data));
-      c.channel.addEventListener("close",()=>{if(connection===c && !c.closing)end("Lidhja u mbyll. / Voice connection closed.");});
+      c.channel.addEventListener("close",()=>{
+        if(connection===c)void end("Diktimi u mbyll. Teksti mbetet i shkruar. / Dictation disconnected. Your draft is kept.",true);
+      });
       await c.peer.setLocalDescription(await c.peer.createOffer());
       await new Promise((resolve,reject)=>{
         if(c.peer.iceGatheringState==="complete")return resolve();
-        const timer=setTimeout(()=>{c.peer.removeEventListener("icegatheringstatechange",changed);reject(new Error("Microphone connection timed out. Try again."));},10000);
+        const timer=setTimeout(()=>{c.peer.removeEventListener("icegatheringstatechange",changed);reject(new Error("Microphone connection timed out."));},10000);
         function changed(){if(c.peer.iceGatheringState==="complete"){clearTimeout(timer);c.peer.removeEventListener("icegatheringstatechange",changed);resolve();}}
         c.peer.addEventListener("icegatheringstatechange",changed);
       });
       if(connection!==c || c.closing)return;
-      // Do not abort this creation request on End: a late answer must still be hung up.
-      const result=await post("session",{sdp:c.peer.localDescription.sdp,context:sheet});
+      // A late creation answer must still be hung up after cancellation.
+      const result=await post({sdp:c.peer.localDescription.sdp});
       c.owner={session_id:result.session_id,token:result.token};
       if(connection!==c || c.closing){hangup(c);return;}
-      if(JSON.stringify(context())!==JSON.stringify(sheet)){end("Fleta ndryshoi. Niseni bisedën sërish. / The sheet changed. Start voice again.");return;}
+      if(result.model!=="gpt-live-transcribe")throw new Error("Reload the page for the new dictation mode.");
+      if(context().source_digest!==sheet.source_digest)throw new Error("The sheet changed. Start dictation again.");
       await c.peer.setRemoteDescription({type:"answer",sdp:result.sdp});
+      if(connection!==c || c.closing)return;
       c.timer=setInterval(()=>tick(c),200);
-      c.startTimer=setTimeout(()=>{if(!c.started && connection===c)end("Zëri nuk u lidh. Provoni përsëri. / Voice did not connect. Try again.");},15000);
+      c.startTimer=setTimeout(()=>{if(!c.started && connection===c)void end("Diktimi nuk u lidh. Shkruani kërkesën ose provoni sërish. / Dictation did not connect. Type or try again.",true);},15000);
     }catch(error){
-      if(connection===c && !c.closing){
-        const message=error.name==="NotAllowedError"?"Lejoni mikrofonin në shfletues. / Allow microphone access, then try again.":error.message;
-        end(message);
-      }
-      if(connection!==c || c.closing)c.stream?.getTracks().forEach(t=>t.stop());
+      if(connection===c && !c.closing)void end(error.name==="NotAllowedError"
+        ?"Lejoni mikrofonin në shfletues. / Allow microphone access, then try again.":error.message,true);
+      if(connection!==c || c.closing)c.stream?.getTracks().forEach(track=>track.stop());
     }
   }
-  root.ProductionSheetVoice={update,end};
+  root.ProductionSheetVoice={update,end,finish:()=>end(),active:()=>!!connection};
   el("productionSheetVoiceStart").addEventListener("click",()=>void start());
-  el("productionSheetVoiceEnd").addEventListener("click",()=>end());
-  el("productionSheetVoiceMute").addEventListener("click",()=>{
-    const c=connection;if(!c?.started || c.closing)return;c.muted=!c.muted;c.lastActivity=Date.now();
-    c.stream.getAudioTracks().forEach(t=>{t.enabled=!c.muted;});
-    send(c,c.muted?"session.input_audio.mute":"session.input_audio.unmute");
-    el("productionSheetVoiceMute").textContent=c.muted?"Aktivizo mikrofonin / Unmute":"Hesht mikrofonin / Mute";
-    el("productionSheetVoiceMute").setAttribute("aria-pressed",String(c.muted));
+  el("productionSheetVoiceEnd").addEventListener("click",()=>void end());
+  request.addEventListener("input",()=>{
+    if(!connection)return;connection.freeze=true;
+    void end("Teksti u ndryshua. Diktimi u ndal. / Text edited. Dictation stopped.",true);
   });
-  el("productionSheetVoicePlay").addEventListener("click",()=>{
-    const c=connection;if(!c || c.closing)return;c.audioContext.resume();
-    c.audio?.play().then(()=>{el("productionSheetVoicePlay").hidden=true;}).catch(()=>status("Lejoni audion në shfletues. / Allow audio playback."));
-  });
-  for(const type of ["pointerdown","keydown","input"])dialog.addEventListener(type,()=>{if(connection)connection.lastActivity=Date.now();});
-  root.addEventListener("pagehide",()=>end("",true));
+  root.addEventListener("pagehide",()=>void end("",true,true));
   update();
 })(window);

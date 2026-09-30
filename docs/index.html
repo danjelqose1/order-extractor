@@ -1869,28 +1869,22 @@
             </div>
             <label class="production-sheet-check"><input type="checkbox" data-sheet-setting="cut_guide">Show center cut guide</label>
           </details>
-          <label>Production note<textarea data-sheet-setting="note" rows="2" maxlength="1000" placeholder="Optional note for this sheet"></textarea></label>
-          <button type="button" class="btn tertiary" id="productionSheetReset">Reset formatting</button>
-          <section class="production-sheet-voice" aria-labelledby="productionSheetVoiceHeading">
-            <h3 id="productionSheetVoiceHeading">Fol me AI · Talk to AI</h3>
-            <p class="muted small">Flisni shqip ose në një gjuhë tjetër. AI ju ndihmon të formatoni fletën.</p>
-            <button type="button" class="btn primary" id="productionSheetVoiceStart" disabled>Nis bisedën / Start conversation</button>
+          <section class="production-sheet-ai production-sheet-voice" aria-labelledby="productionSheetAIHeading">
+            <h3 id="productionSheetAIHeading">Formatimi me AI / AI formatting</h3>
+            <p class="muted small">Shkruani ose diktoni kërkesën. / Type or dictate your request.</p>
+            <button type="button" class="btn" id="productionSheetVoiceStart" disabled>Dikto kërkesën / Dictate request</button>
             <div class="production-sheet-voice-actions">
-              <button type="button" class="btn" id="productionSheetVoiceEnd" hidden>Mbyll bisedën / End</button>
-              <button type="button" class="btn" id="productionSheetVoiceMute" aria-pressed="false" hidden>Hesht mikrofonin / Mute</button>
-              <button type="button" class="btn" id="productionSheetVoicePlay" hidden>Dëgjo AI / Play audio</button>
+              <button type="button" class="btn" id="productionSheetVoiceEnd" hidden>Ndalo diktimin / Stop dictation</button>
             </div>
-            <p id="productionSheetVoiceStatus" class="small" role="status" aria-live="polite">Shkëputet pas 1 minute pa aktivitet. / Disconnects after 1 minute idle.</p>
-            <details><summary>Biseda / Transcript</summary><div id="productionSheetVoiceTranscript" class="production-sheet-voice-transcript" aria-label="Conversation transcript"></div></details>
-          </section>
-          <section class="production-sheet-ai" aria-labelledby="productionSheetAIHeading">
-            <h3 id="productionSheetAIHeading">Let AI look at the sheet</h3>
-            <p class="muted small">Ask for a change, or let AI choose a readable layout.</p>
+            <p id="productionSheetVoiceStatus" class="small" role="status" aria-live="polite">Flisni shqip ose në një gjuhë tjetër. Shkëputet pas 1 minute pa të folur. / Speak in your language. Disconnects after 1 minute idle.</p>
             <label class="sr-only" for="productionSheetRequest">Request for AI</label>
             <textarea id="productionSheetRequest" rows="3" maxlength="2000" placeholder="Use three columns, make the text larger…"></textarea>
-            <button type="button" class="btn" id="productionSheetAsk">Ask AI to choose or edit</button>
+            <p class="muted small">Kontrolloni tekstin, pastaj shtypni Dërgo. / Review the text, then tap Send. Leave it blank to let AI choose.</p>
+            <button type="button" class="btn primary" id="productionSheetAsk">Dërgo te AI / Send to AI</button>
             <p class="muted small">AI reviews page images. Dimensions and quantities come from Processing.</p>
           </section>
+          <label>Production note<textarea data-sheet-setting="note" rows="2" maxlength="1000" placeholder="Optional note for this sheet"></textarea></label>
+          <button type="button" class="btn tertiary" id="productionSheetReset">Reset formatting</button>
           <section id="productionSheetProposal" class="production-sheet-proposal" hidden>
             <h3 id="productionSheetResultTitle">AI proposal</h3><p id="productionSheetExplanation"></p><p id="productionSheetWarnings" class="muted small"></p>
             <div class="production-sheet-buttons" id="productionSheetReview"><button type="button" class="btn primary" id="productionSheetApply">Apply</button><button type="button" class="btn" id="productionSheetDiscard">Discard</button></div>
@@ -2441,8 +2435,8 @@
 <script src="./js/platform-workflows.js?v=20260930-labels-print-margin1" defer></script>
 <script src="./js/manual-dimension-groups.js?v=20260919-manual-group1" defer></script>
 <script src="./js/app.js?v=20260930-production-sheet4" defer></script>
-<script src="./js/production-sheet.js?v=20260930-production-voice3" defer></script>
-<script src="./js/production-sheet-voice.js?v=20260930-production-voice3" defer></script>
+<script src="./js/production-sheet.js?v=20260930-production-dictation1" defer></script>
+<script src="./js/production-sheet-voice.js?v=20260930-production-dictation1" defer></script>
 <script src="./js/perfect-cut-bridge.js?v=20260919-manual-index2" defer></script>
 </body>
 </html>

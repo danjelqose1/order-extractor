@@ -122,8 +122,7 @@ from analytics_summary import ANALYTICS_STATUSES, build_analysis_summary
 from services.pdf_native_text_editor import native_text_replace
 from invoice_ai import analyze_invoice_line, match_invoice_glass_type
 from production_sheets import SheetRequest, SheetAIRequest, render_sheet, suggest_sheet
-from production_sheet_voice import (VoiceOffer, VoiceOwnership, VoiceTurn,
-                                    create_session, close_session, decide_turn)
+from production_sheet_voice import VoiceOffer, VoiceOwnership, create_session, close_session
 ENV_PATH = Path(__file__).parent / ".env"
 if os.getenv("ORDER_EXTRACTOR_LOAD_DOTENV", "true") == "true":
     load_dotenv(ENV_PATH, override=True)
@@ -1571,9 +1570,9 @@ def production_sheet_voice_session(payload: VoiceOffer, request: Request, x_app_
 
 
 @app.post("/api/production-sheets/voice/turn")
-def production_sheet_voice_turn(payload: VoiceTurn, request: Request, x_app_key: Optional[str] = Header(default=None)):
+def production_sheet_voice_turn(request: Request, x_app_key: Optional[str] = Header(default=None)):
     _voice_access(request, x_app_key)
-    return _voice_result(lambda: decide_turn(get_client(), payload))
+    raise HTTPException(status_code=410, detail="Voice is now dictation only. Reload, dictate your request, then tap Send to AI.")
 
 
 @app.post("/api/production-sheets/voice/close")
