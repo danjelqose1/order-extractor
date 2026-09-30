@@ -8,7 +8,7 @@
   <meta name="theme-color" content="#10151d" media="(prefers-color-scheme: dark)" />
   <link rel="icon" href="data:," />
   <title>Overview — Order Extractor</title>
-  <link rel="stylesheet" href="./css/styles.css?v=20260930-production-sheet4">
+  <link rel="stylesheet" href="./css/styles.css?v=20260930-production-voice1">
   <link rel="stylesheet" href="./css/interface.css?v=20260918-contrast1" media="screen">
 </head>
 <body>
@@ -1871,6 +1871,18 @@
           </details>
           <label>Production note<textarea data-sheet-setting="note" rows="2" maxlength="1000" placeholder="Optional note for this sheet"></textarea></label>
           <button type="button" class="btn tertiary" id="productionSheetReset">Reset formatting</button>
+          <section class="production-sheet-voice" aria-labelledby="productionSheetVoiceHeading">
+            <h3 id="productionSheetVoiceHeading">Fol me AI · Talk to AI</h3>
+            <p class="muted small">Flisni shqip ose në një gjuhë tjetër. AI ju ndihmon të formatoni fletën.</p>
+            <button type="button" class="btn primary" id="productionSheetVoiceStart" disabled>Nis bisedën / Start conversation</button>
+            <div class="production-sheet-voice-actions">
+              <button type="button" class="btn" id="productionSheetVoiceEnd" hidden>Mbyll bisedën / End</button>
+              <button type="button" class="btn" id="productionSheetVoiceMute" aria-pressed="false" hidden>Hesht mikrofonin / Mute</button>
+              <button type="button" class="btn" id="productionSheetVoicePlay" hidden>Dëgjo AI / Play audio</button>
+            </div>
+            <p id="productionSheetVoiceStatus" class="small" role="status" aria-live="polite">Shkëputet pas 1 minute pa aktivitet. / Disconnects after 1 minute idle.</p>
+            <details><summary>Biseda / Transcript</summary><div id="productionSheetVoiceTranscript" class="production-sheet-voice-transcript" aria-label="Conversation transcript"></div></details>
+          </section>
           <section class="production-sheet-ai" aria-labelledby="productionSheetAIHeading">
             <h3 id="productionSheetAIHeading">Let AI look at the sheet</h3>
             <p class="muted small">Ask for a change, or let AI choose a readable layout.</p>
@@ -2429,7 +2441,8 @@
 <script src="./js/platform-workflows.js?v=20260930-labels-print-margin1" defer></script>
 <script src="./js/manual-dimension-groups.js?v=20260919-manual-group1" defer></script>
 <script src="./js/app.js?v=20260930-production-sheet4" defer></script>
-<script src="./js/production-sheet.js?v=20260930-production-sheet4" defer></script>
+<script src="./js/production-sheet.js?v=20260930-production-voice1" defer></script>
+<script src="./js/production-sheet-voice.js?v=20260930-production-voice1" defer></script>
 <script src="./js/perfect-cut-bridge.js?v=20260919-manual-index2" defer></script>
 </body>
 </html>

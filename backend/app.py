@@ -122,6 +122,8 @@ from analytics_summary import ANALYTICS_STATUSES, build_analysis_summary
 from services.pdf_native_text_editor import native_text_replace
 from invoice_ai import analyze_invoice_line, match_invoice_glass_type
 from production_sheets import SheetRequest, SheetAIRequest, render_sheet, suggest_sheet
+from production_sheet_voice import (VoiceOffer, VoiceOwnership, VoiceTurn,
+                                    create_session, close_session, decide_turn)
 ENV_PATH = Path(__file__).parent / ".env"
 if os.getenv("ORDER_EXTRACTOR_LOAD_DOTENV", "true") == "true":
     load_dotenv(ENV_PATH, override=True)
@@ -1537,6 +1539,47 @@ def production_sheet_ai(payload: SheetAIRequest, x_app_key: Optional[str] = Head
         logger.warning("Production sheet AI unavailable (error=%s, phase=%s, elapsed=%.1fs)",
                        type(exc).__name__, type(exc.__cause__).__name__, time.monotonic() - started)
         raise HTTPException(status_code=502, detail="AI layout review is unavailable. Your current sheet is still ready to print.") from exc
+
+
+def _voice_access(request: Request, x_app_key: Optional[str]):
+    if APP_KEY and x_app_key != APP_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    origin = request.headers.get("origin", "")
+    if origin not in _ALLOWED_ORIGINS and not re.fullmatch(r"http://(localhost|127\.0\.0\.1)(:\d+)?", origin):
+        raise HTTPException(status_code=403, detail="Start voice from the production-sheet window.")
+
+
+def _voice_result(operation):
+    try:
+        return operation()
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except openai_pkg.APITimeoutError as exc:
+        raise HTTPException(status_code=504, detail="Voice took too long to respond. Your sheet is unchanged.") from exc
+    except Exception as exc:
+        logger.warning("Production sheet voice unavailable (error=%s, status=%s)",
+                       type(exc).__name__, getattr(exc, "status_code", None))
+        raise HTTPException(status_code=502, detail="Voice is unavailable. You can still edit and print the sheet.") from exc
+
+
+@app.post("/api/production-sheets/voice/session")
+def production_sheet_voice_session(payload: VoiceOffer, request: Request, x_app_key: Optional[str] = Header(default=None)):
+    _voice_access(request, x_app_key)
+    return _voice_result(lambda: create_session(get_client(), payload, request.client.host if request.client else "unknown"))
+
+
+@app.post("/api/production-sheets/voice/turn")
+def production_sheet_voice_turn(payload: VoiceTurn, request: Request, x_app_key: Optional[str] = Header(default=None)):
+    _voice_access(request, x_app_key)
+    return _voice_result(lambda: decide_turn(get_client(), payload))
+
+
+@app.post("/api/production-sheets/voice/close")
+def production_sheet_voice_close(payload: VoiceOwnership, request: Request, x_app_key: Optional[str] = Header(default=None)):
+    _voice_access(request, x_app_key)
+    return _voice_result(lambda: close_session(get_client(), payload))
 
 
 def _awa_now() -> str:

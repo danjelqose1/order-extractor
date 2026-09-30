@@ -6,6 +6,7 @@ const path = require('node:path');
 const http = require('node:http');
 const {spawn} = require('node:child_process');
 const fixture = require('./fixtures/perfect_cut_order.json');
+const voiceQA = require('./production_sheet_voice_browser.cjs');
 const root = path.resolve(__dirname,'..');
 const output = process.env.PRODUCTION_SHEET_QA_OUTPUT || '/tmp/production-sheet-browser-qa';
 fs.mkdirSync(output,{recursive:true});
@@ -96,12 +97,12 @@ async function run(engine,name,base){
     assert.equal(await page.locator('#productionSheetZoom').innerText(),'Fit page');
     await page.locator('#productionSheetZoom').click();
     await page.screenshot({path:path.join(output,`${name}-short.png`),fullPage:true});
-    await page.locator('#productionSheetDialog summary').click();
+    await page.locator('.production-sheet-options summary').click();
     await page.locator('[data-sheet-setting="glass_after_pt"]').fill('8');
     await page.locator('[data-sheet-setting="glass_after_pt"]').press('Tab');
     await page.waitForFunction(()=>!document.getElementById('productionSheetPrint').disabled);
     assert.equal(await page.locator('[data-sheet-setting="glass_after_pt"]').inputValue(),'8');
-    await page.locator('#productionSheetDialog summary').click();
+    await page.locator('.production-sheet-options summary').click();
     await page.locator('[data-sheet-setting="note"]').fill('Keep this order together.');
     await page.locator('[data-sheet-setting="note"]').press('Tab');
     await page.waitForFunction(()=>!document.getElementById('productionSheetPrint').disabled);
@@ -257,6 +258,10 @@ async function run(engine,name,base){
       assert(await page.locator('#productionSheetProposal').isHidden());
       await page.locator('#productionSheetClose').click();
     }
+    await page.evaluate(order=>{clearProcessing();addOrderToProcessing(order);},fixture);
+    await page.locator('#productionSheetOpen').click();
+    await page.waitForFunction(()=>!document.getElementById('productionSheetPrint').disabled);
+    await voiceQA(page,name,output,aiBodies);
     assert.equal(errors.length,0,errors.join('\n'));
     console.log(`${name}: preview, PDF, Print, visual AI proposal, Apply/Discard, one-click AI downloads, cancellation, failure recovery, stale source, large jobs, reset and responsive themes passed`);
   }finally{await browser.close();}
@@ -271,7 +276,7 @@ async function run(engine,name,base){
       if(server.exitCode!=null)throw new Error(stderr);
       await new Promise(resolve=>setTimeout(resolve,100));
     }
-    await run(chromium,'chromium',base);
-    await run(webkit,'webkit',base);
+    if(!process.env.PRODUCTION_SHEET_QA_ENGINE || process.env.PRODUCTION_SHEET_QA_ENGINE==='chromium') await run(chromium,'chromium',base);
+    if(!process.env.PRODUCTION_SHEET_QA_ENGINE || process.env.PRODUCTION_SHEET_QA_ENGINE==='webkit') await run(webkit,'webkit',base);
   }finally{server.kill();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

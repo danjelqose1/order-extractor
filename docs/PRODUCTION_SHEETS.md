@@ -18,11 +18,25 @@ Structured output is limited to formatting settings, a requested production note
 
 Glass headings have separate spacing controls before and after the entire heading. The AI can add space after a wrapped glass type without changing the gap above it or the dimension rows.
 
+## Spoken conversation
+
+**Fol me AI · Talk to AI** starts a GPT-Live 1 WebRTC conversation after browser microphone permission. It initially greets in Albanian, then follows the user's language, including switches. The microphone/audio transport goes to OpenAI; transcripts stay in tab memory. Sessions use `store=False`; the application does not save audio or transcripts in its database. This does not override OpenAI's API data-retention policies.
+
+The Render server creates the connection using its existing key; only the negotiated SDP and an opaque, session-scoped ownership token reach the browser. Session creation requires an allowed frontend Origin and the existing optional APP_KEY guard. There is a process-local limit of four sessions and thirty connection attempts per hour per client address. These are abuse/cost bounds, not a new identity system. No new credentials or database are required.
+
+GPT-Live uses client delegation. Its delegation events contain an ID, not task text: the browser retains exact user/assistant transcript fragments and sends the conversation plus current sheet state to `gpt-6.1-sol` with medium reasoning. A strict action schema permits only propose, apply, discard, save_pdf or clarify. Formatting requests go through the existing PDF-image AI review. A spoken edit shows a proposal; explicit approval applies the displayed proposal. Mouse controls and spoken actions share the same source/settings checks. Changes while routing a request invalidate its result. A spoken PDF request highlights Save PDF; the user taps that button because Safari requires a click to download. Spoken requests never write order data or operate printers.
+
+The conversation disconnects after **one minute of inactivity**. Actual microphone energy (above steady background noise), assistant playback, user interaction and pending sheet work reset the timer. Transcript gaps alone do not signal silence. There is also a fifteen-minute session cap when no work or playback is pending; Start conversation reconnects. Muting does not stop connected-minute billing. End, dialog close, source changes, page leave, transport errors and permission failures release microphone tracks and close the connection. The data channel requests graceful close; an owned server hangup provides cleanup, including late session answers after cancellation. Finalization waits up to three seconds before releasing local resources. Sessions are not automatically reconnected.
+
+Browser support, OpenAI GPT-Live project access and network/media connectivity are required. Voice failure leaves the current printable sheet and text controls available. Verify Albanian speech quality on the factory laptop and its actual microphone; synthetic transport tests do not establish recognition quality in workshop noise.
+
 ## Implementation and rollout
 
 - `backend/production_sheets.py`: bounded request models, font measurement, wrapping, continuation context, balanced columns, PDF generation and visual AI proposals.
 - `backend/assets/fonts/`: embedded DejaVu Sans regular/bold with their original license notices. Unsupported characters are rejected rather than silently substituted.
 - `docs/js/production-sheet.js`: source snapshot, manual controls, PDF.js preview, visual AI requests, proposal review, PDF download and a browser print window.
+- `backend/production_sheet_voice.py` and `docs/js/production-sheet-voice.js`: GPT-Live session ownership, multilingual presentation intent routing, WebRTC, transcript display and inactivity cleanup.
+- `POST /api/production-sheets/voice/session`, `/voice/turn`, `/voice/close`: connection, presentation-only request routing and owned server hangup.
 - `POST /api/production-sheets/preview`: returns a PDF and layout/count metadata without calling AI.
 - `POST /api/production-sheets/ai`: returns a validated proposal and its rendered PDF. Both routes respect the existing optional `APP_KEY` guard.
 
@@ -33,10 +47,12 @@ Both the frontend and Render backend must receive this change before factory use
 Run the Python suite with the existing backend test environment:
 
 ```sh
-python -m pytest tests/test_production_sheets.py tests/test_smoke.py tests/test_invoice_ai.py tests/test_manual_orders.py tests/test_frontend_theme.py tests/test_frontend_security.py -q
+python -m pytest tests/test_production_sheet_voice.py tests/test_production_sheets.py tests/test_smoke.py tests/test_invoice_ai.py tests/test_manual_orders.py tests/test_frontend_theme.py tests/test_frontend_security.py -q
 node --test tests/test_production_sheet_source.cjs tests/test_perfect_cut_bridge.cjs tests/test_manual_dimension_groups.cjs
 ```
 
 The browser suite uses an isolated local backend, the real PDF renderer and fixture AI responses. It never contacts deployed services or production data. Set `NODE_PATH` to the available Playwright/PDF.js packages and `PRODUCTION_TEST_PYTHON` to a Python environment with backend dependencies, then run `node tests/test_production_sheet_browser.cjs`. `PRODUCTION_PDFJS_DIR` may point to a directory containing `build/pdf.mjs` and `build/pdf.worker.mjs`; production currently uses PDF.js 4.10.38. QA artifacts default to `/tmp/production-sheet-browser-qa`.
 
 Browser coverage includes source preservation, short and long jobs, Print, Save PDF, zoom, AI page-image submission, Apply/Discard, unavailable AI, stale source, reset, and responsive light/dark themes. Live OpenAI responses, deployed integration and the physical factory printer require verification after rollout.
+
+Voice fixtures in `tests/production_sheet_voice_browser.cjs` run in the same Chromium/WebKit suite. They verify delegation IDs, Albanian/Italian requests, spoken review/PDF preparation, duplicate suppression, playback/work-aware idle disconnection, permission denial, source changes and late-connection cancellation using the real sheet UI and PDF renderer. They do not contact the live voice API.

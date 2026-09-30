@@ -76,6 +76,7 @@
     el("productionSheetPrev").disabled = !!state.busy || state.page <= 1;
     el("productionSheetNext").disabled = !!state.busy || !state.pdf || state.page >= state.pdf.numPages;
     el("productionSheetZoom").disabled = !!state.busy || !state.pdf;
+    root.ProductionSheetVoice?.update();
   }
   function stop(){
     state.generation++;
@@ -184,8 +185,8 @@
       else setStatusMessage(error.message);
     }
   }
-  async function askAI(automatic=false){
-    if (state.busy || state.stale || state.dirty || !state.pdf) return;
+  async function askAI(automatic=false, voiceInstruction=null){
+    if (state.busy || state.stale || state.dirty || !state.pdf || state.proposal) return;
     stop(); const generation = state.generation;
     state.busy = "ai"; state.aiResult = null; controls(); status("AI is looking at the sheet and checking the layout…");
     const started = Date.now();
@@ -209,7 +210,7 @@
         canvas.width = canvas.height = 0;
       }
       if (generation !== state.generation) return;
-      const instruction = (!automatic && el("productionSheetRequest").value.trim())
+      const instruction = voiceInstruction || (!automatic && el("productionSheetRequest").value.trim())
         || "Look at this production sheet and choose the clearest readable layout, using two production copies and saving paper where practical.";
       const current = state.current;
       const result = await post("ai",{source:state.snapshot.source,settings:state.settings,instruction,images,
@@ -227,11 +228,12 @@
       fresh();
       if (automatic){
         applyResult(result); state.aiResult = result;
-        downloadPdf();
+        downloadPdf(true);
         status(`AI prepared your PDF and started the download · reviewed ${sampled.length} page${sampled.length === 1 ? "" : "s"} from one copy. Both copies are included; printer Copies should be 1.`);
       }else{
         status(`AI proposal · reviewed ${sampled.length} page${sampled.length === 1 ? "" : "s"} from one copy. Apply or discard before printing.`);
       }
+      return result;
     }catch(error){
       if (generation === state.generation){
         if (state.shown !== state.current && !state.proposal) state.dirty = true;
@@ -251,8 +253,9 @@
     state.draft = {signature:state.snapshot.signature, settings:{...state.settings}};
     state.proposal = null;
   }
-  function downloadPdf(){
+  function downloadPdf(automatic=false){
     fresh();
+    if (!dialog.open || (state.busy && !automatic) || state.stale || state.dirty || state.proposal || !state.current) throw new Error("Apply or discard the proposal before saving the PDF.");
     const url=URL.createObjectURL(new Blob([bytes(state.current)],{type:"application/pdf"}));
     const link=document.createElement("a"); link.href=url; link.download=filename(); link.click();
     setTimeout(() => URL.revokeObjectURL(url),60000);
@@ -260,7 +263,7 @@
   el("productionSheetOpen").addEventListener("click",() => open());
   el("productionSheetAuto").addEventListener("click",() => open(false,true));
   el("productionSheetClose").addEventListener("click",() => dialog.close());
-  dialog.addEventListener("close",() => { stop(); state.busy = ""; state.proposal = null; controls(); });
+  dialog.addEventListener("close",() => { root.ProductionSheetVoice?.end(); stop(); state.busy = ""; state.proposal = null; controls(); });
   el("productionSheetRefresh").addEventListener("click",() => open(true));
   el("productionSheetReset").addEventListener("click",() => {state.proposal=null; form(defaults); render({...defaults});});
   fields.forEach(field => field.addEventListener("change",() => {
@@ -275,20 +278,23 @@
     el("productionSheetPages").classList.toggle("is-zoomed",state.zoom);
     el("productionSheetZoom").textContent=state.zoom ? "Fit page" : "Zoom in";
   });
-  el("productionSheetApply").addEventListener("click",() => {
-    try{
-      fresh();
-      applyResult(state.proposal); state.aiResult = null;
-      controls(); status("AI layout applied. Ready to print two copies.");
-    }catch(error){ status(error.message); }
-  });
-  el("productionSheetDiscard").addEventListener("click",async () => {
+  function applyProposal(){
+    fresh();
+    if (state.busy || state.stale || !state.proposal) throw new Error("There is no ready proposal to apply.");
+    applyResult(state.proposal); state.aiResult = null;
+    controls(); status("AI layout applied. Ready to print two copies.");
+  }
+  async function discardProposal(){
+    fresh();
+    if (state.busy || state.stale || !state.proposal) throw new Error("There is no ready proposal to discard.");
     state.proposal = null; form(state.settings);
     state.busy="render"; controls();
     try{ await show(state.current,state.generation); status("Kept your previous layout."); }
-    catch(error){ status(error.message); }
+    catch(error){ state.dirty=true; status(error.message); throw error; }
     finally{state.busy=""; controls();}
-  });
+  }
+  el("productionSheetApply").addEventListener("click",() => {try{applyProposal();}catch(error){status(error.message);}});
+  el("productionSheetDiscard").addEventListener("click",() => discardProposal().catch(error=>status(error.message)));
   for (const [id,delta] of [["productionSheetPrev",-1],["productionSheetNext",1]]){
     el(id).addEventListener("click",async () => {
       state.busy="page"; controls();
@@ -338,11 +344,37 @@
     try{snapshot=capture(appState.processing); state.sourceAvailable=true;}
     catch{state.sourceAvailable=false;}
     if(dialog.open && (!snapshot || snapshot.signature!==state.snapshot?.signature)){
+      root.ProductionSheetVoice?.end("Processing changed. Start voice again after refreshing the sheet.");
       stop(); state.busy=""; state.stale=true; state.proposal=null; state.aiResult=null;
       status("Processing changed. Refresh to prepare the current orders.");
     }
     controls();
   }
-  root.ProductionSheetUI={sourceChanged};
+  function voiceContext(){
+    fresh();
+    if (!dialog.open || state.stale || state.dirty || state.busy || !state.current) throw new Error("Wait until the sheet is ready.");
+    return {title:state.snapshot.source.text.split("\n")[0].slice(0,2000),source_digest:state.current.source_digest,
+      row_count:state.current.row_count,piece_count:state.current.piece_count,settings:{...state.settings},
+      proposal:state.proposal ? JSON.stringify({settings:state.proposal.proposal.settings,explanation:state.proposal.proposal.explanation}).slice(0,3000) : ""};
+  }
+  async function voiceAction(decision, expected){
+    if (JSON.stringify(voiceContext())!==JSON.stringify(expected)) throw new Error("The sheet changed while AI was listening. Please repeat your request.");
+    switch(decision.action){
+      case "propose": {
+        const result=await askAI(false,decision.instruction);
+        if (!result) throw new Error(el("productionSheetStatus").textContent || "The proposal could not be prepared.");
+        return `PDF proposal is displayed but NOT applied. Ask the user to review and explicitly apply or discard it. Explanation: ${result.proposal.explanation}. Warnings: ${result.proposal.warnings.join("; ")}`;
+      }
+      case "apply": applyProposal(); return "The displayed layout proposal was applied. Both production copies are ready; no order data changed.";
+      case "discard": await discardProposal(); return "The proposal was discarded; the previous layout is displayed.";
+      case "save_pdf":
+        if (state.proposal) throw new Error("Apply or discard the proposal before saving the PDF.");
+        el("productionSheetSave").focus(); el("productionSheetSave").scrollIntoView({block:"nearest"});
+        return "The PDF is ready, including both copies. Ask the user to tap Save PDF to download it; the browser needs a click. No download has started yet.";
+      case "clarify": return decision.reply;
+      default: throw new Error("That voice action is unavailable.");
+    }
+  }
+  root.ProductionSheetUI={sourceChanged,voiceContext,voiceAction};
   sourceChanged();
 })(typeof window !== "undefined" ? window : globalThis);
