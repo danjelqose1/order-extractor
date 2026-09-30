@@ -38,6 +38,10 @@ def rows_in(text):
     return re.findall(r"^\d+ – [^\n]+", text, re.MULTILINE)
 
 
+def normalized(text):
+    return " ".join(text.split())
+
+
 def image():
     output = BytesIO()
     Image.new("RGB", (100, 100), "white").save(output, format="PNG")
@@ -71,13 +75,40 @@ def test_full_page_copies_are_collated_and_keep_every_row(columns):
     n = result["pages_per_copy"]
     assert len(pdf) == 2 * n and result["columns"] == int(columns)
     assert [page.get_text() for page in pdf[:n]] == [page.get_text() for page in pdf[n:]]
-    assert rows_in("\n".join(page.get_text() for page in pdf[:n])) == rows_in(src.text)
+    copy_text = "\n".join(page.get_text() for page in pdf[:n])
+    assert rows_in(copy_text) == rows_in(src.text)
+    assert normalized(copy_text).count(normalized(GLASS)) == 1
+    assert normalized(copy_text).count(normalized(ORDER)) == 1
     for page in pdf:
-        assert GLASS.split(" — ")[0].split()[0] in page.get_text()
-        assert "[Order R-26-0883" in page.get_text()
         for block in page.get_text("blocks"):
             assert block[0] >= 20 and block[1] >= 20
             assert block[2] <= page.rect.width - 20 and block[3] <= page.rect.height - 20
+
+
+@pytest.mark.parametrize("columns", ["2", "3"])
+@pytest.mark.parametrize("section_start", [4, 100])
+def test_glass_sections_flow_across_columns_and_pages_until_the_next_type(columns, section_start):
+    src = source(160)
+    second_glass = "2 VETRI 4F +20+ 4LOWE (28MM) — Area: 390,580 m²"
+    second_order = "[Order R-26-0884 — BONITA]"
+    source_rows = rows_in(src.text)
+    src.text = "\n".join([TITLE, GLASS, ORDER, *source_rows[:section_start],
+                          second_glass, second_order, *source_rows[section_start:]])
+    src.glass_headers.append(second_glass)
+    src.order_headers.append(second_order)
+    before = src.model_dump_json()
+    result = render_sheet(SheetRequest(source=src, settings=SheetSettings(
+        layout="full", columns=columns, orientation="landscape")))
+    pdf = doc(result)
+    n = result["pages_per_copy"]
+    assert n > 1
+    for copy_start in (0, n):
+        text = "\n".join(page.get_text() for page in pdf[copy_start:copy_start + n])
+        assert rows_in(text) == source_rows
+        for heading in (GLASS, ORDER, second_glass, second_order):
+            assert normalized(text).count(normalized(heading)) == 1
+        assert text.index(source_rows[section_start - 1]) < text.index("2 VETRI 4F") < text.index(source_rows[section_start])
+    assert src.model_dump_json() == before
 
 
 def test_auto_uses_columns_for_long_jobs_without_shrinking_text():
@@ -143,6 +174,8 @@ def test_repeated_source_rows_and_reset_numbering_are_not_deduplicated():
     src.piece_count = 4
     text = doc(render_sheet(SheetRequest(source=src)))[0].get_text()
     assert rows_in(text) == ["1 – 381 × 2250 × 2"] * 4
+    assert normalized(text).count(normalized(GLASS)) == 4
+    assert normalized(text).count(normalized(ORDER)) == 4
 
 
 def test_notes_are_preserved_in_both_copies_and_reset_is_generated_content():

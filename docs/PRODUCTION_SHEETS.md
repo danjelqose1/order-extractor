@@ -6,6 +6,8 @@ After adding orders to Processing, choose **Prepare production sheet**. The prev
 
 Automatic first tries two independent halves on landscape A4 at the selected readable text size. If that does not fit, it measures portrait and landscape layouts with one, two or three columns **inside each copy**. It prefers fewer pages, then fewer columns, then portrait when the other choices are equal. Columns are balanced without adding pages. The second set repeats the complete first set, with identical numbering. Manual controls can override the decision; a forced layout that cannot fit is rejected.
 
+Glass-type headings and order references appear at their original positions in each complete copy. Dimensions continue into the next column or page without repeating those headings, until the next section starts. Original repeated headings in the prepared source remain intact. Each page still carries the sheet title and page number.
+
 The browser uses the prepared `appState.processing.preview` text, glass/order headings, rows and provenance. The new renderer changes presentation only. It does not round, group, merge, recalculate areas, save orders, change statuses or change existing Workspace/Manual Orders exports. A source change invalidates the preview and any AI proposal. Refresh uses the current source and resets formatting. Formatting drafts survive closing/reopening the dialog for the same source within the current tab; they are not stored in the database.
 
 ## AI review
@@ -32,7 +34,7 @@ Browser support, OpenAI GPT-Live project access and network/media connectivity a
 
 ## Implementation and rollout
 
-- `backend/production_sheets.py`: bounded request models, font measurement, wrapping, continuation context, balanced columns, PDF generation and visual AI proposals.
+- `backend/production_sheets.py`: bounded request models, font measurement, wrapping, continuous section flow, balanced columns, PDF generation and visual AI proposals.
 - `backend/assets/fonts/`: embedded DejaVu Sans regular/bold with their original license notices. Unsupported characters are rejected rather than silently substituted.
 - `docs/js/production-sheet.js`: source snapshot, manual controls, PDF.js preview, visual AI requests, proposal review, PDF download and a browser print window.
 - `backend/production_sheet_voice.py` and `docs/js/production-sheet-voice.js`: GPT-Live session ownership, multilingual presentation intent routing, WebRTC, transcript display and inactivity cleanup.

@@ -158,7 +158,6 @@ def _plan(source, settings, columns, orientation, cuttable=False, column_height=
     physical_bottom = margin + (0 if cuttable else 12)
     bottom = physical_bottom
     pages, instructions, col, y = [], [], 0, 0
-    glass, order = None, None
 
     def metrics(block, width=column_width):
         bold = block.kind in ("title", "glass")
@@ -205,14 +204,6 @@ def _plan(source, settings, columns, orientation, cuttable=False, column_height=
             top = start_page()
         y = top
 
-    def continuation(block):
-        context = []
-        if glass and block.kind != "glass":
-            context.append(Block("glass", glass.text))
-        if order and block.kind not in ("glass", "order"):
-            context.append(Block("order", order.text))
-        return context
-
     for index, block in enumerate(blocks):
         # Keep a heading, its order reference and the first dimension together.
         lookahead = [block]
@@ -229,16 +220,11 @@ def _plan(source, settings, columns, orientation, cuttable=False, column_height=
         needed = sum(metrics(part)[3] for part in lookahead)
         if y - needed < bottom:
             advance()
-            context = continuation(block)
-            if y - needed - sum(metrics(part)[3] for part in context) < bottom:
+            if y - needed < bottom:
                 raise ValueError("The heading and its first row cannot fit at this text size. Choose wider columns or smaller text.")
-            for part in context:
-                draw(part)
+        # Continue the source sequence across columns and pages without
+        # reintroducing glass headings or order references at a layout break.
         draw(block)
-        if block.kind == "glass":
-            glass, order = block, None
-        elif block.kind == "order":
-            order = block
     pages.append(instructions[:])
     return {"pages": pages, "page_width": page_width, "page_height": page_height,
             "columns": columns, "orientation": orientation, "layout": "cuttable" if cuttable else "full",
