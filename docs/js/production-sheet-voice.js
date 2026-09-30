@@ -50,12 +50,13 @@
   function end(message="Biseda përfundoi. / Conversation ended.",unloading=false){
     const c=connection;if(!c || c.closing)return;
     c.closing=true;status(message);
-    c.controller?.abort();c.stream?.getTracks().forEach(track=>track.stop());
+    c.controller?.abort();c.stream?.getTracks().forEach(track=>{track.enabled=false;});c.audio?.pause();
     clearInterval(c.timer);clearTimeout(c.startTimer);update();
-    send(c,"session.close");hangup(c,unloading);
-    // Keep the channel and speaker alive briefly for session.closed/final usage.
-    if(unloading) release(c);
-    else c.closeTimer=setTimeout(()=>release(c),3000);
+    const sent=send(c,"session.close");
+    // Silence input/output now, retain the negotiated transport until final usage.
+    // A server hangup is a fallback, since racing it with close can lose session.closed.
+    if(unloading || !sent){hangup(c,unloading);release(c);}
+    else c.closeTimer=setTimeout(()=>{hangup(c);release(c);},10000);
   }
   function record(c,role,delta){
     if(typeof delta!=="string" || !delta)return;

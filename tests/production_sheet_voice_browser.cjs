@@ -21,7 +21,7 @@ module.exports=async function voiceQA(page,name,output,aiBodies){
     const track=()=>({enabled:true,kind:'audio',stop(){__voice.stopped++;}});
     const fixtureMicrophone=async()=>{
       if(__voice.denied)throw new DOMException('Denied','NotAllowedError');
-      const t=track();return {role:'input',getTracks:()=>[t],getAudioTracks:()=>[t]};
+      const t=track();__voice.mic=t;return {role:'input',getTracks:()=>[t],getAudioTracks:()=>[t]};
     };
     // WebKit may recreate the MediaDevices wrapper after collection; patch its
     // prototype so reconnects retain the fixture rather than opening a real mic.
@@ -150,6 +150,13 @@ module.exports=async function voiceQA(page,name,output,aiBodies){
   await page.evaluate(()=>{__voice.denied=true;});await page.locator('#productionSheetVoiceStart').click();await idle();
   assert.match(await page.locator('#productionSheetVoiceStatus').innerText(),/Allow microphone/);
   await page.evaluate(()=>{__voice.denied=false;});await start();
+  // Graceful close silences the mic immediately, then bounded fallback releases it.
+  const stopped=await page.evaluate(()=>{__voice.noClosed=true;return __voice.stopped;});
+  await page.locator('#productionSheetVoiceEnd').click();
+  assert.equal(await page.evaluate(()=>__voice.mic.enabled),false);
+  assert.equal(await page.evaluate(()=>__voice.stopped),stopped);
+  await idle();assert(await page.evaluate(()=>__voice.stopped)>stopped);
+  await page.evaluate(()=>{__voice.noClosed=false;});await start();
   await page.locator('#productionSheetClose').click();await page.waitForFunction(()=>document.getElementById('productionSheetVoiceEnd').hidden);
   assert(sessions.every(s=>s.context.source_digest.length===64));
   console.log(`${name}: multilingual voice proposals/apply/PDF, duplicate events, playback/work-aware idle, late connection cleanup, cancellation, source changes and microphone denial passed`);
