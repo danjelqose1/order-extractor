@@ -49,7 +49,7 @@ async function run(engine,name,base){
     const page=await context.newPage();
     const errors=[], aiBodies=[];
     page.on('pageerror',error=>errors.push(error.message));
-    let aiFailure=false, aiGate=null;
+    let aiFailure=false, aiTimeout=false, aiGate=null;
     const downloads=[];
     page.on('download',download=>downloads.push(download));
     await page.route('**/*',async route=>{
@@ -69,6 +69,7 @@ async function run(engine,name,base){
             if(gate.cancelled) return route.abort('aborted').catch(()=>{});
           }
           if(aiFailure) return route.fulfill({status:502,json:{detail:'AI unavailable. Your current sheet is still ready to print.'}});
+          if(aiTimeout) return route.fulfill({status:504,json:{detail:'AI took too long to respond. Try again. Your current sheet is still ready to print.'}});
           return route.continue();
         }
         if(url.pathname==='/api/production-sheets/preview') return route.continue();
@@ -221,12 +222,24 @@ async function run(engine,name,base){
     assert(await page.locator('#productionSheetProposal').isHidden());
     aiFailure=false;
     await page.locator('#productionSheetClose').click();
+    aiTimeout=true;
+    await page.locator('#productionSheetAuto').click();
+    await page.waitForFunction(()=>document.getElementById('productionSheetStatus').textContent.includes('AI took too long'));
+    assert.equal(downloads.length,downloaded);
+    assert(!await page.locator('#productionSheetPrint').isDisabled());
+    aiTimeout=false;
+    await page.locator('#productionSheetClose').click();
+    await page.evaluate(()=>{
+      const interval=window.setInterval;
+      window.setInterval=(callback,delay,...args)=>interval(callback,delay===15000?50:delay,...args);
+    });
     for(const cancel of ['close','source']){
       let release;
       aiGate={wait:new Promise(resolve=>{release=resolve;}),cancelled:false};
       const requested=page.waitForRequest(request=>request.url().endsWith('/api/production-sheets/ai'));
       await page.locator('#productionSheetAuto').click();
       await requested;
+      await page.waitForFunction(()=>document.getElementById('productionSheetStatus').textContent.includes('AI is still reviewing'));
       assert(await page.locator('#productionSheetAuto').isDisabled());
       assert(await page.locator('#productionSheetOpen').isDisabled());
       if(cancel==='close'){

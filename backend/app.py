@@ -1524,12 +1524,18 @@ def production_sheet_preview(payload: SheetRequest, x_app_key: Optional[str] = H
 def production_sheet_ai(payload: SheetAIRequest, x_app_key: Optional[str] = Header(default=None)):
     if APP_KEY and x_app_key != APP_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized")
+    started = time.monotonic()
     try:
         return suggest_sheet(get_client(), payload)
+    except openai_pkg.APITimeoutError as exc:
+        logger.warning("Production sheet AI timed out (phase=%s, elapsed=%.1fs)",
+                       type(exc.__cause__).__name__, time.monotonic() - started)
+        raise HTTPException(status_code=504, detail="AI took too long to respond. Try again. Your current sheet is still ready to print.") from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        logger.warning("Production sheet AI unavailable (%s)", type(exc).__name__)
+        logger.warning("Production sheet AI unavailable (error=%s, phase=%s, elapsed=%.1fs)",
+                       type(exc).__name__, type(exc.__cause__).__name__, time.monotonic() - started)
         raise HTTPException(status_code=502, detail="AI layout review is unavailable. Your current sheet is still ready to print.") from exc
 
 

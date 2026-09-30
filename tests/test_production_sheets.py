@@ -182,7 +182,9 @@ def test_ai_uses_sol_61_medium_vision_and_returns_only_a_validated_proposal(monk
     assert call["model"] == "gpt-6.1-sol" and call["reasoning"] == {"effort":"medium"}
     assert "temperature" not in call and call["store"] is False
     assert call["input"][0]["content"][1]["type"] == "input_image"
-    assert options == [{"timeout":65,"max_retries":0}]
+    assert options[0]["max_retries"] == 0
+    timeout = options[0]["timeout"]
+    assert (timeout.read,timeout.connect,timeout.write,timeout.pool) == (900,15,30,15)
     schema = call["text"]["format"]["schema"]
     assert schema["additionalProperties"] is False
     assert set(schema["$defs"]["SheetSettings"]["required"]) == set(SheetSettings.model_fields)

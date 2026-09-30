@@ -440,6 +440,24 @@ def test_production_sheet_routes_honor_app_access_and_keep_ai_failures_recoverab
     assert response.status_code == 502 and "current sheet" in response.json()["detail"]
 
 
+def test_production_sheet_ai_timeout_is_specific_and_does_not_expose_upstream_details(monkeypatch,caplog):
+    import httpx
+    import openai
+    app_module,calls = _load_app(monkeypatch,legacy_enabled="false")
+    request = httpx.Request("POST","https://api.openai.com/v1/responses")
+    error = openai.APITimeoutError(request=request)
+    error.__cause__ = httpx.ReadTimeout("private upstream details",request=request)
+    app_module.suggest_sheet = lambda *_args: (_ for _ in ()).throw(error)
+    source = {"text":"Mother Sheet\n4F\n1 – 400 × 1200 × 2", "glass_headers":["4F"],"row_count":1,"piece_count":2}
+    response = TestClient(app_module.app).post("/api/production-sheets/ai",json={"source":source,"instruction":"Larger text","images":["fixture"],
+        "rendered":{"layout":"cuttable","columns":1,"orientation":"landscape","pages_per_copy":1,"sheet_count":1,"sampled_pages":[1]}})
+    assert response.status_code == 504
+    assert "too long" in response.json()["detail"] and "current sheet" in response.json()["detail"]
+    assert "phase=ReadTimeout" in caplog.text
+    assert "private upstream details" not in response.text + caplog.text
+    assert not calls["update_order_rows"] and not calls["update_order_status"] and not calls["insert_extraction_with_rows"]
+
+
 def test_invoice_ai_line_analysis_route_returns_validated_result(monkeypatch):
     app_module, _calls = _load_app(monkeypatch, legacy_enabled="false")
     expected = {

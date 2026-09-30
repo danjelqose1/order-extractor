@@ -88,7 +88,8 @@
   async function post(path, body, timeout){
     state.controller = new AbortController();
     const controller = state.controller;
-    const timer = setTimeout(() => controller.abort(),timeout);
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; controller.abort(); },timeout);
     try{
       const response = await fetch(`${API_BASE}/api/production-sheets/${path}`,{
         method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body), signal:controller.signal,
@@ -100,7 +101,10 @@
       }
       return data;
     }catch(error){
-      if (error.name === "AbortError") throw new Error("The request timed out or was cancelled. You can try again.");
+      if (error.name === "AbortError"){
+        if (timedOut && path === "ai") throw new Error("AI took too long to respond. Try again. Your current sheet is still ready to print.");
+        throw new Error(timedOut ? "Preparing the sheet timed out. You can try again." : "The request was cancelled.");
+      }
       throw error;
     }finally{
       clearTimeout(timer);
@@ -184,6 +188,12 @@
     if (state.busy || state.stale || state.dirty || !state.pdf) return;
     stop(); const generation = state.generation;
     state.busy = "ai"; state.aiResult = null; controls(); status("AI is looking at the sheet and checking the layout…");
+    const started = Date.now();
+    const progress = setInterval(() => {
+      if (generation === state.generation && state.busy === "ai" && dialog.open){
+        status(`AI is still reviewing the sheet · ${Math.floor((Date.now()-started)/1000)}s elapsed. Close this window to cancel.`);
+      }
+    },15000);
     try{
       fresh();
       const count = state.current.pages_per_copy;
@@ -204,7 +214,7 @@
       const current = state.current;
       const result = await post("ai",{source:state.snapshot.source,settings:state.settings,instruction,images,
         rendered:{layout:current.layout,columns:current.columns,orientation:current.orientation,
-          pages_per_copy:current.pages_per_copy,sheet_count:current.sheet_count,sampled_pages:sampled}},80000);
+          pages_per_copy:current.pages_per_copy,sheet_count:current.sheet_count,sampled_pages:sampled}},1020000);
       if (generation !== state.generation || !dialog.open) return;
       fresh();
       if (result.preview?.source_digest !== current.source_digest) throw new Error("The AI proposal belongs to a different sheet. Refresh and try again.");
@@ -228,6 +238,7 @@
         status(error.message);
       }
     }finally{
+      clearInterval(progress);
       if (generation === state.generation){ state.busy = ""; controls(); }
     }
   }
