@@ -98,7 +98,8 @@ def test_labels_description_and_number_have_separate_space(glass_type):
             assert number["text"] == "7"
             assert number["size"] == pytest.approx(18)
             assert (number["bbox"][0] + number["bbox"][2]) / 2 == pytest.approx(page.rect.width / 2)
-            assert number["bbox"][3] <= page.rect.height
+            assert number["bbox"][3] <= page.rect.height - 3.5 * 72 / 25.4
+            assert page.rect.height - number["origin"][1] >= 5.5 * 72 / 25.4
             assert "".join("".join(s["text"].split()) for s in description) == "".join(
                 f"Glass Type: {glass_type}".split()
             )
@@ -119,6 +120,20 @@ def test_other_label_entry_points_keep_their_existing_layout():
         assert spans[-1]["origin"][1] == pytest.approx(90)
         assert spans[2]["size"] == pytest.approx(10)
         assert spans[3]["origin"][1] - spans[2]["origin"][1] == pytest.approx(24)
+
+
+def test_only_labels_downloads_use_the_smaller_ce_header():
+    sizes = []
+    for fit_description in (True, False):
+        with fitz.open(stream=render_labels(REPORTED_TYPE, fit_description=fit_description), filetype="pdf") as pdf:
+            sizes.append([
+                (image["bbox"][2] - image["bbox"][0], image["bbox"][3] - image["bbox"][1])
+                for image in pdf[0].get_image_info()
+            ])
+    assert sizes[0][0] == pytest.approx((60, 20))
+    assert sizes[1][0] == pytest.approx((60, 20))
+    assert sizes[0][1] == pytest.approx((24, 14.4))
+    assert sizes[1][1] == pytest.approx((30, 18))
 
 
 def test_description_also_clears_the_brand_footer():

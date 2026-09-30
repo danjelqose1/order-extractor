@@ -2151,13 +2151,18 @@ async function generateLabelsPdf(rows, { fitDescription = false } = {}){
     for (let i = 0; i < qty; i++){
       const page = pdfDoc.addPage([pageSize.w, pageSize.h]);
       const margin = 16;
-      const spacing = 12;
+      const spacing = fitDescription ? 10 : 12;
+      const headerHeight = fitDescription ? 22 : 24;
       let y = pageSize.h - margin;
       if (keliImg) page.drawImage(keliImg, { x: margin, y: y - 20, width: 60, height: 20 });
-      if (ceImg) page.drawImage(ceImg, { x: (pageSize.w - 30) / 2, y: y - 18, width: 30, height: 18 });
+      if (ceImg){
+        const ceWidth = fitDescription ? 24 : 30;
+        const ceHeight = fitDescription ? 14.4 : 18;
+        page.drawImage(ceImg, { x: (pageSize.w - ceWidth) / 2, y: y - ceHeight, width: ceWidth, height: ceHeight });
+      }
       page.drawText(today, { x: pageSize.w - margin - 60, y: y - 14, size: 10, font: bold });
-      page.drawLine({ start: { x: margin, y: y - 24 }, end: { x: pageSize.w - margin, y: y - 24 }, thickness: 0.8 });
-      y -= (24 + spacing);
+      page.drawLine({ start: { x: margin, y: y - headerHeight }, end: { x: pageSize.w - margin, y: y - headerHeight }, thickness: 0.8 });
+      y -= (headerHeight + spacing);
       const dimension = row.dimension && row.dimension.length ? row.dimension : "—";
       let positionText = row.position || "—";
       if (isProcessingLabel){
@@ -2173,13 +2178,14 @@ async function generateLabelsPdf(rows, { fitDescription = false } = {}){
       page.drawText(`Order No.: ${orderNo}   Pos: ${positionText}   Dim: ${dimension}`, {
         x: margin, y, size: 9, font: bold, maxWidth: pageSize.w - margin * 2
       });
-      y -= 14;
+      y -= fitDescription ? 11 : 14;
       const showProcessingMsIndex = isProcessingLabel && Number.isFinite(msIndexValue);
       if (fitDescription){
         const footerSize = showProcessingMsIndex ? 18 : 10;
-        const footerY = 8;
+        // Keep the footer above the printer's unprintable bottom edge.
+        const footerY = 16;
         const footerTop = footerY + footerSize * 1.1;
-        const description = fitLabelDescription(`Glass Type: ${type}`, bold, pageSize.w - margin * 2, y - footerTop - 4);
+        const description = fitLabelDescription(`Glass Type: ${type}`, bold, pageSize.w - margin * 2, y - footerTop - 3);
         description.lines.forEach((line, index)=>{
           page.drawText(line, { x: margin, y: y - index * description.lineHeight, size: description.fontSize, font: bold });
         });
