@@ -363,7 +363,8 @@
       case "propose": {
         const result=await askAI(false,decision.instruction);
         if (!result) throw new Error(el("productionSheetStatus").textContent || "The proposal could not be prepared.");
-        return `PDF proposal is displayed but NOT applied. Ask the user to review and explicitly apply or discard it. Explanation: ${result.proposal.explanation}. Warnings: ${result.proposal.warnings.join("; ")}`;
+        const settings=result.proposal.settings;
+        return `Proposal NOT applied: two copies, ${result.preview.layout}, ${result.preview.columns} cols/copy, ${settings.font_size} pt, after-heading gap ${settings.glass_after_pt} pt. ${result.proposal.warnings.length} warnings shown. Ask review and explicit apply/discard. ${result.proposal.explanation}`;
       }
       case "apply": applyProposal(); return "The displayed layout proposal was applied. Both production copies are ready; no order data changed.";
       case "discard": await discardProposal(); return "The proposal was discarded; the previous layout is displayed.";

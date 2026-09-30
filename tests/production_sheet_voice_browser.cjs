@@ -98,6 +98,10 @@ module.exports=async function voiceQA(page,name,output,aiBodies){
   await page.locator('#productionSheetSave').click();await downloadEvent;
   assert.equal(downloads.length,1);await downloads[0].saveAs(path.join(output,`${name}-voice.pdf`));
   assert.equal(await page.evaluate(()=>JSON.stringify({processing:appState.processing,labels:appState.labels})),original);
+  decision={action:'clarify',instruction:'',reply:'説明'.repeat(200)};
+  await spoken('もっと説明してください。','clarify-ja');await result('clarify-ja');
+  const shortReply=await page.evaluate(()=>__voice.sent.find(e=>e.delegation_id==='clarify-ja').content);
+  assert([...shortReply].length<=220,'multilingual voice messages must remain short');
   await page.locator('#productionSheetVoiceMute').click();
   assert.equal(await page.locator('#productionSheetVoiceMute').getAttribute('aria-pressed'),'true');
   assert((await page.evaluate(()=>__voice.sent)).some(e=>e.type==='session.input_audio.mute'));

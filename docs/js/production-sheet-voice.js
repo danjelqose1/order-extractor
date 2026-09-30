@@ -18,7 +18,11 @@
       const text=JSON.stringify(context());
       if(text!==connection.contextText){
         connection.contextText=text;
-        send(connection,"session.thinking.append",{delegation_id:null,content:"Current read-only sheet state: "+text.slice(0,1000)});
+        const sheet=context(),s=sheet.settings;
+        send(connection,"session.thinking.append",{delegation_id:null,content:
+          `Read-only sheet: ${sheet.row_count} rows, ${sheet.piece_count} pieces, two complete copies. `+
+          `Layout ${s.layout}, columns ${s.columns}, ${s.font_size} pt, line spacing ${s.line_spacing}, after glass heading ${s.glass_after_pt} pt. `+
+          `Proposal pending: ${!!sheet.proposal}. Delegate for current sheet details; order data is unchanged.`});
       }
     }
   }
@@ -87,11 +91,11 @@
       if(version!==c.inputVersion)throw new Error("Dëgjova diçka tjetër. Përsëriteni kërkesën. / Please repeat your latest request.");
       const result=await root.ProductionSheetUI.voiceAction(decision,expected);
       if(connection!==c || c.closing)return;
-      send(c,"session.commentary.append",{delegation_id:id,content:("Verified application result: "+result).slice(0,1000)});
+      send(c,"session.commentary.append",{delegation_id:id,content:[...("Verified application result: "+result)].slice(0,220).join("")});
     }catch(error){
       if(connection===c && !c.closing){
         const text=error.name==="AbortError"?"Kërkesa zgjati shumë. Provoni përsëri. / Please try again.":error.message;
-        status(text);send(c,"session.commentary.append",{delegation_id:id,content:("The requested action did not complete. Explain in the user's language: "+text).slice(0,1000)});
+        status(text);send(c,"session.commentary.append",{delegation_id:id,content:[...("The requested action did not complete. Explain in the user's language: "+text)].slice(0,220).join("")});
       }
     }finally{
       clearTimeout(timeout);c.working=false;c.lastActivity=Date.now();
