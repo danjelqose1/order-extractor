@@ -14,6 +14,8 @@ The server uses its existing `OPENAI_API_KEY`, `get_client()` and Responses API.
 
 Structured output is limited to formatting settings, a requested production note, an explanation and warnings. There are no row-edit fields or order-writing tools. The renderer validates the proposal's real fit before the UI offers Apply. Printing is disabled while a proposal is pending; Discard restores the current sheet. AI failure leaves a previously prepared sheet printable.
 
+Glass headings have separate spacing controls before and after the entire heading. The AI can add space after a wrapped glass type without changing the gap above it or the dimension rows.
+
 ## Implementation and rollout
 
 - `backend/production_sheets.py`: bounded request models, font measurement, wrapping, continuation context, balanced columns, PDF generation and visual AI proposals.

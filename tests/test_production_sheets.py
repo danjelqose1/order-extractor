@@ -113,6 +113,19 @@ def test_large_job_cannot_be_forced_into_halves_or_tiny_text():
         SheetSettings(copies=4)
 
 
+def test_space_after_wrapped_glass_heading_moves_only_following_content():
+    src = source()
+    before = plan_sheet(src, SheetSettings(layout="cuttable"))["pages"][0]
+    after = plan_sheet(src, SheetSettings(layout="cuttable", glass_after_pt=9))["pages"][0]
+    assert sum(item["kind"] == "glass" for item in before) > 1
+    for original, changed in zip(before, after):
+        assert original["text"] == changed["text"]
+        expected = 9 if original["kind"] in ("order", "row") else 0
+        assert original["y"] - changed["y"] == pytest.approx(expected)
+    pdf = doc(render_sheet(SheetRequest(source=src, settings=SheetSettings(glass_after_pt=9))))
+    assert rows_in(pdf[0].get_text()) == rows_in(src.text) * 2
+
+
 def test_invalid_or_missing_rows_and_unknown_fields_are_rejected():
     src = source()
     with pytest.raises(ValueError, match="row count"):
@@ -173,6 +186,7 @@ def test_ai_uses_sol_61_medium_vision_and_returns_only_a_validated_proposal(monk
     schema = call["text"]["format"]["schema"]
     assert schema["additionalProperties"] is False
     assert set(schema["$defs"]["SheetSettings"]["required"]) == set(SheetSettings.model_fields)
+    assert "Use glass_after_pt" in call["instructions"]
 
 
 def test_ai_cannot_rewrite_dimensions_or_return_incomplete_or_unreadable_changes():

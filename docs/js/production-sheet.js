@@ -2,7 +2,7 @@
 (function(root){
   "use strict";
   const defaults = Object.freeze({layout:"auto", columns:"auto", orientation:"auto", font_size:14,
-    line_spacing:1.15, margin_mm:12.7, section_gap_pt:7, note:"", cut_guide:true});
+    line_spacing:1.15, margin_mm:12.7, section_gap_pt:7, glass_after_pt:0, note:"", cut_guide:true});
   function capture(processing, busy=false){
     if (busy || processing?.loading || processing?.recalculating) throw new Error("Processing is busy. Wait until preparation finishes.");
     const preview = processing?.preview;
