@@ -8,7 +8,7 @@
   <meta name="theme-color" content="#10151d" media="(prefers-color-scheme: dark)" />
   <link rel="icon" href="data:," />
   <title>Overview — Order Extractor</title>
-  <link rel="stylesheet" href="./css/styles.css?v=20260918-bridge-manual1">
+  <link rel="stylesheet" href="./css/styles.css?v=20260930-production-sheet1">
   <link rel="stylesheet" href="./css/interface.css?v=20260918-contrast1" media="screen">
 </head>
 <body>
@@ -1828,6 +1828,7 @@
             <p class="processing-warning" id="processingHeaderHint" hidden></p>
           </div>
       <div class="card processing-actions">
+        <button type="button" class="btn primary" id="productionSheetOpen" disabled>Prepare production sheet</button>
         <button class="btn" id="processingRoundingToggle">Apply Danko Rounding</button>
         <button class="btn" id="processingGroup">Group Dimensions</button>
         <button class="btn" id="processingCopy">Copy Text</button>
@@ -1838,6 +1839,59 @@
         </div>
       </div>
     </section>
+
+    <dialog id="productionSheetDialog" class="production-sheet-dialog" aria-labelledby="productionSheetTitle">
+      <header class="production-sheet-header">
+        <div><h2 id="productionSheetTitle">Production sheet</h2><p class="muted small">Two complete copies, ready for the workshop.</p></div>
+        <button type="button" class="btn" id="productionSheetClose" aria-label="Close production sheet">Close</button>
+      </header>
+      <div id="productionSheetStale" class="production-sheet-stale" hidden>
+        <span>Processing changed. Refresh before printing or applying a proposal.</span>
+        <button type="button" class="btn" id="productionSheetRefresh">Refresh sheet</button>
+      </div>
+      <div class="production-sheet-workspace">
+        <aside class="production-sheet-controls">
+          <label>Layout<select id="productionSheetLayout" data-sheet-setting="layout">
+            <option value="auto">Automatic</option><option value="cuttable">Two copies on one cuttable A4</option><option value="full">Two full-page sets</option>
+          </select></label>
+          <label>Columns within each copy<select id="productionSheetColumns" data-sheet-setting="columns">
+            <option value="auto">Automatic</option><option value="1">1 column</option><option value="2">2 columns</option><option value="3">3 columns</option>
+          </select></label>
+          <details class="production-sheet-options"><summary>Text and page settings</summary>
+            <label>Orientation<select id="productionSheetOrientation" data-sheet-setting="orientation"><option value="auto">Automatic</option><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></label>
+            <div class="production-sheet-fields">
+              <label>Text size (pt)<input type="number" data-sheet-setting="font_size" min="12" max="18" step="0.5"></label>
+              <label>Line spacing<input type="number" data-sheet-setting="line_spacing" min="1" max="1.5" step="0.05"></label>
+              <label>Margins (mm)<input type="number" data-sheet-setting="margin_mm" min="8" max="20" step="0.1"></label>
+              <label>Section gap (pt)<input type="number" data-sheet-setting="section_gap_pt" min="2" max="16" step="1"></label>
+            </div>
+            <label class="production-sheet-check"><input type="checkbox" data-sheet-setting="cut_guide">Show center cut guide</label>
+          </details>
+          <label>Production note<textarea data-sheet-setting="note" rows="2" maxlength="1000" placeholder="Optional note for this sheet"></textarea></label>
+          <button type="button" class="btn tertiary" id="productionSheetReset">Reset formatting</button>
+          <section class="production-sheet-ai" aria-labelledby="productionSheetAIHeading">
+            <h3 id="productionSheetAIHeading">Let AI look at the sheet</h3>
+            <p class="muted small">Ask for a change, or let AI choose a readable layout.</p>
+            <label class="sr-only" for="productionSheetRequest">Request for AI</label>
+            <textarea id="productionSheetRequest" rows="3" maxlength="2000" placeholder="Use three columns, make the text larger…"></textarea>
+            <button type="button" class="btn" id="productionSheetAsk">Ask AI to choose or edit</button>
+            <p class="muted small">AI reviews page images. Dimensions and quantities come from Processing.</p>
+          </section>
+          <section id="productionSheetProposal" class="production-sheet-proposal" hidden>
+            <h3>AI proposal</h3><p id="productionSheetExplanation"></p><p id="productionSheetWarnings" class="muted small"></p>
+            <div class="production-sheet-buttons"><button type="button" class="btn primary" id="productionSheetApply">Apply</button><button type="button" class="btn" id="productionSheetDiscard">Discard</button></div>
+          </section>
+        </aside>
+        <section class="production-sheet-preview" aria-label="Production sheet print preview">
+          <div class="production-sheet-preview-head"><div><strong id="productionSheetSummary"></strong><p id="productionSheetCounts" class="muted small"></p></div>
+            <div class="production-sheet-buttons"><button type="button" class="btn primary" id="productionSheetPrint" disabled>Print</button><button type="button" class="btn" id="productionSheetSave" disabled>Save PDF</button></div>
+          </div>
+          <p id="productionSheetStatus" class="production-sheet-status" role="status" aria-live="polite"></p>
+          <div class="production-sheet-pagination"><button type="button" class="btn small" id="productionSheetPrev" aria-label="Previous page" disabled>←</button><span id="productionSheetPageLabel">Preparing preview</span><button type="button" class="btn small" id="productionSheetNext" aria-label="Next page" disabled>→</button><button type="button" class="btn small" id="productionSheetZoom" disabled>Zoom in</button></div>
+          <div id="productionSheetPages" class="production-sheet-pages"></div>
+        </section>
+      </div>
+    </dialog>
 
     <section id="tabPerfectCut" class="tab-panel" hidden>
       <div class="card bridge-card">
@@ -2372,7 +2426,8 @@
 <script src="./js/living-dashboard.js?v=20260908-compact" defer></script>
 <script src="./js/platform-workflows.js?v=20260930-labels-print-margin1" defer></script>
 <script src="./js/manual-dimension-groups.js?v=20260919-manual-group1" defer></script>
-<script src="./js/app.js?v=20260930-labels-layout1" defer></script>
+<script src="./js/app.js?v=20260930-production-sheet1" defer></script>
+<script src="./js/production-sheet.js?v=20260930-production-sheet1" defer></script>
 <script src="./js/perfect-cut-bridge.js?v=20260919-manual-index2" defer></script>
 </body>
 </html>

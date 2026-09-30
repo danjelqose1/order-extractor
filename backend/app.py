@@ -121,6 +121,7 @@ from analysis_signals import generate_analysis_signals
 from analytics_summary import ANALYTICS_STATUSES, build_analysis_summary
 from services.pdf_native_text_editor import native_text_replace
 from invoice_ai import analyze_invoice_line, match_invoice_glass_type
+from production_sheets import SheetRequest, SheetAIRequest, render_sheet, suggest_sheet
 ENV_PATH = Path(__file__).parent / ".env"
 if os.getenv("ORDER_EXTRACTOR_LOAD_DOTENV", "true") == "true":
     load_dotenv(ENV_PATH, override=True)
@@ -1507,6 +1508,29 @@ def invoice_ai_analyze_line(payload: InvoiceAiLineAnalysisPayload) -> Dict[str, 
 @app.get("/healthz")
 def healthz():
     return {"ok": True}
+
+
+@app.post("/api/production-sheets/preview")
+def production_sheet_preview(payload: SheetRequest, x_app_key: Optional[str] = Header(default=None)):
+    if APP_KEY and x_app_key != APP_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    try:
+        return render_sheet(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/production-sheets/ai")
+def production_sheet_ai(payload: SheetAIRequest, x_app_key: Optional[str] = Header(default=None)):
+    if APP_KEY and x_app_key != APP_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    try:
+        return suggest_sheet(get_client(), payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.warning("Production sheet AI unavailable (%s)", type(exc).__name__)
+        raise HTTPException(status_code=502, detail="AI layout review is unavailable. Your current sheet is still ready to print.") from exc
 
 
 def _awa_now() -> str:

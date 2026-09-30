@@ -6831,6 +6831,7 @@ function updateProcessingUI(){
       wysiwygPreview.hidden = true;
     }
   }
+  window.ProductionSheetUI?.sourceChanged();
 }
 
 function applyDankoRounding(processingSheetId){

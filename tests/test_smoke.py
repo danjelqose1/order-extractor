@@ -405,6 +405,41 @@ def test_invoice_ai_glass_match_route_keeps_api_key_on_backend(monkeypatch):
     }
 
 
+def test_production_sheet_routes_are_presentation_only_and_use_server_client(monkeypatch):
+    app_module, calls = _load_app(monkeypatch, legacy_enabled="false")
+    monkeypatch.setattr(app_module, "APP_KEY", None)
+    source = {"text":"Mother Sheet – Orders: R-26-0883\n4F\n[Order R-26-0883]\n1 – 400 × 1200 × 2",
+              "glass_headers":["4F"], "order_headers":["[Order R-26-0883]"], "row_count":1,"piece_count":2}
+    client = TestClient(app_module.app)
+    result = client.post("/api/production-sheets/preview", json={"source":source})
+    assert result.status_code == 200 and result.json()["copies"] == 2
+    assert result.json()["sheet_count"] == 1
+    sentinel = object()
+    captured = []
+    app_module.get_client = lambda: sentinel
+    app_module.suggest_sheet = lambda ai_client,payload: (captured.append(ai_client) or {"proposal":{},"preview":{}})
+    response = client.post("/api/production-sheets/ai",json={"source":source,"instruction":"Choose layout","images":["fixture"],
+        "rendered":{"layout":"cuttable","columns":1,"orientation":"landscape","pages_per_copy":1,"sheet_count":1,"sampled_pages":[1]}})
+    assert response.status_code == 200 and captured == [sentinel]
+    assert not calls["update_order_rows"] and not calls["update_order_status"] and not calls["insert_extraction_with_rows"]
+    assert client.post("/api/production-sheets/preview",json={"source":source,"api_key":"not-accepted"}).status_code == 422
+
+
+def test_production_sheet_routes_honor_app_access_and_keep_ai_failures_recoverable(monkeypatch):
+    app_module, _calls = _load_app(monkeypatch, legacy_enabled="false")
+    app_module.APP_KEY = "test-app-key"
+    source = {"text":"Mother Sheet\n4F\n1 – 400 × 1200 × 2", "glass_headers":["4F"], "row_count":1,"piece_count":2}
+    client = TestClient(app_module.app)
+    assert client.post("/api/production-sheets/preview", json={"source":source}).status_code == 401
+    response = client.post("/api/production-sheets/preview",json={"source":source},headers={"X-App-Key":"test-app-key"})
+    assert response.status_code == 200
+    app_module.APP_KEY = None
+    app_module.suggest_sheet = lambda *_args: (_ for _ in ()).throw(TimeoutError())
+    response = client.post("/api/production-sheets/ai",json={"source":source,"instruction":"Choose layout","images":["fixture"],
+        "rendered":{"layout":"cuttable","columns":1,"orientation":"landscape","pages_per_copy":1,"sheet_count":1,"sampled_pages":[1]}})
+    assert response.status_code == 502 and "current sheet" in response.json()["detail"]
+
+
 def test_invoice_ai_line_analysis_route_returns_validated_result(monkeypatch):
     app_module, _calls = _load_app(monkeypatch, legacy_enabled="false")
     expected = {
