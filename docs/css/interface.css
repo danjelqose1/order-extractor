@@ -446,3 +446,6 @@ code{background:var(--surface-raised);color:var(--text)}
 .workspace-secondary-panel #iguCalculator{margin-bottom:0}
 .order-queue-card>span:last-child{flex-direction:row;justify-content:flex-start;flex-wrap:nowrap;text-align:left}
 .order-queue-card b{margin-top:0}
+
+.processing-unit-control{flex-direction:column;align-items:stretch;gap:6px}
+#processingDimensionUnit{width:100%;min-width:0;max-width:100%}

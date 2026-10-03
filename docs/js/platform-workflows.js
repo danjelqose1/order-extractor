@@ -184,6 +184,14 @@ function formatProcessingNumber(value, fallback, separator){
   return str;
 }
 
+// Presentation only. Prepared dimensions and downstream manufacturing data remain in mm.
+function formatProcessingDimension(value, fallback, separator, unit = "mm"){
+  if (unit !== "cm") return formatProcessingNumber(value, fallback, separator);
+  if (!Number.isFinite(value)) return "?";
+  const text = String(value / 10);
+  return (text.includes(".") ? text : `${text}.0`).replace(".", ",");
+}
+
 function formatM2(value, separator){
   const numeric = Number.isFinite(value) ? value : 0;
   const fixed = numeric.toFixed(3);
@@ -401,6 +409,7 @@ function generateMotherSheet(rows, options){
   const {
     restartPerGroup,
     decimalSeparator,
+    dimensionUnit = "mm",
     normalizeLPtoG,
     headerOverrides = {},
     groupDimensions = false,
@@ -655,7 +664,7 @@ function generateMotherSheet(rows, options){
   const clients = Array.from(clientSet);
   const clientLabel = clients.length === 1 ? clients[0] : (clients.length ? "(Mixed)" : UNKNOWN_CLIENT_LABEL);
   const today = new Date();
-  const headerLine = `Mother Sheet – Client: ${clientLabel || UNKNOWN_CLIENT_LABEL} | Orders: ${orders.length ? orders.join(", ") : "—"} | Date: ${today.toLocaleDateString()}`;
+  const headerLine = `Mother Sheet – Client: ${clientLabel || UNKNOWN_CLIENT_LABEL} | Orders: ${orders.length ? orders.join(", ") : "—"} | Date: ${today.toLocaleDateString()}${dimensionUnit === "cm" ? " | Dimensions: cm" : ""}`;
 
   const linesOut = [headerLine, ""];
   groups.forEach((group, groupIndex) => {
@@ -672,14 +681,14 @@ function generateMotherSheet(rows, options){
             })();
         linesOut.push(orderHeaderText);
         section.lines.forEach(line => {
-          const widthText = formatProcessingNumber(line.width, line.widthDisplay, decimalSeparator);
-          const heightText = formatProcessingNumber(line.height, line.heightDisplay, decimalSeparator);
+          const widthText = formatProcessingDimension(line.width, line.widthDisplay, decimalSeparator, dimensionUnit);
+          const heightText = formatProcessingDimension(line.height, line.heightDisplay, decimalSeparator, dimensionUnit);
           const qtyText = Number(line.qty || 0);
           const warning = line.invalid ? "  ⚠" : "";
           const approx = line.danko && line.danko.changed ? " ≈" : "";
           linesOut.push(`${line.idx} – ${widthText} × ${heightText}${approx} × ${qtyText}${warning}`);
           if (line.danko && line.danko.changed && line.danko.original){
-            linesOut.push(`   (Rounded from ${line.danko.original.replace(/x/g, "×")})`);
+            linesOut.push(`   (Rounded from ${line.danko.original.replace(/x/g, "×")}${dimensionUnit === "cm" ? " mm" : ""})`);
           }
         });
         if (sectionIndex < group.sections.length - 1){
@@ -688,14 +697,14 @@ function generateMotherSheet(rows, options){
       });
     }else{
       group.lines.forEach(line => {
-        const widthText = formatProcessingNumber(line.width, line.widthDisplay, decimalSeparator);
-        const heightText = formatProcessingNumber(line.height, line.heightDisplay, decimalSeparator);
+        const widthText = formatProcessingDimension(line.width, line.widthDisplay, decimalSeparator, dimensionUnit);
+        const heightText = formatProcessingDimension(line.height, line.heightDisplay, decimalSeparator, dimensionUnit);
         const qtyText = Number(line.qty || 0);
         const warning = line.invalid ? "  ⚠" : "";
         const approx = line.danko && line.danko.changed ? " ≈" : "";
         linesOut.push(`${line.idx} – ${widthText} × ${heightText}${approx} × ${qtyText}${warning}`);
         if (line.danko && line.danko.changed && line.danko.original){
-          linesOut.push(`   (Rounded from ${line.danko.original.replace(/x/g, "×")})`);
+          linesOut.push(`   (Rounded from ${line.danko.original.replace(/x/g, "×")}${dimensionUnit === "cm" ? " mm" : ""})`);
         }
       });
     }
@@ -710,6 +719,7 @@ function generateMotherSheet(rows, options){
     date: today,
     rows: totalLines,
     decimalSeparator,
+    dimensionUnit,
   };
 
   return {

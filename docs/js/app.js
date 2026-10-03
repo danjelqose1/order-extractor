@@ -1245,6 +1245,7 @@ const processingClearBtn = document.getElementById("processingClear");
 const processingRestartToggle = document.getElementById("processingRestartToggle");
 const processingNormalizeToggle = document.getElementById("processingNormalizeToggle");
 const processingDecimalSelect = document.getElementById("processingDecimalSelect");
+const processingDimensionUnitSelect = document.getElementById("processingDimensionUnit");
 const processingMergeOrdersToggle = document.getElementById("processingMergeOrdersToggle");
 const processingHeaderSelect = document.getElementById("processingHeaderSelect");
 const processingHeaderInput = document.getElementById("processingHeaderInput");
@@ -6621,7 +6622,7 @@ function formatProcessingMeta(meta){
   const dateStr = meta.date ? new Date(meta.date).toLocaleDateString() : new Date().toLocaleDateString();
   const ordersPart = (meta.orders && meta.orders.length) ? meta.orders.join(", ") : "—";
   const clientPart = meta.clientLabel || "—";
-  return `Mother Sheet – Client: ${clientPart} | Orders: ${ordersPart} | Date: ${dateStr}`;
+  return `Mother Sheet – Client: ${clientPart} | Orders: ${ordersPart} | Date: ${dateStr}${meta.dimensionUnit === "cm" ? " | Dimensions: cm" : ""}`;
 }
 
 function buildDankoDisplay(width, height, displayW, displayH, rounded){
@@ -6683,6 +6684,7 @@ function recalcProcessingPreview(){
   const preview = generateMotherSheet(rows, {
     restartPerGroup: appState.processing.options.restartPerGroup,
     decimalSeparator: appState.processing.options.decimalSeparator,
+    dimensionUnit: appState.processing.options.dimensionUnit || "mm",
     normalizeLPtoG: appState.processing.options.normalizeLPtoG,
     headerOverrides: appState.processing.headerOverrides,
     groupDimensions: appState.processing.grouped,
@@ -6734,6 +6736,9 @@ function updateProcessingUI(){
   }
   if (processingNormalizeToggle){
     processingNormalizeToggle.checked = !!appState.processing.options.normalizeLPtoG;
+  }
+  if (processingDimensionUnitSelect){
+    processingDimensionUnitSelect.value = appState.processing.options.dimensionUnit === "cm" ? "cm" : "mm";
   }
   if (processingDecimalSelect){
     processingDecimalSelect.value = appState.processing.options.decimalSeparator === "dot" ? "dot" : "comma";
@@ -6963,8 +6968,8 @@ function buildGroupTable(lines, preview){
 
     const textSpan = document.createElement("span");
     textSpan.className = "ms-row-text";
-    const widthText = formatProcessingNumber(line?.width, line?.widthDisplay, separator);
-    const heightText = formatProcessingNumber(line?.height, line?.heightDisplay, separator);
+    const widthText = formatProcessingDimension(line?.width, line?.widthDisplay, separator, preview?.meta?.dimensionUnit);
+    const heightText = formatProcessingDimension(line?.height, line?.heightDisplay, separator, preview?.meta?.dimensionUnit);
     const qtyText = line && line.qty != null ? String(line.qty) : "";
     const rounded = line?.danko;
 
@@ -17697,6 +17702,14 @@ if (processingNormalizeToggle){
   processingNormalizeToggle.addEventListener("change", (event)=>{
     appState.processing.options.normalizeLPtoG = !!event.target.checked;
     rebuildProcessingRows();
+    updateProcessingUI();
+  });
+}
+
+if (processingDimensionUnitSelect){
+  processingDimensionUnitSelect.addEventListener("change", event => {
+    appState.processing.options.dimensionUnit = event.target.value === "cm" ? "cm" : "mm";
+    recalcProcessingPreview();
     updateProcessingUI();
   });
 }

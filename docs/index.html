@@ -9,7 +9,7 @@
   <link rel="icon" href="data:," />
   <title>Overview — Order Extractor</title>
   <link rel="stylesheet" href="./css/styles.css?v=20260930-production-voice1">
-  <link rel="stylesheet" href="./css/interface.css?v=20261003-workspace1" media="screen">
+  <link rel="stylesheet" href="./css/interface.css?v=20261003-processing-units1" media="screen">
 </head>
 <body>
   <svg class="icon-sprite" aria-hidden="true">
@@ -1808,6 +1808,14 @@
               <span>Normalize LP → G</span>
               <input type="checkbox" id="processingNormalizeToggle" checked>
             </label>
+            <label class="toggle-row processing-unit-control">
+              <span>Dimensions</span>
+              <select id="processingDimensionUnit" aria-label="Processing dimension display unit">
+                <option value="mm">Millimetres (mm)</option>
+                <option value="cm">Centimetres (cm)</option>
+              </select>
+            </label>
+            <p class="muted small">Display only: 1250 mm → 125,0 cm. Calculations, labels and CSV exports stay in mm.</p>
             <label class="toggle-row">
               <span>Decimal separator</span>
               <select id="processingDecimalSelect">
@@ -2442,9 +2450,9 @@
   <input type="file" id="scanFileInput" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple hidden />
 
 <script src="./js/living-dashboard.js?v=20260908-compact" defer></script>
-<script src="./js/platform-workflows.js?v=20260930-labels-print-margin1" defer></script>
+<script src="./js/platform-workflows.js?v=20261003-processing-units1" defer></script>
 <script src="./js/manual-dimension-groups.js?v=20260919-manual-group1" defer></script>
-<script src="./js/app.js?v=20261003-processing-labels2" defer></script>
+<script src="./js/app.js?v=20261003-processing-units1" defer></script>
 <script src="./js/production-sheet.js?v=20260930-production-dictation1" defer></script>
 <script src="./js/production-sheet-voice.js?v=20260930-production-dictation1" defer></script>
 <script src="./js/perfect-cut-bridge.js?v=20260919-manual-index2" defer></script>
