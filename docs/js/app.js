@@ -7318,7 +7318,9 @@ function updateLabelsUI(){
   if (labelsJobsWrap){
     const jobs = appState.labels.jobs || [];
     if (!jobs.length){
-      labelsJobsWrap.innerHTML = '<div class="labels-empty">No label jobs yet. Use the button above to add one.</div>';
+      labelsJobsWrap.innerHTML = (appState.processing.cart || []).length
+        ? '<div class="labels-empty">Orders are ready in Processing. Choose “Add from Processing” to create a label job.</div>'
+        : '<div class="labels-empty">No orders in Processing. Open Processing and add an approved order to prepare labels.</div>';
     }else{
       let html = `<table><thead><tr>
         <th>#</th>
@@ -15956,6 +15958,8 @@ if (workspaceBatchPlanEl){
       renderIguSelectedChips();
       updateIguSelectionStatus();
       await loadIguSelectedOrders();
+      const materialsPanel = document.getElementById("workspaceMaterialsSlot")?.closest("details");
+      if (materialsPanel) materialsPanel.open = true;
       document.getElementById("iguCalculator")?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
@@ -17814,6 +17818,7 @@ if (processingExportCsvBtn){
   });
 }
 
+document.getElementById("labelsOpenProcessing")?.addEventListener("click", () => activateTab("processing"));
 if (labelsFromProcessingBtn){
   labelsFromProcessingBtn.addEventListener("click", ()=>{
     addLabelJobsFromProcessing();
@@ -22783,8 +22788,8 @@ function manualStatusBadge(status){
   const labels = {
     draft: "Draft",
     approved: "Approved",
-    processing: "Processing",
-    finished: "Finished",
+    processing: "In production",
+    finished: "Completed",
     cancelled: "Cancelled",
   };
   return `<span class="history-status-badge ${escapeHtml(normalized)}">${escapeHtml(labels[normalized] || "Draft")}</span>`;
@@ -22881,6 +22886,7 @@ async function openManualOrder(orderId, viewOnly){
     setManualDuplicateWarning("");
     updateManualIndexDuplicateWarning();
     renderManualRows();
+    window.PlatformLayout?.openManualEditor();
     document.querySelector(".manual-order-editor")?.scrollIntoView({ behavior: "smooth", block: "start" });
     return order;
   }catch(error){

@@ -9,7 +9,7 @@
   <link rel="icon" href="data:," />
   <title>Overview — Order Extractor</title>
   <link rel="stylesheet" href="./css/styles.css?v=20260930-production-voice1">
-  <link rel="stylesheet" href="./css/interface.css?v=20260918-contrast1" media="screen">
+  <link rel="stylesheet" href="./css/interface.css?v=20261003-workspace1" media="screen">
 </head>
 <body>
   <svg class="icon-sprite" aria-hidden="true">
@@ -48,26 +48,27 @@
         <div class="sidebar-subtitle">Factory platform</div>
       </div>
     </div>
+    <button type="button" id="sidebarCollapse" class="btn small sidebar-collapse" aria-controls="primaryNav" aria-expanded="true" aria-label="Collapse navigation" title="Collapse navigation">‹ <span>Collapse navigation</span></button>
     <nav id="primaryNav" class="tab-bar sidebar-nav">
-      <button class="tab active" data-tab="extract"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-dashboard"></use></svg></span><span>Overview</span></button>
-      <button class="tab" data-tab="history"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-history"></use></svg></span><span>Orders</span></button>
-      <button class="tab" data-tab="manual"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-manual"></use></svg></span><span>Manual Orders</span></button>
+      <button class="tab active" data-tab="extract" aria-label="Overview" title="Overview"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-dashboard"></use></svg></span><span>Overview</span></button>
+      <button class="tab" data-tab="history" aria-label="Orders" title="Orders"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-history"></use></svg></span><span>Orders</span></button>
+      <button class="tab" data-tab="manual" aria-label="Manual Orders" title="Manual Orders"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-manual"></use></svg></span><span>Manual Orders</span></button>
       <div class="sidebar-section-label">Workflow</div>
-      <button class="tab" data-tab="workspace" data-nav-section="production"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-workspace"></use></svg></span><span>Production</span></button>
+      <button class="tab" data-tab="workspace" data-nav-section="production" aria-label="Production" title="Production"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-workspace"></use></svg></span><span>Production</span></button>
       <div class="sidebar-subnav" aria-label="Production tools">
-        <button class="tab" data-tab="processing" data-nav-parent="production"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-processing"></use></svg></span><span>Processing</span></button>
-        <button class="tab" data-tab="perfectcut" data-nav-parent="production"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-processing"></use></svg></span><span>Perfect Cut Bridge</span></button>
-        <button class="tab" data-tab="labels" data-nav-parent="production"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-label"></use></svg></span><span>Labels</span></button>
+        <button class="tab" data-tab="processing" data-nav-parent="production" aria-label="Processing" title="Processing"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-processing"></use></svg></span><span>Processing</span></button>
+        <button class="tab" data-tab="perfectcut" data-nav-parent="production" aria-label="Perfect Cut Bridge" title="Perfect Cut Bridge"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-send"></use></svg></span><span>Perfect Cut Bridge</span></button>
+        <button class="tab" data-tab="labels" data-nav-parent="production" aria-label="Labels" title="Labels"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-label"></use></svg></span><span>Labels</span></button>
       </div>
-      <button class="tab" data-tab="beta"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-sparkles"></use></svg></span><span>Beta</span><span class="sidebar-beta-badge" aria-hidden="true">Beta</span></button>
-      <button class="tab" data-tab="telegram" data-nav-section="documents"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-pdf"></use></svg></span><span>Documents</span><span id="telegramFilesBadge" class="sidebar-badge" hidden>0</span></button>
+      <button class="tab" data-tab="beta" aria-label="Beta" title="Beta"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-sparkles"></use></svg></span><span>Beta</span><span class="sidebar-beta-badge" aria-hidden="true">Beta</span></button>
+      <button class="tab" data-tab="telegram" data-nav-section="documents" aria-label="Documents" title="Documents"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-pdf"></use></svg></span><span>Documents</span><span id="telegramFilesBadge" class="sidebar-badge" hidden>0</span></button>
       <div class="sidebar-subnav" aria-label="Document tools">
-        <button class="tab" data-tab="pdfeditor" data-nav-parent="documents"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-pdf"></use></svg></span><span>PDF Editor</span></button>
-        <button class="tab" data-tab="scanstudio" data-nav-parent="documents"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-scan"></use></svg></span><span>Scan Studio</span></button>
+        <button class="tab" data-tab="pdfeditor" data-nav-parent="documents" aria-label="PDF Editor" title="PDF Editor"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-pdf"></use></svg></span><span>PDF Editor</span></button>
+        <button class="tab" data-tab="scanstudio" data-nav-parent="documents" aria-label="Scan Studio" title="Scan Studio"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-scan"></use></svg></span><span>Scan Studio</span></button>
       </div>
-      <button class="tab" data-tab="analysis"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-analysis"></use></svg></span><span>Analytics</span></button>
+      <button class="tab" data-tab="analysis" aria-label="Analytics" title="Analytics"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-analysis"></use></svg></span><span>Analytics</span></button>
       <div class="sidebar-section-label">System</div>
-      <button class="tab" data-tab="settings"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-settings"></use></svg></span><span>Settings</span></button>
+      <button class="tab" data-tab="settings" aria-label="Settings" title="Settings"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-settings"></use></svg></span><span>Settings</span></button>
     </nav>
     <div class="sidebar-footer">
       <div class="sidebar-status-dot" aria-hidden="true"></div>
@@ -386,7 +387,7 @@
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
           <div>
             <h2 style="margin:0">IGU Materials Calculator</h2>
-            <p class="muted small" style="margin:4px 0 0">Select saved orders from History to total spacer and hot-melt butyl.</p>
+            <p class="muted small" style="margin:4px 0 0">Select saved orders from Orders to total spacer and hot-melt butyl.</p>
           </div>
           <div id="iguStatus" class="muted small"></div>
         </div>
@@ -601,6 +602,7 @@
                 <span id="workspaceSelectionStatus" class="muted small"></span>
                 <button type="button" class="btn small primary" id="workspaceProcessSelected" disabled>Plan selected batch</button>
                 <button type="button" class="btn small" id="workspaceClearSelection" disabled>Clear selection</button>
+                <button type="button" class="btn small" id="workspaceCopilotToggle" aria-controls="workspaceCopilotPanel" aria-expanded="false">Open Copilot</button>
                 <button type="button" class="btn small tertiary" id="workspaceOpenBeta">Beta operator</button>
                 <button type="button" class="btn small tertiary" id="workspaceRefresh">Refresh</button>
                 <span id="workspaceQueueStatus" class="muted small"></span>
@@ -620,7 +622,8 @@
             </div>
           </div>
 
-          <div class="card">
+          <details class="card workspace-secondary-panel">
+            <summary>Recent production files</summary>
             <div class="workspace-section-header">
               <h3>Recent Production Files</h3>
               <span id="workspaceFilesStatus" class="muted small"></span>
@@ -628,16 +631,16 @@
             <div id="workspaceRecentFiles" class="workspace-file-list" style="margin-top:12px">
               <div class="workspace-empty">No production files loaded.</div>
             </div>
-          </div>
-          <div id="workspaceMaterialsSlot"></div>
+          </details>
+          <details class="card workspace-secondary-panel"><summary>IGU materials calculator</summary><div id="workspaceMaterialsSlot"></div></details>
         </div>
 
-        <aside class="workspace-side-panel">
+        <aside id="workspaceCopilotPanel" class="workspace-side-panel" aria-label="Production Copilot" hidden>
           <section class="card workspace-assistant workspace-copilot">
             <div class="workspace-copilot-heading">
               <div>
                 <div class="workspace-title-line">
-                  <h2 style="margin:0">Production Copilot</h2>
+                  <h2 style="margin:0">Production Copilot</h2><button type="button" id="workspaceCopilotClose" class="btn small tertiary">Close Copilot</button>
                   <span class="workspace-copilot-badge">Operator controlled</span>
                 </div>
                 <p class="muted small" style="margin:4px 0 0">Understand the queue, plan compatible work, and run confirmed production workflows.</p>
@@ -997,7 +1000,7 @@
               <option value="">All</option>
               <option value="received">Received</option>
               <option value="queued">Queued</option>
-              <option value="processing">Processing</option>
+              <option value="processing">In production</option>
               <option value="extracted">Extracted</option>
               <option value="duplicate">Duplicate</option>
               <option value="possible_duplicate">Possible Duplicate</option>
@@ -1182,10 +1185,6 @@
             <input type="search" id="historySearch" placeholder="Client or order number" />
           </label>
           <label>
-            <span>Client</span>
-            <input type="search" id="historyClientFilter" placeholder="Filter by client…" />
-          </label>
-          <label>
             <span>Status</span>
             <select id="historyStatusFilter">
               <option value="">All</option>
@@ -1196,6 +1195,11 @@
               <option value="completed">Completed</option>
               <option value="archived">Archived</option>
             </select>
+          </label>
+          <details class="history-more-filters"><summary>More filters</summary><div class="history-secondary-filters">
+          <label>
+            <span>Client</span>
+            <input type="search" id="historyClientFilter" placeholder="Filter by client…" />
           </label>
           <label>
             <span>Date from</span>
@@ -1213,6 +1217,7 @@
               <option value="50">50</option>
             </select>
           </label>
+          </div></details>
 	          <div class="history-filter-toolbar">
 	            <label class="inline-toggle history-approved-toggle">
 	              <input type="checkbox" id="historyApprovedOnly">
@@ -1239,7 +1244,8 @@
     </section>
 
     <section id="tabManualOrders" class="tab-panel">
-      <section class="card manual-order-editor" aria-labelledby="manualOrderFormTitle">
+      <div class="manual-editor-launcher"><button type="button" class="btn primary" id="manualEditorToggle" aria-controls="manualEditorPanel" aria-expanded="false">New manual order</button><span class="muted small" id="manualEditorHint">Open the entry form when you need it.</span></div>
+      <section id="manualEditorPanel" class="card manual-order-editor" aria-labelledby="manualOrderFormTitle" hidden>
         <div class="manual-order-header">
           <div>
             <span class="section-eyebrow">Direct entry</span>
@@ -1250,6 +1256,7 @@
             <button type="button" class="btn tertiary manual-settings-icon-btn" id="manualPrintSettingsOpen" aria-label="Manual print settings" title="Manual print settings">
               <svg aria-hidden="true"><use href="#icon-settings"></use></svg>
             </button>
+            <button type="button" class="btn tertiary" id="manualEditorClose">Back to orders</button>
             <button type="button" class="btn tertiary" id="manualOrderNew">New manual order</button>
           </div>
         </div>
@@ -1372,8 +1379,8 @@
               <select id="manualOrderStatus">
                 <option value="draft">Draft</option>
                 <option value="approved">Approved</option>
-                <option value="processing">Processing</option>
-                <option value="finished">Finished</option>
+                <option value="processing">In production</option>
+                <option value="finished">Completed</option>
                 <option value="cancelled">Cancelled</option>
               </select>
             </label>
@@ -1631,8 +1638,8 @@
               <option value="">All statuses</option>
               <option value="draft">Draft</option>
               <option value="approved">Approved</option>
-              <option value="processing">Processing</option>
-              <option value="finished">Finished</option>
+              <option value="processing">In production</option>
+              <option value="finished">Completed</option>
               <option value="cancelled">Cancelled</option>
             </select>
             <button type="button" class="btn small tertiary" id="manualOrdersRefresh">Refresh</button>
@@ -1771,7 +1778,7 @@
         <div class="card processing-sidebar">
           <div>
             <h2 style="margin:0 0 4px">Processing</h2>
-            <p class="muted small" style="margin:0">Send approved orders from History to build a combined Mother Sheet.</p>
+            <p class="muted small" style="margin:0">Send approved orders from Orders to build a combined Mother Sheet.</p>
           </div>
           <div id="processingOrderList" class="processing-order-list processing-empty">No orders added yet.</div>
           <button id="processingClear" class="btn danger" disabled>Clear Sheet</button>
@@ -1957,18 +1964,19 @@
     <section id="tabLabels" class="tab-panel">
       <div class="card">
         <h2 style="margin-top:0">Labels</h2>
-        <p class="muted small">Build reusable label jobs from your current extract or selected history order, then download PDFs when you’re ready to print.</p>
+        <p class="muted small">Build label jobs from orders in Processing, then download PDFs when you’re ready to print.</p>
         <div class="labels-controls">
           <button class="btn small" id="labelsFromProcessing">Add from Processing</button>
+          <button type="button" class="btn small" id="labelsOpenProcessing">Open Processing</button>
           <button type="button" class="btn small muted" id="labelsClear" disabled>Clear all jobs</button>
         </div>
         <div class="labels-summary" id="labelsSummary"></div>
         <div id="labelsStatus" class="muted small"></div>
-        <p class="muted small" style="margin-top:12px">Tip: use the Logos picker in Dashboard to store <code>logokeli.png</code> and <code>ce.png</code> locally. They’ll be embedded automatically in label PDFs.</p>
+        <p class="muted small" style="margin-top:12px">Tip: use the Logos picker in the order workspace to store <code>logokeli.png</code> and <code>ce.png</code> locally. They’ll be embedded automatically in label PDFs.</p>
       </div>
       <div class="card">
         <div class="table-responsive" id="labelsJobsWrap">
-          <div class="labels-empty">No label jobs yet. Use the button above to add one.</div>
+          <div class="labels-empty">No label jobs yet. Open Processing to prepare orders for labels.</div>
         </div>
       </div>
     </section>
@@ -2434,9 +2442,10 @@
 <script src="./js/living-dashboard.js?v=20260908-compact" defer></script>
 <script src="./js/platform-workflows.js?v=20260930-labels-print-margin1" defer></script>
 <script src="./js/manual-dimension-groups.js?v=20260919-manual-group1" defer></script>
-<script src="./js/app.js?v=20260930-production-sheet4" defer></script>
+<script src="./js/app.js?v=20261003-workspace1" defer></script>
 <script src="./js/production-sheet.js?v=20260930-production-dictation1" defer></script>
 <script src="./js/production-sheet-voice.js?v=20260930-production-dictation1" defer></script>
 <script src="./js/perfect-cut-bridge.js?v=20260919-manual-index2" defer></script>
+<script src="./js/workspace-layout.js?v=20261003-workspace1" defer></script>
 </body>
 </html>
