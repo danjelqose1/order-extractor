@@ -1329,6 +1329,7 @@ const scanPrintCurrentBtn = document.getElementById("scanPrintCurrent");
 const labelsSummaryEl = document.getElementById("labelsSummary");
 const labelsStatusEl = document.getElementById("labelsStatus");
 const labelsFromProcessingBtn = document.getElementById("labelsFromProcessing");
+const processingAddLabelsBtn = document.getElementById("processingAddLabels");
 const labelsClearBtn = document.getElementById("labelsClear");
 const analysisStatusEl = document.getElementById("analysisStatus");
 const analysisDateStartInput = document.getElementById("analysisDateStart");
@@ -7311,9 +7312,9 @@ function updateLabelsUI(){
   if (labelsClearBtn){
     labelsClearBtn.disabled = !(appState.labels.jobs || []).length;
   }
-  if (labelsFromProcessingBtn){
-    const hasProcessing = !!(appState.processing.cart && appState.processing.cart.length);
-    labelsFromProcessingBtn.disabled = !hasProcessing;
+  const hasProcessing = !!(appState.processing.cart && appState.processing.cart.length);
+  for (const button of [labelsFromProcessingBtn, processingAddLabelsBtn]){
+    if (button) button.disabled = !hasProcessing || button.dataset.busy === "true";
   }
   if (labelsJobsWrap){
     const jobs = appState.labels.jobs || [];
@@ -17817,6 +17818,37 @@ if (processingExportCsvBtn){
     }
   });
 }
+
+processingAddLabelsBtn?.addEventListener("click", async () => {
+  if (processingAddLabelsBtn.dataset.busy === "true") return;
+  const status = document.getElementById("processingLabelsStatus");
+  processingAddLabelsBtn.dataset.busy = "true";
+  processingAddLabelsBtn.disabled = true;
+  processingAddLabelsBtn.textContent = "Generating labels…";
+  try{
+    // Use the same prepared sections, row conversion and normalization as Label Studio.
+    // Capture fresh rows on every click; saved label jobs may represent older Processing data.
+    const rows = collectProcessingSectionsForLabels().flatMap(section =>
+      (section.lines || []).flatMap(line =>
+        buildProcessingLabelRows(line, section.orderId, section.client) || []
+      )
+    ).map(sanitizeLabelRow).filter(Boolean);
+    if (!rows.length){
+      if (status) status.textContent = "No printable rows. Add an approved order to Processing first.";
+      return;
+    }
+    if (status) status.textContent = "Generating labels…";
+    await handlePrint(rows, { fitDescription: true });
+    if (status) status.textContent = "Labels PDF generated. Download started.";
+  }catch(error){
+    console.error("Processing label download failed", error);
+    if (status) status.textContent = "Could not generate labels. Please try again.";
+  }finally{
+    delete processingAddLabelsBtn.dataset.busy;
+    processingAddLabelsBtn.textContent = "Generate labels";
+    updateLabelsUI();
+  }
+});
 
 document.getElementById("labelsOpenProcessing")?.addEventListener("click", () => activateTab("processing"));
 if (labelsFromProcessingBtn){
