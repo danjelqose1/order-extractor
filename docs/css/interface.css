@@ -449,3 +449,40 @@ code{background:var(--surface-raised);color:var(--text)}
 
 .processing-unit-control{flex-direction:column;align-items:stretch;gap:6px}
 #processingDimensionUnit{width:100%;min-width:0;max-width:100%}
+
+/* Laptop tables: reserve space for dimensions, quantities and actions. */
+#historyTableWrap table.editable-table{width:100%;min-width:840px;table-layout:fixed}
+#historyTableWrap .editable-table th,#historyTableWrap .editable-table td{min-width:0;padding:7px 5px;overflow-wrap:anywhere}
+#historyTableWrap .editable-table th{white-space:normal;overflow-wrap:normal;line-height:1.3;font-size:11px;letter-spacing:0}
+#historyTableWrap .editable-table th:first-child,#historyTableWrap .editable-table td:first-child{width:32px;min-width:0}
+#historyTableWrap .editable-table:not(.read-only-table) th:nth-child(2),#historyTableWrap .editable-table:not(.read-only-table) td:nth-child(2){width:78px;min-width:0}
+#historyTableWrap .editable-table th[data-col="order"],#historyTableWrap .editable-table td[data-col="order"]{width:100px;min-width:0}
+#historyTableWrap .editable-table th[data-col="type"],#historyTableWrap .editable-table td[data-col="type"]{width:auto;min-width:0}
+#historyTableWrap .editable-table th[data-col="dimension"],#historyTableWrap .editable-table td[data-col="dimension"]{width:122px;min-width:0}
+#historyTableWrap .editable-table th[data-col="position"],#historyTableWrap .editable-table td[data-col="position"]{width:72px;min-width:0}
+#historyTableWrap .editable-table th[data-col="qty"],#historyTableWrap .editable-table td[data-col="qty"]{width:78px;min-width:0}
+#historyTableWrap .editable-table th[data-col="area"],#historyTableWrap .editable-table td[data-col="area"]{width:86px;min-width:0}
+#historyTableWrap .editable-table th[data-col="actions"],#historyTableWrap .editable-table td[data-col="actions"]{width:86px;min-width:0;white-space:normal}
+#historyTableWrap .editable-table td[data-col="order"] input,#historyTableWrap .editable-table input{width:100%;min-width:0;padding:6px 5px}
+#historyTableWrap .editable-table td[data-col="actions"] .btn{display:block;width:100%;margin:3px 0;padding:6px 4px}
+#historyTableWrap .read-only-table th:nth-child(2),#historyTableWrap .read-only-table td:nth-child(2){width:110px;min-width:0}
+#historyTableWrap .read-only-table td:last-child,#historyTableWrap .read-only-table th:last-child{position:static;box-shadow:none}
+#manualOrdersList .manual-orders-table{width:100%;min-width:820px;table-layout:fixed}
+#manualOrdersList .manual-orders-table th,#manualOrdersList .manual-orders-table td{padding:9px 7px;min-width:0;vertical-align:middle}
+#manualOrdersList .manual-orders-table th{white-space:normal;overflow-wrap:normal;line-height:1.3;font-size:11px;letter-spacing:0}
+#manualOrdersList .manual-orders-table th:nth-child(1){width:23%}
+#manualOrdersList .manual-orders-table th:nth-child(2){width:14%}
+#manualOrdersList .manual-orders-table th:nth-child(3){width:11%}
+#manualOrdersList .manual-orders-table th:nth-child(4){width:5%}
+#manualOrdersList .manual-orders-table th:nth-child(5){width:9%}
+#manualOrdersList .manual-orders-table th:nth-child(6){width:8%}
+#manualOrdersList .manual-orders-table th:nth-child(7){width:11%}
+#manualOrdersList .manual-orders-table th:nth-child(8){width:19%}
+#manualOrdersList .manual-orders-table td:first-child{word-break:normal;overflow-wrap:anywhere;white-space:normal;font-size:12px;line-height:1.5}
+#manualOrdersList .manual-orders-table td[data-col="client"]{word-break:normal;overflow-wrap:anywhere}
+#manualOrdersList .manual-orders-table td[data-col="date"]{font-size:12px}
+#manualOrdersList .manual-orders-table td:nth-child(8),#manualOrdersList .manual-orders-table th:nth-child(8){position:sticky;right:0;z-index:2;box-shadow:-1px 0 var(--border)}
+#manualOrdersList .manual-order-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;min-width:0}
+#manualOrdersList .manual-order-actions>.btn{width:100%;min-width:0;white-space:nowrap;padding:6px 5px}
+#manualOrdersList .manual-order-menu-toggle{grid-column:1 / -1}
+#manualOrdersList .history-status-badge{white-space:normal;line-height:1.35}
