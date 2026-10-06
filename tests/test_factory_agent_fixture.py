@@ -5,13 +5,11 @@ import copy
 import http.client
 import importlib.util
 import json
-import os
-import signal
-import socket
-import subprocess
 import sys
 import threading
 from http.server import ThreadingHTTPServer
+from html.parser import HTMLParser
+from urllib.parse import urlsplit
 from pathlib import Path
 
 import pytest
@@ -116,96 +114,80 @@ def test_remote_package_matches_reviewed_assets_and_contains_no_environment_valu
     assert "get_selected_order" in workflow
     assert "untrusted data" in workflow
     assert fixture.FIXTURE_BROWSER_URL in workflow
-    assert fixture.fixture_start_command() in workflow
+    assert fixture.ASSET_NAMES == ("SKILL.md", "order.json")
+    assert "fixture_server.py" not in workflow
+    assert "```bash" not in workflow
     assert fixture.environment_setup_commands() == []
 
 
-def _startup_command_for_test(directory, port):
-    # Only isolated test copies change path/port; the delivered command is fixed.
-    return fixture.fixture_start_command().replace(
-        'Path("/workspace/factory-agent")', f"Path({json.dumps(str(directory))})"
-    ).replace("port = 8765", f"port = {port}")
+class StaticFixtureDocument(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.elements = []
+        self.rows = []
+        self.row = None
+        self.cell = None
+
+    def handle_starttag(self, tag, attrs):
+        self.elements.append((tag, dict(attrs)))
+        if tag == "tr":
+            self.row = []
+        elif tag == "td":
+            self.cell = []
+
+    def handle_data(self, value):
+        if self.cell is not None:
+            self.cell.append(value)
+
+    def handle_endtag(self, tag):
+        if tag == "td" and self.cell is not None:
+            self.row.append("".join(self.cell))
+            self.cell = None
+        elif tag == "tr" and self.row:
+            self.rows.append(self.row)
+            self.row = None
 
 
-def _run_startup(command):
-    return subprocess.run(
-        ["/bin/sh", "-c", command], capture_output=True, text=True, timeout=10,
-        env={"PATH": str(Path(sys.executable).parent) + os.pathsep + "/usr/bin:/bin"},
-    )
+def test_static_browser_fixture_matches_renderer_and_exact_tool_source():
+    module = _load_server_module()
+    source = fixture.load_order(fixture.FIXTURE_ORDER_ID)
+    path = BACKEND_DIRECTORY.parent / "docs/factory-agent-fixture/index.html"
+    assert path.read_bytes() == module.render_order(source)
+    document = StaticFixtureDocument()
+    document.feed(path.read_text())
+    assert len(document.rows) == len(source["items"])
+    for cells, item in zip(document.rows, source["items"]):
+        assert cells[:6] == ["Missing" if item.get(key) is None else str(item[key]) for key in
+                             ("index_number", "position", "glass_type", "width", "height", "quantity")]
+    assert source["client"] in path.read_text()
 
 
-def test_packaged_first_turn_startup_reuses_server_and_preserves_readonly_boundary(tmp_path):
-    with socket.socket() as available:
-        available.bind(("127.0.0.1", 0))
-        port = available.getsockname()[1]
-    server_source = (fixture.ASSET_DIRECTORY / "fixture_server.py").read_text()
-    (tmp_path / "fixture_server.py").write_text(server_source.replace("PORT = 8765", f"PORT = {port}"))
-    (tmp_path / "order.json").write_bytes((fixture.ASSET_DIRECTORY / "order.json").read_bytes())
-    command = _startup_command_for_test(tmp_path, port)
-    process_id = None
-    try:
-        started = _run_startup(command)
-        assert started.returncode == 0, started.stderr
-        result = json.loads(started.stdout)
-        process_id = result["pid"]
-        assert result["fixture_server"] == "ready" and result["reused"] is False
-        assert result["health"] == {"status": "ok", "fixture": True, "read_only": True}
-        reused = _run_startup(command)
-        assert reused.returncode == 0, reused.stderr
-        assert json.loads(reused.stdout) == {"fixture_server": "ready", "reused": True, "health": result["health"]}
-        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
-        try:
-            connection.request("GET", "/order.json")
-            response = connection.getresponse()
-            assert response.status == 200
-            assert json.loads(response.read()) == fixture.load_order(fixture.FIXTURE_ORDER_ID)
-            connection.request("POST", "/order.json", body=b'{"quantity":"0"}')
-            denied = connection.getresponse()
-            assert denied.status == 405 and denied.getheader("Allow") == "GET, HEAD"
-            denied.read()
-        finally:
-            connection.close()
-    finally:
-        if process_id:
-            os.kill(process_id, signal.SIGTERM)
+def test_static_browser_fixture_blocks_active_content_and_has_no_external_dependencies():
+    module = _load_server_module()
+    body = (BACKEND_DIRECTORY.parent / "docs/factory-agent-fixture/index.html").read_text()
+    document = StaticFixtureDocument()
+    document.feed(body)
+    forbidden_tags = {"script", "form", "a", "iframe", "object", "embed", "input", "button",
+                      "textarea", "select", "link", "img", "video", "audio", "source", "base"}
+    assert not any(tag in forbidden_tags for tag, _ in document.elements)
+    for _, attrs in document.elements:
+        assert not any(name.startswith("on") for name in attrs)
+        assert not {"href", "src", "action", "formaction", "srcset"}.intersection(attrs)
+    csp = [attrs["content"] for tag, attrs in document.elements
+           if tag == "meta" and attrs.get("http-equiv", "").lower() == "content-security-policy"]
+    assert csp == [module.STATIC_CSP]
+    for directive in ("default-src 'none'", "script-src 'none'", "connect-src 'none'", "form-action 'none'"):
+        assert directive in csp[0]
+    assert "url(" not in body.lower() and "@import" not in body.lower()
+    assert "onrender.com" not in body and "api.openai.com" not in body
 
 
-def test_packaged_startup_reports_actual_process_failure(tmp_path):
-    with socket.socket() as available:
-        available.bind(("127.0.0.1", 0))
-        port = available.getsockname()[1]
-    (tmp_path / "fixture_server.py").write_text('raise RuntimeError("isolated startup failure")\n')
-    failed = _run_startup(_startup_command_for_test(tmp_path, port))
-    assert failed.returncode != 0
-    assert not failed.stdout
-    assert "isolated startup failure" in failed.stderr
-    assert "Fixture server exited before becoming healthy" in failed.stderr
-
-
-def test_packaged_startup_refuses_unknown_service_without_launching_server(tmp_path):
-    from http.server import BaseHTTPRequestHandler
-
-    class Unexpected(BaseHTTPRequestHandler):
-        def do_GET(self):
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b'{"status":"ok","fixture":false}')
-
-        def log_message(self, *_):
-            pass
-
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Unexpected)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        failed = _run_startup(_startup_command_for_test(tmp_path, server.server_port))
-        assert failed.returncode != 0
-        assert "Unexpected service on the fixture port" in failed.stderr
-        assert not (tmp_path / "fixture-server.log").exists()
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=2)
+def test_fixture_network_scope_is_only_the_static_pages_host():
+    target = urlsplit(fixture.FIXTURE_BROWSER_URL)
+    assert target.scheme == "https" and target.path == "/order-extractor/factory-agent-fixture/"
+    assert fixture.FIXTURE_BROWSER_ORIGIN == "https://danjelqose1.github.io"
+    assert target.hostname == "danjelqose1.github.io"
+    assert fixture.FIXTURE_NETWORK == {"access": "restricted", "allowed_domains": [target.hostname]}
 
 
 def test_readonly_browser_matches_tool_source_and_csp(fixture_server):

@@ -107,7 +107,7 @@ def test_existing_app_auth_to_real_provider_adapter_read_report_cleanup(monkeypa
         path = request.url.path
         if request.method == "POST" and path == "/v1/agents/sessions":
             body = json.loads(request.content)
-            assert body["environment"]["network"] == {"access": "disabled"}
+            assert body["environment"]["network"] == {"access": "restricted", "allowed_domains": ["danjelqose1.github.io"]}
             assert "test-key" not in request.content.decode()
             assert "isolated-application-test-key" not in request.content.decode()
             state["create"] += 1
@@ -143,7 +143,7 @@ def test_existing_app_auth_to_real_provider_adapter_read_report_cleanup(monkeypa
         if path == "/v1/agents/sessions/asess_fixture":
             actions = [] if not state["input"] or done else [
                 {"type": "function_call", "turn_id": "aturn_fixture", "call_id": "call_read", "name": "get_selected_order", "arguments": {}},
-                {"type": "computer_use_approval_request", "request_id": "approval_origin", "request": {"type": "browser_origin_access", "origin": "http://127.0.0.1:8765"}},
+                {"type": "computer_use_approval_request", "request_id": "approval_origin", "request": {"type": "browser_origin_access", "origin": "https://danjelqose1.github.io"}},
             ]
             return httpx.Response(200, json={"id": "asess_fixture", "status": "requires_action" if actions else "idle", "environment": {"id": "aenv_fixture"}, "required_actions": actions, "metadata": state["metadata"]})
         raise AssertionError(f"Unexpected provider request: {request.method} {path}")

@@ -1,9 +1,8 @@
-"""Read-only fixture browser, copied into an OpenAI-hosted sandbox only.
+"""Local fixture renderer and test-only HTTP server; never uploaded to the agent.
 
 No app imports, database, filesystem routes, proxy, authentication, or outbound
-connections exist here. The fixture is loaded once before serving. Setup starts
-this process on loopback and verifies /healthz. Session deletion owns cleanup.
-Run manually with: python3 /workspace/factory-agent/fixture_server.py
+connections exist here. The static GitHub Pages fixture is generated from
+render_order. The local server exists only for boundary tests and manual preview.
 """
 
 from __future__ import annotations
@@ -17,10 +16,11 @@ from typing import Any
 
 HOST = "127.0.0.1"
 PORT = 8765
-CSP = (
+STATIC_CSP = (
     "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; "
-    "form-action 'none'; frame-ancestors 'none'; sandbox"
+    "script-src 'none'; connect-src 'none'; form-action 'none'"
 )
+CSP = STATIC_CSP + "; frame-ancestors 'none'; sandbox"
 
 
 def escaped(value: Any) -> str:
@@ -41,6 +41,8 @@ def render_order(order: dict[str, Any]) -> bytes:
     notes = "".join(f"<li>{escaped(note)}</li>" for note in order.get("notes", []))
     page = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="{escaped(STATIC_CSP)}">
+<meta name="referrer" content="no-referrer">
 <title>Factory Agent — isolated test order</title>
 <style>
 :root{{color-scheme:light dark;font-family:system-ui,sans-serif}}body{{margin:0;padding:clamp(16px,4vw,48px);line-height:1.5;background:#101723;color:#f0f4fa}}main{{max-width:1280px;margin:auto}}h1{{font-size:clamp(1.4rem,3vw,2rem);margin:.5rem 0}}.badge{{display:inline-block;border:1px solid #7bd5c6;border-radius:999px;color:#aff2e5;padding:4px 12px;font-weight:700}}.notice{{padding:12px 16px;border-left:4px solid #f4ca77;background:#232333}}.table-wrap{{overflow:auto;border:1px solid #536077;border-radius:8px}}table{{border-collapse:collapse;min-width:880px;width:100%;font-variant-numeric:tabular-nums}}th,td{{text-align:left;vertical-align:top;padding:12px;border-bottom:1px solid #536077}}th{{background:#243047}}td:nth-child(3){{min-width:160px}}td:last-child{{min-width:220px}}dt{{font-weight:700}}dd{{margin:0 0 12px}}code{{overflow-wrap:anywhere}}li{{margin:8px 0}}

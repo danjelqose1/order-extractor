@@ -131,7 +131,7 @@ def test_complete_reads_canonical_items_and_deletes_hosted_session(tmp_path):
             assert len(fake.events("agent.session.input.message")) == 1
             payload = next(call[1] for call in fake.calls if call[0] == "create")
             assert "input" not in payload
-            assert payload["environment"]["network"] == {"access": "disabled"}
+            assert payload["environment"]["network"] == {"access": "restricted", "allowed_domains": ["danjelqose1.github.io"]}
             assert payload["environment"]["desktop"] == {"enabled": True}
             assert payload["agent"]["multi_agent"] == {"enabled": False}
             assert payload["agent"]["model"] == "gpt-6.1-sol"

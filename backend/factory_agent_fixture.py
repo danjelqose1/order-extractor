@@ -13,10 +13,12 @@ from typing import Any
 
 
 FIXTURE_ORDER_ID = "fixture:factory-agent-001"
-FIXTURE_BROWSER_URL = "http://127.0.0.1:8765/order"
+FIXTURE_BROWSER_URL = "https://danjelqose1.github.io/order-extractor/factory-agent-fixture/"
+FIXTURE_BROWSER_ORIGIN = "https://danjelqose1.github.io"
+FIXTURE_NETWORK = {"access": "restricted", "allowed_domains": ["danjelqose1.github.io"]}
 REMOTE_DIRECTORY = "/workspace/factory-agent"
 ASSET_DIRECTORY = Path(__file__).with_name("factory_agent_assets")
-ASSET_NAMES = ("SKILL.md", "order.json", "fixture_server.py")
+ASSET_NAMES = ("SKILL.md", "order.json")
 READ_TOOL = {
     "type": "function",
     "name": "get_selected_order",
@@ -64,24 +66,8 @@ def environment_files() -> list[dict[str, str]]:
 
 
 def environment_setup_commands() -> list[dict[str, str]]:
-    """Compatibility helper: fixture startup belongs to the observable first turn.
-
-    Avoid bootstrap commands that can hide fixture failures behind a generic
-    environment-connection error. The agent receives the exact command below in
-    its packaged workflow; it runs only inside the hosted sandbox, never Render.
-    """
+    """Compatibility helper: the static fixture needs no sandbox server or setup."""
     return []
-
-
-def fixture_start_command() -> str:
-    """Return the one reviewed startup command delivered in the workflow file."""
-    skill = (ASSET_DIRECTORY / "SKILL.md").read_text(encoding="utf-8")
-    if skill.count("```bash\n") != 1:
-        raise FixtureAccessDenied("The fixture startup workflow is invalid.")
-    command, closing, _ = skill.split("```bash\n", 1)[1].partition("\n```")
-    if not closing or not command.strip():
-        raise FixtureAccessDenied("The fixture startup workflow is invalid.")
-    return command
 
 
 def workflow_instructions() -> str:

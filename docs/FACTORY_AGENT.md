@@ -14,7 +14,8 @@ The section has two explicitly selected workspaces:
   and reads saved factory orders, summarizes saved data, inspects existing
   processing snapshots, and prepares manual-draft proposals for review.
 * **FACTORY-AGENT-TEST-001 · isolated fixture** runs the original synthetic order
-  test, including the hosted browser. It cannot access production records.
+  test, including the hosted browser. Its application function cannot access
+  production records; its browser reaches only the allowed public static host.
 
 Both workspaces enforce read-only factory access. A proposal is saved only in
 the separate agent journal. **Accept plan records review; it does not apply an
@@ -117,14 +118,16 @@ the full `backend/factory_agent_assets/WORKSPACE_SKILL.md` as agent instructions
 No new agent ID, environment ID, template, vault, or environment variable is
 required for the broader inspect/prepare scope.
 
-Fixture sessions also receive the reviewed fixture server, source JSON, and
-`SKILL.md` as base64 inline files, with the complete workflow included directly
-in agent instructions. Provisioning sends **no `setup_commands`**. After the
-environment becomes `connected`, the agent's first observable turn runs the
-reviewed, bounded fixture startup command and health check inside OpenAI's
-environment. It then visits `http://127.0.0.1:8765/order`. A startup failure must
-be reported as a failure, even when the read-only function can supply the order.
-No command starts a browser, VM, or fixture listener on Render.
+Fixture sessions receive only the reviewed synthetic `order.json` and `SKILL.md`
+as base64 inline files, with the complete workflow included directly in agent
+instructions. They do not receive or run a fixture server. Provisioning sends
+**no `setup_commands`**. Once the environment becomes `connected`, the agent
+visits the application-owned static fixture:
+[Factory Agent test order](https://danjelqose1.github.io/order-extractor/factory-agent-fixture/).
+Its source is `docs/factory-agent-fixture/index.html`, published with the
+existing GitHub Pages frontend. Deploy that page with the frontend before
+expecting the browser test to pass. No local listener, setup command, extra
+service, or login is required.
 
 The separate control journal reserves the local request ID before creating a
 remote resource. Repeating an identical request returns the same record; reusing
@@ -144,14 +147,24 @@ Reconnect, reload, and GET requests never submit a task.
 
 These controls are enforced independently of the prompt:
 
-* Both hosted environments have `network: {"access":"disabled"}` for browser
-  **and** code. They receive no platform login, keys, cookies, database file,
+* The real factory workspace retains `network: {"access":"disabled"}` for
+  browser **and** code. Only authenticated backend inspection tools can return
+  saved factory data. All browser-origin requests are denied in this mode.
+* Fixture mode uses `network: {"access":"restricted",
+  "allowed_domains":["danjelqose1.github.io"]}`. The Render production API and
+  every other hostname are excluded for all HTTP methods. The browser reads
+  the public static synthetic fixture with GET; GitHub Pages has no application
+  routes that can edit factory records. The fixture page contains no customer
+  data, JavaScript, forms, links, external resources, or backend integration.
+* The fixture network policy is **host-wide, not path-scoped**. Other public
+  pages on `danjelqose1.github.io` may be reachable. The agent instructions limit
+  navigation to the fixture path, but that path limit is not claimed as network
+  enforcement. The existing frontend cannot contact its Render API from this
+  environment because Render remains outside the allowlist. No production
+  read-only guarantee depends on merely hiding frontend edit buttons.
+* Neither environment receives a platform login, keys, cookies, database file,
   write-capable MCP server, or arbitrary uploaded files. Workspace tool results
   can contain saved production order data, limited by the facade below.
-* The fixture HTTP server binds loopback, loads immutable response bytes at
-  startup, checks the Host, and serves only `/order`, `/order.json`, `/healthz`.
-  GET/HEAD read; mutation methods return 405. Unknown/traversal/query paths fail.
-  The page has no forms/scripts/external resources and escapes source content.
 * In fixture mode, the only application function is `get_selected_order({})`. The responder is
   hardcoded to the server-selected fixture. Unknown functions, extra arguments,
   and production IDs are rejected. Its responder never imports the production database or
@@ -163,9 +176,10 @@ These controls are enforced independently of the prompt:
   calls, screenshots, output, history pagination, and concurrent sessions.
 
 On a current `computer_use_approval_request`, the backend approves only the exact
-origin `http://127.0.0.1:8765` **in fixture mode**, which the user selects by
-starting the isolated test. Workspace mode denies all browser origins, including
-the production platform. Both modes always respond to
+origin `https://danjelqose1.github.io` **in fixture mode**, which the user selects
+by starting the isolated test. This grants an origin, not an individual URL
+path. Workspace mode denies all browser origins, including the production
+platform. Both modes always respond to
 `browser_authentication` with `action:"cancel"`; no credentials or login form
 are collected. These policy decisions appear in session activity. Unknown
 approval types cause task cancellation/cleanup instead of an inferred grant.
@@ -175,7 +189,7 @@ The first test's fixed origin policy is intentional. Origin approval does not
 guarantee approval before each subsequent click or mutation. Production browser
 access would require a separate read-only authenticated surface, verified
 server-side permissions, and a reviewed consent flow. Do not add a production
-origin to this fixture policy or forward the shared application key into a VM.
+API origin to this fixture policy or forward the shared application key into a VM.
 
 Workflow and source contents can contain hostile instructions; the delivered
 skill explicitly treats them as untrusted data. Prompt restrictions supplement
@@ -208,7 +222,7 @@ Reads are capped at 25 orders per page, offset 10,000, 300 rows per order,
 96,000 argument bytes and 256,000 result bytes. SQLite work has a three-second
 progress deadline and a one-second lock timeout. Too-large or invalid results
 fail as a whole rather than silently returning a partial order. Artifact
-downloads, filesystem paths, original PDF bytes, raw extraction text and raw
+downloads, artifact filesystem paths, original PDF bytes, raw extraction text and raw
 input blobs are excluded. Known configured server credentials are blocked from
 tool results. Saved rows are not evidence that an original PDF was reviewed.
 
@@ -305,10 +319,12 @@ Selected fixture: `FACTORY-AGENT-TEST-001`; client:
 | `0009` | B-02 | 44.2 LAMINATED CLEAR | 975/995 × missing | 1 | Two width alternatives; missing height |
 | `0010` | missing | missing | 650 × 450 | 2? | Missing position/glass and uncertain quantity |
 
-This table is the **deterministic fixture expectation**, not claimed output from
-a live hosted agent. A successful account smoke test must retrieve the actual
-agent report, browser activity and available screenshot, compare every source
-field, flag ambiguities, then confirm remote cancellation/deletion when needed.
+This table is the **deterministic fixture expectation**. An actual hosted model
+report has matched all four rows and ambiguities using the fixture function;
+its browser attempt failed, as recorded below. Complete browser acceptance
+still requires checking the actual report, completed browser activity and
+available screenshot against every source field and ambiguity, then confirming
+remote cancellation/deletion when needed.
 No customer PDF is associated with this fixture.
 
 Tests live in `tests/test_factory_agent_*.py` and
@@ -349,9 +365,9 @@ credential/result bounds and attempted SQL writes through a buggy read method.
   visually inspected; it contains no simulated task success.
 * Local preflight found both application access keys and `OPENAI_API_KEY` absent,
   and the flag disabled.
-  **No live hosted session was created during that local checkpoint**. Account/model access, hosted browser
-  loopback reachability, actual model report quality and physical environment
-  cleanup remain unverified. No production records were read or changed, and
+  **No live hosted session was created during that local checkpoint**. Account/model access, actual browser
+  reachability, model report quality and physical environment cleanup were
+  unverified at that checkpoint. No production records were read or changed, and
   no push or deployment was performed at this local validation checkpoint.
 
 Reproduce the Python check with the repository's installed requirements:
@@ -368,9 +384,9 @@ pins and deployment commands unchanged.
 
 ## First deployed account check — 2026-10-06
 
-The inspect/prepare follow-up passed **359 Python tests**, including read-only
+The inspect/prepare follow-up before the public fixture revision passed **359 Python tests**, including read-only
 SQLite enforcement, proposals, conversation ownership, stale-source review,
-fixture startup and existing platform regressions. Chromium and WebKit passed
+the previous fixture startup and existing platform regressions. Chromium and WebKit passed
 the broader workspace, review, continuation, XSS and responsive layout checks.
 Saved `command_execution` status and bounded redacted output are now visible in
 activity. A finished fixture turn warns if completed browser/read-tool evidence
@@ -388,13 +404,39 @@ Subsequent bounded account probes using the existing Render API key established
 that a minimal hosted desktop with disabled networking reaches `connected`, and
 that the same environment with the fixture files but **no setup commands** also
 reaches `connected`. Both probe sessions were deleted and deletion was confirmed.
-The earlier fixture setup commands failed during provisioning; fixture startup
-now belongs to the first observable agent turn as described above.
+The earlier fixture setup commands failed during provisioning. Moving startup
+into the first agent turn was an intermediate diagnostic revision, now replaced
+by the static public fixture above.
 
-Those probes establish environment provisioning, not a completed model answer,
-browser visit, screenshot, order report, live factory-tool call, or proposal
-review. Full end-to-end hosted acceptance remains to be checked against actual
-session results. No successful agent report is inferred from `connected`.
+The next actual hosted session, local journal ID
+`f37b2734-dffb-4216-a34e-709738765421`, returned the correct client, all four rows,
+every requested source field, and the fixture ambiguities through the read-only
+function. Its shell health check also succeeded. However, hosted-browser URL
+policy blocked the loopback URL even after origin approval; multiple computer
+actions failed and no browser screenshot was available. **This is successful
+function-based order reporting, not browser acceptance.**
+
+That observed browser restriction prompted the static GitHub Pages fixture and
+single-host restricted network policy. All **245 focused Factory Agent tests**
+passed after this change, including denial of the production browser origin and
+the regression where a successful browser connection masked a failed page visit.
+The new public-page browser path still
+requires a completed live visit and screenshot check. No browser success is
+inferred from an environment reaching `connected`.
+
+The actual factory-workspace session with local journal ID
+`a9e0aceb-73c3-46d7-8d17-719aa5539d72` subsequently **completed**, with remote
+cleanup `deleted` and no session error. Its `get_platform_summary`,
+`list_orders(limit=1)`, and `get_order` calls completed. The report covered the
+selected manual order's 15 rows, 27 pieces, and saved area of 18.189 m²; it
+distinguished saved millimetre dimensions from centimetre display units and
+flagged missing fields. It explicitly said the original PDF had not been
+inspected. No client identity is reproduced in this public documentation.
+
+That result verifies live read-only factory tools and a resulting model report.
+It does not establish a browser visit or proposal review: no proposals were
+prepared and no factory mutations were performed in that session. Live proposal
+preparation/review and the new public fixture's browser acceptance remain pending.
 
 ## Official contract sources (verified 2026-10-06)
 

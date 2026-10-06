@@ -165,3 +165,22 @@ def test_saved_shell_activity_exposes_failure_without_credentials(tmp_path):
     assert "Fixture listener failed" in row["activity"][0]["title"]
     assert "synthetic-test-key" not in str(row)
     assert "local-test-auth" not in str(row)
+
+
+def test_fixture_connection_success_does_not_hide_failed_page_visit(tmp_path):
+    async def scenario():
+        fake = FakeProvider()
+        fake.items.extend([
+            {"id": "connect", "type": "computer_use_call", "turn_id": "turn_fixture", "status": "completed", "title": "Connect browser"},
+            {"id": "visit", "type": "computer_use_call", "turn_id": "turn_fixture", "status": "failed", "title": "Read fixture page"},
+        ])
+        svc = service(tmp_path, fake)
+        try:
+            row = await reserve(svc)
+            svc.activity(row, "read", "Read-only tool: get_selected_order returned the fixture.")
+            await svc.run(row)
+            assert row["status"] == "completed"
+            assert "browser verification is not confirmed" in row["error"]
+        finally:
+            await svc.close()
+    asyncio.run(scenario())

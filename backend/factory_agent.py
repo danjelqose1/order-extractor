@@ -26,7 +26,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from factory_agent_fixture import (
-    FIXTURE_BROWSER_URL, FIXTURE_ORDER_ID, READ_TOOL, call_read_tool,
+    FIXTURE_BROWSER_URL, FIXTURE_BROWSER_ORIGIN, FIXTURE_NETWORK, FIXTURE_ORDER_ID, READ_TOOL, call_read_tool,
     environment_files, load_order, workflow_instructions,
 )
 from factory_agent_provider import FactoryAgentProvider, ProviderError
@@ -290,7 +290,7 @@ class FactoryAgentService:
                           "instructions": workflow_instructions(), "multi_agent": {"enabled": False},
                           "tools": [{"type": "computer_use", "include_screenshots": True}, READ_TOOL]},
                 "environment": {"type": "openai_hosted", "desktop": {"enabled": True},
-                                "network": {"access": "disabled"}, "files": environment_files()},
+                                "network": dict(FIXTURE_NETWORK), "files": environment_files()},
                 "metadata": {"factory_agent_request_id": row["id"], "application": "order-extractor-factory-beta"}}
 
     def workspace_tools(self):
@@ -498,6 +498,7 @@ class FactoryAgentService:
                                     row["error"] = "The turn completed without a saved text result. No order-reading success has been verified."
                                 elif outcome == "completed" and row["order_id"] == FIXTURE_ORDER_ID and not (
                                     any(a.get("type") == "computer_use_call" and a.get("status") == "completed" for a in row["activity"])
+                                    and not any(a.get("type") == "computer_use_call" and a.get("status") in {"failed", "incomplete"} for a in row["activity"])
                                     and any(a.get("title") == "Read-only tool: get_selected_order returned the fixture." for a in row["activity"])
                                 ):
                                     row["error"] = "The agent finished, but the fixture acceptance test lacks completed browser and read-tool evidence. Review the report; browser verification is not confirmed."
@@ -602,7 +603,7 @@ class FactoryAgentService:
             elif kind == "computer_use_approval_request":
                 request = action.get("request") or {}
                 if request.get("type") == "browser_origin_access":
-                    approved = row["order_id"] == FIXTURE_ORDER_ID and request.get("origin") == "http://127.0.0.1:8765"
+                    approved = row["order_id"] == FIXTURE_ORDER_ID and request.get("origin") == FIXTURE_BROWSER_ORIGIN
                     response = {"type": "browser_origin_access", "decision": "approve" if approved else "deny"}
                     title = "Browser access " + ("approved for the isolated fixture." if approved else "denied: origin is outside the isolated fixture.")
                 elif request.get("type") == "browser_authentication":

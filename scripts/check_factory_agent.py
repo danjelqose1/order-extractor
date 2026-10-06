@@ -34,7 +34,9 @@ def verify_report(row):
     expected.extend(str(value) for item in source["items"] for key, value in item.items()
                     if key != "ambiguities" and value is not None)
     missing = sorted(set(value for value in expected if value not in text))
-    browser_read = any(item.get("type") == "computer_use_call" and item.get("status") == "completed" for item in row.get("activity", []))
+    browser_items = [item for item in row.get("activity", []) if item.get("type") == "computer_use_call"]
+    browser_read = (any(item.get("status") == "completed" for item in browser_items)
+                    and not any(item.get("status") in {"failed", "incomplete"} for item in browser_items))
     tool_read = any(item.get("title") == "Read-only tool: get_selected_order returned the fixture." for item in row.get("activity", []))
     ambiguous = "missing" in text.lower() and any(word in text.lower() for word in ("uncertain", "ambig", "alternative"))
     return {"all_source_values_present": not missing, "missing_source_values": missing,

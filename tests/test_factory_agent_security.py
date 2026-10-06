@@ -279,7 +279,11 @@ def test_runtime_expiry_prevents_action_servicing():
 
 
 @pytest.mark.parametrize("origin,decision", [
-    ("http://127.0.0.1:8765", "approve"),
+    ("https://danjelqose1.github.io", "approve"),
+    ("https://danjelqose1.github.io/", "deny"),
+    ("https://danjelqose1.github.io.evil.invalid", "deny"),
+    ("https://order-extractor-kdih.onrender.com", "deny"),
+    ("http://127.0.0.1:8765", "deny"),
     ("http://127.0.0.1:8765/", "deny"),
     ("http://127.0.0.1:80", "deny"),
     ("https://127.0.0.1:8765", "deny"),
@@ -287,7 +291,7 @@ def test_runtime_expiry_prevents_action_servicing():
     ("https://factory.example.test", "deny"),
     ("file:///etc/passwd", "deny"),
 ])
-def test_browser_origin_approval_is_exact_loopback_only(origin, decision):
+def test_browser_origin_approval_is_exact_static_host_only(origin, decision):
     service, row = _action_service()
     action = {"type": "computer_use_approval_request", "request_id": "approval_test", "request": {"type": "browser_origin_access", "origin": origin}}
     asyncio.run(service.handle_actions(row, [action]))
@@ -347,7 +351,7 @@ def test_hosted_environment_security_configuration_is_not_user_controlled(monkey
     environment = payload["environment"]
     assert environment["type"] == "openai_hosted"
     assert environment["desktop"] == {"enabled": True}
-    assert environment["network"] == {"access": "disabled"}
+    assert environment["network"] == {"access": "restricted", "allowed_domains": ["danjelqose1.github.io"]}
     assert "env" not in environment and "environment_template_id" not in environment
     assert payload["agent"]["multi_agent"] == {"enabled": False}
     assert [tool.get("name") for tool in payload["agent"]["tools"] if tool["type"] == "function"] == ["get_selected_order"]
