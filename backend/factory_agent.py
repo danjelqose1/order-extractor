@@ -365,8 +365,9 @@ class FactoryAgentService:
 
     async def recover_creation(self, row):
         sessions = await self.provider.list_sessions()
-        matches = [s for s in sessions if s.get("metadata", {}).get("factory_agent_request_id") == row["id"]]
-        if len(matches) == 1:
+        matches = [s for s in sessions if isinstance(s, dict) and isinstance(s.get("metadata"), dict)
+                   and s["metadata"].get("factory_agent_request_id") == row["id"]]
+        if len(matches) == 1 and isinstance(matches[0].get("id"), str) and matches[0]["id"]:
             row["remote_session_id"] = matches[0]["id"]
             self.save(row)
             return matches[0]

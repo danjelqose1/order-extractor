@@ -122,3 +122,22 @@ def test_retirement_cleans_existing_remote_without_starting_work(monkeypatch, tm
         assert not fake.events('agent.session.input.tool_result')
         assert not any(call[0] == 'create' for call in fake.calls)
     assert (directory / 'sessions.sqlite3').is_file()
+
+def test_cleanup_recovery_ignores_incomplete_provider_metadata(monkeypatch, tmp_path):
+    import asyncio
+    from test_factory_agent_lifecycle import FakeProvider, service, reserve
+    monkeypatch.setenv('ENABLE_FACTORY_AGENT', 'true')
+    monkeypatch.setenv('OPENAI_API_KEY', 'synthetic-test-key')
+    async def check():
+        fake = FakeProvider()
+        original = service(tmp_path, fake)
+        row = await reserve(original)
+        row['stop_requested'] = True
+        fake.sessions = [{'id': 'other', 'metadata': None},
+                         {'metadata': {'factory_agent_request_id': row['id']}}]
+        assert await original.recover_creation(row) is None
+        assert row['status'] == 'cleanup_required'
+        assert row['remote_session_id'] is None
+        assert not any(call[0] == 'create' for call in fake.calls)
+        await original.close()
+    asyncio.run(check())
