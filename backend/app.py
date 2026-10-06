@@ -391,12 +391,13 @@ def root():
 @app.get("/api/features")
 def get_frontend_features() -> Dict[str, bool]:
     """Return narrowly scoped, non-secret frontend feature flags."""
-    return {"living_dashboard": ENABLE_LIVING_DASHBOARD, "factory_agent": factory_agent_enabled()}
+    return {"living_dashboard": ENABLE_LIVING_DASHBOARD, "factory_agent": False}
 
 
-# Isolated opt-in control plane; does not open the production database or host a browser.
-from factory_agent import enabled as factory_agent_enabled, install_factory_agent
-install_factory_agent(app, lambda: APP_KEY, lambda: _ALLOWED_ORIGINS)
+# The retired section cannot start tasks, even with its old flag enabled.
+# Keep bounded cleanup for interrupted hosted sessions from earlier deployments.
+from factory_agent import install_factory_agent_cleanup
+install_factory_agent_cleanup(app, lambda: APP_KEY)
 
 
 @app.on_event("startup")

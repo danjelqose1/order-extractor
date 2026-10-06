@@ -10,7 +10,6 @@
   <title>Overview — Order Extractor</title>
   <link rel="stylesheet" href="./css/styles.css?v=20260930-production-voice1">
   <link rel="stylesheet" href="./css/interface.css?v=20261004-tables1" media="screen">
-  <link rel="stylesheet" href="./css/factory-agent.css?v=20261006-prepare1" media="screen">
 </head>
 <body>
   <svg class="icon-sprite" aria-hidden="true">
@@ -55,14 +54,9 @@
       <button class="tab" data-tab="history" aria-label="Orders" title="Orders"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-history"></use></svg></span><span>Orders</span></button>
       <button class="tab" data-tab="manual" aria-label="Manual Orders" title="Manual Orders"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-manual"></use></svg></span><span>Manual Orders</span></button>
       <div class="sidebar-section-label">Workflow</div>
-      <button class="tab" data-tab="workspace" data-nav-section="production" aria-label="Production" title="Production"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-workspace"></use></svg></span><span>Production</span></button>
-      <div class="sidebar-subnav" aria-label="Production tools">
-        <button class="tab" data-tab="processing" data-nav-parent="production" aria-label="Processing" title="Processing"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-processing"></use></svg></span><span>Processing</span></button>
-        <button class="tab" data-tab="perfectcut" data-nav-parent="production" aria-label="Perfect Cut Bridge" title="Perfect Cut Bridge"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-send"></use></svg></span><span>Perfect Cut Bridge</span></button>
-        <button class="tab" data-tab="labels" data-nav-parent="production" aria-label="Labels" title="Labels"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-label"></use></svg></span><span>Labels</span></button>
-      </div>
-      <button class="tab" data-tab="beta" aria-label="Beta" title="Beta"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-sparkles"></use></svg></span><span>Beta</span><span class="sidebar-beta-badge" aria-hidden="true">Beta</span></button>
-      <button id="factoryAgentNav" class="tab" data-tab="factoryagent" aria-label="Factory Agent · Beta" title="Factory Agent · Beta" hidden><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-sparkles"></use></svg></span><span>Factory Agent <small>· Beta</small></span></button>
+      <button class="tab" data-tab="processing" aria-label="Processing" title="Processing"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-processing"></use></svg></span><span>Processing</span></button>
+      <button class="tab" data-tab="perfectcut" aria-label="Perfect Cut Bridge" title="Perfect Cut Bridge"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-send"></use></svg></span><span>Perfect Cut Bridge</span></button>
+      <button class="tab" data-tab="labels" aria-label="Labels" title="Labels"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-label"></use></svg></span><span>Labels</span></button>
       <button class="tab" data-tab="telegram" data-nav-section="documents" aria-label="Documents" title="Documents"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-pdf"></use></svg></span><span>Documents</span><span id="telegramFilesBadge" class="sidebar-badge" hidden>0</span></button>
       <div class="sidebar-subnav" aria-label="Document tools">
         <button class="tab" data-tab="pdfeditor" data-nav-parent="documents" aria-label="PDF Editor" title="PDF Editor"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-pdf"></use></svg></span><span>PDF Editor</span></button>
@@ -101,26 +95,6 @@
       </div>
     </header>
 
-    <section id="betaTeachingBar" class="beta-teaching-bar" aria-live="polite" hidden>
-      <div class="beta-teaching-pulse" aria-hidden="true"></div>
-      <div class="beta-teaching-bar-copy">
-        <div class="beta-teaching-bar-title">
-          <strong>Teach Mode</strong>
-          <span id="betaTeachingBarStatus" class="beta-mode-badge">Recording</span>
-          <span class="beta-mode-badge is-context">Full platform context</span>
-          <span id="betaTeachingEventCount" class="beta-count-badge">0 events</span>
-        </div>
-        <span id="betaTeachingBarGoal" class="muted small">Observe how I review and approve orders.</span>
-        <span id="betaTeachingSyncStatus" class="beta-teaching-sync-status"></span>
-      </div>
-      <div class="beta-teaching-bar-actions">
-        <button type="button" class="btn small tertiary" id="betaTeachingOpenOrders">Open Orders</button>
-        <button type="button" class="btn small" id="betaTeachingCompare" hidden>Compare PDF</button>
-        <button type="button" class="btn small tertiary" id="betaTeachingPause">Pause</button>
-        <button type="button" class="btn small primary" id="betaTeachingFinish">Finish Teaching</button>
-        <button type="button" class="btn small danger" id="betaTeachingCancel">Cancel</button>
-      </div>
-    </section>
 
     <aside id="activityCenter" class="activity-center" aria-label="Background activity" hidden>
       <div class="activity-center-header">
@@ -203,7 +177,7 @@
             <span class="overview-kpi-icon review" aria-hidden="true"><svg><use href="#icon-history"></use></svg></span>
             <span class="overview-kpi-copy"><span>Awaiting approval</span><strong id="overviewNeedsReview">—</strong><small>New, needs review, and ready for approval</small></span>
           </button>
-          <button type="button" class="overview-kpi-card" data-overview-route="workspace">
+          <button type="button" class="overview-kpi-card" data-overview-route="history">
             <span class="overview-kpi-icon ready" aria-hidden="true"><svg><use href="#icon-workspace"></use></svg></span>
             <span class="overview-kpi-copy"><span>Ready for production</span><strong id="overviewReadyProduction">—</strong><small>Approved orders</small></span>
           </button>
@@ -588,91 +562,6 @@
       </div>
     </section>
 
-    <section id="tabWorkspace" class="tab-panel">
-      <div class="workspace-layout">
-        <div class="workspace-main">
-          <div class="card">
-            <div class="workspace-section-header">
-              <div>
-                <div class="workspace-title-line">
-                  <h3>Production Control</h3>
-                  <span class="workspace-copilot-badge">Deterministic preflight</span>
-                </div>
-                <p class="muted small" style="margin:4px 0 0">Priorities and plans are suggestions. Production runs only after operator confirmation.</p>
-              </div>
-              <div class="workspace-selection-actions">
-                <span id="workspaceSelectionStatus" class="muted small"></span>
-                <button type="button" class="btn small primary" id="workspaceProcessSelected" disabled>Plan selected batch</button>
-                <button type="button" class="btn small" id="workspaceClearSelection" disabled>Clear selection</button>
-                <button type="button" class="btn small" id="workspaceCopilotToggle" aria-controls="workspaceCopilotPanel" aria-expanded="false">Open Copilot</button>
-                <button type="button" class="btn small tertiary" id="workspaceOpenBeta">Beta operator</button>
-                <button type="button" class="btn small tertiary" id="workspaceRefresh">Refresh</button>
-                <span id="workspaceQueueStatus" class="muted small"></span>
-              </div>
-            </div>
-            <div id="workspaceAttention" class="workspace-attention-grid" aria-live="polite">
-              <div class="workspace-attention-card"><span>Loading production attention…</span></div>
-            </div>
-            <div class="workspace-queue-toolbar">
-              <label for="workspaceQueueSearch">Find an order</label>
-              <input type="search" id="workspaceQueueSearch" placeholder="Search order number or client…" autocomplete="off" />
-              <span id="workspaceQueueFilterStatus" class="muted small" aria-live="polite"></span>
-            </div>
-            <div id="workspaceBatchPlan" class="workspace-batch-plan" hidden></div>
-            <div id="workspaceQueue" class="workspace-queue-grid" style="margin-top:12px">
-              <div class="workspace-empty">Loading queue...</div>
-            </div>
-          </div>
-
-          <details class="card workspace-secondary-panel">
-            <summary>Recent production files</summary>
-            <div class="workspace-section-header">
-              <h3>Recent Production Files</h3>
-              <span id="workspaceFilesStatus" class="muted small"></span>
-            </div>
-            <div id="workspaceRecentFiles" class="workspace-file-list" style="margin-top:12px">
-              <div class="workspace-empty">No production files loaded.</div>
-            </div>
-          </details>
-          <details class="card workspace-secondary-panel"><summary>IGU materials calculator</summary><div id="workspaceMaterialsSlot"></div></details>
-        </div>
-
-        <aside id="workspaceCopilotPanel" class="workspace-side-panel" aria-label="Production Copilot" hidden>
-          <section class="card workspace-assistant workspace-copilot">
-            <div class="workspace-copilot-heading">
-              <div>
-                <div class="workspace-title-line">
-                  <h2 style="margin:0">Production Copilot</h2><button type="button" id="workspaceCopilotClose" class="btn small tertiary">Close Copilot</button>
-                  <span class="workspace-copilot-badge">Operator controlled</span>
-                </div>
-                <p class="muted small" style="margin:4px 0 0">Understand the queue, plan compatible work, and run confirmed production workflows.</p>
-              </div>
-            </div>
-            <div id="workspaceRecommendations" class="workspace-recommendations" aria-live="polite"></div>
-            <details class="workspace-quick-actions">
-              <summary>Suggested actions</summary>
-              <div class="workspace-prompt-grid" id="workspacePromptButtons">
-                <button type="button" class="btn small tertiary" data-workspace-prompt="Plan the recommended compatible batch">Plan recommended batch</button>
-                <button type="button" class="btn small tertiary" data-workspace-prompt="What needs attention today?">What needs attention today?</button>
-                <button type="button" class="btn small tertiary" data-workspace-prompt="Show approved orders">Show ready orders</button>
-                <button type="button" class="btn small tertiary" data-workspace-prompt="Show recent production files">Show recent production files</button>
-                <button type="button" class="btn small tertiary" data-workspace-prompt="Explain this production page">Explain this page</button>
-                <button type="button" class="btn small tertiary" data-workspace-prompt="Plan selected orders">Plan selected orders</button>
-              </div>
-            </details>
-            <div id="workspaceChatLog" class="workspace-chat-log">
-              <div class="workspace-message assistant">I will suggest the safest next action and show the evidence first. Nothing runs until you confirm it.</div>
-            </div>
-            <div id="workspaceAssistantFiles" class="workspace-file-actions"></div>
-            <form id="workspaceCommandForm" class="workspace-command-row">
-              <input id="workspaceCommandInput" type="text" placeholder="Ask about the queue or plan production…" autocomplete="off" />
-              <button id="workspaceSend" type="submit" class="btn primary">Send</button>
-            </form>
-            <div id="workspaceAssistantStatus" class="muted small"></div>
-          </section>
-        </aside>
-      </div>
-    </section>
 
     <section id="tabAwa" class="tab-panel">
       <div class="awa-layout">
@@ -750,336 +639,7 @@
       </div>
     </section>
 
-    <section id="tabBeta" class="tab-panel">
-      <div class="beta-page">
-        <section class="card beta-command-bar">
-          <div>
-            <div class="beta-title-row">
-              <h2>Operator Agent</h2>
-              <span class="beta-product-badge">Beta</span>
-              <span class="beta-mode-badge">Shadow Mode</span>
-              <span class="beta-mode-badge is-assisted">Assisted Review</span>
-              <span class="beta-mode-badge is-context">GPT-5.6 Terra</span>
-            </div>
-            <p class="muted small">Teach Beta by doing the work, ask it to review orders under your supervision, or run a read-only Shadow plan.</p>
-          </div>
-          <div class="beta-command-actions">
-            <button type="button" class="btn" id="betaStartTeaching">Teach Beta</button>
-            <button type="button" class="btn primary" id="betaRunShadow">Run Shadow Plan</button>
-          </div>
-        </section>
 
-        <div class="beta-safety-banner" role="note">
-          <strong>Supervised operator.</strong> Teach Mode records your in-platform workflow. Assisted Review can visually compare Needs Review PDFs and recommend approvals, but only the exact orders you confirm can change status. Mismatches, ambiguity, missing files, model errors, and stale reviews fail closed.
-        </div>
-
-        <section class="card beta-operator-console" aria-labelledby="betaOperatorConsoleTitle">
-          <div class="beta-card-heading">
-            <div>
-              <span class="section-eyebrow">Ask the operator</span>
-              <h3 id="betaOperatorConsoleTitle">Assisted Order Review</h3>
-              <p class="muted small">Terra checks each original PDF against the extracted rows, applies Hard Rules and learned context, then separates safe matches from orders that need you.</p>
-            </div>
-            <span class="beta-mode-badge is-assisted">Supervised actions</span>
-          </div>
-          <div class="beta-operator-command-row">
-            <label class="beta-operator-command-field" for="betaOperatorCommand">
-              <span>What should Beta do?</span>
-              <textarea id="betaOperatorCommand" rows="2" maxlength="4000">Review the orders that need review and prepare the safe matches for my approval.</textarea>
-            </label>
-            <label class="beta-operator-limit-field" for="betaOperatorLimit">
-              <span>Orders this run</span>
-              <select id="betaOperatorLimit">
-                <option value="5" selected>5 orders</option>
-                <option value="10">10 orders</option>
-                <option value="20">20 orders</option>
-                <option value="25">25 orders</option>
-              </select>
-            </label>
-            <button type="button" class="btn primary" id="betaRunAssistedReview">Review Needs Review</button>
-          </div>
-          <div class="beta-operator-preset-row" aria-label="Operator shortcuts">
-            <button type="button" class="btn small tertiary" data-beta-operator-prompt="Review the newest orders that need review and prepare only exact PDF matches for my approval.">Newest first</button>
-            <button type="button" class="btn small tertiary" data-beta-operator-prompt="Triage the orders that need review. Focus on mismatches, ambiguity, and hard-rule failures. Do not prepare approvals unless every check passes.">Triage risks</button>
-            <button type="button" class="btn small tertiary" data-beta-operator-prompt="Review the orders that need review and suggest the next supervised steps for Processing, Labels, and Invoices after approval.">Review + next steps</button>
-          </div>
-          <div id="betaOperatorProgress" class="beta-operator-progress muted small" aria-live="polite">Ready. No production action happens during review.</div>
-          <div id="betaOperatorResults" class="beta-operator-results">
-            <div class="workspace-empty">Start an assisted review to see one evidence card per order.</div>
-          </div>
-          <div id="betaOperatorApprovalBar" class="beta-operator-approval-bar" hidden>
-            <div>
-              <strong id="betaOperatorApprovalSummary">0 safe matches selected</strong>
-              <span class="muted small">Only checked, freshly revalidated orders will be approved. Rows and source PDFs remain untouched.</span>
-            </div>
-            <div class="beta-operator-approval-actions">
-              <button type="button" class="btn tertiary" id="betaDeclineSafeOrders">Keep for Manual Review</button>
-              <button type="button" class="btn success" id="betaApproveSafeOrders">Confirm &amp; Approve Selected</button>
-            </div>
-          </div>
-        </section>
-
-        <div class="beta-summary-grid">
-          <section class="card beta-goal-card">
-            <div class="beta-card-heading">
-              <div>
-                <span class="section-eyebrow">Current goal</span>
-                <h3>What should the operator prepare?</h3>
-              </div>
-              <span class="muted small">Plain language</span>
-            </div>
-            <label class="sr-only" for="betaGoal">Current operator goal</label>
-            <textarea id="betaGoal" rows="3" maxlength="1000">Prepare all new orders from today for processing.</textarea>
-            <p class="muted small">This draft is used for the next session and stays unchanged while you inspect history. A run never acts on production data.</p>
-          </section>
-
-          <section class="card beta-status-card">
-            <div class="beta-card-heading">
-              <div>
-                <span class="section-eyebrow">Operator status</span>
-                <h3>Session</h3>
-              </div>
-              <span id="betaOperatorStatus" class="beta-status-badge is-idle">Idle</span>
-            </div>
-            <dl class="beta-session-facts">
-              <div><dt>Session</dt><dd id="betaSessionId">No active session</dd></div>
-              <div><dt>Mode</dt><dd id="betaSessionMode">Shadow</dd></div>
-              <div><dt>Started</dt><dd id="betaSessionStarted">—</dd></div>
-              <div><dt>Approval</dt><dd id="betaSessionApproval">Not requested</dd></div>
-            </dl>
-          </section>
-        </div>
-
-        <section id="betaTeachingReview" class="card beta-teaching-review" hidden>
-          <div class="beta-card-heading">
-            <div>
-              <span class="section-eyebrow">Review learned behavior</span>
-              <h3 id="betaTeachingWorkflowTitle">Learned Workflow</h3>
-              <p id="betaTeachingWorkflowSummary" class="muted small"></p>
-            </div>
-            <span id="betaTeachingWorkflowStatus" class="beta-status-badge is-awaiting-approval">Awaiting review</span>
-          </div>
-          <div class="beta-teaching-review-grid">
-            <div>
-              <h4>Observed workflow</h4>
-              <div id="betaTeachingWorkflowSteps" class="beta-plan-list"></div>
-            </div>
-            <div class="beta-teaching-memory-candidates">
-              <h4>Candidate memory</h4>
-              <div id="betaTeachingCandidateRules"></div>
-              <div id="betaTeachingCandidateNotes"></div>
-              <div id="betaTeachingUncertainties"></div>
-            </div>
-          </div>
-          <div class="beta-teaching-review-actions" id="betaTeachingReviewActions">
-            <button type="button" class="btn success" id="betaTeachingAcceptAll">Accept Workflow &amp; Memory</button>
-            <button type="button" class="btn" id="betaTeachingAcceptNotes">Save as Learned Notes</button>
-            <button type="button" class="btn danger" id="betaTeachingRejectWorkflow">Discard</button>
-          </div>
-          <p id="betaTeachingReviewStatus" class="muted small" aria-live="polite"></p>
-        </section>
-
-        <div class="beta-main-grid">
-          <section class="card beta-journal-card">
-            <div class="beta-card-heading">
-              <div>
-                <span class="section-eyebrow">Activity</span>
-                <h3>Execution Journal</h3>
-                <p class="muted small">Chronological observations, proposed actions, decisions, results, errors, and lessons.</p>
-              </div>
-              <span id="betaJournalCount" class="beta-count-badge">0 entries</span>
-            </div>
-            <div id="betaJournal" class="beta-journal" aria-live="polite">
-              <div class="workspace-empty">Run a Shadow Session or open a previous session to see its journal.</div>
-            </div>
-          </section>
-
-          <aside class="beta-plan-column">
-            <section class="card beta-plan-card">
-              <div class="beta-card-heading">
-                <div>
-                  <span class="section-eyebrow">Prepared work</span>
-                  <h3>Proposed Plan</h3>
-                </div>
-                <span id="betaPlanCount" class="beta-count-badge">0 steps</span>
-              </div>
-              <div id="betaPlanSummary" class="muted small">No plan prepared yet.</div>
-              <div id="betaPlan" class="beta-plan-list">
-                <div class="workspace-empty">Shadow actions will appear here.</div>
-              </div>
-            </section>
-
-            <section class="card beta-approval-card">
-              <div class="beta-card-heading">
-                <div>
-                  <span class="section-eyebrow">Safety boundary</span>
-                  <h3>Human Approval</h3>
-                </div>
-                <span id="betaApprovalBadge" class="beta-approval-badge">Not requested</span>
-              </div>
-              <p id="betaApprovalCopy" class="muted small">Consequential steps are highlighted. In V1, approval is recorded as the local operator and ends the session; it never executes the plan.</p>
-              <div id="betaApprovalActions" class="beta-approval-actions" hidden>
-                <button type="button" class="btn success" id="betaApprovePlan">Record Approval</button>
-                <button type="button" class="btn tertiary" id="betaRejectPlan">Record Rejection</button>
-              </div>
-              <div id="betaApprovalStatus" class="muted small" aria-live="polite"></div>
-            </section>
-          </aside>
-        </div>
-
-        <section class="card beta-memory-card">
-          <div class="beta-card-heading">
-            <div>
-              <span class="section-eyebrow">Operational memory</span>
-              <h3>Rules, Notes &amp; Session History</h3>
-              <p class="muted small">Beta memory is stored separately from production orders.</p>
-            </div>
-          </div>
-          <div class="beta-memory-tabs" role="tablist" aria-label="Beta operational memory">
-            <button type="button" id="betaMemoryTabRules" class="btn small tertiary active" role="tab" aria-selected="true" aria-controls="betaMemoryPanelRules" tabindex="0" data-beta-memory-tab="rules">Hard Rules</button>
-            <button type="button" id="betaMemoryTabNotes" class="btn small tertiary" role="tab" aria-selected="false" aria-controls="betaMemoryPanelNotes" tabindex="-1" data-beta-memory-tab="notes">Learned Notes</button>
-            <button type="button" id="betaMemoryTabHistory" class="btn small tertiary" role="tab" aria-selected="false" aria-controls="betaMemoryPanelHistory" tabindex="-1" data-beta-memory-tab="history">Session History</button>
-          </div>
-
-          <div id="betaMemoryPanelRules" class="beta-memory-panel active" role="tabpanel" aria-labelledby="betaMemoryTabRules" tabindex="0" data-beta-memory-panel="rules">
-            <div class="beta-memory-layout">
-              <form id="betaHardRuleForm" class="beta-memory-form">
-                <label>Rule title<input id="betaHardRuleTitle" maxlength="160" required placeholder="Example: Never process drafts" /></label>
-                <label>Deterministic rule<textarea id="betaHardRuleText" rows="3" maxlength="2000" required placeholder="Describe the rule clearly. Hard Rules always override AI suggestions."></textarea></label>
-                <label>Priority<input id="betaHardRulePriority" type="number" min="0" max="1000" value="100" /></label>
-                <button type="submit" class="btn small">Add Hard Rule</button>
-                <span id="betaHardRuleStatus" class="muted small" aria-live="polite"></span>
-              </form>
-              <div id="betaHardRules" class="beta-memory-list">
-                <div class="workspace-empty">No Hard Rules have been added.</div>
-              </div>
-            </div>
-          </div>
-
-          <div id="betaMemoryPanelNotes" class="beta-memory-panel" role="tabpanel" aria-labelledby="betaMemoryTabNotes" tabindex="0" data-beta-memory-panel="notes" hidden>
-            <div class="beta-memory-layout">
-              <form id="betaLearnedNoteForm" class="beta-memory-form">
-                <label>Note title<input id="betaLearnedNoteTitle" maxlength="160" required placeholder="Example: Client order numbers vary" /></label>
-                <label>Observation or lesson<textarea id="betaLearnedNoteText" rows="3" maxlength="2000" required placeholder="Record a reusable observation. Model-generated lessons remain disabled until reviewed."></textarea></label>
-                <button type="submit" class="btn small">Add Learned Note</button>
-                <span id="betaLearnedNoteStatus" class="muted small" aria-live="polite"></span>
-              </form>
-              <div id="betaLearnedNotes" class="beta-memory-list">
-                <div class="workspace-empty">No Learned Notes have been recorded.</div>
-              </div>
-            </div>
-          </div>
-
-          <div id="betaMemoryPanelHistory" class="beta-memory-panel" role="tabpanel" aria-labelledby="betaMemoryTabHistory" tabindex="0" data-beta-memory-panel="history" hidden>
-            <div id="betaSessionHistory" class="beta-history-list">
-              <div class="workspace-empty">No Beta sessions yet.</div>
-            </div>
-          </div>
-        </section>
-      </div>
-    </section>
-
-    <section id="tabFactoryAgent" class="tab-panel factory-agent" aria-labelledby="factoryAgentHeading" hidden>
-      <section class="card factory-agent-intro">
-        <div>
-          <p class="section-eyebrow">OpenAI-hosted workspace</p>
-          <h2 id="factoryAgentHeading">Inspect factory work. Prepare the next step.</h2>
-          <p class="muted">Ask the agent to read orders, compare details, summarize findings, or draft a change plan for your review.</p>
-        </div>
-        <span id="factoryAgentScopeBadge" class="factory-agent-badge">Inspect and prepare · Review required</span>
-      </section>
-      <section id="factoryAgentSetup" class="card factory-agent-setup" hidden>
-        <h3>Setup required</h3>
-        <p id="factoryAgentSetupText" class="muted">Backend configuration is needed before a task can start.</p>
-        <ul id="factoryAgentMissing"></ul>
-        <button id="factoryAgentCheckSetup" type="button" class="btn small">Check setup</button>
-      </section>
-      <form id="factoryAgentUnlockForm" class="card factory-agent-unlock">
-        <div>
-          <h3>Unlock Factory Agent</h3>
-          <p class="muted">Use the access key configured for Factory Agent. It stays in this tab’s memory and is sent only to this platform’s backend.</p>
-        </div>
-        <label for="factoryAgentKey">Factory Agent access key</label>
-        <div class="factory-agent-unlock-row">
-          <input id="factoryAgentKey" type="password" autocomplete="off" spellcheck="false" required aria-describedby="factoryAgentKeyHint">
-          <button id="factoryAgentUnlock" type="submit" class="btn primary">Unlock</button>
-        </div>
-        <p id="factoryAgentKeyHint" class="muted small">If your platform already uses APP_KEY, use that existing key. Reloading or locking this tab requires the key again. Do not enter an OpenAI API key.</p>
-      </form>
-      <p id="factoryAgentNotice" class="factory-agent-notice" role="status" aria-live="polite" hidden></p>
-      <div id="factoryAgentWorkspace" hidden>
-        <div class="factory-agent-toolbar">
-          <span id="factoryAgentConnection" class="muted small">Authenticated</span>
-          <div class="factory-agent-actions">
-            <button id="factoryAgentReconnect" type="button" class="btn small">Refresh / reconnect</button>
-            <button id="factoryAgentLock" type="button" class="btn small tertiary">Lock tab</button>
-          </div>
-        </div>
-        <div class="factory-agent-layout">
-          <div class="factory-agent-main">
-            <form id="factoryAgentTaskForm" class="card factory-agent-task">
-              <h3>Ask Factory Agent</h3>
-              <label for="factoryAgentOrder">Work with</label>
-              <select id="factoryAgentOrder" required></select>
-              <p id="factoryAgentScopeHint" class="muted small">Inspection and proposed plans only. Production changes use your existing order workflows.</p>
-              <div id="factoryAgentExamples" class="factory-agent-examples" aria-label="Task examples">
-                <button type="button" class="btn small" data-factory-example="read">Read orders</button>
-                <button type="button" class="btn small" data-factory-example="compare">Compare</button>
-                <button type="button" class="btn small" data-factory-example="summarize">Summarize</button>
-                <button type="button" class="btn small" data-factory-example="draft">Draft a change</button>
-              </div>
-              <label for="factoryAgentMessage">What would you like help with?</label>
-              <textarea id="factoryAgentMessage" rows="4" maxlength="4000" required placeholder="Describe the task and name any orders or clients involved. The agent can inspect and prepare a plan; it cannot apply production changes."></textarea>
-              <label class="factory-agent-continue" for="factoryAgentContinue"><input id="factoryAgentContinue" type="checkbox" disabled><span>Continue conversation from the selected session</span></label>
-              <p id="factoryAgentContinueHint" class="muted small">Available after the selected session finishes and its workspace closes. Saved context is carried into a new workspace.</p>
-              <p id="factoryAgentLimits" class="muted small"></p>
-              <div class="factory-agent-actions"><button id="factoryAgentStart" type="submit" class="btn primary" disabled>Send task</button></div>
-            </form>
-            <section class="card factory-agent-session" aria-labelledby="factoryAgentSessionHeading">
-              <div class="factory-agent-section-header">
-                <h3 id="factoryAgentSessionHeading">Session activity</h3>
-                <span id="factoryAgentStatus" class="factory-agent-badge" role="status">No session</span>
-              </div>
-              <label class="factory-agent-session-label" for="factoryAgentSessionPicker">Recent sessions</label>
-              <select id="factoryAgentSessionPicker"><option value="">No sessions yet</option></select>
-              <p id="factoryAgentSessionMeta" class="muted small">Start a task to see actual agent events.</p>
-              <div class="factory-agent-actions">
-                <button id="factoryAgentStop" type="button" class="btn danger" disabled>Stop task</button>
-                <button id="factoryAgentCleanup" type="button" class="btn tertiary" disabled>Close workspace</button>
-              </div>
-              <p id="factoryAgentSessionError" class="factory-agent-notice" hidden></p>
-              <ol id="factoryAgentActivity" class="factory-agent-activity" aria-label="Agent activity"></ol>
-              <p id="factoryAgentActivityEmpty" class="factory-agent-empty">No agent activity received.</p>
-            </section>
-            <section class="card factory-agent-result" aria-labelledby="factoryAgentResultHeading">
-              <div class="factory-agent-section-header"><h3 id="factoryAgentResultHeading">Agent response</h3></div>
-              <pre id="factoryAgentResult">No response received yet.</pre>
-            </section>
-            <section class="card factory-agent-plans" aria-labelledby="factoryAgentPlansHeading">
-              <div class="factory-agent-section-header"><h3 id="factoryAgentPlansHeading">Prepared plans</h3><button id="factoryAgentOpenOrders" type="button" class="btn small tertiary">Open Orders</button></div>
-              <p class="muted small">Accept plan records your review only. It does not change an order. Use the existing order workflow for any changes you choose to make.</p>
-              <div id="factoryAgentProposals"></div>
-              <p id="factoryAgentProposalsEmpty" class="factory-agent-empty">No change plans received for this session.</p>
-            </section>
-          </div>
-          <aside class="factory-agent-side">
-            <section class="card factory-agent-browser" aria-labelledby="factoryAgentBrowserHeading">
-              <div class="factory-agent-section-header"><h3 id="factoryAgentBrowserHeading">Browser view</h3></div>
-              <p class="muted small">Latest screenshot supplied by the hosted session.</p>
-              <img id="factoryAgentScreenshot" alt="Latest browser screenshot from this Factory Agent session" hidden>
-              <p id="factoryAgentScreenshotEmpty" class="factory-agent-empty">No browser screenshot is available.</p>
-            </section>
-            <section class="card factory-agent-boundary">
-              <h3>Access and review</h3>
-              <p id="factoryAgentBoundaryText">The agent can inspect factory data and save proposed plans. Order edits, approvals, processing, invoices, printing, and machinery actions are unavailable.</p>
-              <ul id="factoryAgentCapabilities" class="factory-agent-capabilities" hidden></ul>
-              <p>Browser and tool access is restricted by the backend. Browser sign-in requests and unapproved origins remain blocked.</p>
-              <p class="muted small">Stop requests cancellation of the remote task. Closing or locking this tab does not stop it. The backend enforces the runtime limit.</p>
-            </section>
-          </aside>
-        </div>
-      </div>
-    </section>
 
     <section id="tabTelegram" class="tab-panel">
       <div class="card">
@@ -1830,7 +1390,6 @@
           </section>
 
           <section class="order-detail-view" data-order-detail-panel="files" hidden>
-            <div id="betaOrderComparison" class="beta-order-comparison" hidden aria-live="polite"></div>
             <div class="order-detail-files-grid">
               <div class="card order-source-card">
                 <div class="overview-section-header">
@@ -2532,22 +2091,6 @@
     </div>
   </div>
 
-  <div id="betaDecisionReasonModal" class="modal-layer" hidden>
-    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="betaDecisionReasonTitle">
-      <span class="section-eyebrow">Teach Beta</span>
-      <h3 id="betaDecisionReasonTitle">Why did you approve this order?</h3>
-      <p class="muted small">Beta recorded the action, but only you can confirm what made the decision safe.</p>
-      <div id="betaDecisionEvidence" class="beta-decision-evidence"></div>
-      <label>
-        <span>Your reason</span>
-        <textarea id="betaDecisionReasonText" rows="4" maxlength="2000" placeholder="Example: Quantity and dimensions match the original PDF."></textarea>
-      </label>
-      <div class="modal-actions">
-        <button type="button" class="btn small tertiary" id="betaDecisionReasonSkip">Skip</button>
-        <button type="button" class="btn primary small" id="betaDecisionReasonSave">Save Reason</button>
-      </div>
-    </div>
-  </div>
 
   <input type="file" id="pdfInput" accept="application/pdf" hidden />
   <input type="file" id="pdfEditorFileInput" accept="application/pdf" hidden />
@@ -2557,11 +2100,10 @@
 <script src="./js/living-dashboard.js?v=20260908-compact" defer></script>
 <script src="./js/platform-workflows.js?v=20261003-processing-units1" defer></script>
 <script src="./js/manual-dimension-groups.js?v=20260919-manual-group1" defer></script>
-<script src="./js/app.js?v=20261006-factory-agent-prepare1" defer></script>
+<script src="./js/app.js?v=20261006-remove-agent-sections1" defer></script>
 <script src="./js/production-sheet.js?v=20261006-production-memory1" defer></script>
 <script src="./js/production-sheet-voice.js?v=20260930-production-dictation1" defer></script>
 <script src="./js/perfect-cut-bridge.js?v=20260919-manual-index2" defer></script>
 <script src="./js/workspace-layout.js?v=20261003-workspace1" defer></script>
-<script src="./js/factory-agent.js?v=20261006-prepare1" defer></script>
 </body>
 </html>

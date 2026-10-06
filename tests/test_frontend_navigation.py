@@ -9,9 +9,8 @@ APP_JS = ROOT / "docs" / "js" / "app.js"
 def test_navigation_is_grouped_around_factory_workflows():
     html = INDEX_HTML.read_text(encoding="utf-8")
 
-    for label in ("Overview", "Orders", "Production", "Documents", "Analytics", "Settings"):
+    for label in ("Overview", "Orders", "Processing", "Perfect Cut Bridge", "Labels", "Documents", "Analytics", "Settings"):
         assert f"<span>{label}</span>" in html
-    assert 'data-nav-parent="production"' in html
     assert 'data-nav-parent="documents"' in html
     assert 'data-tab="awa"' not in html
 
@@ -30,168 +29,31 @@ def test_approved_orders_can_be_safely_reopened_for_correction():
     assert 'selectOrderDetailView("items")' in js
 
 
-def test_beta_shadow_module_is_registered_without_exposing_legacy_awa():
+def test_retired_sections_and_their_global_controls_are_removed():
     html = INDEX_HTML.read_text(encoding="utf-8")
-    js = (APP_JS.with_name("platform-workflows.js").read_text(encoding="utf-8") + "\n" + APP_JS.read_text(encoding="utf-8"))
-
-    assert 'data-tab="beta"' in html
-    assert '<span>Beta</span><span class="sidebar-beta-badge" aria-hidden="true">Beta</span>' in html
-    assert 'id="tabBeta"' in html
-    assert 'id="betaRunShadow"' in html
-    assert 'Shadow Mode' in html
-    assert 'beta: document.getElementById("tabBeta")' in js
-    assert 'title: "Beta"' in js
-    assert 'name === "beta"' in js
-    assert "loadBetaOverview();" in js
-    assert 'data-tab="awa"' not in html
-    assert 'id="workspaceOpenAwa"' not in html
-    assert 'id="workspaceOpenBeta">Beta operator</button>' in html
-    assert 'activateTab("beta")' in js
-
-
-def test_beta_frontend_has_approval_recording_but_no_execution_control():
-    html = INDEX_HTML.read_text(encoding="utf-8")
-    js = (APP_JS.with_name("platform-workflows.js").read_text(encoding="utf-8") + "\n" + APP_JS.read_text(encoding="utf-8"))
-    beta_html = html[html.index('id="tabBeta"'):html.index('id="tabTelegram"')]
-    beta_js = js[js.index("function betaEntryMetadata"):js.index("async function refreshWorkspaceAfterAction")]
-
-    assert 'id="betaApprovePlan">Record Approval</button>' in beta_html
-    assert 'id="betaRejectPlan">Record Rejection</button>' in beta_html
-    assert "Run Production" not in beta_html
-    assert "Execute Plan" not in beta_html
-    assert "/api/workspace/confirm-action" not in beta_js
-    assert "/orders/" not in beta_js
-    assert "/api/beta/sessions/shadow" in beta_js
-    assert "No production action was executed." in beta_js
-    assert 'approved_by: "operator"' not in beta_js
-
-
-def test_beta_memory_tabs_have_keyboard_and_panel_relationships():
-    html = INDEX_HTML.read_text(encoding="utf-8")
-    js = (APP_JS.with_name("platform-workflows.js").read_text(encoding="utf-8") + "\n" + APP_JS.read_text(encoding="utf-8"))
-
-    assert 'id="betaMemoryTabRules"' in html
-    assert 'aria-controls="betaMemoryPanelRules"' in html
-    assert 'role="tabpanel" aria-labelledby="betaMemoryTabRules"' in html
-    assert '["ArrowLeft", "ArrowRight", "Home", "End"]' in js
-    assert 'activateBetaMemoryTab(target.dataset.betaMemoryTab, { focus: true })' in js
-
-
-def test_beta_teach_mode_has_persistent_recorder_comparison_and_review_boundary():
-    html = INDEX_HTML.read_text(encoding="utf-8")
-    js = (APP_JS.with_name("platform-workflows.js").read_text(encoding="utf-8") + "\n" + APP_JS.read_text(encoding="utf-8"))
-
+    for tab in ("workspace", "beta", "factoryagent", "awa"):
+        assert f'data-tab="{tab}"' not in html
+        assert f'data-overview-route="{tab}"' not in html
     for element_id in (
-        "betaStartTeaching",
-        "betaTeachingBar",
-        "betaTeachingPause",
-        "betaTeachingFinish",
-        "betaTeachingCompare",
-        "betaOrderComparison",
-        "betaDecisionReasonModal",
-        "betaTeachingReview",
-        "betaTeachingAcceptAll",
-        "betaTeachingRejectWorkflow",
+        "tabWorkspace", "tabBeta", "tabFactoryAgent", "factoryAgentNav",
+        "betaTeachingBar", "betaDecisionReasonModal", "betaOrderComparison",
+        "workspaceOpenBeta", "overviewOpenBeta",
+    ):
+        assert f'id="{element_id}"' not in html
+    assert "./js/factory-agent.js" not in html
+    assert "./css/factory-agent.css" not in html
+
+
+def test_processing_and_production_documents_remain_available():
+    html = INDEX_HTML.read_text(encoding="utf-8")
+    for element_id in (
+        "tabProcessing", "tabPerfectCut", "tabLabels", "processingAddLabels",
+        "productionSheetOpen", "productionSheetDialog", "productionSheetSave",
+        "manualInvoiceModal", "invoiceGeneratePdf",
     ):
         assert f'id="{element_id}"' in html
-
-    assert "/api/beta/teaching/start" in js
-    assert "/api/beta/teaching/${encodeURIComponent(sessionId)}/events" in js
-    assert "/api/beta/teaching/${encodeURIComponent(sessionId)}/compare" in js
-    assert "force_vision: options.forceVision !== false" in js
-    assert 'recordBetaTeachingEvent("approval_succeeded"' in js
-    assert 'recordBetaTeachingEvent("decision_reason"' in js
-    assert "records mouse" not in js.lower()
-    comparison = js[js.index("async function compareCurrentOrderForTeaching"):js.index("async function finishBetaTeaching")]
-    assert comparison.count("betaState.comparedOrderIds.add(key)") == 2
-    assert "Use Compare PDF to retry" in comparison
-    assert 'String(order.status || "").toLowerCase() === "approved"' in comparison
-    assert "openBetaDecisionReason(order);" in comparison
-
-
-def test_beta_assisted_operator_reviews_then_requires_exact_human_confirmation():
-    html = INDEX_HTML.read_text(encoding="utf-8")
-    js = (APP_JS.with_name("platform-workflows.js").read_text(encoding="utf-8") + "\n" + APP_JS.read_text(encoding="utf-8"))
-
-    for element_id in (
-        "betaOperatorCommand",
-        "betaOperatorLimit",
-        "betaRunAssistedReview",
-        "betaOperatorResults",
-        "betaOperatorApprovalBar",
-        "betaApproveSafeOrders",
-        "betaDeclineSafeOrders",
-    ):
-        assert f'id="{element_id}"' in html
-
-    assert "/api/beta/operator/review/start" in js
-    assert "/api/beta/operator/review/${encodeURIComponent(session.id)}/approve" in js
-    assert "order_ids: orderIds, confirmed: true" in js
-    assert "The server will recheck every order first" in js
-    assert "data-beta-operator-select" in js
-    assert "safe_to_approve" in js
-
-
-def test_production_control_tower_plans_before_processing_and_uses_one_copilot():
-    html = INDEX_HTML.read_text(encoding="utf-8")
-    js = (APP_JS.with_name("platform-workflows.js").read_text(encoding="utf-8") + "\n" + APP_JS.read_text(encoding="utf-8"))
-    workspace_html = html[html.index('id="tabWorkspace"'):html.index('id="tabAwa"')]
-
-    for element_id in (
-        "workspaceAttention",
-        "workspaceRecommendations",
-        "workspaceBatchPlan",
-        "workspaceProcessSelected",
-        "workspaceChatLog",
-        "workspaceCommandForm",
-    ):
-        assert f'id="{element_id}"' in workspace_html
-    assert "Production Copilot" in workspace_html
-    assert "Plan selected batch" in workspace_html
-    assert "Nothing runs until you confirm it." in workspace_html
-    assert "Smart Chat" not in workspace_html
-    assert "/api/workspace/batch-plan" in js
-    assert "function renderWorkspaceAttention" in js
-    assert "function renderWorkspaceBatchPlan" in js
-    assert "Confirm &amp; create production files" in js
-    assert "mutated_production_data" not in workspace_html
-    assert "No raw, approved, or history data changed" in js
-
-
-def test_teach_mode_never_calls_a_beta_production_execution_endpoint():
-    js = (APP_JS.with_name("platform-workflows.js").read_text(encoding="utf-8") + "\n" + APP_JS.read_text(encoding="utf-8"))
-    teaching_js = js[js.index("function betaTeachingIsActive"):js.index("async function loadBetaSession")]
-
-    assert "/execute" not in teaching_js
-    assert "/api/workspace/confirm-action" not in teaching_js
-    assert "approveDraft(" not in teaching_js
-    assert "processWorkspace" not in teaching_js
-
-
-def test_teach_mode_records_full_platform_context_without_credentials_or_request_bodies():
-    html = INDEX_HTML.read_text(encoding="utf-8")
-    js = (APP_JS.with_name("platform-workflows.js").read_text(encoding="utf-8") + "\n" + APP_JS.read_text(encoding="utf-8"))
-
-    assert "Full platform context" in html
-    assert "GPT-5.6 Terra" in html
-    assert "installBetaFullContextRecorder();" in js
-    assert 'document.addEventListener("click"' in js
-    assert 'document.addEventListener("input"' in js
-    assert 'document.addEventListener("change"' in js
-    assert 'document.addEventListener("submit"' in js
-    assert 'document.addEventListener("drop"' in js
-    assert 'document.addEventListener("keydown"' in js
-    assert 'window.fetch = async (input, init = {}) =>' in js
-    assert '"action_result"' in js
-    assert '"action_error"' in js
-    assert "context_before" in js
-    assert "context_after" in js
-    assert "visible_warnings" in js
-    assert "selected_order" in js
-    assert "BETA_TEACHING_SENSITIVE_FIELD_RE" in js
-    recorder = js[js.index("function installBetaFullContextRecorder"):js.index("async function controlBetaTeaching")]
-    assert "init.body" not in recorder
-    assert "request.body" not in recorder
+    for script in ("platform-workflows.js", "production-sheet.js", "production-sheet-voice.js", "perfect-cut-bridge.js"):
+        assert f'./js/{script}' in html
 
 
 def test_manual_invoice_workspace_stays_inside_manual_orders():

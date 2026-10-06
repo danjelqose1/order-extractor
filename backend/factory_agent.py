@@ -767,6 +767,57 @@ class FactoryAgentBoundary:
         return await self.app(scope, replay, private_send)
 
 
+def install_factory_agent_cleanup(app: FastAPI, app_key_getter):
+    """Retired application integration: cleanup only, with no HTTP routes.
+
+    Old flags and saved task inputs must never restart work. Existing journals
+    are retained and only unfinished remote resources are cancelled/deleted.
+    """
+    service = FactoryAgentService(app_key_getter)
+
+    async def cleanup_record(row):
+        try:
+            async with asyncio.timeout(45):
+                if not row.get("remote_session_id"):
+                    await service.recover_creation(row)
+                if row.get("remote_session_id"):
+                    await service.cleanup(row, stopping=True)
+        except (TimeoutError, ProviderError):
+            row.update(status="cleanup_required", cleanup_status="required",
+                       error="Retired Factory Agent could not confirm remote cleanup. Check the Agents dashboard or restart to retry.")
+            service.save(row)
+
+    async def start_cleanup():
+        directory = Path(os.getenv("FACTORY_AGENT_STATE_DIR") or str(Path(os.getenv("DB_DIR", "data")) / "factory-agent"))
+        if not (directory / "sessions.sqlite3").is_file():
+            return
+        try:
+            service.store = StateStore(directory)
+            service.records = service.store.load()
+            pending = [row for row in service.records.values() if row.get("cleanup_status") != "deleted"]
+            if not pending:
+                service.store.close()
+                service.store = None
+                return
+            for row in pending:
+                row["stop_requested"] = True
+                service.save(row)
+            service.provider = service.provider_factory()
+            for row in pending:
+                service.tasks[row["id"]] = asyncio.create_task(cleanup_record(row))
+        except (OSError, RuntimeError, sqlite3.Error, ProviderError, ValueError, KeyError, TypeError):
+            # Never expose credentials or prevent the remaining platform starting.
+            print("Factory Agent retirement cleanup unavailable; inspect the Agents dashboard for unfinished sessions.")
+            if service.store:
+                service.store.close()
+                service.store = None
+
+    app.add_event_handler("startup", start_cleanup)
+    app.add_event_handler("shutdown", service.close)
+    app.state.factory_agent = service
+    return service
+
+
 def install_factory_agent(app: FastAPI, app_key_getter, origins_getter):
     service = FactoryAgentService(app_key_getter)
     router = APIRouter(prefix="/api/factory-agent", tags=["Factory Agent Beta"])

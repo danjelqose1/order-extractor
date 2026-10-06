@@ -455,10 +455,7 @@ const scanStudioState = {
 const tabs = document.querySelectorAll(".tab-bar .tab");
 const panels = {
   extract: document.getElementById("tabExtract"),
-  workspace: document.getElementById("tabWorkspace"),
   awa: document.getElementById("tabAwa"),
-  beta: document.getElementById("tabBeta"),
-  factoryagent: document.getElementById("tabFactoryAgent"),
   telegram: document.getElementById("tabTelegram"),
   scanstudio: document.getElementById("tabScanStudio"),
   pdfeditor: document.getElementById("tabPdfEditor"),
@@ -484,25 +481,10 @@ const PAGE_META = Object.freeze({
     title: "New Order",
     subtitle: "Upload a PDF or paste order text, then review the extracted result.",
   },
-  workspace: {
-    eyebrow: "Workflow",
-    title: "Production",
-    subtitle: "Manage approved orders, production files, and factory workflows.",
-  },
   awa: {
     eyebrow: "Automation",
     title: "AWA Beta",
     subtitle: "Review supervised automation suggestions before anything runs.",
-  },
-  beta: {
-    eyebrow: "Automation",
-    title: "Beta",
-    subtitle: "Run read-only operator sessions that prepare plans and stop for human approval.",
-  },
-  factoryagent: {
-    eyebrow: "Automation",
-    title: "Factory Agent · Beta",
-    subtitle: "Inspect orders, compare details, and prepare change plans for your review.",
   },
   telegram: {
     eyebrow: "Files",
@@ -1438,7 +1420,8 @@ const typeCorrectionsCancelBtn = document.getElementById("typeCorrectionsCancel"
 const groupToggles = document.querySelectorAll("[data-group-toggle]");
 
 function activateTab(name){
-      if (name === "factoryagent" && !window.FactoryAgentUI?.enabled) return;
+      // Old saved routes and links to retired sections return to Overview.
+      if (!Object.prototype.hasOwnProperty.call(panels, name) || !panels[name]) name = "extract";
 	  if (name !== "extract") stopOverviewPolling();
 	  if (name === "extract"){
 	    setNewOrderWorkspaceOpen(false, { load: false });
@@ -1456,7 +1439,6 @@ function activateTab(name){
 	    }
 	  });
 	  const navParentByTab = {
-	    workspace: "production",
 	    processing: "production",
 	    perfectcut: "production",
 	    labels: "production",
@@ -1482,30 +1464,6 @@ function activateTab(name){
       panel.setAttribute("aria-hidden", "true");
     }
   });
-  renderBetaTeachingBar();
-  if (betaTeachingIsRecording()){
-    const moduleByTab = {
-      extract: "Overview",
-      history: "Orders",
-      orderdetail: "Orders",
-      manual: "Manual Orders",
-      workspace: "Production",
-      processing: "Processing",
-      spacer: "Processing",
-      labels: "Labels",
-      telegram: "Documents",
-      pdfeditor: "PDF Editor",
-      scanstudio: "Scan Studio",
-      analysis: "Analytics",
-      settings: "Settings",
-      beta: "Beta",
-    };
-    void recordBetaTeachingEvent("navigation", {
-      module: moduleByTab[name] || "Other",
-      message: `Opened ${name === "orderdetail" ? "order detail" : name} view.`,
-      metadata: { view: name },
-    });
-  }
   if (name === "extract"){
     loadOverview();
     startOverviewPolling();
@@ -1514,14 +1472,8 @@ function activateTab(name){
     loadHistoryWorkQueue();
   }else if (name === "manual"){
     ensureManualOrdersReady();
-  }else if (name === "workspace"){
-    loadWorkspace();
   }else if (name === "awa"){
     loadAwa();
-  }else if (name === "beta"){
-    loadBetaOverview();
-  }else if (name === "factoryagent"){
-    window.FactoryAgentUI?.open();
   }else if (name === "telegram"){
     loadTelegramFiles();
 	  }else if (name === "scanstudio"){
@@ -1581,10 +1533,6 @@ overviewDashboard?.addEventListener("click", async event=>{
   if (!orderButton?.dataset.overviewOrderId) return;
   activateTab("history");
   await openOrderFromList(orderButton.dataset.overviewOrderId);
-});
-
-document.getElementById("workspaceOpenBeta")?.addEventListener("click", ()=>{
-  activateTab("beta");
 });
 
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", syncSettingsSummary);
@@ -13305,10 +13253,10 @@ function awaStatusBadge(value){
 
 function awaActionButtonLabel(action){
   const type = String(action?.type || "");
-  if (type.includes("process")) return "Open Workspace";
+  if (type.includes("process")) return "Open Processing";
   if (type.includes("label")) return "Open Labels";
   if (type.includes("invoice")) return "Open Invoice";
-  if (type.includes("download")) return "Open Workspace";
+  if (type.includes("download")) return "Open Processing";
   return "Open History";
 }
 
@@ -13316,7 +13264,7 @@ function awaRelatedModule(action){
   const type = String(action?.type || "");
   if (type.includes("label")) return "labels";
   if (type.includes("invoice")) return "invoices";
-  if (type.includes("process") || type.includes("download")) return "workspace";
+  if (type.includes("process") || type.includes("download")) return "processing";
   return "history";
 }
 
@@ -13896,7 +13844,8 @@ async function betaApi(path, options = {}){
 }
 
 function betaTeachingIsActive(session = betaState.teachingSession){
-  return String(session?.mode || "").toLowerCase() === "teach"
+  // Retained order hooks cannot record after the Beta section is removed.
+  return !!panels.beta && String(session?.mode || "").toLowerCase() === "teach"
     && ["teaching", "paused"].includes(String(session?.status || "").toLowerCase());
 }
 
@@ -13960,6 +13909,7 @@ function setBetaTeachingSession(session){
 }
 
 async function restoreBetaTeachingSession(){
+  if (!panels.beta) return;
   let storedId = null;
   try{
     storedId = localStorage.getItem("betaTeachingSessionId");
@@ -14319,7 +14269,7 @@ async function flushBetaTeachingObservations(){
 }
 
 function installBetaFullContextRecorder(){
-  if (window.__betaFullContextRecorderInstalled) return;
+  if (!panels.beta || window.__betaFullContextRecorderInstalled) return;
   window.__betaFullContextRecorderInstalled = true;
 
   document.addEventListener("click", event => {
@@ -14483,7 +14433,7 @@ async function controlBetaTeaching(action){
     renderBetaSession(session);
     setBetaTeachingSession(session);
     renderBetaSessionHistory();
-    if (action === "cancel") activateTab("beta");
+    if (action === "cancel") activateTab("history");
   }catch(error){
     try{
       const restored = await loadBetaSession(sessionId);
@@ -14561,7 +14511,7 @@ async function finishBetaTeaching(){
     upsertBetaSession(session);
     betaState.currentSession = session;
     setBetaTeachingSession(session);
-    activateTab("beta");
+    activateTab("history");
     renderBetaSession(session);
     renderBetaSessionHistory();
     if (betaApprovalStatusEl){
@@ -17240,7 +17190,7 @@ async function runBatchProduction(orderIds, activityId){
   completeBackgroundActivity(activityId, {
     detail: `Production files ready for ${orders.length} order${orders.length === 1 ? "" : "s"}.`,
     downloads,
-    openTab: "workspace",
+    openTab: "processing",
   });
   clearHistorySelection();
 }
@@ -17456,7 +17406,7 @@ historyBatchProduction?.addEventListener("click", async ()=> {
   const activityId = startBackgroundActivity("Production file generation", {
     type: "production",
     detail: `Preparing ${ids.length} orders…`,
-    openTab: "workspace",
+    openTab: "processing",
     retry: retryId => runBatchProduction(ids, retryId),
   });
   setActivityCenterOpen(true);
@@ -23530,5 +23480,3 @@ updateSpacerProcessingUI();
 updateLabelsUI();
 connectTelegramFileEvents();
 refreshTelegramFilesBadge();
-installBetaFullContextRecorder();
-restoreBetaTeachingSession();

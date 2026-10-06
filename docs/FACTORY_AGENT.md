@@ -1,5 +1,17 @@
 # Factory Agent · Beta
 
+**Retired from the platform on 2026-10-06 at the owner's request.** Factory Agent,
+Beta, and the Production dashboard have been removed from navigation and the
+page. Processing, Perfect Cut Bridge, Labels, saved orders, and saved documents
+remain available. Factory Agent HTTP routes are no longer mounted, regardless
+of `ENABLE_FACTORY_AGENT`. Its startup hook only cancels/deletes unfinished
+hosted resources found in the existing journal; it never creates sessions or
+sends task input. Existing journal and factory data are retained.
+
+The implementation notes below describe the archived feature, not a current
+enablement path. Setting the old flag will not restore it. The server's existing
+OpenAI key is still used by other platform features and must be retained.
+
 This is a separate section in the existing platform. FastAPI calls the Agents
 API directly, and OpenAI runs the browser. It has no ChatGPT shortcut, Dot, manual
 handoff, local browser, or Render-hosted VM. Existing Beta, extraction, pricing,
