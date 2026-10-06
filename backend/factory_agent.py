@@ -501,7 +501,7 @@ class FactoryAgentService:
                                     and not any(a.get("type") == "computer_use_call" and a.get("status") in {"failed", "incomplete"} for a in row["activity"])
                                     and any(a.get("title") == "Read-only tool: get_selected_order returned the fixture." for a in row["activity"])
                                 ):
-                                    row["error"] = "The agent finished, but the fixture acceptance test lacks completed browser and read-tool evidence. Review the report; browser verification is not confirmed."
+                                    row["error"] = "The report is available, but a browser action failed or required browser/tool evidence is missing. Review the activity and screenshot status; full fixture acceptance is not confirmed."
                                 else:
                                     row["error"] = None
                                 self.save(row)

@@ -105,10 +105,10 @@
     const fixture = byId('factoryAgentOrder').value === fixtureId;
     byId('factoryAgentScopeBadge').textContent = fixture ? 'Read-only · Isolated test' : 'Inspect and prepare · Review required';
     byId('factoryAgentScopeHint').textContent = fixture
-      ? 'Synthetic test order only. This test does not access production data.'
+      ? 'The fixture tool reads only the synthetic test order. Production API access and operational actions are blocked.'
       : 'Inspection and proposed plans only. Production changes use your existing order workflows.';
     byId('factoryAgentBoundaryText').textContent = fixture
-      ? 'This task can read only the isolated fixture. Production data and operational actions are unavailable to both its browser and its tools.'
+      ? 'The fixture tool reads only the synthetic order. The browser is restricted to the public danjelqose1.github.io host, including other public pages on that host. Production API access and operational actions remain blocked.'
       : 'The agent can inspect factory data and save proposed plans. Order edits, approvals, processing, invoices, printing, and machinery actions are unavailable.';
     byId('factoryAgentExamples').hidden = fixture;
     const message = byId('factoryAgentMessage');

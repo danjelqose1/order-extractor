@@ -126,7 +126,9 @@ async function run(engine, name, base) {
     await page.locator('#factoryAgentMessage').fill('');
     await page.locator('#factoryAgentOrder').selectOption('fixture:factory-agent-001');
     assert.match(await page.locator('#factoryAgentMessage').inputValue(), /selected test order/);
-    assert.match(await page.locator('#factoryAgentBoundaryText').innerText(), /only the isolated fixture/);
+    assert.match(await page.locator('#factoryAgentBoundaryText').innerText(), /fixture tool reads only the synthetic order/);
+    assert.match(await page.locator('#factoryAgentBoundaryText').innerText(), /including other public pages on that host/);
+    assert.match(await page.locator('#factoryAgentBoundaryText').innerText(), /Production API access and operational actions remain blocked/);
 
     // A failed preflight must not create remote work.
     sessionListDown = true;

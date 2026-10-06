@@ -180,7 +180,7 @@ def test_fixture_connection_success_does_not_hide_failed_page_visit(tmp_path):
             svc.activity(row, "read", "Read-only tool: get_selected_order returned the fixture.")
             await svc.run(row)
             assert row["status"] == "completed"
-            assert "browser verification is not confirmed" in row["error"]
+            assert "full fixture acceptance is not confirmed" in row["error"]
         finally:
             await svc.close()
     asyncio.run(scenario())

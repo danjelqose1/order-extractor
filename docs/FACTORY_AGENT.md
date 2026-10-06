@@ -319,12 +319,13 @@ Selected fixture: `FACTORY-AGENT-TEST-001`; client:
 | `0009` | B-02 | 44.2 LAMINATED CLEAR | 975/995 × missing | 1 | Two width alternatives; missing height |
 | `0010` | missing | missing | 650 × 450 | 2? | Missing position/glass and uncertain quantity |
 
-This table is the **deterministic fixture expectation**. An actual hosted model
-report has matched all four rows and ambiguities using the fixture function;
-its browser attempt failed, as recorded below. Complete browser acceptance
-still requires checking the actual report, completed browser activity and
-available screenshot against every source field and ambiguity, then confirming
-remote cancellation/deletion when needed.
+This table is the **deterministic fixture expectation**. Actual hosted model
+reports have matched all four rows and ambiguities using the fixture function.
+The latest public-page session also completed its page-read and screenshot
+actions and reported agreement between browser and function. The conservative
+browser/report assertions passed and remote deletion was confirmed. However,
+no screenshot image was available in the saved application result; live image
+delivery/display remains unverified. The UI does not invent an image.
 No customer PDF is associated with this fixture.
 
 Tests live in `tests/test_factory_agent_*.py` and
@@ -420,9 +421,7 @@ That observed browser restriction prompted the static GitHub Pages fixture and
 single-host restricted network policy. All **245 focused Factory Agent tests**
 passed after this change, including denial of the production browser origin and
 the regression where a successful browser connection masked a failed page visit.
-The new public-page browser path still
-requires a completed live visit and screenshot check. No browser success is
-inferred from an environment reaching `connected`.
+No browser success is inferred from an environment reaching `connected`.
 
 The actual factory-workspace session with local journal ID
 `a9e0aceb-73c3-46d7-8d17-719aa5539d72` subsequently **completed**, with remote
@@ -436,7 +435,51 @@ inspected. No client identity is reproduced in this public documentation.
 That result verifies live read-only factory tools and a resulting model report.
 It does not establish a browser visit or proposal review: no proposals were
 prepared and no factory mutations were performed in that session. Live proposal
-preparation/review and the new public fixture's browser acceptance remain pending.
+preparation/review remains unverified against a live account; isolated tests
+cover proposal preparation, review, stale-source rejection and no application.
+
+The public fixture revision `de1451a` deployed successfully on Render. Before
+starting the live check, its published HTML returned HTTP 200 and matched the
+reviewed local fixture byte for byte. Session
+`d576cbbe-b3e2-4d33-a75f-1cbeea0f9d91` completed and its remote session was
+deleted. `get_selected_order` and the browser page-read action completed; the
+model reported agreement on all four rows and flagged every expected ambiguity.
+The source-value and ambiguity assertions passed. **Screenshot capture timed
+out**, however, and no screenshot was returned. Because a browser action failed,
+the conservative acceptance assertion remained false and the UI displayed a
+verification warning. This is not full browser/screenshot acceptance.
+
+Explicit live continuation was also verified: session
+`343e4919-fb71-4889-aa35-933b0bd196a2` continued the saved workspace conversation,
+called `get_order` again rather than relying on historical counts, and returned
+the same 15 rows and 27 pieces with the current saved source version. It
+completed without error and remote deletion was confirmed. It prepared no
+proposal and performed no factory mutation.
+
+Live Stop was verified with session
+`8bb4d793-b7d9-4bd9-a18c-02ee7ef1d371`: input was accepted first, then the
+application's Stop endpoint was called. OpenAI accepted cancellation, the saved
+turn became `cancelled`, and remote deletion was confirmed without an error.
+This exercises task cancellation, not merely disconnection from displayed events.
+
+A final bounded fixture run, `81f82f40-7408-48ca-a950-234bacb030c5`, completed
+all browser actions without a failure, including its screenshot-labelled action.
+The actual report matched all source values and flagged the ambiguities.
+`verify_report` returned true for source values, browser activity, the fixture
+read function, ambiguities and overall acceptance. The result had no error and
+remote cleanup was `deleted`. The model said a screenshot was captured and
+inspected, but **the saved application result contained no screenshot image**.
+Consequently this verifies the browser/read workflow, not live image delivery
+to the UI. The no-screenshot state remains accurate. The supported optional
+`computer_screenshot` output is rendered only when OpenAI returns a valid image
+within the configured bound.
+
+Final warning/copy refinements passed all **245 focused Python tests** and the
+existing Chromium/WebKit suite. The wider **359-test regression** checkpoint
+above covered the inspect/prepare implementation before these wording changes.
+No new credentials, account grants or environment variables were needed for
+these successful live checks. Refresh the deployed frontend and unlock with the
+same application access key to load the expanded workspace UI.
 
 ## Official contract sources (verified 2026-10-06)
 
