@@ -73,7 +73,7 @@ module.exports=async function dictationQA(page,name,output,aiBodies){
   assert.equal(await input.inputValue(),'Rrite shkrimin. Vendos tri kolona. Lascia spazio dopo il tipo di vetro.');
   assert.equal(aiBodies.length,count,'dictation must not send to Sol automatically');
   assert.equal(downloads.length,0);
-  assert(await page.locator('#productionSheetProposal').isHidden());
+  assert(await page.locator('#productionSheetReview').isHidden());
   assert(!await page.locator('#productionSheetPrint').isDisabled());
   await page.screenshot({path:path.join(output,name+'-dictation-draft.png'),fullPage:true});
   await page.locator('#productionSheetVoiceEnd').click();await idle();

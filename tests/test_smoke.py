@@ -417,7 +417,8 @@ def test_production_sheet_routes_are_presentation_only_and_use_server_client(mon
     sentinel = object()
     captured = []
     app_module.get_client = lambda: sentinel
-    app_module.suggest_sheet = lambda ai_client,payload: (captured.append(ai_client) or {"proposal":{},"preview":{}})
+    app_module.similar_sheets = lambda *_: []
+    app_module.suggest_sheet = lambda ai_client,payload,memory: (captured.append(ai_client) or {"proposal":{},"preview":{}})
     response = client.post("/api/production-sheets/ai",json={"source":source,"instruction":"Choose layout","images":["fixture"],
         "rendered":{"layout":"cuttable","columns":1,"orientation":"landscape","pages_per_copy":1,"sheet_count":1,"sampled_pages":[1]}})
     assert response.status_code == 200 and captured == [sentinel]
@@ -448,6 +449,7 @@ def test_production_sheet_ai_timeout_is_specific_and_does_not_expose_upstream_de
     error = openai.APITimeoutError(request=request)
     error.__cause__ = httpx.ReadTimeout("private upstream details",request=request)
     app_module.suggest_sheet = lambda *_args: (_ for _ in ()).throw(error)
+    app_module.similar_sheets = lambda *_: []
     source = {"text":"Mother Sheet\n4F\n1 – 400 × 1200 × 2", "glass_headers":["4F"],"row_count":1,"piece_count":2}
     response = TestClient(app_module.app).post("/api/production-sheets/ai",json={"source":source,"instruction":"Larger text","images":["fixture"],
         "rendered":{"layout":"cuttable","columns":1,"orientation":"landscape","pages_per_copy":1,"sheet_count":1,"sampled_pages":[1]}})

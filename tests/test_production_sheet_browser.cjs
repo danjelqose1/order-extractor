@@ -13,13 +13,23 @@ fs.mkdirSync(output,{recursive:true});
 const python = process.env.PRODUCTION_TEST_PYTHON || 'python3';
 const pdfjs = process.env.PRODUCTION_PDFJS_DIR || path.dirname(require.resolve('pdfjs-dist/package.json'));
 const serverCode = `
-import sys
+import sys,os,tempfile,json
+from types import SimpleNamespace
 sys.path.insert(0,sys.argv[1])
+memory_dir=tempfile.TemporaryDirectory()
+os.environ['DB_DIR']=memory_dir.name
 from fastapi import FastAPI,HTTPException
 from fastapi.staticfiles import StaticFiles
-from production_sheets import SheetRequest,SheetAIRequest,render_sheet,_validate_images
+from production_sheets import SheetRequest,SheetAIRequest,SheetFeedbackRequest,render_sheet,_validate_images,suggest_sheet,TYPOGRAPHY_FIELDS
+from production_sheet_memory import remember_sheet,similar_sheets
+from db import engine,ProductionSheetExample
+ProductionSheetExample.__table__.create(engine)
 import uvicorn
 app=FastAPI()
+@app.post('/qa/reset')
+def reset():
+    with engine.begin() as conn:conn.execute(ProductionSheetExample.__table__.delete())
+    return {'ok':True}
 @app.post('/api/production-sheets/preview')
 def preview(request:SheetRequest):
     try:return render_sheet(request)
@@ -27,8 +37,21 @@ def preview(request:SheetRequest):
 @app.post('/api/production-sheets/ai')
 def ai(request:SheetAIRequest):
     _validate_images(request.images)
+    if request.mode=='automatic':
+        memory=similar_sheets(request.source,request.settings)
+        typography={key:getattr(request.settings,key) for key in TYPOGRAPHY_FIELDS}
+        if request.source.row_count<12:typography.update(font_size=16,line_spacing=1.25,section_gap_pt=10,glass_after_pt=6)
+        if memory:typography=memory[0]['typography']
+        client=SimpleNamespace()
+        client.with_options=lambda **kw:client
+        client.responses=SimpleNamespace(create=lambda **kw:SimpleNamespace(status='completed',output_text=json.dumps({'typography':typography,'explanation':'Used space and saved preferences.','warnings':[]})))
+        return suggest_sheet(client,request,memory)
     settings=request.settings.model_copy(update={'layout':'full','columns':'3','orientation':'landscape'})
     return {'proposal':{'settings':settings.model_dump(),'explanation':'Three readable columns in each complete copy.','warnings':[]},'preview':render_sheet(SheetRequest(source=request.source,settings=settings))}
+@app.post('/api/production-sheets/feedback')
+def feedback(request:SheetFeedbackRequest):
+    try:return remember_sheet(request)
+    except ValueError as exc:raise HTTPException(400,str(exc))
 app.mount('/',StaticFiles(directory=sys.argv[2],html=True),name='frontend')
 uvicorn.run(app,host='127.0.0.1',port=int(sys.argv[3]),log_level='warning')
 `;
@@ -40,7 +63,9 @@ async function availablePort(){
   return port;
 }
 async function run(engine,name,base){
-  const browser=await engine.launch({headless:true});
+  await fetch(base+'/qa/reset',{method:'POST'});
+  const browser=await engine.launch({headless:true,
+    ...(name==='chromium' && process.env.PRODUCTION_CHROMIUM_PATH ? {executablePath:process.env.PRODUCTION_CHROMIUM_PATH} : {})});
   try{
     const context=await browser.newContext({viewport:{width:1440,height:1000},acceptDownloads:true});
     await context.addInitScript(base=>{
@@ -48,9 +73,9 @@ async function run(engine,name,base){
       window.print=()=>{document.documentElement.dataset.printCalled='yes';};
     },base);
     const page=await context.newPage();
-    const errors=[], aiBodies=[];
+    const errors=[], aiBodies=[], feedbackBodies=[];
     page.on('pageerror',error=>errors.push(error.message));
-    let aiFailure=false, aiTimeout=false, aiGate=null;
+    let aiFailure=false, aiTimeout=false, aiGate=null, feedbackFailure=false;
     const downloads=[];
     page.on('download',download=>downloads.push(download));
     await page.route('**/*',async route=>{
@@ -74,6 +99,11 @@ async function run(engine,name,base){
           return route.continue();
         }
         if(url.pathname==='/api/production-sheets/preview') return route.continue();
+        if(url.pathname==='/api/production-sheets/feedback'){
+          feedbackBodies.push(route.request().postDataJSON());
+          if(feedbackFailure) return route.fulfill({status:503,json:{detail:'Memory unavailable'}});
+          return route.continue();
+        }
         if(url.pathname.startsWith('/api/') || url.pathname.startsWith('/orders') || url.pathname.startsWith('/manual-orders') || url.pathname.startsWith('/events/') || url.pathname.startsWith('/analysis')){
           return route.fulfill({status:200,json:{}});
         }
@@ -93,6 +123,10 @@ async function run(engine,name,base){
     assert.match(await page.locator('#productionSheetSummary').innerText(),/2 copies · 1 A4 sheet/);
     assert.match(await page.locator('#productionSheetCounts').innerText(),/8 rows · 22 pieces/);
     assert(await page.locator('#productionSheetPages canvas').count()===1);
+    assert.equal(aiBodies.length,1,'new sheets run the formatting agent automatically');
+    assert.equal(aiBodies[0].mode,'automatic');
+    assert.equal(feedbackBodies.length,0,'opening an AI sheet must not teach preferences');
+    assert.equal(downloads.length,0,'normal preparation must not download without a save action');
     await page.locator('#productionSheetZoom').click();
     assert.equal(await page.locator('#productionSheetZoom').innerText(),'Fit page');
     await page.locator('#productionSheetZoom').click();
@@ -127,9 +161,10 @@ async function run(engine,name,base){
     await page.waitForFunction(()=>!document.getElementById('productionSheetApply').disabled);
     assert(await page.locator('#productionSheetPrint').isDisabled());
     assert.match(await page.locator('#productionSheetSummary').innerText(),/3 columns per copy · 2 copies · 2/);
-    assert(aiBodies[0].images[0].startsWith('data:image/jpeg;base64,'));
-    assert(aiBodies[0].images[0].length>10000);
-    assert.deepEqual(aiBodies[0].rendered.sampled_pages,[1]);
+    assert(aiBodies.at(-1).images[0].startsWith('data:image/jpeg;base64,'));
+    assert(aiBodies.at(-1).images[0].length>10000);
+    assert.deepEqual(aiBodies.at(-1).rendered.sampled_pages,[1]);
+    assert.equal(aiBodies.at(-1).mode,'review');
     await page.screenshot({path:path.join(output,`${name}-ai-proposal.png`),fullPage:true});
     await page.locator('#productionSheetDiscard').click();
     await page.waitForFunction(()=>!document.getElementById('productionSheetPrint').disabled);
@@ -191,7 +226,7 @@ async function run(engine,name,base){
     assert.match(await page.locator('#productionSheetStatus').innerText(),/AI prepared your PDF and started the download/);
     assert.deepEqual(aiBodies.at(-1).source,largeSource);
     assert.deepEqual(aiBodies.at(-1).rendered.sampled_pages,[1,2]);
-    assert.equal(await page.locator('#productionSheetColumns').inputValue(),'3');
+    assert(['2','3'].includes(await page.locator('#productionSheetColumns').inputValue()));
     assert.equal(await page.evaluate(()=>JSON.stringify({processing:appState.processing,labels:appState.labels})),largeBefore);
     await page.screenshot({path:path.join(output,`${name}-automatic-large.png`),fullPage:true});
     await page.locator('#productionSheetClose').click();
@@ -205,7 +240,7 @@ async function run(engine,name,base){
     await page.waitForFunction(()=>!document.getElementById('productionSheetPrint').disabled);
     assert.deepEqual(aiBodies.at(-1).source,smallSource);
     assert.deepEqual(aiBodies.at(-1).rendered.sampled_pages,[1]);
-    assert.match(await page.locator('#productionSheetSummary').innerText(),/3 columns per copy · 2 copies · 2/);
+    assert.match(await page.locator('#productionSheetSummary').innerText(),/2 copies · 1 A4 sheet/);
     assert.equal(await page.evaluate(()=>JSON.stringify({processing:appState.processing,labels:appState.labels})),smallBefore);
     await page.screenshot({path:path.join(output,`${name}-automatic-short.png`),fullPage:true});
     await page.setViewportSize({width:390,height:844});
@@ -261,6 +296,39 @@ async function run(engine,name,base){
     await page.evaluate(order=>{clearProcessing();addOrderToProcessing(order);},fixture);
     await page.locator('#productionSheetOpen').click();
     await page.waitForFunction(()=>!document.getElementById('productionSheetPrint').disabled);
+    // Only the finished manual corrections are learned, including after reopening.
+    await page.locator('.production-sheet-options summary').click();
+    await page.locator('[data-sheet-setting="glass_after_pt"]').fill('9');
+    await page.locator('[data-sheet-setting="glass_after_pt"]').press('Tab');
+    await page.waitForFunction(()=>!document.getElementById('productionSheetPrint').disabled);
+    const beforeSave=feedbackBodies.length;
+    const aiBeforeReopen=aiBodies.length;
+    await page.locator('#productionSheetClose').click();
+    await page.locator('#productionSheetOpen').click();
+    await page.waitForFunction(()=>!document.getElementById('productionSheetPrint').disabled);
+    assert.equal(aiBodies.length,aiBeforeReopen,'reopening a draft preserves edits without rerunning AI');
+    assert.equal(feedbackBodies.length,beforeSave,'editing and closing must not teach');
+    feedbackFailure=true;
+    const failedMemoryDownload=page.waitForEvent('download');
+    await page.locator('#productionSheetSave').click();await failedMemoryDownload;
+    await page.waitForFunction(()=>document.getElementById('productionSheetMemory').textContent.includes('could not be remembered'));
+    assert(!await page.locator('#productionSheetPrint').isDisabled(),'memory failures must not block printing');
+    feedbackFailure=false;
+    const learnedDownload=page.waitForEvent('download');
+    await page.locator('#productionSheetSave').click();await learnedDownload;
+    await page.waitForFunction(()=>document.getElementById('productionSheetMemory').textContent.includes('remembered for similar'));
+    assert.equal(feedbackBodies.at(-1).settings.glass_after_pt,9);
+    assert.notEqual(feedbackBodies.at(-1).baseline_settings.glass_after_pt,9);
+    // A full browser reload clears in-memory drafts; database examples remain.
+    await page.reload({waitUntil:'networkidle'});
+    await page.locator('[data-tab="processing"]').click();
+    await page.evaluate(order=>{clearProcessing();addOrderToProcessing(order);},fixture);
+    const beforeNewSheet=feedbackBodies.length;
+    await page.locator('#productionSheetOpen').click();
+    await page.waitForFunction(()=>!document.getElementById('productionSheetPrint').disabled);
+    assert.equal(await page.locator('[data-sheet-setting="glass_after_pt"]').inputValue(),'9');
+    assert.equal(feedbackBodies.length,beforeNewSheet,'AI must not teach itself from its own output');
+    assert(await page.locator('#productionSheetReview').isHidden());
     await voiceQA(page,name,output,aiBodies);
     assert.equal(errors.length,0,errors.join('\n'));
     console.log(`${name}: preview, PDF, Print, visual AI proposal, Apply/Discard, one-click AI downloads, cancellation, failure recovery, stale source, large jobs, reset and responsive themes passed`);

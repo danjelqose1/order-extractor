@@ -1,6 +1,6 @@
 # Production sheets in Processing
 
-After adding orders to Processing, choose **Prepare production sheet**. The preview contains two complete production copies. Print with the printer's Copies set to **1**, or Save PDF.
+After adding orders to Processing, choose **Prepare production sheet**. New sheets automatically run the AI formatting agent, which uses the available space and saved formatting preferences to choose text size, line spacing, and spacing before/after glass headings. The preview contains two complete production copies. Print with the printer's Copies set to **1**, or Save PDF. Reopening an existing draft keeps its manual adjustments without running AI again.
 
 **Let AI do it for you** is the one-click alternative in Processing. It captures the exact prepared text, builds an initial readable PDF, sends that text and actual page images to the existing AI endpoint, applies the validated AI layout, and starts downloading the finished PDF. The preview stays open with Print, Save PDF, the chosen layout explanation and formatting controls. No Apply step is required in this explicitly automatic flow. Closing the dialog or changing Processing cancels the run and prevents downloading an outdated result. If AI fails, the basic sheet remains available to print or save, and no automatic download occurs.
 
@@ -8,7 +8,15 @@ Automatic first tries two independent halves on landscape A4 at the selected rea
 
 Glass-type headings and order references appear at their original positions in each complete copy. Dimensions continue into the next column or page without repeating those headings, until the next section starts. Original repeated headings in the prepared source remain intact. Each page still carries the sheet title and page number.
 
-The browser uses the prepared `appState.processing.preview` text, glass/order headings, rows and provenance. The new renderer changes presentation only. It does not round, group, merge, recalculate areas, save orders, change statuses or change existing Workspace/Manual Orders exports. A source change invalidates the preview and any AI proposal. Refresh uses the current source and resets formatting. Formatting drafts survive closing/reopening the dialog for the same source within the current tab; they are not stored in the database.
+The browser uses the prepared `appState.processing.preview` text, glass/order headings, rows and provenance. The renderer changes presentation only. It does not round, group, merge, recalculate areas, save orders, change statuses or change existing Workspace/Manual Orders exports. A source change invalidates the preview and any AI proposal. Refresh uses the current source and runs AI again. Formatting drafts survive closing/reopening the dialog for the same source within the current tab. Reset formatting restores the baseline controls without rerunning AI or clearing saved examples.
+
+## Formatting agent and memory
+
+The automatic agent uses the existing Responses API client and model. It makes up to three typography proposals within a shared 15-minute response budget. Each proposal is rendered and measured. Overflow or extra pages are returned as feedback for a correction; substantial free space and feasible increases can trigger another pass with images of the newly rendered PDF. The four typography values come from the model. Measurements validate fit and inform its choices. The automatic path locks the resolved layout, columns, orientation, margins, note and maximum page count, so a cuttable sheet stays cuttable. The explicit Send to AI flow still permits requested layout and note changes and requires Apply/Discard.
+
+Clicking **Save PDF**, or handing a finished sheet to the browser print dialog, records a formatting example in the existing SQLite database. A print-dialog handoff records layout acceptance, not confirmation that paper was printed. Opening a sheet, moving controls, closing, discarding a proposal, and automatic downloads do not create learning examples. Failed memory writes do not block the PDF or printing; the UI reports the failure and a later save/print retries it.
+
+The memory is shared by this factory installation, like its existing print settings. It keeps at most 200 finished-source examples; saving or printing the same source updates one example. It stores typography, layout measurements, numeric order characteristics, and changes from the AI's initial settings. It does not store source text, customer names, order references, production notes, PDFs or voice transcripts. Up to six similar examples are retrieved by layout, row count, glass/order group counts, text length and row width. Manual corrections receive stronger weight than unchanged accepted AI output. The prompt explicitly treats repeated corrections as preferences and isolated exceptions as examples, not universal rules. This is persistent context, not model retraining.
 
 ## AI review
 
@@ -34,27 +42,29 @@ Browser microphone support, OpenAI transcription project access and media connec
 
 ## Implementation and rollout
 
-- `backend/production_sheets.py`: bounded request models, font measurement, wrapping, continuous section flow, balanced columns, PDF generation and visual AI proposals.
+- `backend/production_sheets.py`: bounded request models, font measurement, wrapping, continuous section flow, balanced columns, PDF generation, visual proposals and the automatic render/measure/revise loop.
+- `backend/production_sheet_memory.py` and `production_sheet_examples` in `backend/db.py`: persistent final-setting examples and similar-order retrieval. The existing `init_db()` creates the new table on startup.
 - `backend/assets/fonts/`: embedded DejaVu Sans regular/bold with their original license notices. Unsupported characters are rejected rather than silently substituted.
 - `docs/js/production-sheet.js`: source snapshot, manual controls, PDF.js preview, visual AI requests, proposal review, PDF download and a browser print window.
 - `backend/production_sheet_voice.py` and `docs/js/production-sheet-voice.js`: transcription-only call ownership, WebRTC dictation into the editable request and inactivity cleanup.
 - `POST /api/production-sheets/voice/session`, `/voice/close`: transcription connection and owned server hangup. `/voice/turn` is retired (410).
 - `POST /api/production-sheets/preview`: returns a PDF and layout/count metadata without calling AI.
-- `POST /api/production-sheets/ai`: returns a validated proposal and its rendered PDF. Both routes respect the existing optional `APP_KEY` guard.
+- `POST /api/production-sheets/ai`: returns a validated proposal and its rendered PDF. `mode=automatic` restricts changes to typography and enables bounded refinement; `mode=review` is the default for existing clients.
+- `POST /api/production-sheets/feedback`: validates a finished source digest and layout, then remembers its typography and changes from `baseline_settings`. All three routes respect the existing optional `APP_KEY` guard.
 
-Both the frontend and Render backend must receive this change before factory use. The browser remains independent of Word and ChatGPT installation. Automatic formatting does not need AI; PDF preparation still needs the platform backend. Preview, AI images and browser printing use glyph outlines from the generated PDF to avoid browser FontFace caching between different PDF subsets. The saved PDF retains vector text; the browser print window contains page images at 180 dpi.
+Both the frontend and Render backend must receive this change before factory use. No new API key, model service or environment variable is needed. The existing `DB_DIR` must remain persistent for memory to survive deployments. The browser remains independent of Word and ChatGPT installation. AI formatting needs the existing OpenAI connection; if it fails, the initial renderer-generated sheet remains available for manual adjustment, printing and saving. Preview, AI images and browser printing use glyph outlines from the generated PDF to avoid browser FontFace caching between different PDF subsets. The saved PDF retains vector text; the browser print window contains page images at 180 dpi.
 
 ## Validation
 
 Run the Python suite with the existing backend test environment:
 
 ```sh
-python -m pytest tests/test_production_sheet_voice.py tests/test_production_sheets.py tests/test_smoke.py tests/test_invoice_ai.py tests/test_manual_orders.py tests/test_frontend_theme.py tests/test_frontend_security.py -q
+python -m pytest tests/test_production_sheet_learning.py tests/test_production_sheet_voice.py tests/test_production_sheets.py tests/test_smoke.py tests/test_invoice_ai.py tests/test_manual_orders.py tests/test_frontend_theme.py tests/test_frontend_security.py -q
 node --test tests/test_production_sheet_source.cjs tests/test_perfect_cut_bridge.cjs tests/test_manual_dimension_groups.cjs
 ```
 
 The browser suite uses an isolated local backend, the real PDF renderer and fixture AI responses. It never contacts deployed services or production data. Set `NODE_PATH` to the available Playwright/PDF.js packages and `PRODUCTION_TEST_PYTHON` to a Python environment with backend dependencies, then run `node tests/test_production_sheet_browser.cjs`. `PRODUCTION_PDFJS_DIR` may point to a directory containing `build/pdf.mjs` and `build/pdf.worker.mjs`; production currently uses PDF.js 4.10.38. QA artifacts default to `/tmp/production-sheet-browser-qa`.
 
-Browser coverage includes source preservation, short and long jobs, Print, Save PDF, zoom, AI page-image submission, Apply/Discard, unavailable AI, stale source, reset, and responsive light/dark themes. Live OpenAI responses, deployed integration and the physical factory printer require verification after rollout.
+Browser coverage includes source preservation, short and long jobs, Print, Save PDF, zoom, AI page-image submission, Apply/Discard, unavailable AI, stale source, reset, responsive light/dark themes, finalization-only learning, memory failure recovery, and preferences surviving a browser reload. `PRODUCTION_CHROMIUM_PATH` can select an installed system Chromium. Live OpenAI responses, deployed integration and the physical factory printer require verification after rollout.
 
 Dictation fixtures in `tests/production_sheet_voice_browser.cjs` run in the same Chromium/WebKit suite. They verify Albanian/Italian draft text, explicit Send only, final transcript flushing, ordered/duplicate events, typed corrections, failed finalization, PDF review/save, silence disconnection, permission denial, source changes and late-connection cancellation using the real sheet UI and renderer. They do not contact the live transcription API.

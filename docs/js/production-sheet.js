@@ -30,7 +30,7 @@
   const fields = [...dialog.querySelectorAll("[data-sheet-setting]")];
   const state = {snapshot:null, settings:{...defaults}, current:null, proposal:null, shown:null,
     pdf:null, page:1, canvas:null, generation:0, controller:null, busy:"", dirty:false, stale:false, draft:null, zoom:false,
-    sourceAvailable:false, aiResult:null};
+    sourceAvailable:false, aiResult:null, baseline:{...defaults}, remembered:null};
   const status = message => { el("productionSheetStatus").textContent = message; };
   const take = () => capture(appState.processing, processingBridgeBusy > 0);
   function form(settings){
@@ -159,7 +159,7 @@
       await show(preview,generation);
       if (generation !== state.generation) return;
       state.current = preview; state.settings = settings; state.dirty = false;
-      state.draft = {signature:state.snapshot.signature, settings:{...settings}};
+      state.draft = {signature:state.snapshot.signature, settings:{...settings}, baseline:{...state.baseline}};
       status("Ready to print. The document includes both copies; set the printer’s Copies to 1.");
       return true;
     }catch(error){
@@ -174,18 +174,21 @@
       const snapshot = take();
       stop();
       state.snapshot = snapshot; state.stale = false; state.proposal = null; state.aiResult = null; state.current = null;
-      const saved = !refresh && !automatic && state.draft?.signature === snapshot.signature ? state.draft.settings : defaults;
+      const draft = !refresh && !automatic && state.draft?.signature === snapshot.signature ? state.draft : null;
+      const saved = draft?.settings || defaults;
+      state.baseline = {...(draft?.baseline || saved)};
       state.settings = {...saved}; form(state.settings);
+      el("productionSheetMemory").textContent = "AI uses your finished sheets to learn your text size and spacing preferences. Save PDF or Print to remember your final adjustments.";
       state.zoom=false; el("productionSheetPages").classList.remove("is-zoomed"); el("productionSheetZoom").textContent="Zoom in";
       if (!dialog.open) dialog.showModal();
       el("productionSheetRequest").value = "";
-      if (await render(state.settings) && automatic) await askAI(true);
+      if (await render(state.settings) && (automatic || !draft)) await askAI(true,automatic);
     }catch(error){
       if (dialog.open) status(error.message);
       else setStatusMessage(error.message);
     }
   }
-  async function askAI(automatic=false){
+  async function askAI(automatic=false, download=false){
     if (state.busy || state.stale || state.dirty || !state.pdf || state.proposal) return;
     stop(); const generation = state.generation;
     state.busy = "ai"; state.aiResult = null; controls(); status("AI is looking at the sheet and checking the layout…");
@@ -213,7 +216,7 @@
       const instruction = (!automatic && el("productionSheetRequest").value.trim())
         || "Look at this production sheet and choose the clearest readable layout, using two production copies and saving paper where practical.";
       const current = state.current;
-      const result = await post("ai",{source:state.snapshot.source,settings:state.settings,instruction,images,
+      const result = await post("ai",{source:state.snapshot.source,settings:state.settings,instruction,images,mode:automatic ? "automatic" : "review",
         rendered:{layout:current.layout,columns:current.columns,orientation:current.orientation,
           pages_per_copy:current.pages_per_copy,sheet_count:current.sheet_count,sampled_pages:sampled}},1020000);
       if (generation !== state.generation || !dialog.open) return;
@@ -227,9 +230,9 @@
       if (generation !== state.generation || !dialog.open) return;
       fresh();
       if (automatic){
-        applyResult(result); state.aiResult = result;
-        downloadPdf(true);
-        status(`AI prepared your PDF and started the download · reviewed ${sampled.length} page${sampled.length === 1 ? "" : "s"} from one copy. Both copies are included; printer Copies should be 1.`);
+        applyResult(result,true); state.aiResult = result;
+        if (download) downloadPdf(true);
+        status(`${download ? "AI prepared your PDF and started the download" : "AI adjusted the text and spacing to fit your sheet"} · reviewed ${sampled.length} page${sampled.length === 1 ? "" : "s"} from one copy. Both copies are included; printer Copies should be 1.`);
       }else{
         status(`AI proposal · reviewed ${sampled.length} page${sampled.length === 1 ? "" : "s"} from one copy. Apply or discard before printing.`);
       }
@@ -248,10 +251,35 @@
     const orders = appState.processing.preview?.meta?.orders || [];
     return `Mother Sheet ${orders.join(" ") || "production"}`.replace(/[<>:"/\\|?*]/g,"-") + ".pdf";
   }
-  function applyResult(result){
+  function applyResult(result, automatic=false){
     state.current = result.preview; state.settings = result.proposal.settings;
-    state.draft = {signature:state.snapshot.signature, settings:{...state.settings}};
+    if (automatic) state.baseline = {...state.settings};
+    state.draft = {signature:state.snapshot.signature, settings:{...state.settings}, baseline:{...state.baseline}};
     state.proposal = null;
+  }
+  async function rememberFinal(action){
+    fresh();
+    const signature=state.snapshot.signature;
+    const body={source:state.snapshot.source,settings:{...state.settings},baseline_settings:{...state.baseline},
+      source_digest:state.current.source_digest,action};
+    const key=JSON.stringify({source_digest:body.source_digest,settings:body.settings,baseline:body.baseline_settings});
+    if(state.remembered===key) return;
+    const message=el("productionSheetMemory");
+    message.textContent="Remembering your finished formatting…";
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),15000);
+    const stillCurrent=()=>dialog.open && state.snapshot?.signature===signature && !state.stale
+      && JSON.stringify(state.settings)===JSON.stringify(body.settings);
+    try{
+      const response=await fetch(`${API_BASE}/api/production-sheets/feedback`,{
+        method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body),signal:controller.signal,
+      });
+      if(!response.ok) throw new Error("memory unavailable");
+      state.remembered=key;
+      if(stillCurrent()) message.textContent="Final formatting remembered for similar orders.";
+    }catch{
+      if(stillCurrent()) message.textContent="Your sheet is ready, but these preferences could not be remembered. Save or print again to retry.";
+    }finally{clearTimeout(timer);}
   }
   function downloadPdf(automatic=false){
     fresh();
@@ -259,6 +287,7 @@
     const url=URL.createObjectURL(new Blob([bytes(state.current)],{type:"application/pdf"}));
     const link=document.createElement("a"); link.href=url; link.download=filename(); link.click();
     setTimeout(() => URL.revokeObjectURL(url),60000);
+    if (!automatic) void rememberFinal("save").catch(()=>{});
   }
   el("productionSheetOpen").addEventListener("click",() => open());
   el("productionSheetAuto").addEventListener("click",() => open(false,true));
@@ -339,6 +368,7 @@
       printWindow.document.body.replaceChildren(...images);
       printWindow.focus(); printWindow.print();
       status("Print dialog opened. Both copies are included; printer Copies should be 1.");
+      void rememberFinal("print").catch(()=>{});
     }catch(error){printWindow?.close(); status(error.message);}
     finally{state.busy=""; controls();}
   });

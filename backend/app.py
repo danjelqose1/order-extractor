@@ -121,7 +121,8 @@ from analysis_signals import generate_analysis_signals
 from analytics_summary import ANALYTICS_STATUSES, build_analysis_summary
 from services.pdf_native_text_editor import native_text_replace
 from invoice_ai import analyze_invoice_line, match_invoice_glass_type
-from production_sheets import SheetRequest, SheetAIRequest, render_sheet, suggest_sheet
+from production_sheets import SheetRequest, SheetAIRequest, SheetFeedbackRequest, render_sheet, suggest_sheet
+from production_sheet_memory import remember_sheet, similar_sheets
 from production_sheet_voice import VoiceOffer, VoiceOwnership, create_session, close_session
 ENV_PATH = Path(__file__).parent / ".env"
 if os.getenv("ORDER_EXTRACTOR_LOAD_DOTENV", "true") == "true":
@@ -1527,7 +1528,7 @@ def production_sheet_ai(payload: SheetAIRequest, x_app_key: Optional[str] = Head
         raise HTTPException(status_code=401, detail="Unauthorized")
     started = time.monotonic()
     try:
-        return suggest_sheet(get_client(), payload)
+        return suggest_sheet(get_client(), payload, similar_sheets(payload.source, payload.settings))
     except openai_pkg.APITimeoutError as exc:
         logger.warning("Production sheet AI timed out (phase=%s, elapsed=%.1fs)",
                        type(exc.__cause__).__name__, time.monotonic() - started)
@@ -1538,6 +1539,19 @@ def production_sheet_ai(payload: SheetAIRequest, x_app_key: Optional[str] = Head
         logger.warning("Production sheet AI unavailable (error=%s, phase=%s, elapsed=%.1fs)",
                        type(exc).__name__, type(exc.__cause__).__name__, time.monotonic() - started)
         raise HTTPException(status_code=502, detail="AI layout review is unavailable. Your current sheet is still ready to print.") from exc
+
+
+@app.post("/api/production-sheets/feedback")
+def production_sheet_feedback(payload: SheetFeedbackRequest, x_app_key: Optional[str] = Header(default=None)):
+    if APP_KEY and x_app_key != APP_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    try:
+        return remember_sheet(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.warning("Production sheet memory unavailable (error=%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="The sheet is ready, but formatting preferences could not be remembered.") from exc
 
 
 def _voice_access(request: Request, x_app_key: Optional[str]):

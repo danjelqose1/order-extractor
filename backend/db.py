@@ -365,6 +365,15 @@ class ManualPrintSetting(Base):
     )
 
 
+class ProductionSheetExample(Base):
+    __tablename__ = "production_sheet_examples"
+
+    source_digest: Mapped[str] = mapped_column(String(64), primary_key=True)
+    example_json: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True,
+                                               default=lambda: datetime.now(timezone.utc))
+
+
 class ProcessingBatch(Base):
     __tablename__ = "processing_batches"
 
