@@ -10,6 +10,7 @@
   <title>Overview — Order Extractor</title>
   <link rel="stylesheet" href="./css/styles.css?v=20260930-production-voice1">
   <link rel="stylesheet" href="./css/interface.css?v=20261004-tables1" media="screen">
+  <link rel="stylesheet" href="./css/factory-agent.css?v=20261006-beta1" media="screen">
 </head>
 <body>
   <svg class="icon-sprite" aria-hidden="true">
@@ -61,6 +62,7 @@
         <button class="tab" data-tab="labels" data-nav-parent="production" aria-label="Labels" title="Labels"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-label"></use></svg></span><span>Labels</span></button>
       </div>
       <button class="tab" data-tab="beta" aria-label="Beta" title="Beta"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-sparkles"></use></svg></span><span>Beta</span><span class="sidebar-beta-badge" aria-hidden="true">Beta</span></button>
+      <button id="factoryAgentNav" class="tab" data-tab="factoryagent" aria-label="Factory Agent · Beta" title="Factory Agent · Beta" hidden><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-sparkles"></use></svg></span><span>Factory Agent <small>· Beta</small></span></button>
       <button class="tab" data-tab="telegram" data-nav-section="documents" aria-label="Documents" title="Documents"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-pdf"></use></svg></span><span>Documents</span><span id="telegramFilesBadge" class="sidebar-badge" hidden>0</span></button>
       <div class="sidebar-subnav" aria-label="Document tools">
         <button class="tab" data-tab="pdfeditor" data-nav-parent="documents" aria-label="PDF Editor" title="PDF Editor"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-pdf"></use></svg></span><span>PDF Editor</span></button>
@@ -974,6 +976,92 @@
             </div>
           </div>
         </section>
+      </div>
+    </section>
+
+    <section id="tabFactoryAgent" class="tab-panel factory-agent" aria-labelledby="factoryAgentHeading" hidden>
+      <section class="card factory-agent-intro">
+        <div>
+          <p class="section-eyebrow">OpenAI-hosted workspace</p>
+          <h2 id="factoryAgentHeading">Read one order. Check every detail.</h2>
+          <p class="muted">A separate API agent reads the selected test order and reports its findings here.</p>
+        </div>
+        <span class="factory-agent-badge">Read-only · Isolated test</span>
+      </section>
+      <section id="factoryAgentSetup" class="card factory-agent-setup" hidden>
+        <h3>Setup required</h3>
+        <p id="factoryAgentSetupText" class="muted">Backend configuration is needed before a task can start.</p>
+        <ul id="factoryAgentMissing"></ul>
+        <button id="factoryAgentCheckSetup" type="button" class="btn small">Check setup</button>
+      </section>
+      <form id="factoryAgentUnlockForm" class="card factory-agent-unlock">
+        <div>
+          <h3>Unlock Factory Agent</h3>
+          <p class="muted">Use the access key configured for Factory Agent. It stays in this tab’s memory and is sent only to this platform’s backend.</p>
+        </div>
+        <label for="factoryAgentKey">Factory Agent access key</label>
+        <div class="factory-agent-unlock-row">
+          <input id="factoryAgentKey" type="password" autocomplete="off" spellcheck="false" required aria-describedby="factoryAgentKeyHint">
+          <button id="factoryAgentUnlock" type="submit" class="btn primary">Unlock</button>
+        </div>
+        <p id="factoryAgentKeyHint" class="muted small">If your platform already uses APP_KEY, use that existing key. Reloading or locking this tab requires the key again. Do not enter an OpenAI API key.</p>
+      </form>
+      <p id="factoryAgentNotice" class="factory-agent-notice" role="status" aria-live="polite" hidden></p>
+      <div id="factoryAgentWorkspace" hidden>
+        <div class="factory-agent-toolbar">
+          <span id="factoryAgentConnection" class="muted small">Authenticated</span>
+          <div class="factory-agent-actions">
+            <button id="factoryAgentReconnect" type="button" class="btn small">Refresh / reconnect</button>
+            <button id="factoryAgentLock" type="button" class="btn small tertiary">Lock tab</button>
+          </div>
+        </div>
+        <div class="factory-agent-layout">
+          <div class="factory-agent-main">
+            <form id="factoryAgentTaskForm" class="card factory-agent-task">
+              <h3>New read-only task</h3>
+              <label for="factoryAgentOrder">Selected test order</label>
+              <select id="factoryAgentOrder" required></select>
+              <label for="factoryAgentMessage">What should the agent check?</label>
+              <textarea id="factoryAgentMessage" rows="4" maxlength="4000" required>Read the selected test order. Report the client, glass type, dimensions, quantities, index numbers, and positions. Flag missing or ambiguous information without guessing.</textarea>
+              <p id="factoryAgentLimits" class="muted small"></p>
+              <div class="factory-agent-actions"><button id="factoryAgentStart" type="submit" class="btn primary" disabled>Start read-only task</button></div>
+            </form>
+            <section class="card factory-agent-session" aria-labelledby="factoryAgentSessionHeading">
+              <div class="factory-agent-section-header">
+                <h3 id="factoryAgentSessionHeading">Session activity</h3>
+                <span id="factoryAgentStatus" class="factory-agent-badge" role="status">No session</span>
+              </div>
+              <label class="factory-agent-session-label" for="factoryAgentSessionPicker">Recent sessions</label>
+              <select id="factoryAgentSessionPicker"><option value="">No sessions yet</option></select>
+              <p id="factoryAgentSessionMeta" class="muted small">Start a task to see actual agent events.</p>
+              <div class="factory-agent-actions">
+                <button id="factoryAgentStop" type="button" class="btn danger" disabled>Stop task</button>
+                <button id="factoryAgentCleanup" type="button" class="btn tertiary" disabled>Close workspace</button>
+              </div>
+              <p id="factoryAgentSessionError" class="factory-agent-notice" hidden></p>
+              <ol id="factoryAgentActivity" class="factory-agent-activity" aria-label="Agent activity"></ol>
+              <p id="factoryAgentActivityEmpty" class="factory-agent-empty">No agent activity received.</p>
+            </section>
+            <section class="card factory-agent-result" aria-labelledby="factoryAgentResultHeading">
+              <div class="factory-agent-section-header"><h3 id="factoryAgentResultHeading">Agent response</h3></div>
+              <pre id="factoryAgentResult">No response received yet.</pre>
+            </section>
+          </div>
+          <aside class="factory-agent-side">
+            <section class="card factory-agent-browser" aria-labelledby="factoryAgentBrowserHeading">
+              <div class="factory-agent-section-header"><h3 id="factoryAgentBrowserHeading">Browser view</h3></div>
+              <p class="muted small">Latest screenshot supplied by the hosted session.</p>
+              <img id="factoryAgentScreenshot" alt="Latest browser screenshot from this Factory Agent session" hidden>
+              <p id="factoryAgentScreenshotEmpty" class="factory-agent-empty">No browser screenshot is available.</p>
+            </section>
+            <section class="card factory-agent-boundary">
+              <h3>Test access boundary</h3>
+              <p>The agent can read only the isolated fixture. Production orders and operational actions are unavailable to both its browser and its tools.</p>
+              <p>Browser access is limited to the configured fixture origin. Sign-in requests and other origins are denied by the backend.</p>
+              <p class="muted small">Stop requests cancellation of the remote task. Closing or locking this tab does not stop it. The backend enforces the runtime limit.</p>
+            </section>
+          </aside>
+        </div>
       </div>
     </section>
 
@@ -2453,10 +2541,11 @@
 <script src="./js/living-dashboard.js?v=20260908-compact" defer></script>
 <script src="./js/platform-workflows.js?v=20261003-processing-units1" defer></script>
 <script src="./js/manual-dimension-groups.js?v=20260919-manual-group1" defer></script>
-<script src="./js/app.js?v=20261003-processing-units1" defer></script>
+<script src="./js/app.js?v=20261006-factory-agent1" defer></script>
 <script src="./js/production-sheet.js?v=20261006-production-memory1" defer></script>
 <script src="./js/production-sheet-voice.js?v=20260930-production-dictation1" defer></script>
 <script src="./js/perfect-cut-bridge.js?v=20260919-manual-index2" defer></script>
 <script src="./js/workspace-layout.js?v=20261003-workspace1" defer></script>
+<script src="./js/factory-agent.js?v=20261006-beta2" defer></script>
 </body>
 </html>

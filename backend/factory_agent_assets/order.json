@@ -1,0 +1,50 @@
+{
+  "order_id": "fixture:factory-agent-001",
+  "fixture": true,
+  "source": "Isolated synthetic test order. This is not a customer or production order.",
+  "order_number": "FACTORY-AGENT-TEST-001",
+  "client": "TEST CLIENT — Factory Agent fixture",
+  "dimension_unit": "mm",
+  "items": [
+    {
+      "index_number": "0007",
+      "position": "A-01",
+      "glass_type": "4 CLEAR + 16 ARGON + 4 LOW-E",
+      "width": "1200",
+      "height": "850",
+      "quantity": "2",
+      "ambiguities": []
+    },
+    {
+      "index_number": "0008",
+      "position": "A-01",
+      "glass_type": "6 TEMPERED CLEAR",
+      "width": "800,5",
+      "height": "2100",
+      "quantity": "1",
+      "ambiguities": ["Position A-01 also appears at index 0007; keep these as separate rows."]
+    },
+    {
+      "index_number": "0009",
+      "position": "B-02",
+      "glass_type": "44.2 LAMINATED CLEAR",
+      "width": "975/995",
+      "height": null,
+      "quantity": "1",
+      "ambiguities": ["Width has two source alternatives, 975/995; do not select one.", "Height is missing."]
+    },
+    {
+      "index_number": "0010",
+      "position": null,
+      "glass_type": null,
+      "width": "650",
+      "height": "450",
+      "quantity": "2?",
+      "ambiguities": ["Position is missing.", "Glass type is missing.", "Quantity 2? is uncertain; do not treat it as confirmed."]
+    }
+  ],
+  "notes": [
+    "All dimensions above are raw source values in millimetres. Preserve comma decimals, alternatives, missing values, index leading zeroes, and positions.",
+    "No source PDF exists for this synthetic fixture; this test cannot verify an original customer PDF."
+  ]
+}

@@ -391,7 +391,12 @@ def root():
 @app.get("/api/features")
 def get_frontend_features() -> Dict[str, bool]:
     """Return narrowly scoped, non-secret frontend feature flags."""
-    return {"living_dashboard": ENABLE_LIVING_DASHBOARD}
+    return {"living_dashboard": ENABLE_LIVING_DASHBOARD, "factory_agent": factory_agent_enabled()}
+
+
+# Isolated opt-in control plane; does not open the production database or host a browser.
+from factory_agent import enabled as factory_agent_enabled, install_factory_agent
+install_factory_agent(app, lambda: APP_KEY, lambda: _ALLOWED_ORIGINS)
 
 
 @app.on_event("startup")

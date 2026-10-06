@@ -13,8 +13,6 @@ from db import find_similar_corrections, bump_correction_hit
 from prompts import PROMPTS
 
 API_KEY = os.getenv("OPENAI_API_KEY")
-if not API_KEY:
-    raise RuntimeError("OPENAI_API_KEY is not set. Configure it in Render → Environment.")
 
 SYSTEM_PROMPT = PROMPTS["extraction"]["system"]
 PDF_VISUAL_SYSTEM_PROMPT = PROMPTS["extraction"]["pdf_visual_system"]
@@ -489,8 +487,13 @@ _client: Optional[OpenAI] = None
 
 
 def _create_openai_client() -> OpenAI:
+    # Keep the platform and setup-required surfaces available without credentials.
+    # Extraction still fails closed when it actually needs an OpenAI client.
+    key = os.getenv("OPENAI_API_KEY") or API_KEY
+    if not key:
+        raise RuntimeError("OPENAI_API_KEY is not set. Configure it in Render → Environment.")
     try:
-        return OpenAI(api_key=API_KEY)
+        return OpenAI(api_key=key)
     except Exception as exc:
         raise RuntimeError("Failed to initialize OpenAI client") from exc
 
