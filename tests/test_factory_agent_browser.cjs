@@ -8,8 +8,9 @@ const root = path.resolve(__dirname, '../docs');
 const output = process.env.FACTORY_AGENT_QA_OUTPUT || '/tmp/factory-agent-browser-qa';
 fs.mkdirSync(output, {recursive: true});
 const config = {
-  enabled: true, ready: true, state: 'ready', missing: [], mode: 'fixture', auth: 'app_key',
-  orders: [{id: 'fixture:factory-agent-001', label: 'Factory Agent test order · fixture only'}],
+  enabled: true, ready: true, state: 'ready', missing: [], mode: 'inspect_and_prepare', auth: 'app_key',
+  orders: [{id: 'fixture:factory-agent-001', label: 'Factory Agent test order · fixture only'}, {id: 'factory:workspace', label: 'Factory workspace · inspect and prepare'}],
+  capabilities: ['Read factory orders', 'Prepare change plans for review'],
   limits: {runtime_seconds: 180, max_concurrency: 1},
 };
 const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
@@ -25,12 +26,14 @@ async function run(engine, name, base) {
     const context = await browser.newContext({viewport: {width: 1440, height: 1000}, colorScheme: 'light'});
     await context.addInitScript(base => localStorage.setItem('loe.apiBase', base), base);
     const page = await context.newPage();
-    const errors = [], calls = [];
+    const errors = [], calls = [], submitted = [], productionWrites = [];
     let enabled = false, ready = true, lostPost = false, sessionListDown = false, stopFailure = false, appKeyConfigured = false, authorized = true;
     let session = null;
+    let reviewFailure = false;
     page.on('pageerror', error => errors.push(error.message));
     await page.route('**/*', async route => {
       const req = route.request(), url = new URL(req.url());
+      if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method()) && !url.pathname.startsWith('/api/factory-agent/')) productionWrites.push(url.pathname);
       if (url.origin !== base) return route.fulfill({status: 200, json: {}});
       if (req.headers().accept?.includes('text/event-stream')) return route.fulfill({status: 204, body: ''});
       if (url.pathname === '/api/features') return route.fulfill({json: {factory_agent: enabled}});
@@ -41,7 +44,8 @@ async function run(engine, name, base) {
         if (url.pathname.endsWith('/config')) return route.fulfill({json: {...config, ready, missing: ready ? [] : ['OPENAI_API_KEY'], error: ready ? null : 'Server configuration unavailable.'}});
         if (url.pathname.endsWith('/sessions') && req.method() === 'POST') {
           const body = req.postDataJSON();
-          assert.equal(body.order_id, 'fixture:factory-agent-001');
+          assert(['fixture:factory-agent-001', 'factory:workspace'].includes(body.order_id));
+          submitted.push(body);
           assert(body.request_id.match(/^[a-f0-9-]{36}$/));
           session = initialSession(body);
           if (lostPost) return route.abort('failed');
@@ -57,6 +61,15 @@ async function run(engine, name, base) {
           if (stopFailure) return route.fulfill({status: 502, json: {detail: 'Remote cancellation unavailable'}});
           session.status = 'stopping';
           return route.fulfill({json: session});
+        }
+        if (url.pathname.endsWith('/review')) {
+          assert.equal(req.method(), 'POST');
+          const proposalId = decodeURIComponent(url.pathname.split('/').at(-2));
+          const body = req.postDataJSON();
+          assert.deepEqual(Object.keys(body), ['decision']);
+          if (reviewFailure) return route.fulfill({status: 502, json: {detail: 'Review unavailable'}});
+          session.proposals.find(proposal => proposal.id === proposalId).status = body.decision;
+          return route.fulfill({json: {reviewed: true}});
         }
         if (req.method() === 'DELETE') { session = null; return route.fulfill({json: {deleted: true}}); }
         return route.fulfill({json: session});
@@ -105,6 +118,15 @@ async function run(engine, name, base) {
     assert(await page.locator('#factoryAgentScreenshot').isHidden());
     assert.equal(await page.locator('#factoryAgentActivity li').count(), 0, 'no invented events');
     assert(!(await page.evaluate(() => JSON.stringify({...localStorage, ...sessionStorage}))).includes('fixture-access-key'));
+    assert.equal(await page.locator('#factoryAgentOrder').inputValue(), 'factory:workspace', 'factory workspace is the default');
+    assert.equal(await page.locator('#factoryAgentMessage').inputValue(), '');
+    await page.locator('[data-factory-example="read"]').click();
+    assert.match(await page.locator('#factoryAgentMessage').inputValue(), /most recent orders/);
+    assert.equal(submitted.length, 0, 'examples only fill an editable request');
+    await page.locator('#factoryAgentMessage').fill('');
+    await page.locator('#factoryAgentOrder').selectOption('fixture:factory-agent-001');
+    assert.match(await page.locator('#factoryAgentMessage').inputValue(), /selected test order/);
+    assert.match(await page.locator('#factoryAgentBoundaryText').innerText(), /only the isolated fixture/);
 
     // A failed preflight must not create remote work.
     sessionListDown = true;
@@ -115,6 +137,8 @@ async function run(engine, name, base) {
     await page.locator('#factoryAgentStart').click();
     await page.waitForFunction(() => document.getElementById('factoryAgentStatus').textContent === 'Running');
     assert.equal(calls.filter(call => call.method === 'POST').length, 1);
+    assert.equal(submitted[0].order_id, 'fixture:factory-agent-001');
+    assert(!('context_session_id' in submitted[0]), 'context is never included by default');
     assert(await page.locator('#factoryAgentStart').isDisabled());
     assert.equal(await page.locator('#factoryAgentActivity li').count(), 1);
     await page.screenshot({path: path.join(output, `${name}-running-light.png`), fullPage: true});
@@ -147,6 +171,7 @@ async function run(engine, name, base) {
     assert.equal(calls.filter(call => call.method === 'POST').length, postCount);
     await page.locator('#factoryAgentCleanup').click();
     await page.waitForFunction(() => document.getElementById('factoryAgentStatus').textContent === 'No session');
+    await page.locator('#factoryAgentOrder').selectOption('fixture:factory-agent-001');
 
     // A dropped POST response is recovered by request id, never replayed.
     lostPost = true;
@@ -178,6 +203,63 @@ async function run(engine, name, base) {
       await page.screenshot({path: path.join(output, `${name}-${width}-${colorScheme}.png`), fullPage: true});
     }
     await page.setViewportSize({width: 1440, height: 1000});
+    await page.locator('#factoryAgentOrder').selectOption('factory:workspace');
+    assert(await page.locator('#factoryAgentContinue').isDisabled(), 'fixture context is not silently reused for factory data');
+    await page.locator('[data-factory-example="draft"]').click();
+    await page.locator('#factoryAgentMessage').fill('Prepare a plan to correct order 123 from 800 mm to 810 mm. Explain the evidence and do not change the order.');
+    lostPost = false;
+    await page.locator('#factoryAgentStart').click();
+    await page.waitForFunction(() => document.getElementById('factoryAgentStatus').textContent === 'Running');
+    assert.equal(submitted.at(-1).order_id, 'factory:workspace');
+    assert(!('context_session_id' in submitted.at(-1)));
+    assert(await page.locator('#factoryAgentContinue').isDisabled());
+    session.status = 'completed'; session.cleanup_status = 'deleted';
+    session.result_text = 'Mock browser test response: two proposed plans are ready for operator review. No production records were changed.';
+    session.proposals = [
+      {id: 'plan-1', title: 'Correct the proposed width', summary: 'Source evidence needs operator review.', order_id: '123', source_version: 'snapshot-123', changes: [{field: 'width_mm', before: 800, after: 810, reason: '<img src=x onerror="window.bad=1">'}], status: 'pending'},
+      {id: 'plan-2', title: '<script>window.bad=1</script>', summary: 'Review the missing position.', order_id: '123', changes: [{field: 'position', before: null, after: 'A1'}], status: 'pending'},
+    ];
+    await page.locator('#factoryAgentReconnect').click();
+    await page.waitForFunction(() => document.querySelectorAll('[data-factory-proposal]').length === 4);
+    assert.equal(await page.locator('#factoryAgentProposals script, #factoryAgentProposals img').count(), 0);
+    assert.match(await page.locator('.factory-agent-change').first().innerText(), /Width \(mm\)[\s\S]*Before[\s\S]*800[\s\S]*Proposed[\s\S]*810/);
+    assert.equal(await page.evaluate(() => window.bad), undefined);
+    assert.match(await page.locator('.factory-agent-plans').innerText(), /does not change an order/);
+    reviewFailure = true;
+    await page.locator('[data-factory-proposal="plan-1"][data-factory-decision="accepted"]').click();
+    await page.waitForFunction(() => document.getElementById('factoryAgentNotice').textContent.includes('review was not confirmed'));
+    assert.equal(await page.locator('.factory-agent-proposal').first().locator('.factory-agent-badge').innerText(), 'Awaiting review');
+    assert(await page.locator('[data-factory-proposal="plan-1"][data-factory-decision="accepted"]').isDisabled());
+    reviewFailure = false;
+    await page.locator('#factoryAgentReconnect').click();
+    await page.waitForFunction(() => !document.querySelector('[data-factory-proposal="plan-1"]').disabled);
+    await page.locator('[data-factory-proposal="plan-1"][data-factory-decision="accepted"]').click();
+    await page.waitForFunction(() => document.getElementById('factoryAgentProposals').textContent.includes('Plan accepted'));
+    assert.match(await page.locator('#factoryAgentNotice').innerText(), /No production changes were applied/);
+    await page.locator('[data-factory-proposal="plan-2"][data-factory-decision="rejected"]').click();
+    await page.waitForFunction(() => document.getElementById('factoryAgentProposals').textContent.includes('Dismissed'));
+    assert.equal(await page.locator('#factoryAgentProposals [data-factory-proposal]').count(), 0);
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({width, height: 1000});
+      await page.evaluate(() => window.scrollTo(0, 0));
+      assert(await page.locator('#tabFactoryAgent').evaluate(element => element.scrollWidth <= element.clientWidth + 1));
+      await page.screenshot({path: path.join(output, `${name}-plans-${width}.png`), fullPage: true});
+    }
+    await page.setViewportSize({width: 1440, height: 1000});
+    const previousSessionId = session.id;
+    assert(!(await page.locator('#factoryAgentContinue').isChecked()));
+    await page.locator('#factoryAgentContinue').check();
+    await page.locator('#factoryAgentMessage').fill('What source evidence supports the accepted plan?');
+    await page.locator('#factoryAgentStart').click();
+    await page.waitForFunction(() => document.getElementById('factoryAgentStatus').textContent === 'Running');
+    assert.equal(submitted.at(-1).context_session_id, previousSessionId, 'only explicit continuation includes saved context');
+    assert(!(await page.locator('#factoryAgentContinue').isChecked()), 'new session does not inherit checked continuation');
+    session.status = 'completed'; session.cleanup_status = 'deleted';
+    await page.locator('#factoryAgentReconnect').click();
+    await page.waitForFunction(() => document.getElementById('factoryAgentStatus').textContent === 'Completed');
+    const savedState = await page.evaluate(() => JSON.stringify({...localStorage, ...sessionStorage}));
+    assert(!savedState.includes('What source evidence') && !savedState.includes('snapshot-123'));
+    assert.deepEqual(productionWrites, [], 'review never calls production mutation routes');
     ready = false;
     await page.locator('#factoryAgentReconnect').click();
     await page.locator('#factoryAgentSetup').waitFor({state: 'visible'});
@@ -192,6 +274,7 @@ async function run(engine, name, base) {
     assert.equal(await page.locator('#factoryAgentResult').innerText(), 'No response received yet.');
     assert.equal(await page.locator('#factoryAgentActivity li').count(), 0);
     assert.equal(await page.locator('#factoryAgentScreenshot').getAttribute('src'), null);
+    assert.equal(await page.locator('#factoryAgentProposals').innerText(), '');
     assert.match(await page.locator('#factoryAgentNotice').innerText(), /Access denied/);
     assert.equal(errors.length, 0, errors.join('\n'));
     await context.close();

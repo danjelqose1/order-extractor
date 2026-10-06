@@ -502,7 +502,7 @@ const PAGE_META = Object.freeze({
   factoryagent: {
     eyebrow: "Automation",
     title: "Factory Agent · Beta",
-    subtitle: "Read-only order review with a separate agent in an OpenAI-hosted browser.",
+    subtitle: "Inspect orders, compare details, and prepare change plans for your review.",
   },
   telegram: {
     eyebrow: "Files",

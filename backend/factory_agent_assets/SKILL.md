@@ -9,9 +9,89 @@ Read this entire file before starting. The selected order is the synthetic fixtu
 `fixture:factory-agent-001`, named `FACTORY-AGENT-TEST-001`. This environment has no
 production orders, factory credentials, or connection to the platform database.
 
+## Start the local fixture during this turn
+
+The hosted environment is provisioned without startup commands. Use its built-in
+Bash/shell tool to run the exact command below once, inside the hosted environment.
+This starts only the reviewed read-only fixture server and checks its health using
+HTTP GET. It never starts a browser or VM on the platform server. Do not install
+packages, modify the command or fixture assets, change networking, or substitute a
+production URL. A previously healthy fixture server is reused.
+The startup command may create its diagnostic `fixture-server.log`; source assets
+remain unchanged. No factory data or credentials are needed to run it.
+
+```bash
+python3 - <<'PY'
+import http.client
+import json
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+directory = Path("/workspace/factory-agent")
+port = 8765
+expected = {"status": "ok", "fixture": True, "read_only": True}
+
+def healthy():
+    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=0.5)
+    try:
+        connection.request("GET", "/healthz")
+        response = connection.getresponse()
+        body = response.read(4097)
+        if response.status != 200 or len(body) > 4096 or json.loads(body) != expected:
+            raise RuntimeError("Unexpected service on the fixture port; refusing to continue")
+        return True
+    except ConnectionRefusedError:
+        return False
+    finally:
+        connection.close()
+
+if healthy():
+    print(json.dumps({"fixture_server": "ready", "reused": True, "health": expected}))
+else:
+    with (directory / "fixture-server.log").open("ab") as log:
+        process = subprocess.Popen(
+            [sys.executable, "-u", str(directory / "fixture_server.py")],
+            cwd=str(directory), stdin=subprocess.DEVNULL, stdout=log,
+            stderr=subprocess.STDOUT, start_new_session=True, close_fds=True,
+        )
+    try:
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if process.poll() is not None:
+                raise RuntimeError("Fixture server exited before becoming healthy")
+            if healthy():
+                print(json.dumps({"fixture_server": "ready", "reused": False,
+                                  "pid": process.pid, "health": expected}))
+                break
+            time.sleep(0.1)
+        else:
+            raise RuntimeError("Fixture health check timed out")
+    except BaseException:
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=1)
+        print((directory / "fixture-server.log").read_text(errors="replace")[-4000:], file=sys.stderr)
+        raise
+PY
+```
+
+Continue to the browser only after the command actually returns a successful
+health result. Health alone does not prove a browser visit. If the shell tool is
+unavailable, the command fails, or health is not confirmed, report the observed
+failure and do not claim browser verification. You may still call the read-only
+function and report its source fields with that limitation. Do not repeatedly
+restart the server or attempt an alternative setup. Session cleanup owns the
+server's lifetime; do not kill unrelated processes.
+
 ## Task
 
-1. Open `http://127.0.0.1:8765/order` in the hosted browser. Take a screenshot if the
+1. After successful fixture startup, open `http://127.0.0.1:8765/order` in the hosted browser. Take a screenshot if the
    computer-use tools support it. If the local page is unavailable, report that
    browser verification failed. Do not present a file or tool read as a successful
    browser visit.

@@ -10,7 +10,7 @@
   <title>Overview — Order Extractor</title>
   <link rel="stylesheet" href="./css/styles.css?v=20260930-production-voice1">
   <link rel="stylesheet" href="./css/interface.css?v=20261004-tables1" media="screen">
-  <link rel="stylesheet" href="./css/factory-agent.css?v=20261006-beta1" media="screen">
+  <link rel="stylesheet" href="./css/factory-agent.css?v=20261006-prepare1" media="screen">
 </head>
 <body>
   <svg class="icon-sprite" aria-hidden="true">
@@ -983,10 +983,10 @@
       <section class="card factory-agent-intro">
         <div>
           <p class="section-eyebrow">OpenAI-hosted workspace</p>
-          <h2 id="factoryAgentHeading">Read one order. Check every detail.</h2>
-          <p class="muted">A separate API agent reads the selected test order and reports its findings here.</p>
+          <h2 id="factoryAgentHeading">Inspect factory work. Prepare the next step.</h2>
+          <p class="muted">Ask the agent to read orders, compare details, summarize findings, or draft a change plan for your review.</p>
         </div>
-        <span class="factory-agent-badge">Read-only · Isolated test</span>
+        <span id="factoryAgentScopeBadge" class="factory-agent-badge">Inspect and prepare · Review required</span>
       </section>
       <section id="factoryAgentSetup" class="card factory-agent-setup" hidden>
         <h3>Setup required</h3>
@@ -1018,13 +1018,22 @@
         <div class="factory-agent-layout">
           <div class="factory-agent-main">
             <form id="factoryAgentTaskForm" class="card factory-agent-task">
-              <h3>New read-only task</h3>
-              <label for="factoryAgentOrder">Selected test order</label>
+              <h3>Ask Factory Agent</h3>
+              <label for="factoryAgentOrder">Work with</label>
               <select id="factoryAgentOrder" required></select>
-              <label for="factoryAgentMessage">What should the agent check?</label>
-              <textarea id="factoryAgentMessage" rows="4" maxlength="4000" required>Read the selected test order. Report the client, glass type, dimensions, quantities, index numbers, and positions. Flag missing or ambiguous information without guessing.</textarea>
+              <p id="factoryAgentScopeHint" class="muted small">Inspection and proposed plans only. Production changes use your existing order workflows.</p>
+              <div id="factoryAgentExamples" class="factory-agent-examples" aria-label="Task examples">
+                <button type="button" class="btn small" data-factory-example="read">Read orders</button>
+                <button type="button" class="btn small" data-factory-example="compare">Compare</button>
+                <button type="button" class="btn small" data-factory-example="summarize">Summarize</button>
+                <button type="button" class="btn small" data-factory-example="draft">Draft a change</button>
+              </div>
+              <label for="factoryAgentMessage">What would you like help with?</label>
+              <textarea id="factoryAgentMessage" rows="4" maxlength="4000" required placeholder="Describe the task and name any orders or clients involved. The agent can inspect and prepare a plan; it cannot apply production changes."></textarea>
+              <label class="factory-agent-continue" for="factoryAgentContinue"><input id="factoryAgentContinue" type="checkbox" disabled><span>Continue conversation from the selected session</span></label>
+              <p id="factoryAgentContinueHint" class="muted small">Available after the selected session finishes and its workspace closes. Saved context is carried into a new workspace.</p>
               <p id="factoryAgentLimits" class="muted small"></p>
-              <div class="factory-agent-actions"><button id="factoryAgentStart" type="submit" class="btn primary" disabled>Start read-only task</button></div>
+              <div class="factory-agent-actions"><button id="factoryAgentStart" type="submit" class="btn primary" disabled>Send task</button></div>
             </form>
             <section class="card factory-agent-session" aria-labelledby="factoryAgentSessionHeading">
               <div class="factory-agent-section-header">
@@ -1046,6 +1055,12 @@
               <div class="factory-agent-section-header"><h3 id="factoryAgentResultHeading">Agent response</h3></div>
               <pre id="factoryAgentResult">No response received yet.</pre>
             </section>
+            <section class="card factory-agent-plans" aria-labelledby="factoryAgentPlansHeading">
+              <div class="factory-agent-section-header"><h3 id="factoryAgentPlansHeading">Prepared plans</h3><button id="factoryAgentOpenOrders" type="button" class="btn small tertiary">Open Orders</button></div>
+              <p class="muted small">Accept plan records your review only. It does not change an order. Use the existing order workflow for any changes you choose to make.</p>
+              <div id="factoryAgentProposals"></div>
+              <p id="factoryAgentProposalsEmpty" class="factory-agent-empty">No change plans received for this session.</p>
+            </section>
           </div>
           <aside class="factory-agent-side">
             <section class="card factory-agent-browser" aria-labelledby="factoryAgentBrowserHeading">
@@ -1055,9 +1070,10 @@
               <p id="factoryAgentScreenshotEmpty" class="factory-agent-empty">No browser screenshot is available.</p>
             </section>
             <section class="card factory-agent-boundary">
-              <h3>Test access boundary</h3>
-              <p>The agent can read only the isolated fixture. Production orders and operational actions are unavailable to both its browser and its tools.</p>
-              <p>Browser access is limited to the configured fixture origin. Sign-in requests and other origins are denied by the backend.</p>
+              <h3>Access and review</h3>
+              <p id="factoryAgentBoundaryText">The agent can inspect factory data and save proposed plans. Order edits, approvals, processing, invoices, printing, and machinery actions are unavailable.</p>
+              <ul id="factoryAgentCapabilities" class="factory-agent-capabilities" hidden></ul>
+              <p>Browser and tool access is restricted by the backend. Browser sign-in requests and unapproved origins remain blocked.</p>
               <p class="muted small">Stop requests cancellation of the remote task. Closing or locking this tab does not stop it. The backend enforces the runtime limit.</p>
             </section>
           </aside>
@@ -2541,11 +2557,11 @@
 <script src="./js/living-dashboard.js?v=20260908-compact" defer></script>
 <script src="./js/platform-workflows.js?v=20261003-processing-units1" defer></script>
 <script src="./js/manual-dimension-groups.js?v=20260919-manual-group1" defer></script>
-<script src="./js/app.js?v=20261006-factory-agent1" defer></script>
+<script src="./js/app.js?v=20261006-factory-agent-prepare1" defer></script>
 <script src="./js/production-sheet.js?v=20261006-production-memory1" defer></script>
 <script src="./js/production-sheet-voice.js?v=20260930-production-dictation1" defer></script>
 <script src="./js/perfect-cut-bridge.js?v=20260919-manual-index2" defer></script>
 <script src="./js/workspace-layout.js?v=20261003-workspace1" defer></script>
-<script src="./js/factory-agent.js?v=20261006-beta2" defer></script>
+<script src="./js/factory-agent.js?v=20261006-prepare1" defer></script>
 </body>
 </html>

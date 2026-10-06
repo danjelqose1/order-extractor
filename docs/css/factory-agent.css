@@ -35,5 +35,19 @@
 .factory-agent-boundary{font-size:13px}
 .factory-agent-boundary p:last-child{margin-bottom:0}
 .factory-agent #factoryAgentSessionMeta{overflow-wrap:anywhere}
+.factory-agent-examples{display:flex;gap:7px;flex-wrap:wrap;margin:12px 0}
+.factory-agent .factory-agent-continue{display:flex;gap:8px;align-items:flex-start;font-weight:500;line-height:1.5}
+.factory-agent-continue input{flex:none;width:16px;height:16px;margin:2px 0 0}
+.factory-agent-capabilities{padding-left:19px;line-height:1.6;overflow-wrap:anywhere}
+.factory-agent-proposal{padding:14px 0;border-top:1px solid var(--border);overflow-wrap:anywhere}
+.factory-agent-proposal h4{font-size:15px;margin:0 0 8px}
+.factory-agent-proposal pre{font:inherit;font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;background:var(--field-bg);border:1px solid var(--border);border-radius:6px;padding:10px;max-height:300px;overflow:auto}
+.factory-agent-proposal .factory-agent-actions{margin-top:12px}
+.factory-agent-source-reference{font-size:12px;color:var(--muted);margin-bottom:12px}
+.factory-agent-source-reference summary{cursor:pointer}
+.factory-agent-change{padding:10px;background:var(--field-bg);border:1px solid var(--border);border-radius:6px;margin:10px 0}
+.factory-agent-change-values{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:8px 0 0}
+.factory-agent-change-values dt{font-size:12px;color:var(--muted);margin-bottom:4px}
+.factory-agent-change-values dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5}
 @media(max-width:1150px){.factory-agent-layout{grid-template-columns:minmax(0,1fr)}.factory-agent-side{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}}
 @media(max-width:680px){.factory-agent-side{display:block}.factory-agent-intro{align-items:flex-start}.factory-agent .card{padding:14px}.factory-agent-toolbar{align-items:flex-start}.factory-agent-unlock-row{flex-wrap:wrap}.factory-agent-unlock-row input{flex-basis:100%!important}.factory-agent-unlock-row button{width:100%}.factory-agent-task .factory-agent-actions .btn{width:100%}.factory-agent .factory-agent-section-header h3{margin-bottom:0}}

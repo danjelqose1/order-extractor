@@ -8,18 +8,28 @@ The existing extraction client now checks for a missing key when first used,
 rather than aborting the entire app at import time; extraction still fails
 without credentials. This permits health and setup-required pages to work.
 
-The first release deliberately supports **one isolated synthetic order only**.
-The ordinary platform exposes some unauthenticated/mutating routes, so giving
-the hosted browser production access cannot safely meet a read-only guarantee.
-The remote environment has outbound access disabled and only a private fixture
-page on its own loopback interface. No live order is selectable in this Beta.
+The section has two explicitly selected workspaces:
+
+* **Factory workspace · inspect and prepare** answers general questions, searches
+  and reads saved factory orders, summarizes saved data, inspects existing
+  processing snapshots, and prepares manual-draft proposals for review.
+* **FACTORY-AGENT-TEST-001 · isolated fixture** runs the original synthetic order
+  test, including the hosted browser. It cannot access production records.
+
+Both workspaces enforce read-only factory access. A proposal is saved only in
+the separate agent journal. **Accept plan records review; it does not apply an
+order change.** Edits, order approvals, processing, invoices, printing, and
+machinery remain in existing operator workflows. The hosted browser has no
+production access: saved factory data reaches the agent only through the
+backend's restricted inspection tools.
 
 ## Enable and configure
 
-Keep `ENABLE_FACTORY_AGENT=false` in production until this code is reviewed and
-an authorized deployment is performed. There is no deployment or dependency
-upgrade required as part of local implementation; the adapter uses the already
-pinned `httpx` package and documented HTTP contracts.
+`ENABLE_FACTORY_AGENT` is disabled by default. Enable it on an authorized
+deployment after reviewing the setup below. The adapter uses the existing
+`httpx` and SQLAlchemy dependencies and the existing durable database location;
+no dependency upgrade, new service, database migration, or local browser is
+required for the Beta.
 
 Server configuration (never frontend configuration or remote sandbox variables):
 
@@ -72,9 +82,20 @@ python scripts/check_factory_agent.py --live
 For the normal UI, start the backend and existing `docs/` frontend as usual.
 Enable the backend flag, reload the frontend, select **Factory Agent · Beta**,
 and unlock using the existing `APP_KEY`, or `FACTORY_AGENT_ACCESS_KEY` when no
-global key is configured. Select the labelled fixture and
-send the read-only task. Keys are held only in the tab's memory; Lock clears
-them. The application access key is not the OpenAI API key.
+global key is configured. Select **Factory workspace · inspect and prepare**
+for a factory question or general conversation, or select the labelled fixture
+for the original browser test. Keys are held only in the tab's memory; Lock
+clears them. The application access key is not the OpenAI API key.
+
+After a session finishes and its remote workspace has been deleted, optionally
+select **Continue conversation from the selected session** before sending a
+follow-up. Continuation is explicit and uses a new bounded hosted session; it
+carries at most six previous user/assistant messages, with each retained
+assistant answer capped at 12,000 characters. Only retained sessions owned by
+the same access key and using the same workspace can supply context. Unchecked
+means an independent task. Historical context is labelled as historical; the
+agent must read current tools again before asserting current factory facts.
+Reconnecting to observe a task never starts a continuation or submits input.
 
 The backend has no individual web-user identity today. This release reuses its
 existing shared-key mechanism, makes it mandatory for every Beta control/data
@@ -90,16 +111,20 @@ principal boundary without putting credentials in the sandbox.
 No dashboard-created agent, reusable environment template, vault, or manual
 agent ID is needed. `POST /v1/agents/sessions` supplies inline agent settings and
 an OpenAI-hosted environment. OpenAI provisions it through the supported API.
-Each task receives the reviewed fixture server, source JSON, and real workflow
-`SKILL.md` as base64 inline files. The workflow text is also included directly
-in agent instructions, so repository-only instructions are never mistaken for
-instructions delivered to the remote agent.
+The workspace uses the existing `FACTORY_AGENT_MODEL` choice (Sol by default)
+and a minimal hosted desktop with outbound networking disabled. It receives
+the full `backend/factory_agent_assets/WORKSPACE_SKILL.md` as agent instructions.
+No new agent ID, environment ID, template, vault, or environment variable is
+required for the broader inspect/prepare scope.
 
-Setup commands run **inside OpenAI's environment**: start the fixture listener
-at `http://127.0.0.1:8765/order`, then verify its health. FastAPI waits for the
-environment's `connected` state before submitting the task. The account smoke
-test must still verify hosted loopback reachability; a failed environment stays
-a visible failure, without relaxing outbound access or using production instead.
+Fixture sessions also receive the reviewed fixture server, source JSON, and
+`SKILL.md` as base64 inline files, with the complete workflow included directly
+in agent instructions. Provisioning sends **no `setup_commands`**. After the
+environment becomes `connected`, the agent's first observable turn runs the
+reviewed, bounded fixture startup command and health check inside OpenAI's
+environment. It then visits `http://127.0.0.1:8765/order`. A startup failure must
+be reported as a failure, even when the read-only function can supply the order.
+No command starts a browser, VM, or fixture listener on Render.
 
 The separate control journal reserves the local request ID before creating a
 remote resource. Repeating an identical request returns the same record; reusing
@@ -119,24 +144,28 @@ Reconnect, reload, and GET requests never submit a task.
 
 These controls are enforced independently of the prompt:
 
-* The hosted environment has `network: {"access":"disabled"}` for browser **and**
-  code. It receives no platform origin, keys, login cookies, production records,
-  MCP write server, or arbitrary uploaded files.
+* Both hosted environments have `network: {"access":"disabled"}` for browser
+  **and** code. They receive no platform login, keys, cookies, database file,
+  write-capable MCP server, or arbitrary uploaded files. Workspace tool results
+  can contain saved production order data, limited by the facade below.
 * The fixture HTTP server binds loopback, loads immutable response bytes at
   startup, checks the Host, and serves only `/order`, `/order.json`, `/healthz`.
   GET/HEAD read; mutation methods return 405. Unknown/traversal/query paths fail.
   The page has no forms/scripts/external resources and escapes source content.
-* The only application function is `get_selected_order({})`. The responder is
+* In fixture mode, the only application function is `get_selected_order({})`. The responder is
   hardcoded to the server-selected fixture. Unknown functions, extra arguments,
-  and production IDs are rejected. It never imports the production database or
+  and production IDs are rejected. Its responder never imports the production database or
   mutation services. Existing MCP write-capable tools are intentionally excluded.
+* In workspace mode, only the explicit inspection/proposal facade below is
+  available. No general service dispatch or factory mutation function is exposed.
 * The backend rejects client overrides of model, tool, environment, origin,
-  credentials, or order IDs. It limits request size, runtime, starts, function
+  credentials, or arbitrary workspace IDs. It limits request size, runtime, starts, function
   calls, screenshots, output, history pagination, and concurrent sessions.
 
 On a current `computer_use_approval_request`, the backend approves only the exact
-origin `http://127.0.0.1:8765`, which the user selects by starting the isolated
-fixture test. It denies every other origin. It always responds to
+origin `http://127.0.0.1:8765` **in fixture mode**, which the user selects by
+starting the isolated test. Workspace mode denies all browser origins, including
+the production platform. Both modes always respond to
 `browser_authentication` with `action:"cancel"`; no credentials or login form
 are collected. These policy decisions appear in session activity. Unknown
 approval types cause task cancellation/cleanup instead of an inferred grant.
@@ -151,6 +180,56 @@ origin to this fixture policy or forward the shared application key into a VM.
 Workflow and source contents can contain hostile instructions; the delivered
 skill explicitly treats them as untrusted data. Prompt restrictions supplement
 the boundary above; they are not its enforcement mechanism.
+
+## Inspection tools and proposal review
+
+`backend/factory_agent_tools.py` exposes exactly these functions:
+
+| Tool | Access |
+| --- | --- |
+| `list_orders` | Filter and paginate saved manual/extracted order summaries; source-qualified IDs such as `manual:42` and `pdf:42` |
+| `get_order` | Saved headers, rows, quantities, dimensions, positions, notes, and canonical source version |
+| `get_platform_summary` | Saved aggregate order counts, pieces, and area |
+| `get_processing_job` | An existing job's saved source/result snapshot; no recalculation or generation |
+| `prepare_change` | Validate and return a complete manual Draft replacement proposal; no factory write |
+
+The facade reuses reviewed `PlatformService` read methods and existing database
+serializers. It does not call `PlatformService.invoke`, because that method
+persists audit records even for reads. Each request opens the existing SQLite
+file with `mode=ro`, enables `query_only`, installs a write-denying SQL authorizer,
+and starts an explicit read transaction. The facade exposes no legacy writer,
+engine, or write-session factory. Tests inject erroneous SQL writes into a read
+method and verify that they fail and the database bytes remain unchanged.
+There is no database initialization, migration, new production table, or MCP
+audit write. Independent read connections do not alter the normal platform's
+connections or prevent ordinary operators from continuing their workflows.
+
+Reads are capped at 25 orders per page, offset 10,000, 300 rows per order,
+96,000 argument bytes and 256,000 result bytes. SQLite work has a three-second
+progress deadline and a one-second lock timeout. Too-large or invalid results
+fail as a whole rather than silently returning a partial order. Artifact
+downloads, filesystem paths, original PDF bytes, raw extraction text and raw
+input blobs are excluded. Known configured server credentials are blocked from
+tool results. Saved rows are not evidence that an original PDF was reviewed.
+
+`prepare_change` requires a `manual:` order ID, its exact current version,
+a complete `ManualDraft` replacement, and a rationale. It independently reads
+the source, verifies Draft status/version, and reuses existing semantic
+validation, including required/unique red indices and duplicate order-number
+checks. It rejects an unchanged replacement. A successful proposal includes
+the current editable snapshot, proposed replacement, field-level before/after
+changes, source version, title, and rationale. Its initial state is `pending`.
+
+The control plane stores a proposal before acknowledging the tool call, assigns
+its ID from the session and call identity, and permits at most five per task.
+A lost acknowledgement cannot create a second proposal. After task completion
+and confirmed remote cleanup, **Accept plan** rereads the order and rejects a
+stale source version; **Dismiss** records rejection. Decisions are owned by the
+authenticated session and are immutable except for idempotent repeats.
+Neither decision invokes an order writer: `applied` stays `false`. Applying any
+chosen edit remains a separate action in the existing Manual Orders UI, with
+another check of current values. Proposals for other consequential workflows
+are explanatory plans only; no executable operation is implied.
 
 ## Activity, Stop, reconnect, and cleanup
 
@@ -174,7 +253,7 @@ The wall-clock watchdog also cancels/deletes remotely when runtime expires,
 including while polling is slow. API failure can prevent confirmation; cleanup
 required retains the concurrency slot instead of falsely promising termination.
 
-Results/screenshots are copied into the private local journal before automatic
+Results/screenshots/proposals are copied into the private local journal before automatic
 session deletion. OpenAI confirms session deletion, then performs hosted
 environment cleanup asynchronously. Delete conflicts receive up to three bounded
 attempts. Retry Stop/Close workspace for unresolved cleanup; use the remote ID in
@@ -197,9 +276,11 @@ OpenAI key.
 ## Storage and deployment isolation
 
 `DB_DIR/factory-agent/sessions.sqlite3` is a separate journal, not a migration of
-`orders.db`. Screenshots and results are private, not logs. Responses use
+`orders.db`. Screenshots, results, conversation context, and proposals are
+private, not logs. Responses use
 `Cache-Control:no-store`; API errors omit upstream bodies. Local result data is
-scrubbed after 24 hours, when more than 20 cleaned results are retained, or when
+scrubbed (including context and proposals) after 24 hours, when more than 20
+cleaned results are retained, or when
 the operator closes a cleaned workspace. Session lists return compact summaries;
 only selected-session detail includes a screenshot. Small
 request-ID tombstones remain to prevent duplicates. The journal caps at 1,000
@@ -238,6 +319,14 @@ setup-required, UI injection defense and responsive Chromium/WebKit behavior.
 Mocks are isolated test infrastructure; the application has no simulated-agent
 or fake-success mode. Local tests do not prove hosted account access.
 
+Workspace extension tests additionally cover explicit conversation ownership,
+scope, bounded context and idempotency; proposal persistence before tool
+acknowledgement; stale-source rejection; review without application; and denial
+of production browser origins. `tests/test_factory_agent_tools.py` has **27
+passing isolated SQLite tests**, including canonical manual/PDF source versions,
+proposal validation, complete unchanged database snapshots, malformed requests,
+credential/result bounds and attempted SQL writes through a buggy read method.
+
 ### Local validation — 2026-10-06
 
 * **324 Python tests passed** after the Sol/diagnostics follow-up, across the Factory Agent tests, existing app smoke,
@@ -260,7 +349,7 @@ or fake-success mode. Local tests do not prove hosted account access.
   visually inspected; it contains no simulated task success.
 * Local preflight found both application access keys and `OPENAI_API_KEY` absent,
   and the flag disabled.
-  **No live hosted session was created**. Account/model access, hosted browser
+  **No live hosted session was created during that local checkpoint**. Account/model access, hosted browser
   loopback reachability, actual model report quality and physical environment
   cleanup remain unverified. No production records were read or changed, and
   no push or deployment was performed at this local validation checkpoint.
@@ -279,6 +368,14 @@ pins and deployment commands unchanged.
 
 ## First deployed account check — 2026-10-06
 
+The inspect/prepare follow-up passed **359 Python tests**, including read-only
+SQLite enforcement, proposals, conversation ownership, stale-source review,
+fixture startup and existing platform regressions. Chromium and WebKit passed
+the broader workspace, review, continuation, XSS and responsive layout checks.
+Saved `command_execution` status and bounded redacted output are now visible in
+activity. A finished fixture turn warns if completed browser/read-tool evidence
+is missing; a completed model turn alone is not fixture acceptance.
+
 The existing Render key successfully created an actual hosted Agents API session
 with Astra. The environment stayed pending, then the session failed before any
 input or model turn. Remote deletion was confirmed; no report/browser success
@@ -286,6 +383,18 @@ was claimed. The dashboard could not load its failure details after cleanup.
 That finding prompted the bounded diagnostic retention above. Sol is the new
 cost-conscious default and is listed in the account's Agents model selector;
 an actual successful browser run is still required to establish acceptance.
+
+Subsequent bounded account probes using the existing Render API key established
+that a minimal hosted desktop with disabled networking reaches `connected`, and
+that the same environment with the fixture files but **no setup commands** also
+reaches `connected`. Both probe sessions were deleted and deletion was confirmed.
+The earlier fixture setup commands failed during provisioning; fixture startup
+now belongs to the first observable agent turn as described above.
+
+Those probes establish environment provisioning, not a completed model answer,
+browser visit, screenshot, order report, live factory-tool call, or proposal
+review. Full end-to-end hosted acceptance remains to be checked against actual
+session results. No successful agent report is inferred from `connected`.
 
 ## Official contract sources (verified 2026-10-06)
 

@@ -64,30 +64,24 @@ def environment_files() -> list[dict[str, str]]:
 
 
 def environment_setup_commands() -> list[dict[str, str]]:
-    """Start only inside the hosted sandbox, never on the platform host/Render.
+    """Compatibility helper: fixture startup belongs to the observable first turn.
 
-    A loopback health check makes missing Python, a failed listener, or a policy
-    blocking loopback fail setup visibly. No user text is interpolated into shell.
-    The hosted session owns this process; deleting that session cleans it up.
+    Avoid bootstrap commands that can hide fixture failures behind a generic
+    environment-connection error. The agent receives the exact command below in
+    its packaged workflow; it runs only inside the hosted sandbox, never Render.
     """
-    start = (
-        "nohup python3 /workspace/factory-agent/fixture_server.py "
-        ">/workspace/factory-agent/fixture-server.log 2>&1 </dev/null &"
-    )
-    verify = """python3 - <<'PY'
-import json, time, urllib.request
-for attempt in range(30):
-    try:
-        with urllib.request.urlopen('http://127.0.0.1:8765/healthz', timeout=1) as response:
-            data = json.load(response)
-            assert data == {'status': 'ok', 'fixture': True, 'read_only': True}
-        break
-    except Exception:
-        if attempt == 29:
-            raise
-        time.sleep(0.1)
-PY"""
-    return [{"command": start, "cwd": REMOTE_DIRECTORY}, {"command": verify, "cwd": REMOTE_DIRECTORY}]
+    return []
+
+
+def fixture_start_command() -> str:
+    """Return the one reviewed startup command delivered in the workflow file."""
+    skill = (ASSET_DIRECTORY / "SKILL.md").read_text(encoding="utf-8")
+    if skill.count("```bash\n") != 1:
+        raise FixtureAccessDenied("The fixture startup workflow is invalid.")
+    command, closing, _ = skill.split("```bash\n", 1)[1].partition("\n```")
+    if not closing or not command.strip():
+        raise FixtureAccessDenied("The fixture startup workflow is invalid.")
+    return command
 
 
 def workflow_instructions() -> str:

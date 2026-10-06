@@ -7,6 +7,15 @@
   const apiBase = typeof API_BASE === 'string' ? API_BASE : '';
   const storageKey = `loe.factory-agent.v1:${apiBase}`;
   const activeStatuses = new Set(['creating', 'running', 'stopping', 'cleanup_required']);
+  const finishedStatuses = new Set(['completed', 'failed', 'cancelled', 'timed_out']);
+  const fixtureId = 'fixture:factory-agent-001';
+  const fixturePrompt = 'Read the selected test order. Report the client, glass type, dimensions, quantities, index numbers, and positions. Flag missing or ambiguous information without guessing.';
+  const examples = {
+    read: 'List the most recent orders with their clients, glass types, quantities, and any missing information.',
+    compare: 'Compare the following orders. Highlight differences in glass types, dimensions, quantities, index numbers, and positions. Flag ambiguity.\nOrder numbers: ',
+    summarize: 'Summarize recent orders and flag incomplete or ambiguous details that need an operator to check.',
+    draft: 'Prepare a change plan for the following order. Explain each proposed change and its source. Do not apply changes.\nOrder number and requested change: ',
+  };
   const statusLabels = {
     creating: 'Creating workspace', running: 'Running', stopping: 'Stopping',
     completed: 'Completed', failed: 'Failed', cancelled: 'Cancelled', timed_out: 'Runtime limit reached',
@@ -16,6 +25,7 @@
   let pendingRequest = '', selectedId = '', busy = false, pollTimer = null, authEpoch = 0;
   let refreshing = null;
   const requests = new Set();
+  const uncertainReviews = new Set();
   try {
     const saved = JSON.parse(sessionStorage.getItem(storageKey) || '{}');
     selectedId = typeof saved.session_id === 'string' ? saved.session_id : '';
@@ -33,6 +43,8 @@
   function isActive(session) { return !!session && activeStatuses.has(session.status); }
   function hasWorkspace(session) { return isActive(session) || (!!session?.cleanup_status && session.cleanup_status !== 'deleted'); }
   function missingAccessKey(missing) { return Array.isArray(missing) && missing.some(name => name === 'APP_KEY' || name === 'FACTORY_AGENT_ACCESS_KEY'); }
+  function canContinue() { return !!current && finishedStatuses.has(current.status) && current.cleanup_status === 'deleted' && !current.retired && current.order_id === byId('factoryAgentOrder').value; }
+  function canReview() { return !!appKey && !!current && finishedStatuses.has(current.status) && current.cleanup_status === 'deleted' && !busy; }
   function visible() { return !panel.hidden && document.visibilityState !== 'hidden'; }
   function stopPolling() { clearTimeout(pollTimer); pollTimer = null; }
   function schedulePoll() {
@@ -79,6 +91,30 @@
     byId('factoryAgentCleanup').disabled = !appKey || busy || !current || (isActive(current) && current.status !== 'cleanup_required');
     byId('factoryAgentReconnect').disabled = !appKey || busy;
     byId('factoryAgentSessionPicker').disabled = busy || sessions.length === 0;
+    byId('factoryAgentContinue').disabled = busy || anyActive || !canContinue();
+    if (!canContinue()) byId('factoryAgentContinue').checked = false;
+    byId('factoryAgentContinueHint').textContent = canContinue()
+      ? 'Uses saved context from the selected session in a new workspace. Review the task text before sending.'
+      : 'Available after a session in the same scope finishes and its workspace closes. Saved context is carried into a new workspace.';
+    panel.querySelectorAll('[data-factory-example]').forEach(button => { button.disabled = byId('factoryAgentMessage').disabled; });
+    panel.querySelectorAll('[data-factory-proposal]').forEach(button => {
+      button.disabled = !canReview() || uncertainReviews.has(button.dataset.factoryProposal);
+    });
+  }
+  function renderScope() {
+    const fixture = byId('factoryAgentOrder').value === fixtureId;
+    byId('factoryAgentScopeBadge').textContent = fixture ? 'Read-only · Isolated test' : 'Inspect and prepare · Review required';
+    byId('factoryAgentScopeHint').textContent = fixture
+      ? 'Synthetic test order only. This test does not access production data.'
+      : 'Inspection and proposed plans only. Production changes use your existing order workflows.';
+    byId('factoryAgentBoundaryText').textContent = fixture
+      ? 'This task can read only the isolated fixture. Production data and operational actions are unavailable to both its browser and its tools.'
+      : 'The agent can inspect factory data and save proposed plans. Order edits, approvals, processing, invoices, printing, and machinery actions are unavailable.';
+    byId('factoryAgentExamples').hidden = fixture;
+    const message = byId('factoryAgentMessage');
+    if (fixture && !message.value.trim()) message.value = fixturePrompt;
+    if (!fixture && message.value === fixturePrompt) message.value = '';
+    renderControls();
   }
   function renderConfig() {
     const ready = config?.ready === true;
@@ -96,16 +132,27 @@
     order.replaceChildren();
     for (const item of config?.orders || []) order.add(new Option(item.label || item.id, item.id));
     if ([...order.options].some(option => option.value === previous)) order.value = previous;
+    else if ([...order.options].some(option => option.value === 'factory:workspace')) order.value = 'factory:workspace';
+    const capabilities = byId('factoryAgentCapabilities');
+    capabilities.replaceChildren();
+    for (const value of Array.isArray(config?.capabilities) ? config.capabilities : []) {
+      if (typeof value !== 'string') continue;
+      const item = document.createElement('li'); item.textContent = value; capabilities.append(item);
+    }
+    capabilities.hidden = !capabilities.childElementCount || order.value === fixtureId;
     const limits = config?.limits || {};
     byId('factoryAgentLimits').textContent = [
       limits.runtime_seconds ? `Runtime limit: ${limits.runtime_seconds} seconds.` : '',
       limits.max_concurrency ? `Maximum ${limits.max_concurrency} concurrent session${limits.max_concurrency === 1 ? '' : 's'}.` : '',
     ].filter(Boolean).join(' ');
-    renderControls();
+    renderScope();
   }
   function clearPrivateState() {
     authEpoch += 1;
     appKey = ''; config = null; current = null; sessions = []; busy = false;
+    uncertainReviews.clear();
+    byId('factoryAgentMessage').value = '';
+    byId('factoryAgentContinue').checked = false;
     requests.forEach(controller => controller.abort());
     stopPolling();
     byId('factoryAgentWorkspace').hidden = true;
@@ -191,12 +238,73 @@
     byId('factoryAgentScreenshotEmpty').hidden = !!safeScreenshot;
     if (safeScreenshot) { if (image.getAttribute('src') !== screenshot) image.src = screenshot; }
     else image.removeAttribute('src');
+    renderProposals();
     renderControls();
+  }
+  function renderProposals() {
+    const container = byId('factoryAgentProposals');
+    const proposals = Array.isArray(current?.proposals) ? current.proposals : [];
+    const signature = JSON.stringify(proposals);
+    if (container.dataset.signature !== signature) {
+      container.replaceChildren();
+      for (const proposal of proposals) {
+        const card = document.createElement('article'); card.className = 'factory-agent-proposal';
+        const title = document.createElement('h4'); title.textContent = proposal.title || 'Proposed change'; card.append(title);
+        const badge = document.createElement('span'); badge.className = 'factory-agent-badge';
+        badge.dataset.status = proposal.status === 'accepted' ? 'completed' : '';
+        badge.textContent = proposal.status === 'accepted' ? 'Plan accepted · No changes applied' : proposal.status === 'rejected' ? 'Dismissed · No changes applied' : 'Awaiting review';
+        card.append(badge);
+        const summary = document.createElement('p'); summary.textContent = proposal.summary || ''; card.append(summary);
+        const source = document.createElement('p'); source.className = 'muted small';
+        source.textContent = proposal.order_id ? `Order: ${proposal.order_id}` : ''; card.append(source);
+        if (proposal.source_version) {
+          const reference = document.createElement('details'); reference.className = 'factory-agent-source-reference';
+          const label = document.createElement('summary'); label.textContent = 'Source reference'; reference.append(label);
+          const version = document.createElement('p'); version.textContent = proposal.source_version; reference.append(version); card.append(reference);
+        }
+        if (Array.isArray(proposal.changes)) {
+          for (const change of proposal.changes) {
+            const block = document.createElement('div'); block.className = 'factory-agent-change';
+            const field = document.createElement('strong');
+            const fieldNames = {width_mm: 'Width (mm)', height_mm: 'Height (mm)', quantity: 'Quantity', glass_type: 'Glass type', position: 'Position', index: 'Index', row_notes: 'Row notes', order_number: 'Order number', client_name: 'Client', notes: 'Notes'};
+            const sourceField = String(change?.field || 'Change');
+            const rowField = /^rows\[(\d+)\]\.(.+)$/.exec(sourceField);
+            field.textContent = rowField ? `Row ${Number(rowField[1]) + 1} · ${fieldNames[rowField[2]] || rowField[2]}` : fieldNames[sourceField] || sourceField;
+            field.title = sourceField; block.append(field);
+            const values = document.createElement('dl'); values.className = 'factory-agent-change-values';
+            for (const [key, label] of [['before', 'Before'], ['after', 'Proposed']]) {
+              const pair = document.createElement('div'), term = document.createElement('dt'), value = document.createElement('dd');
+              term.textContent = label;
+              const raw = change?.[key];
+              value.textContent = raw == null ? 'Not set' : typeof raw === 'object' ? JSON.stringify(raw, null, 2) : raw === '' ? 'Empty' : String(raw);
+              pair.append(term, value); values.append(pair);
+            }
+            block.append(values);
+            if (change?.reason) { const reason = document.createElement('p'); reason.textContent = change.reason; block.append(reason); }
+            card.append(block);
+          }
+        } else {
+          const changes = document.createElement('pre'); changes.textContent = typeof proposal.changes === 'string' ? proposal.changes : JSON.stringify(proposal.changes ?? [], null, 2); card.append(changes);
+        }
+        if (proposal.status === 'pending' && typeof proposal.id === 'string') {
+          const actions = document.createElement('div'); actions.className = 'factory-agent-actions';
+          for (const [decision, label] of [['accepted', 'Accept plan'], ['rejected', 'Dismiss']]) {
+            const button = document.createElement('button'); button.type = 'button'; button.className = decision === 'accepted' ? 'btn primary' : 'btn tertiary';
+            button.textContent = label; button.dataset.factoryProposal = proposal.id; button.dataset.factoryDecision = decision; actions.append(button);
+          }
+          card.append(actions);
+        }
+        container.append(card);
+      }
+      container.dataset.signature = signature;
+    }
+    byId('factoryAgentProposalsEmpty').hidden = proposals.length > 0;
   }
   function acceptSession(session) {
     if (!session || typeof session.id !== 'string' || !session.id || typeof session.status !== 'string') {
       throw new Error('The backend returned an incomplete session. Reconnect to verify the task.');
     }
+    if (current?.id !== session.id) byId('factoryAgentContinue').checked = false;
     current = session;
     selectedId = session.id;
     if (pendingRequest && session.request_id === pendingRequest) pendingRequest = '';
@@ -218,7 +326,7 @@
         const recovered = pendingRequest && sessions.find(session => session.request_id === pendingRequest);
         if (recovered) { selectedId = recovered.id; pendingRequest = ''; persist(); }
         const selected = sessions.find(session => session.id === selectedId) || sessions.find(hasWorkspace) || sessions[0];
-        if (selected) acceptSession(await api(`/sessions/${encodeURIComponent(selected.id)}`));
+        if (selected) { acceptSession(await api(`/sessions/${encodeURIComponent(selected.id)}`)); uncertainReviews.clear(); }
         else { current = null; selectedId = ''; renderSession(); }
         byId('factoryAgentConnection').textContent = 'Connected · session state checked';
         if (!pendingRequest) notice();
@@ -257,16 +365,19 @@
     if (byId('factoryAgentStart').disabled) return;
     const message = byId('factoryAgentMessage').value.trim();
     if (!message) return;
+    const contextSessionId = byId('factoryAgentContinue').checked && canContinue() ? current.id : null;
     busy = true; stopPolling(); renderControls(); notice();
     try {
       // Recheck the server before starting, including after a restored browser tab.
       if (!(await refresh(false))) throw new Error('Session recovery could not be verified. Reconnect before starting a task.');
       if (sessions.some(hasWorkspace) || pendingRequest) return;
+      if (contextSessionId && (current?.id !== contextSessionId || !canContinue())) throw new Error('The selected conversation is no longer available. Refresh and review the task before sending.');
       if (!window.crypto?.randomUUID) throw new Error('A secure browser context is required to start a task.');
       pendingRequest = crypto.randomUUID();
       try { persist(); } catch { pendingRequest = ''; throw new Error('Browser session storage is unavailable. Enable storage before starting a task.'); }
       const session = await api('/sessions', {method: 'POST', body: JSON.stringify({
         request_id: pendingRequest, order_id: byId('factoryAgentOrder').value, message,
+        ...(contextSessionId ? {context_session_id: contextSessionId} : {}),
       })});
       acceptSession(session);
       pendingRequest = '';
@@ -297,9 +408,39 @@
     finally { busy = false; renderSession(); schedulePoll(); }
   });
   byId('factoryAgentSessionPicker').addEventListener('change', async event => {
+    byId('factoryAgentContinue').checked = false;
     selectedId = event.target.value;
     try { persist(); } catch {}
     await refresh(false);
+  });
+  byId('factoryAgentOrder').addEventListener('change', () => {
+    byId('factoryAgentContinue').checked = false;
+    byId('factoryAgentCapabilities').hidden = !byId('factoryAgentCapabilities').childElementCount || byId('factoryAgentOrder').value === fixtureId;
+    renderScope();
+  });
+  panel.querySelectorAll('[data-factory-example]').forEach(button => button.addEventListener('click', () => {
+    if (button.disabled) return;
+    byId('factoryAgentMessage').value = examples[button.dataset.factoryExample] || '';
+    byId('factoryAgentMessage').focus();
+  }));
+  byId('factoryAgentOpenOrders').addEventListener('click', () => { if (typeof activateTab === 'function') activateTab('history'); });
+  byId('factoryAgentProposals').addEventListener('click', async event => {
+    const button = event.target.closest('[data-factory-proposal]');
+    if (!button || button.disabled || !canReview()) return;
+    const sessionId = current.id, proposalId = button.dataset.factoryProposal;
+    const decision = button.dataset.factoryDecision;
+    if (!['accepted', 'rejected'].includes(decision)) return;
+    busy = true; stopPolling(); renderControls(); notice();
+    uncertainReviews.add(proposalId);
+    try {
+      await api(`/sessions/${encodeURIComponent(sessionId)}/proposals/${encodeURIComponent(proposalId)}/review`, {method: 'POST', body: JSON.stringify({decision})});
+      acceptSession(await api(`/sessions/${encodeURIComponent(sessionId)}`));
+      if (!current?.proposals?.some(proposal => proposal.id === proposalId && proposal.status === decision)) throw new Error('The saved review status does not yet confirm this decision.');
+      uncertainReviews.delete(proposalId);
+      notice(decision === 'accepted' ? 'Plan accepted for review. No production changes were applied.' : 'Plan dismissed. No production changes were applied.');
+    } catch (error) {
+      if (appKey && !showAccessError(error) && !showSetupError(error)) notice(`Plan review was not confirmed. Refresh to check its saved status. ${error.message}`);
+    } finally { busy = false; renderControls(); schedulePoll(); }
   });
   byId('factoryAgentReconnect').addEventListener('click', () => void refresh());
   byId('factoryAgentCheckSetup').addEventListener('click', () => appKey ? void refresh() : void preflightSetup());

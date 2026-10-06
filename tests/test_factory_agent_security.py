@@ -139,8 +139,8 @@ def test_configuration_reports_missing_credential_without_exposing_auth_key(prot
     assert body["state"] == "setup_required"
     assert body["ready"] is False
     assert body["missing"] == ["OPENAI_API_KEY"]
-    assert body["mode"] == "fixture"
-    assert [order["id"] for order in body["orders"]] == [FIXTURE_ORDER_ID]
+    assert body["mode"] == "inspect_and_prepare"
+    assert [order["id"] for order in body["orders"]] == ["factory:workspace", FIXTURE_ORDER_ID]
     assert KEY not in response.text
 
 

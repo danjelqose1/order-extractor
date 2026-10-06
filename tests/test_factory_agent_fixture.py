@@ -5,6 +5,10 @@ import copy
 import http.client
 import importlib.util
 import json
+import os
+import signal
+import socket
+import subprocess
 import sys
 import threading
 from http.server import ThreadingHTTPServer
@@ -112,6 +116,96 @@ def test_remote_package_matches_reviewed_assets_and_contains_no_environment_valu
     assert "get_selected_order" in workflow
     assert "untrusted data" in workflow
     assert fixture.FIXTURE_BROWSER_URL in workflow
+    assert fixture.fixture_start_command() in workflow
+    assert fixture.environment_setup_commands() == []
+
+
+def _startup_command_for_test(directory, port):
+    # Only isolated test copies change path/port; the delivered command is fixed.
+    return fixture.fixture_start_command().replace(
+        'Path("/workspace/factory-agent")', f"Path({json.dumps(str(directory))})"
+    ).replace("port = 8765", f"port = {port}")
+
+
+def _run_startup(command):
+    return subprocess.run(
+        ["/bin/sh", "-c", command], capture_output=True, text=True, timeout=10,
+        env={"PATH": str(Path(sys.executable).parent) + os.pathsep + "/usr/bin:/bin"},
+    )
+
+
+def test_packaged_first_turn_startup_reuses_server_and_preserves_readonly_boundary(tmp_path):
+    with socket.socket() as available:
+        available.bind(("127.0.0.1", 0))
+        port = available.getsockname()[1]
+    server_source = (fixture.ASSET_DIRECTORY / "fixture_server.py").read_text()
+    (tmp_path / "fixture_server.py").write_text(server_source.replace("PORT = 8765", f"PORT = {port}"))
+    (tmp_path / "order.json").write_bytes((fixture.ASSET_DIRECTORY / "order.json").read_bytes())
+    command = _startup_command_for_test(tmp_path, port)
+    process_id = None
+    try:
+        started = _run_startup(command)
+        assert started.returncode == 0, started.stderr
+        result = json.loads(started.stdout)
+        process_id = result["pid"]
+        assert result["fixture_server"] == "ready" and result["reused"] is False
+        assert result["health"] == {"status": "ok", "fixture": True, "read_only": True}
+        reused = _run_startup(command)
+        assert reused.returncode == 0, reused.stderr
+        assert json.loads(reused.stdout) == {"fixture_server": "ready", "reused": True, "health": result["health"]}
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
+        try:
+            connection.request("GET", "/order.json")
+            response = connection.getresponse()
+            assert response.status == 200
+            assert json.loads(response.read()) == fixture.load_order(fixture.FIXTURE_ORDER_ID)
+            connection.request("POST", "/order.json", body=b'{"quantity":"0"}')
+            denied = connection.getresponse()
+            assert denied.status == 405 and denied.getheader("Allow") == "GET, HEAD"
+            denied.read()
+        finally:
+            connection.close()
+    finally:
+        if process_id:
+            os.kill(process_id, signal.SIGTERM)
+
+
+def test_packaged_startup_reports_actual_process_failure(tmp_path):
+    with socket.socket() as available:
+        available.bind(("127.0.0.1", 0))
+        port = available.getsockname()[1]
+    (tmp_path / "fixture_server.py").write_text('raise RuntimeError("isolated startup failure")\n')
+    failed = _run_startup(_startup_command_for_test(tmp_path, port))
+    assert failed.returncode != 0
+    assert not failed.stdout
+    assert "isolated startup failure" in failed.stderr
+    assert "Fixture server exited before becoming healthy" in failed.stderr
+
+
+def test_packaged_startup_refuses_unknown_service_without_launching_server(tmp_path):
+    from http.server import BaseHTTPRequestHandler
+
+    class Unexpected(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b'{"status":"ok","fixture":false}')
+
+        def log_message(self, *_):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Unexpected)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        failed = _run_startup(_startup_command_for_test(tmp_path, server.server_port))
+        assert failed.returncode != 0
+        assert "Unexpected service on the fixture port" in failed.stderr
+        assert not (tmp_path / "fixture-server.log").exists()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
 
 
 def test_readonly_browser_matches_tool_source_and_csp(fixture_server):

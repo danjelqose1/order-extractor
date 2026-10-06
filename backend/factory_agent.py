@@ -1,7 +1,7 @@
-"""Isolated Factory Agent control plane. No production database/tools are imported.
+"""Isolated Factory Agent control plane with an explicit read-only tool facade.
 
 OpenAI owns all browser compute. This process only authenticates operators,
-persists control state and services the explicitly read-only fixture function.
+persists control state and services read-only reads and non-executing proposals.
 """
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from factory_agent_fixture import (
     FIXTURE_BROWSER_URL, FIXTURE_ORDER_ID, READ_TOOL, call_read_tool,
-    environment_files, environment_setup_commands, load_order, workflow_instructions,
+    environment_files, load_order, workflow_instructions,
 )
 from factory_agent_provider import FactoryAgentProvider, ProviderError
 
@@ -36,6 +36,7 @@ TERMINAL = frozenset({"completed", "failed", "cancelled", "timed_out", "setup_re
 MAX_SCREENSHOT = 3_000_000
 MAX_RECORDS = 1000
 MAX_RETAINED_RESULTS = 20
+WORKSPACE_ID = "factory:workspace"
 
 
 def enabled():
@@ -73,8 +74,14 @@ def bounded_env(name, default, low, high):
 class StartTask(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     request_id: uuid.UUID
-    order_id: Literal["fixture:factory-agent-001"]
+    order_id: Literal["fixture:factory-agent-001", "factory:workspace"]
     message: str = Field(min_length=1, max_length=4000)
+    context_session_id: uuid.UUID | None = None
+
+
+class ReviewProposal(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    decision: Literal["accepted", "rejected"]
 
 
 class StateStore:
@@ -112,7 +119,7 @@ class StateStore:
                         "result_text", "screenshot", "error", "cleanup_status", "stop_requested", "timeout_requested",
                         "input_attempted", "handled_actions", "retired"}
             if (not isinstance(row, dict) or row.get("id") != identity or not required.issubset(row)
-                    or row["order_id"] != FIXTURE_ORDER_ID or not isinstance(row["owner"], str)
+                    or row["order_id"] not in {FIXTURE_ORDER_ID, WORKSPACE_ID} or not isinstance(row["owner"], str)
                     or not isinstance(row["activity"], list) or not isinstance(row["handled_actions"], list)
                     or row["status"] not in TERMINAL | {"creating", "running", "stopping", "cleanup_required"}
                     or row["cleanup_status"] not in {"pending", "required", "deleted"}
@@ -135,11 +142,12 @@ class StateStore:
 
 
 class FactoryAgentService:
-    def __init__(self, app_key_getter, *, provider_factory=None, directory=None, poll_seconds=2):
+    def __init__(self, app_key_getter, *, provider_factory=None, directory=None, poll_seconds=2, tool_factory=None):
         self.app_key_getter = lambda: resolve_access_key(app_key_getter())
         self.provider_factory = provider_factory or (lambda: FactoryAgentProvider(os.getenv("OPENAI_API_KEY", ""), os.getenv("OPENAI_PROJECT_ID") or None))
         self.directory = directory
         self.poll_seconds = poll_seconds
+        self.tool_factory = tool_factory
         self.store = None
         self.provider = None
         self.records = {}
@@ -161,8 +169,11 @@ class FactoryAgentService:
         order = load_order(FIXTURE_ORDER_ID)
         return {"enabled": enabled(), "ready": enabled() and not missing,
                 "state": "setup_required" if missing else "ready", "missing": missing,
-                "error": self.start_error, "mode": "fixture", "auth": "app_key",
-                "orders": [{"id": FIXTURE_ORDER_ID, "label": order["order_number"] + " · isolated fixture"}],
+                "error": self.start_error, "mode": "inspect_and_prepare", "auth": "app_key",
+                "orders": [{"id": WORKSPACE_ID, "label": "Factory workspace · inspect and prepare"},
+                           {"id": FIXTURE_ORDER_ID, "label": order["order_number"] + " · isolated fixture"}],
+                "capabilities": ["Search and inspect saved orders", "Compare orders and summarize factory data",
+                                 "Prepare manual-draft changes for review", "Answer general questions and continue a conversation"],
                 "limits": {"runtime_seconds": bounded_env("FACTORY_AGENT_RUNTIME_SECONDS", 180, 30, 600),
                            "max_concurrency": bounded_env("FACTORY_AGENT_MAX_CONCURRENCY", 1, 1, 2)},
                 "required_permissions": ["api.agents.read", "api.agents.write", "api.responses.write"]}
@@ -199,7 +210,7 @@ class FactoryAgentService:
             return {key: row.get(key) for key in ("id", "request_id", "order_id", "created_at", "deadline_at", "status", "cleanup_status", "error", "retired")}
         keys = ("id", "request_id", "order_id", "message", "created_at", "deadline_at", "status",
                 "activity", "result_text", "screenshot", "error", "remote_session_id", "turn_id",
-                "cleanup_status", "retired")
+                "cleanup_status", "retired", "proposals", "context_session_id")
         return {key: row.get(key) for key in keys}
 
     def owned(self, session_id, owner):
@@ -226,13 +237,24 @@ class FactoryAgentService:
         config = self.configuration()
         if not config["ready"] or not self.store:
             raise HTTPException(503, {"code": "setup_required", "missing": config["missing"], "message": config["error"] or "Configure the server before starting Factory Agent."})
-        digest = hashlib.sha256(json.dumps({"order_id": payload.order_id, "message": payload.message}, sort_keys=True).encode()).hexdigest()
+        identity = {"order_id": payload.order_id, "message": payload.message}
+        if payload.context_session_id:
+            identity["context_session_id"] = str(payload.context_session_id)
+        digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
         async with self.lock:
             for row in self.records.values():
                 if row["owner"] == owner and row["request_id"] == str(payload.request_id):
                     if row["input_hash"] != digest:
                         raise HTTPException(409, "This request ID already belongs to a different task.")
                     return self.public(row)
+            context = []
+            if payload.context_session_id:
+                prior = self.owned(str(payload.context_session_id), owner)
+                if (prior["retired"] or prior["status"] not in TERMINAL or prior["cleanup_status"] != "deleted"
+                        or prior["order_id"] != payload.order_id):
+                    raise HTTPException(409, "Continue only a finished, retained conversation in the same workspace.")
+                context = (prior.get("conversation", []) + [{"role": "user", "text": prior["message"]},
+                           {"role": "assistant", "text": prior["result_text"][:12000]}])[-6:]
             # Unknown remote outcomes reserve a slot until explicitly cleaned up.
             occupied = sum(r["cleanup_status"] != "deleted" for r in self.records.values())
             if occupied >= config["limits"]["max_concurrency"]:
@@ -249,20 +271,68 @@ class FactoryAgentService:
                        status="creating", phase="reserved", remote_session_id=None, turn_id=None,
                        activity=[], result_text="", screenshot=None, error=None, cleanup_status="pending",
                        stop_requested=False, timeout_requested=False, input_attempted=False,
-                       handled_actions=[], retired=False)
+                       handled_actions=[], retired=False, proposals=[], conversation=context,
+                       context_session_id=str(payload.context_session_id) if payload.context_session_id else None)
             self.save(row)
             self.records[row["id"]] = row
             self.spawn(row)
             return self.public(row)
 
     def session_payload(self, row):
+        if row.get("order_id", FIXTURE_ORDER_ID) == WORKSPACE_ID:
+            # Application tools carry bounded data; the sandbox has no DB/network credentials.
+            return {"agent": {"model": os.getenv("FACTORY_AGENT_MODEL") or "gpt-6.1-sol",
+                              "instructions": self.workspace_instructions(), "multi_agent": {"enabled": False},
+                              "tools": [{"type": "computer_use", "include_screenshots": True}, *self.workspace_tools().tool_definitions()]},
+                    "environment": {"type": "openai_hosted", "desktop": {"enabled": True}, "network": {"access": "disabled"}},
+                    "metadata": {"factory_agent_request_id": row["id"], "application": "order-extractor-factory-beta"}}
         return {"agent": {"model": os.getenv("FACTORY_AGENT_MODEL") or "gpt-6.1-sol",
                           "instructions": workflow_instructions(), "multi_agent": {"enabled": False},
                           "tools": [{"type": "computer_use", "include_screenshots": True}, READ_TOOL]},
                 "environment": {"type": "openai_hosted", "desktop": {"enabled": True},
-                                "network": {"access": "disabled"}, "files": environment_files(),
-                                "setup_commands": environment_setup_commands()},
+                                "network": {"access": "disabled"}, "files": environment_files()},
                 "metadata": {"factory_agent_request_id": row["id"], "application": "order-extractor-factory-beta"}}
+
+    def workspace_tools(self):
+        if self.tool_factory:
+            return self.tool_factory()
+        from factory_agent_tools import FactoryAgentTools
+        return FactoryAgentTools()
+
+    @staticmethod
+    def workspace_instructions():
+        return (Path(__file__).with_name("factory_agent_assets") / "WORKSPACE_SKILL.md").read_text(encoding="utf-8")
+
+    def task_message(self, row):
+        if row["order_id"] == FIXTURE_ORDER_ID:
+            return ("Read only the selected synthetic order " + FIXTURE_ORDER_ID + ". "
+                    "Verify it in the browser at " + FIXTURE_BROWSER_URL + " and with get_selected_order. "
+                    "Report client, glass types, all dimensions/units, quantities, index numbers and positions; flag ambiguity. "
+                    "Operator request (subject to the packaged read-only workflow):\n" + row["message"])
+        previous = json.dumps(row.get("conversation", []), ensure_ascii=False)
+        return ("Saved conversation context (historical, not fresh factory evidence; refresh tools for current values):\n"
+                + previous + "\nCurrent operator request:\n" + row["message"])
+
+    async def review_proposal(self, row, proposal_id, decision):
+        async with self.lock:
+            if row["retired"] or row["status"] not in TERMINAL or row["cleanup_status"] != "deleted":
+                raise HTTPException(409, "Wait for the task and workspace cleanup before reviewing a plan.")
+            proposal = next((p for p in row.get("proposals", []) if p["id"] == proposal_id), None)
+            if proposal is None:
+                raise HTTPException(404, "Proposal not found.")
+            if proposal["status"] == decision:
+                return self.public(row)
+            if proposal["status"] != "pending":
+                raise HTTPException(409, "This proposal has already been reviewed.")
+            if decision == "accepted":
+                # Review never invokes a mutation; stale source plans cannot be accepted.
+                current = await asyncio.to_thread(self.workspace_tools().call_tool, "get_order", {"order_id": proposal["order_id"]})
+                if current.get("version") != proposal["source_version"]:
+                    raise HTTPException(409, "The order changed. Ask the agent to prepare a fresh proposal.")
+            proposal.update(status=decision, reviewed_at=iso(time.time()), applied=False)
+            self.activity(row, "proposal-review:" + proposal_id, "Plan " + decision + "; no factory data changed.")
+            self.save(row)
+            return self.public(row)
 
     def safe_diagnostic(self, value):
         """Keep provider failure text useful without persisting server credentials."""
@@ -403,10 +473,7 @@ class FactoryAgentService:
                             # Never automatically repeat a message after an unknown delivery.
                             row.update(input_attempted=True, phase="input_attempted", status="running")
                             self.save(row)
-                            task = ("Read only the selected synthetic order " + FIXTURE_ORDER_ID + ". "
-                                    "Verify it in the browser at " + FIXTURE_BROWSER_URL + " and with get_selected_order. "
-                                    "Report client, glass types, all dimensions/units, quantities, index numbers and positions; flag ambiguity. "
-                                    "Operator request (subject to the packaged read-only workflow):\n" + row["message"])
+                            task = self.task_message(row)
                             await self.provider.send_events(row["remote_session_id"], [{"type": "agent.session.input.message", "input": [{"role": "user", "content": [{"type": "input_text", "text": task}]}]}], idempotency_key=row["id"])
                             self.activity(row, "input-accepted", "OpenAI accepted the task.")
                     if row["input_attempted"]:
@@ -429,6 +496,11 @@ class FactoryAgentService:
                                     row["error"] = "The agent turn failed. Any partial result remains visible."
                                 elif outcome == "completed" and not row["result_text"]:
                                     row["error"] = "The turn completed without a saved text result. No order-reading success has been verified."
+                                elif outcome == "completed" and row["order_id"] == FIXTURE_ORDER_ID and not (
+                                    any(a.get("type") == "computer_use_call" and a.get("status") == "completed" for a in row["activity"])
+                                    and any(a.get("title") == "Read-only tool: get_selected_order returned the fixture." for a in row["activity"])
+                                ):
+                                    row["error"] = "The agent finished, but the fixture acceptance test lacks completed browser and read-tool evidence. Review the report; browser verification is not confirmed."
                                 else:
                                     row["error"] = None
                                 self.save(row)
@@ -465,7 +537,15 @@ class FactoryAgentService:
             if item.get("turn_id") != row["turn_id"]:
                 continue
             kind = item.get("type")
-            if kind == "computer_use_call":
+            if kind == "command_execution":
+                title = "Hosted command"
+                if type(item.get("exit_code")) is int:
+                    title += " · exit " + str(item["exit_code"])
+                output = self.safe_diagnostic(item.get("output"))
+                if output:
+                    title += ": " + output[:1000]
+                self.activity(row, item.get("id", "command"), title, item.get("status", "unknown"), kind)
+            elif kind == "computer_use_call":
                 self.activity(row, item.get("id", "browser"), item.get("title") or "Browser activity", item.get("status", "unknown"), kind)
                 output = item.get("output")
                 for part in output if isinstance(output, list) else [output]:
@@ -493,15 +573,36 @@ class FactoryAgentService:
             if kind == "function_call":
                 event = {"type": "agent.session.input.tool_result", "turn_id": action["turn_id"], "call_id": action["call_id"]}
                 try:
-                    result = call_read_tool(action.get("name"), action.get("arguments"), row["order_id"])
+                    if row["order_id"] == FIXTURE_ORDER_ID:
+                        result = call_read_tool(action.get("name"), action.get("arguments"), row["order_id"])
+                    else:
+                        name = action.get("name")
+                        proposal_id = str(uuid.uuid5(uuid.UUID(row["id"]), str(identity)))
+                        saved = next((p for p in row.get("proposals", []) if p["id"] == proposal_id), None)
+                        if name == "prepare_change" and saved:
+                            result = {"proposal": saved}
+                        else:
+                            if name == "prepare_change" and len(row.get("proposals", [])) >= 5:
+                                raise ValueError("At most five proposals can be prepared per task.")
+                            result = await asyncio.to_thread(self.workspace_tools().call_tool, name, action.get("arguments"))
+                            if name == "prepare_change" and isinstance(result.get("proposal"), dict):
+                                proposal = result["proposal"]
+                                proposal.update(id=proposal_id, status="pending", applied=False)
+                                row.setdefault("proposals", []).append(proposal)
+                                self.save(row)  # Lost tool acknowledgement cannot duplicate a proposal.
                     event.update(success=True, output=json.dumps(result, ensure_ascii=False))
-                except ValueError:
-                    event.update(success=False, error="Denied: only get_selected_order({}) for the selected fixture is available.")
-                title = "Read-only tool: " + str(action.get("name", "unknown")) + (" returned the fixture." if event["success"] else " denied.")
+                except ValueError as exc:
+                    message = ("Denied: only get_selected_order({}) for the selected fixture is available."
+                               if row["order_id"] == FIXTURE_ORDER_ID else self.safe_diagnostic(str(exc)))
+                    event.update(success=False, error=message or "The requested read or proposal could not be completed.")
+                if row["order_id"] == FIXTURE_ORDER_ID:
+                    title = "Read-only tool: " + str(action.get("name", "unknown")) + (" returned the fixture." if event["success"] else " denied.")
+                else:
+                    title = "Tool: " + str(action.get("name", "unknown")) + (" completed." if event["success"] else " denied.")
             elif kind == "computer_use_approval_request":
                 request = action.get("request") or {}
                 if request.get("type") == "browser_origin_access":
-                    approved = request.get("origin") == "http://127.0.0.1:8765"
+                    approved = row["order_id"] == FIXTURE_ORDER_ID and request.get("origin") == "http://127.0.0.1:8765"
                     response = {"type": "browser_origin_access", "decision": "approve" if approved else "deny"}
                     title = "Browser access " + ("approved for the isolated fixture." if approved else "denied: origin is outside the isolated fixture.")
                 elif request.get("type") == "browser_authentication":
@@ -582,7 +683,8 @@ class FactoryAgentService:
         return {"deleted": True, "id": row["id"]}
 
     def retire(self, row):
-        row.update(retired=True, message="", result_text="", screenshot=None, activity=[], error=None)
+        row.update(retired=True, message="", result_text="", screenshot=None, activity=[], error=None,
+                   proposals=[], conversation=[])
         self.save(row)
 
     def prune(self):
@@ -705,6 +807,13 @@ def install_factory_agent(app: FastAPI, app_key_getter, origins_getter):
     @router.post("/sessions/{session_id}/stop")
     async def stop(session_id: uuid.UUID, owner=Depends(authorized)):
         return await service.stop(service.owned(str(session_id), owner))
+
+    @router.post("/sessions/{session_id}/proposals/{proposal_id}/review")
+    async def review(session_id: uuid.UUID, proposal_id: uuid.UUID, payload: ReviewProposal, owner=Depends(authorized)):
+        try:
+            return await service.review_proposal(service.owned(str(session_id), owner), str(proposal_id), payload.decision)
+        except ValueError as exc:
+            raise HTTPException(409, service.safe_diagnostic(str(exc)) or "This plan cannot be reviewed; refresh its source.") from None
 
     @router.delete("/sessions/{session_id}")
     async def remove(session_id: uuid.UUID, owner=Depends(authorized)):
