@@ -35,6 +35,11 @@ class FakeProvider:
         self.on_input = None
         self.on_cancel = None
         self.on_turns = None
+        self.diagnostics = []
+
+    async def read_failure_diagnostics(self, session_id):
+        self.calls.append(("diagnostics", session_id))
+        return self.diagnostics
 
     async def create_session(self, payload):
         self.calls.append(("create", copy.deepcopy(payload)))
@@ -129,9 +134,84 @@ def test_complete_reads_canonical_items_and_deletes_hosted_session(tmp_path):
             assert payload["environment"]["network"] == {"access": "disabled"}
             assert payload["environment"]["desktop"] == {"enabled": True}
             assert payload["agent"]["multi_agent"] == {"enabled": False}
+            assert payload["agent"]["model"] == "gpt-6.1-sol"
         finally:
             await svc.close()
     asyncio.run(scenario())
+
+
+def test_failed_setup_preserves_redacted_diagnostics_before_deletion(tmp_path):
+    async def scenario():
+        fake = FakeProvider()
+        fake.session.update(status="failed", error="Setup failed: synthetic-test-key local-test-auth")
+        fake.diagnostics = [{"source": "error", "code": "setup_error", "message": "Listener did not start. sk-project-othersecret Bearer opaque-credential"}]
+        svc = service(tmp_path, fake)
+        try:
+            row = await reserve(svc)
+            await svc.run(row)
+            assert row["status"] == "failed"
+            assert row["cleanup_status"] == "deleted"
+            assert "setup_error" in row["error"]
+            assert "Listener did not start" in row["error"]
+            stored = repr(svc.store.load())
+            for secret in ("synthetic-test-key", "local-test-auth", "sk-project-othersecret", "opaque-credential"):
+                assert secret not in row["error"]
+                assert secret not in stored
+            operations = [call[0] for call in fake.calls]
+            assert operations.index("diagnostics") < operations.index("delete")
+            assert not fake.events("agent.session.input.message")
+        finally:
+            await svc.close()
+    asyncio.run(scenario())
+
+
+def test_failed_session_retains_saved_error_when_no_failure_events_return(tmp_path):
+    async def scenario():
+        fake = FakeProvider()
+        fake.session.update(status="failed", error="Provisioning service unavailable")
+        svc = service(tmp_path, fake)
+        try:
+            row = await reserve(svc)
+            await svc.run(row)
+            assert "Provisioning service unavailable" in row["error"]
+            assert row["cleanup_status"] == "deleted"
+            assert len([call for call in fake.calls if call[0] == "diagnostics"]) == 1
+        finally:
+            await svc.close()
+    asyncio.run(scenario())
+
+
+def test_environment_failure_collects_diagnostics_without_task_submission(tmp_path):
+    async def scenario():
+        fake = FakeProvider()
+        fake.environment["status"] = "failed"
+        fake.diagnostics = [{"source": "agent.session.environment.failed", "code": "setup_exit", "message": "Health check exited nonzero"}]
+        svc = service(tmp_path, fake)
+        try:
+            row = await reserve(svc)
+            await svc.run(row)
+            assert "Health check exited nonzero" in row["error"]
+            assert row["cleanup_status"] == "deleted"
+            assert not fake.events("agent.session.input.message")
+        finally:
+            await svc.close()
+    asyncio.run(scenario())
+
+
+def test_failure_text_is_bounded_and_model_override_is_preserved(tmp_path, monkeypatch):
+    monkeypatch.setenv("FACTORY_AGENT_MODEL", "gpt-6-luna")
+    svc = service(tmp_path, FakeProvider())
+    assert len(svc.safe_diagnostic("x" * 20000)) == 2000
+    assert svc.safe_diagnostic({"unexpected": "object"}) == ""
+    assert svc.session_payload({"id": "local-test"})["agent"]["model"] == "gpt-6-luna"
+
+
+def test_long_operator_secret_is_removed_before_display_cap(tmp_path, monkeypatch):
+    secret = "operator-" + "q" * 4080
+    monkeypatch.setenv("FACTORY_AGENT_ACCESS_KEY", secret)
+    svc = service(tmp_path, FakeProvider())
+    text = svc.safe_diagnostic("Setup error " + secret + " listener failed")
+    assert text == "Setup error [redacted] listener failed"
 
 
 def test_lost_create_ack_reconciles_metadata_without_duplicate_create(tmp_path):

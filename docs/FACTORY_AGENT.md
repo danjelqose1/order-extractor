@@ -30,7 +30,7 @@ Server configuration (never frontend configuration or remote sandbox variables):
 | `FACTORY_AGENT_ACCESS_KEY` | Required only when `APP_KEY` is absent; separate random secret of 32–4096 printable non-space characters, never equal to `OPENAI_API_KEY`. Protects only the Beta |
 | `OPENAI_API_KEY` | Required existing server key with Agents API project access |
 | `OPENAI_PROJECT_ID` | Optional existing project ID; sent as `OpenAI-Project` |
-| `FACTORY_AGENT_MODEL` | `gpt-6-astra`, matching the verified quickstart; independent of extraction |
+| `FACTORY_AGENT_MODEL` | `gpt-6.1-sol`; independent of extraction. Listed in the Agents dashboard and chosen for lower cost |
 | `FACTORY_AGENT_RUNTIME_SECONDS` | 180; clamped to 30–600 seconds |
 | `FACTORY_AGENT_MAX_CONCURRENCY` | 1; clamped to 1–2 |
 | `FACTORY_AGENT_STATE_DIR` | Optional; defaults to `DB_DIR/factory-agent` |
@@ -40,6 +40,13 @@ The API key needs **`api.agents.read`, `api.agents.write`, and
 `api.responses.write`**. Project/model access and adequate API/container quota
 must also be available. The Platform dashboard being visible does not establish
 these permissions for the server's key. Never paste API keys into the chat UI.
+
+The Beta defaults to GPT-6.1 Sol. At the standard short-context rates verified
+on 2026-10-06, Sol costs $2 input / $10 output per million tokens, compared with
+Astra's $10 / $50: 80% lower token rates. Hosted environment charges are separate.
+[Official pricing](https://developers.openai.com/api/docs/pricing) and
+[Sol capabilities](https://developers.openai.com/api/docs/models/gpt-6.1-sol).
+Changing the model affects new sessions only; it does not restart old tasks.
 
 Reuse the existing backend environment and credentials. If credentials are only
 configured on Render, leave them there; local checks show setup required until
@@ -174,6 +181,12 @@ attempts. Retry Stop/Close workspace for unresolved cleanup; use the remote ID i
 the Agents dashboard if permissions or provider availability prevent recovery.
 Never remove the journal to bypass an unresolved remote task.
 
+Failed setup/session diagnostics are saved before deletion: the session's
+documented `error` text plus one best-effort reconnect to its failure-event
+stream (5 seconds, 64 KiB, 16 events maximum). Only failure fields are retained;
+server keys are redacted and display text is bounded. A diagnostic fetch failure
+does not prevent cleanup or cause another task submission.
+
 Closing a browser tab does not cancel work. Server restart reloads the journal,
 recovers original remote IDs/turns, honors the original deadline, and never
 submits an input twice. Shutdown requests cancellation and attempts cleanup;
@@ -227,7 +240,7 @@ or fake-success mode. Local tests do not prove hosted account access.
 
 ### Local validation — 2026-10-06
 
-* **303 Python tests passed** after merging the latest main changes, across the Factory Agent tests, existing app smoke,
+* **324 Python tests passed** after the Sol/diagnostics follow-up, across the Factory Agent tests, existing app smoke,
   frontend navigation/theme/security, dashboard, production sheet learning/rendering, and production voice regression
   tests. Existing FastAPI/ReportLab deprecation warnings remain.
 * Chromium and WebKit passed feature-off, missing-key setup, authentication,
@@ -264,6 +277,16 @@ Chromium/WebKit browsers (or the Codex bundled runtime). This is test tooling;
 do not add it to the Render runtime. This change leaves all production dependency
 pins and deployment commands unchanged.
 
+## First deployed account check — 2026-10-06
+
+The existing Render key successfully created an actual hosted Agents API session
+with Astra. The environment stayed pending, then the session failed before any
+input or model turn. Remote deletion was confirmed; no report/browser success
+was claimed. The dashboard could not load its failure details after cleanup.
+That finding prompted the bounded diagnostic retention above. Sol is the new
+cost-conscious default and is listed in the account's Agents model selector;
+an actual successful browser run is still required to establish acceptance.
+
 ## Official contract sources (verified 2026-10-06)
 
 * [Agents API quickstart](https://developers.openai.com/api/docs/guides/agents-api/quickstart)
@@ -272,3 +295,4 @@ pins and deployment commands unchanged.
 * [Session input, cancellation, and idempotency](https://developers.openai.com/api/docs/guides/agents-api/sessions)
 * [Saved events, items, turns, and reconnect](https://developers.openai.com/api/docs/guides/agents-api/sessions/events)
 * [Function result handling](https://developers.openai.com/api/docs/guides/agents-api/tools/functions)
+* [Saved failure diagnostics](https://developers.openai.com/api/docs/guides/agents-api/errors)

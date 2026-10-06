@@ -23,7 +23,11 @@ API_BASE = "https://api.openai.com/v1"
 MAX_RESPONSE_BYTES = 12 * 1024 * 1024
 MAX_LIST_PAGES = 20
 REQUEST_DEADLINE_SECONDS = 60
+FAILURE_DIAGNOSTIC_SECONDS = 5
+MAX_FAILURE_DIAGNOSTIC_BYTES = 64 * 1024
+MAX_FAILURE_DIAGNOSTIC_EVENTS = 16
 _RESOURCE_ID = re.compile(r"[A-Za-z0-9_-]{1,200}\Z")
+_SSE_LINE_END = re.compile(rb"\r\n|\r|\n")
 
 
 class ProviderError(Exception):
@@ -65,8 +69,42 @@ def _status_error(status: int, *, mutation: bool) -> ProviderError:
     return ProviderError(status, code, message, outcome_unknown=mutation and status >= 500)
 
 
+def _failure_diagnostic(event: Any, session_id: str, transport_key: str) -> dict[str, str] | None:
+    """Select failure text only; never retain prompts, tools, headers or auth forms."""
+    if not isinstance(event, dict):
+        return None
+    source = event.get("type")
+    if source == "agent.session.failed":
+        session = event.get("session")
+        if not isinstance(session, dict) or session.get("id") != session_id:
+            return None
+        error = {"message": session.get("error")}
+    elif source in ("error", "agent.session.environment.failed"):
+        if event.get("session_id") != session_id:
+            return None
+        container = event if source == "error" else event.get("environment")
+        error = container.get("error") if isinstance(container, dict) else None
+    else:
+        return None
+    if not isinstance(error, dict):
+        return None
+    result = {"source": source}
+    for name in ("code", "type"):
+        value = error.get(name)
+        if isinstance(value, str) and transport_key in value:
+            continue
+        if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", value):
+            result[name] = value
+    message = error.get("message")
+    if isinstance(message, str) and message.strip():
+        # Preserve the full bounded message and whitespace so the service can
+        # exactly redact its own secrets before normalizing or truncating text.
+        result["message"] = message.replace(transport_key, "[redacted]")
+    return result if len(result) > 1 else None
+
+
 class FactoryAgentProvider:
-    """Non-streaming transport; saved sessions/items/turns are canonical state.
+    """Saved sessions/items/turns are canonical state; SSE is diagnostic-only.
 
     Listing methods return the complete bounded list, not just the first page.
     Metadata filtering for lost-create reconciliation is done by the caller.
@@ -189,6 +227,72 @@ class FactoryAgentProvider:
 
     async def get_session(self, session_id: str) -> dict[str, Any]:
         return await self._request("GET", f"/agents/sessions/{_resource_id(session_id)}")
+
+    async def read_failure_diagnostics(self, session_id: str) -> list[dict[str, str]]:
+        """Read a failed session's saved SSE failure once, before deletion.
+
+        This never submits work or reconnects. Fetch/parsing failures cannot delay
+        cleanup beyond this short deadline, and caller cancellation propagates.
+        Only bounded failure fields are returned; the service must also redact
+        its own application secrets before persisting or displaying these fields.
+        See the documented failed-session reconnect behavior in sessions/events.
+        """
+        diagnostics: list[dict[str, str]] = []
+        buffer = bytearray()
+        data_lines: list[bytes] = []
+        events_seen = 0
+
+        def consume_lines(*, final: bool = False) -> bool:
+            nonlocal events_seen
+            while match := _SSE_LINE_END.search(buffer):
+                # A CRLF delimiter may be split across two transport chunks.
+                if not final and match.group() == b"\r" and match.end() == len(buffer):
+                    break
+                line = bytes(buffer[:match.start()])
+                del buffer[:match.end()]
+                if line.startswith(b"data:"):
+                    data = line[5:]
+                    data_lines.append(data[1:] if data.startswith(b" ") else data)
+                elif not line and data_lines:
+                    events_seen += 1
+                    try:
+                        event = json.loads(b"\n".join(data_lines))
+                    except (ValueError, UnicodeError, RecursionError):
+                        event = None
+                    data_lines.clear()
+                    key = self._client.headers["Authorization"][len("Bearer "):]
+                    diagnostic = _failure_diagnostic(event, session_id, key)
+                    if diagnostic:
+                        if diagnostic not in diagnostics:
+                            diagnostics.append(diagnostic)
+                    if events_seen >= MAX_FAILURE_DIAGNOSTIC_EVENTS:
+                        return True
+            return False
+
+        try:
+            session_id = _resource_id(session_id)
+            async with asyncio.timeout(FAILURE_DIAGNOSTIC_SECONDS):
+                async with self._client.stream(
+                    "GET", f"{API_BASE}/agents/sessions/{session_id}/events",
+                    params={"stream": "true"}, headers={"Accept": "text/event-stream"},
+                ) as response:
+                    if response.status_code != 200 or response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "text/event-stream":
+                        return diagnostics
+                    remaining = MAX_FAILURE_DIAGNOSTIC_BYTES
+                    async for chunk in response.aiter_bytes():
+                        portion = chunk[:remaining]
+                        remaining -= len(portion)
+                        buffer.extend(portion)
+                        if consume_lines() or remaining == 0:
+                            return diagnostics
+                    consume_lines(final=True)
+        except asyncio.CancelledError:
+            raise
+        except (httpx.HTTPError, TimeoutError, ProviderError, ValueError, UnicodeError):
+            # Best effort only: preserve already parsed diagnostics, never expose
+            # exception text or fetch bodies, and leave cleanup to the caller.
+            pass
+        return diagnostics
 
     async def list_sessions(self) -> list[dict[str, Any]]:
         return await self._list("/agents/sessions", order="desc")

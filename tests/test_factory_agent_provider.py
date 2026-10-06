@@ -338,6 +338,208 @@ def test_ambiguous_delete_acknowledgment_does_not_claim_cleanup(body):
     assert caught.value.outcome_unknown is True
 
 
+def failure_event(message="Setup failed", **extra):
+    return {"type": "error", "session_id": "sess_123", "error": {"code": "sandbox_error", "message": message}, **extra}
+
+
+def sse(event):
+    return b"data: " + json.dumps(event).encode() + b"\n\n"
+
+
+class DiagnosticStream(httpx.AsyncByteStream):
+    def __init__(self, chunks):
+        self.chunks = chunks
+        self.read_count = 0
+        self.closed = False
+
+    async def __aiter__(self):
+        for chunk in self.chunks:
+            self.read_count += 1
+            yield chunk
+
+    async def aclose(self):
+        self.closed = True
+
+
+def read_diagnostics(stream):
+    async def scenario():
+        async with FactoryAgentProvider("transport-secret", transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, headers={"Content-Type": "text/event-stream; charset=utf-8"}, stream=stream)
+        )) as client:
+            return await client.read_failure_diagnostics("sess_123")
+    return run(scenario())
+
+
+def test_failure_diagnostics_collects_failure_after_session_event_and_filters_sensitive_fields():
+    events = [
+        {"type": "agent.session.failed", "session": {"id": "sess_123", "error": "Setup failed", "agent": {"instructions": "PRIVATE prompt"}}},
+        failure_event("Setup echoed transport-secret", headers={"Authorization": "PRIVATE header"}),
+        {"type": "agent.session.environment.failed", "session_id": "sess_123", "turn_id": None, "environment": {"id": "env_123", "error": {"type": "sandbox_error", "code": "setup_failed", "message": "Missing Python", "param": "PRIVATE value"}}},
+        {"type": "agent.session.requires_action", "session": {"required_actions": [{"type": "computer_use_approval_request", "request": {"fields": "PRIVATE credential form"}}]}},
+    ]
+    stream = DiagnosticStream([b"".join(map(sse, events))])
+    calls = []
+
+    def handle(request):
+        calls.append(request)
+        return httpx.Response(200, headers={"Content-Type": "text/event-stream"}, stream=stream)
+
+    async def scenario():
+        async with FactoryAgentProvider("transport-secret", transport=httpx.MockTransport(handle)) as client:
+            return await client.read_failure_diagnostics("sess_123")
+
+    assert run(scenario()) == [
+        {"source": "agent.session.failed", "message": "Setup failed"},
+        {"source": "error", "code": "sandbox_error", "message": "Setup echoed [redacted]"},
+        {"source": "agent.session.environment.failed", "type": "sandbox_error", "code": "setup_failed", "message": "Missing Python"},
+    ]
+    assert len(calls) == 1 and stream.closed
+    request = calls[0]
+    assert request.method == "GET" and not request.content
+    assert request.url == "https://api.openai.com/v1/agents/sessions/sess_123/events?stream=true"
+    assert request.headers["Accept"] == "text/event-stream"
+    assert request.headers["OpenAI-Beta"] == "agents=v1"
+    assert request.headers["Authorization"] == "Bearer transport-secret"
+    assert "Idempotency-Key" not in request.headers
+
+
+def test_failure_diagnostics_handles_split_crlf_multiline_data_and_deduplicates():
+    body = (b": heartbeat\r\nevent: error\r\n"
+            b'data: {"type":"error",\r\n'
+            b'data: "session_id":"sess_123", "error":{"message":"Setup failed"}}\r\n\r\n')
+    stream = DiagnosticStream([body[i:i + 1] for i in range(len(body))] + [body])
+    assert read_diagnostics(stream) == [{"source": "error", "message": "Setup failed"}]
+    assert stream.closed
+
+
+def test_failure_diagnostics_ignores_malformed_unterminated_and_other_session_events():
+    malformed = [None, [], 1, {"type": "error", "error": {"message": "PRIVATE missing session"}},
+                 failure_event("PRIVATE wrong session", session_id="sess_other"),
+                 {"type": "agent.session.failed", "session": "PRIVATE malformed"},
+                 {"type": "agent.session.environment.failed", "session_id": "sess_123", "environment": {"error": None}}]
+    stream = DiagnosticStream([b"data: NOT JSON PRIVATE\n\ndata: \xff\n\n" + b"".join(map(sse, malformed))
+                               + sse(failure_event()) + b'data: {"type":"error"}'])
+    assert read_diagnostics(stream) == [{"source": "error", "code": "sandbox_error", "message": "Setup failed"}]
+
+
+def test_failure_diagnostics_event_limit_counts_unrelated_and_malformed_frames():
+    ignored = b"data: NOT JSON\n\n"
+    stream = DiagnosticStream([ignored] * 16 + [sse(failure_event("Must not be read"))])
+    assert read_diagnostics(stream) == []
+    assert stream.read_count == 16 and stream.closed
+
+
+def test_failure_diagnostics_byte_limit_preserves_earlier_failure_and_closes():
+    first = sse(failure_event())
+    # A giant unfinished field must not grow the parser without a bound.
+    stream = DiagnosticStream([first + b"data: " + b"x" * (64 * 1024), sse(failure_event("Never read"))])
+    assert read_diagnostics(stream) == [{"source": "error", "code": "sandbox_error", "message": "Setup failed"}]
+    assert stream.read_count == 1 and stream.closed
+
+
+def test_failure_diagnostics_keeps_message_for_service_redaction_and_ignores_nonstring_values():
+    event = failure_event("A" * 3000)
+    event["error"].update({"code": {"private": "value"}, "type": "bad\nprivate", "param": "private"})
+    assert read_diagnostics(DiagnosticStream([sse(event)])) == [{"source": "error", "message": "A" * 3000}]
+
+
+def test_failure_diagnostics_redacts_transport_key_without_truncating_message():
+    event = failure_event("A" * 1995 + "transport-secret")
+    event["error"].update({"code": "transport-secret", "type": "transport-secret"})
+    result = read_diagnostics(DiagnosticStream([sse(event)]))
+    assert result == [{"source": "error", "message": "A" * 1995 + "[redacted]"}]
+    assert "transport" not in json.dumps(result)
+
+
+def test_failure_diagnostics_preserves_long_operator_secret_and_whitespace_for_service_redaction():
+    operator_secret = "operator  secret\t" + "X" * 4078
+    message = "A" * 1995 + operator_secret + " end"
+    result = read_diagnostics(DiagnosticStream([sse(failure_event(message))]))
+    assert result[0]["message"] == message
+    assert operator_secret in result[0]["message"]
+
+
+def test_failure_diagnostics_timeout_keeps_prior_error_and_closes(monkeypatch):
+    monkeypatch.setattr(provider_module, "FAILURE_DIAGNOSTIC_SECONDS", 0.005)
+
+    class Slow(DiagnosticStream):
+        async def __aiter__(self):
+            yield sse(failure_event())
+            await asyncio.sleep(1)
+
+    stream = Slow([])
+    assert read_diagnostics(stream) == [{"source": "error", "code": "sandbox_error", "message": "Setup failed"}]
+    assert stream.closed
+
+
+def test_failure_diagnostics_caller_cancellation_propagates_and_closes():
+    async def scenario():
+        started = asyncio.Event()
+
+        class Waiting(DiagnosticStream):
+            async def __aiter__(self):
+                started.set()
+                await asyncio.sleep(30)
+                yield b""
+
+        stream = Waiting([])
+        async with FactoryAgentProvider("transport-secret", transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, headers={"Content-Type": "text/event-stream"}, stream=stream)
+        )) as client:
+            task = asyncio.create_task(client.read_failure_diagnostics("sess_123"))
+            await started.wait()
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            assert stream.closed
+
+    run(scenario())
+
+
+@pytest.mark.parametrize("status,content_type", [(401, "text/event-stream"), (500, "text/event-stream"),
+                                                   (302, "text/event-stream"), (200, "application/json")])
+def test_failure_diagnostics_does_not_read_error_redirect_or_non_sse_bodies(status, content_type):
+    calls = []
+    stream = DiagnosticStream([b"PRIVATE BODY"])
+
+    def handle(request):
+        calls.append(request)
+        return httpx.Response(status, headers={"Content-Type": content_type, "Location": "https://attacker.invalid"}, stream=stream)
+
+    async def scenario():
+        async with FactoryAgentProvider("transport-secret", transport=httpx.MockTransport(handle)) as client:
+            assert await client.read_failure_diagnostics("sess_123") == []
+
+    run(scenario())
+    assert len(calls) == 1 and stream.read_count == 0 and stream.closed
+
+
+def test_failure_diagnostics_connection_failure_is_empty_without_retry():
+    calls = []
+
+    def handle(request):
+        calls.append(request)
+        raise httpx.ConnectError("PRIVATE transport-secret", request=request)
+
+    async def scenario():
+        async with FactoryAgentProvider("transport-secret", transport=httpx.MockTransport(handle)) as client:
+            assert await client.read_failure_diagnostics("sess_123") == []
+
+    run(scenario())
+    assert len(calls) == 1
+
+
+def test_failure_diagnostics_invalid_session_never_requests():
+    calls = []
+
+    async def scenario():
+        async with FactoryAgentProvider("transport-secret", transport=httpx.MockTransport(lambda request: calls.append(request))) as client:
+            assert await client.read_failure_diagnostics("../other") == []
+
+    run(scenario())
+    assert not calls
+
+
 def test_empty_204_is_not_documented_deletion_confirmation():
     async def scenario():
         async with FactoryAgentProvider("secret", transport=httpx.MockTransport(lambda request: httpx.Response(204))) as client:

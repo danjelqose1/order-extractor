@@ -256,13 +256,42 @@ class FactoryAgentService:
             return self.public(row)
 
     def session_payload(self, row):
-        return {"agent": {"model": os.getenv("FACTORY_AGENT_MODEL", "gpt-6-astra"),
+        return {"agent": {"model": os.getenv("FACTORY_AGENT_MODEL") or "gpt-6.1-sol",
                           "instructions": workflow_instructions(), "multi_agent": {"enabled": False},
                           "tools": [{"type": "computer_use", "include_screenshots": True}, READ_TOOL]},
                 "environment": {"type": "openai_hosted", "desktop": {"enabled": True},
                                 "network": {"access": "disabled"}, "files": environment_files(),
                                 "setup_commands": environment_setup_commands()},
                 "metadata": {"factory_agent_request_id": row["id"], "application": "order-extractor-factory-beta"}}
+
+    def safe_diagnostic(self, value):
+        """Keep provider failure text useful without persisting server credentials."""
+        if not isinstance(value, str):
+            return ""
+        text = value[:16384]
+        secrets = {self.app_key_getter(), os.getenv("OPENAI_API_KEY"),
+                   os.getenv("APP_KEY"), os.getenv("FACTORY_AGENT_ACCESS_KEY")}
+        for secret in sorted((s for s in secrets if s), key=len, reverse=True):
+            text = text.replace(secret, "[redacted]")
+        text = re.sub(r"sk-[A-Za-z0-9_-]+", "[redacted]", text)
+        text = re.sub(r"(?i)bearer\s+[^\s\"']+", "Bearer [redacted]", text)
+        return " ".join(text.split())[:2000]
+
+    async def preserve_failure(self, row, session, fallback):
+        # A failed session's saved error is available before deletion. Capture it
+        # first; optional SSE diagnostics must never hold up bounded cleanup.
+        message = self.safe_diagnostic(session.get("error"))
+        row.update(status="failed", error=fallback + (" " + message if message else ""))
+        self.save(row)
+        diagnostics = await self.provider.read_failure_diagnostics(row["remote_session_id"])
+        details = []
+        for entry in diagnostics:
+            detail = self.safe_diagnostic(" ".join(entry.get(k, "") for k in ("code", "message") if isinstance(entry.get(k), str)))
+            if detail and detail not in details:
+                details.append(detail)
+        if details:
+            row["error"] = self.safe_diagnostic(row["error"] + " " + " | ".join(details))
+            self.save(row)
 
     async def recover_creation(self, row):
         sessions = await self.provider.list_sessions()
@@ -357,7 +386,7 @@ class FactoryAgentService:
                     if session.get("status") not in {"idle", "in_progress", "requires_action", "failed"}:
                         raise RuntimeError("Unknown remote session state.")
                     if session.get("status") == "failed":
-                        row.update(status="failed", error="The OpenAI session failed. See the Agents dashboard for provider diagnostics.")
+                        await self.preserve_failure(row, session, "The OpenAI session failed.")
                         await self.cleanup(row)
                         return
                     if not row["input_attempted"] and not row["stop_requested"]:
@@ -367,7 +396,7 @@ class FactoryAgentService:
                         environment = await self.provider.get_environment(environment["id"])
                         self.activity(row, "environment", "Hosted browser: " + str(environment.get("status", "unknown")), environment.get("status", "unknown"))
                         if environment.get("status") == "failed":
-                            row.update(status="failed", error="Hosted fixture/browser setup failed. No task was submitted.")
+                            await self.preserve_failure(row, session, "Hosted fixture/browser setup failed. No task was submitted.")
                             await self.cleanup(row)
                             return
                         if environment.get("status") == "connected":
