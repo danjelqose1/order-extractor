@@ -458,6 +458,7 @@ const panels = {
   workspace: document.getElementById("tabWorkspace"),
   awa: document.getElementById("tabAwa"),
   beta: document.getElementById("tabBeta"),
+  factoryagent: document.getElementById("tabFactoryAgent"),
   telegram: document.getElementById("tabTelegram"),
   scanstudio: document.getElementById("tabScanStudio"),
   pdfeditor: document.getElementById("tabPdfEditor"),
@@ -497,6 +498,11 @@ const PAGE_META = Object.freeze({
     eyebrow: "Automation",
     title: "Beta",
     subtitle: "Run read-only operator sessions that prepare plans and stop for human approval.",
+  },
+  factoryagent: {
+    eyebrow: "Automation",
+    title: "Factory Agent · Beta",
+    subtitle: "Read-only order review with a separate agent in an OpenAI-hosted browser.",
   },
   telegram: {
     eyebrow: "Files",
@@ -1432,6 +1438,7 @@ const typeCorrectionsCancelBtn = document.getElementById("typeCorrectionsCancel"
 const groupToggles = document.querySelectorAll("[data-group-toggle]");
 
 function activateTab(name){
+      if (name === "factoryagent" && !window.FactoryAgentUI?.enabled) return;
 	  if (name !== "extract") stopOverviewPolling();
 	  if (name === "extract"){
 	    setNewOrderWorkspaceOpen(false, { load: false });
@@ -1513,6 +1520,8 @@ function activateTab(name){
     loadAwa();
   }else if (name === "beta"){
     loadBetaOverview();
+  }else if (name === "factoryagent"){
+    window.FactoryAgentUI?.open();
   }else if (name === "telegram"){
     loadTelegramFiles();
 	  }else if (name === "scanstudio"){

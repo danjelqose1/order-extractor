@@ -1,0 +1,39 @@
+/* Isolated screen styles; use the platform's light/dark palette. */
+#factoryAgentNav[hidden], .factory-agent [hidden], #tabFactoryAgent[hidden]{display:none!important}
+.factory-agent{max-width:1600px;margin:0 auto}
+.factory-agent .card{margin-bottom:14px;min-width:0}
+.factory-agent h2,.factory-agent h3{margin:0 0 8px}
+.factory-agent p{line-height:1.55;margin:6px 0 12px}
+.factory-agent-intro,.factory-agent-toolbar,.factory-agent-section-header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.factory-agent-intro p:last-child{margin-bottom:0}
+.factory-agent-badge{display:inline-block;font-size:12px;font-weight:650;color:var(--primary);background:var(--primary-soft);border:1px solid var(--border);padding:5px 9px;border-radius:6px;white-space:normal}
+.factory-agent-badge[data-status="completed"]{background:var(--success-soft);color:var(--success)}
+.factory-agent-badge[data-status="failed"],.factory-agent-badge[data-status="cleanup_required"]{background:var(--danger-soft);color:var(--danger)}
+.factory-agent-badge[data-status="stopping"],.factory-agent-badge[data-status="timed_out"],.factory-agent-badge[data-status="setup_required"]{background:var(--warning-soft);color:var(--warning)}
+.factory-agent-unlock{max-width:660px}
+.factory-agent-unlock-row{display:flex;align-items:center;gap:10px;margin-top:6px}
+.factory-agent input[type="password"],.factory-agent select,.factory-agent textarea{box-sizing:border-box;min-width:0;width:100%;padding:10px 12px;font:inherit;background:var(--field-bg);border:1px solid var(--border-dark);border-radius:7px;color:var(--text)}
+.factory-agent textarea{resize:vertical;min-height:120px}
+.factory-agent label{display:block;font-weight:600;margin:12px 0 6px;font-size:13px}
+.factory-agent .factory-agent-unlock-row input{flex:1}
+.factory-agent .factory-agent-unlock-row button{flex:none}
+.factory-agent-toolbar{margin-bottom:12px}
+.factory-agent-layout{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(270px,1fr);gap:16px;align-items:start}
+.factory-agent-main,.factory-agent-side{min-width:0}
+.factory-agent-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.factory-agent-task .factory-agent-actions{justify-content:flex-end}
+.factory-agent-session .factory-agent-actions{margin:10px 0}
+.factory-agent-notice{padding:12px 14px;background:var(--warning-soft);border:1px solid var(--border);border-radius:8px;color:var(--warning);overflow-wrap:anywhere}
+.factory-agent-setup{border-left:4px solid var(--warning)!important}
+.factory-agent-setup ul{padding-left:20px;overflow-wrap:anywhere;line-height:1.6}
+.factory-agent-activity{margin:14px 0 0;padding-left:24px;max-height:330px;overflow:auto}
+.factory-agent-activity li{padding:8px 4px 8px 2px;border-top:1px solid var(--border);line-height:1.45;overflow-wrap:anywhere}
+.factory-agent-activity li small{display:block;color:var(--muted);margin-top:2px}
+.factory-agent-empty{padding:20px 12px;text-align:center;background:var(--field-bg);border:1px dashed var(--border);border-radius:7px;color:var(--muted)}
+.factory-agent-result pre{white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;font:inherit;line-height:1.65;margin:0;max-height:650px;overflow:auto}
+.factory-agent-browser img{display:block;width:100%;height:auto;max-height:580px;object-fit:contain;background:var(--field-bg);border:1px solid var(--border);border-radius:6px;box-sizing:border-box}
+.factory-agent-boundary{font-size:13px}
+.factory-agent-boundary p:last-child{margin-bottom:0}
+.factory-agent #factoryAgentSessionMeta{overflow-wrap:anywhere}
+@media(max-width:1150px){.factory-agent-layout{grid-template-columns:minmax(0,1fr)}.factory-agent-side{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}}
+@media(max-width:680px){.factory-agent-side{display:block}.factory-agent-intro{align-items:flex-start}.factory-agent .card{padding:14px}.factory-agent-toolbar{align-items:flex-start}.factory-agent-unlock-row{flex-wrap:wrap}.factory-agent-unlock-row input{flex-basis:100%!important}.factory-agent-unlock-row button{width:100%}.factory-agent-task .factory-agent-actions .btn{width:100%}.factory-agent .factory-agent-section-header h3{margin-bottom:0}}

@@ -45,7 +45,7 @@ process.stdout.write(JSON.stringify(result));
 def test_feature_flag_defaults_off_and_old_dashboard_stays_available():
     assert 'ENABLE_LIVING_DASHBOARD = os.getenv("ENABLE_LIVING_DASHBOARD", "false")' in BACKEND
     assert '@app.get("/api/features")' in BACKEND
-    assert 'return {"living_dashboard": ENABLE_LIVING_DASHBOARD}' in BACKEND
+    assert '"living_dashboard": ENABLE_LIVING_DASHBOARD' in BACKEND
     assert 'id="overviewLayoutToolbar" class="overview-layout-toolbar" hidden' in HTML
     assert "if (features?.living_dashboard === true) initializeLivingDashboard();" in APP_JS
     assert "keeping the stable dashboard" in APP_JS
