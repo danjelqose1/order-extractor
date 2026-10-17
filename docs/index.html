@@ -10,6 +10,7 @@
   <title>Overview — Order Extractor</title>
   <link rel="stylesheet" href="./css/styles.css?v=20260930-production-voice1">
   <link rel="stylesheet" href="./css/interface.css?v=20261004-tables1" media="screen">
+  <link rel="stylesheet" href="./css/invoices.css?v=20261017-invoices1" media="screen">
 </head>
 <body>
   <svg class="icon-sprite" aria-hidden="true">
@@ -62,6 +63,7 @@
         <button class="tab" data-tab="pdfeditor" data-nav-parent="documents" aria-label="PDF Editor" title="PDF Editor"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-pdf"></use></svg></span><span>PDF Editor</span></button>
         <button class="tab" data-tab="scanstudio" data-nav-parent="documents" aria-label="Scan Studio" title="Scan Studio"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-scan"></use></svg></span><span>Scan Studio</span></button>
       </div>
+      <button class="tab" data-tab="invoices" aria-label="Invoices" title="Invoices"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-manual"></use></svg></span><span>Invoices</span></button>
       <button class="tab" data-tab="analysis" aria-label="Analytics" title="Analytics"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-analysis"></use></svg></span><span>Analytics</span></button>
       <div class="sidebar-section-label">System</div>
       <button class="tab" data-tab="settings" aria-label="Settings" title="Settings"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-settings"></use></svg></span><span>Settings</span></button>
@@ -1936,23 +1938,64 @@
       </div>
     </section>
 
+    <section id="tabInvoices" class="tab-panel" hidden aria-labelledby="pageTitle">
+      <div class="invoice-workspace-toolbar">
+        <div><span class="section-eyebrow">Billing workspace</span><h2>From work completed to invoice ready.</h2><p class="muted">Create, review, and download your invoices in one place.</p></div>
+        <div class="invoice-toolbar-actions"><button type="button" class="btn" id="invoiceRefresh">Refresh</button><button type="button" class="btn primary" id="invoiceNew">+ New invoice</button></div>
+      </div>
+      <div id="invoiceWorkspaceStatus" class="invoice-workspace-status" role="status" aria-live="polite"></div>
+      <div id="invoiceSummary" class="invoice-metrics" aria-label="Invoice summary"></div>
+      <section class="card invoice-register" aria-labelledby="invoiceRegisterTitle">
+        <div class="invoice-register-heading"><div><h3 id="invoiceRegisterTitle">All invoices</h3><p class="muted small">Drafts and finalized documents · ALL</p></div><span class="invoice-register-note">Amounts include discount &amp; VAT</span></div>
+        <div class="invoice-filters">
+          <label>Client<input type="search" id="invoiceFilterClient" placeholder="Search client name…" /></label>
+          <label>Invoice or order<input type="search" id="invoiceFilterOrder" placeholder="Search number…" /></label>
+          <label>Status<select id="invoiceFilterStatus"><option value="">All statuses</option><option value="draft">Draft</option><option value="finalized">Finalized</option></select></label>
+          <button type="button" class="btn tertiary" id="invoiceClearFilters">Clear filters</button>
+        </div>
+        <div id="invoiceJobsWrap" class="table-responsive"><div class="invoice-empty">Loading invoices…</div></div>
+        <div id="invoicePagination" class="invoice-pagination" hidden><span id="invoicePageInfo" class="muted small"></span><div><button type="button" class="btn small" id="invoicePaginationPrev">Previous</button><button type="button" class="btn small" id="invoicePaginationNext">Next</button></div></div>
+      </section>
+      <p class="invoice-workspace-footnote">Start with a blank invoice or bring in an approved order. Your existing invoices and material prices are available here.</p>
+    </section>
+
   </main>
 
   <div id="manualInvoiceModal" class="modal-layer" hidden>
     <div class="modal-card manual-invoice-modal-card" role="dialog" aria-modal="true" aria-labelledby="manualInvoiceTitle">
       <div class="manual-settings-modal-header">
         <div>
-          <span class="section-eyebrow">Manual order invoice</span>
+          <span class="section-eyebrow">Invoice editor · ALL</span>
           <h3 id="manualInvoiceTitle">Invoice</h3>
           <p id="invoiceDetailMeta" class="muted small"></p>
         </div>
-        <button type="button" class="btn tertiary manual-settings-close-btn" id="manualInvoiceClose" aria-label="Close manual invoice">×</button>
+        <button type="button" class="btn tertiary manual-settings-close-btn" id="manualInvoiceClose" aria-label="Close invoice editor">×</button>
       </div>
 
       <div class="manual-invoice-modal-body" id="invoiceDetailCard">
         <div id="invoiceStatus" class="muted small" role="status" aria-live="polite"></div>
         <div id="invoiceMissingNotice" class="alert" hidden></div>
 
+        <form id="invoiceDocumentFields" class="invoice-document-fields" novalidate>
+          <div class="invoice-party-grid">
+            <fieldset><legend>From</legend>
+              <label>Business name<input id="invoiceBusinessName" data-invoice-field="businessName" type="text" placeholder="Your business name" maxlength="160" /></label>
+              <label>Address &amp; contact<textarea id="invoiceBusinessDetails" data-invoice-field="businessDetails" rows="3" placeholder="Address, email, phone" maxlength="600"></textarea></label>
+              <label>Tax / registration ID<input id="invoiceBusinessTaxId" data-invoice-field="businessTaxId" type="text" placeholder="Tax identification number" maxlength="80" /></label>
+            </fieldset>
+            <fieldset><legend>Bill to</legend>
+              <label>Client name<input id="invoiceClientName" data-invoice-field="clientName" type="text" placeholder="Client or company name" maxlength="160" required /></label>
+              <label>Billing address &amp; contact<textarea id="invoiceClientDetails" data-invoice-field="clientDetails" rows="3" placeholder="Address, email, phone" maxlength="600"></textarea></label>
+              <label>Client tax ID<input id="invoiceClientTaxId" data-invoice-field="clientTaxId" type="text" placeholder="Tax identification number" maxlength="80" /></label>
+            </fieldset>
+          </div>
+          <div class="invoice-document-meta">
+            <label>Invoice number<input id="invoiceDocumentNumber" data-invoice-field="invoiceNumber" type="text" placeholder="Assigned when saved" maxlength="80" /></label>
+            <label>Issue date<input id="invoiceIssueDate" data-invoice-field="issueDate" type="date" required /></label>
+            <label>Due date<input id="invoiceDueDate" data-invoice-field="dueDate" type="date" /></label>
+          </div>
+        </form>
+        <div class="invoice-section-heading"><h4>Items &amp; pricing</h4><span class="muted small">All prices in ALL</span></div>
         <div class="invoice-detail-grid">
           <label>
             <span class="muted small">Discount</span>
@@ -1980,11 +2023,13 @@
         <div class="table-responsive" id="invoiceLinesWrap">
           <div class="invoice-empty">Preparing invoice…</div>
         </div>
+        <button type="button" class="btn small invoice-add-line" id="invoiceAddLine" hidden>+ Add item</button>
         <div id="invoiceTotals" class="invoice-summary"></div>
+        <label class="invoice-notes-label">Payment details &amp; notes<textarea id="invoiceNotes" data-invoice-field="notes" rows="3" placeholder="Bank details, payment instructions, or a note for your client" maxlength="2000"></textarea></label>
 
         <details class="manual-invoice-pricing-panel" id="invoicePricesCard">
           <summary>Price settings</summary>
-          <p class="muted small">Prices are saved and reused for future manual-order invoices.</p>
+          <p class="muted small">Prices are saved and reused for future order invoices. Finalized invoices keep their saved amounts.</p>
           <div class="price-editor">
             <div>
               <h4>Glass prices</h4>
@@ -2014,9 +2059,21 @@
 
         <div class="manual-invoice-footer">
           <button type="button" class="btn tertiary" id="invoiceRecalc">Recalculate</button>
+          <button type="button" class="btn" id="invoiceSaveDocument">Save invoice</button>
           <button type="button" class="btn success" id="invoiceGeneratePdf">Generate Invoice PDF</button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <div id="invoiceCreateModal" class="modal-layer" hidden>
+    <div class="modal-card invoice-create-card" role="dialog" aria-modal="true" aria-labelledby="invoiceCreateTitle">
+      <div class="invoice-create-heading"><div><span class="section-eyebrow">New invoice</span><h3 id="invoiceCreateTitle">How would you like to start?</h3></div><button type="button" id="invoiceCreateClose" class="btn tertiary" aria-label="Close new invoice">×</button></div>
+      <button type="button" id="invoiceCreateBlank" class="invoice-blank-choice"><span class="invoice-choice-icon" aria-hidden="true">+</span><span><strong>Start a blank invoice</strong><small>Add your client, items, quantities, and prices.</small></span><span aria-hidden="true">→</span></button>
+      <div class="invoice-section-heading"><h4>Or create from an order</h4><span class="muted small">Approved &amp; production orders</span></div>
+      <label class="invoice-source-search">Find an order<input type="search" id="invoiceSourceSearch" placeholder="Search client or order number…" /></label>
+      <div id="invoiceCreateStatus" class="muted small" role="status" aria-live="polite"></div>
+      <div id="invoiceSourceList" class="invoice-source-list"></div>
     </div>
   </div>
 
@@ -2100,7 +2157,9 @@
 <script src="./js/living-dashboard.js?v=20260908-compact" defer></script>
 <script src="./js/platform-workflows.js?v=20261003-processing-units1" defer></script>
 <script src="./js/manual-dimension-groups.js?v=20260919-manual-group1" defer></script>
-<script src="./js/app.js?v=20261006-remove-agent-sections1" defer></script>
+<script src="./js/app.js?v=20261017-invoices1" defer></script>
+<script src="./js/invoice-workspace.js?v=20261017-invoices1" defer></script>
+<script src="./js/invoice-pdf.js?v=20261017-invoices1" defer></script>
 <script src="./js/production-sheet.js?v=20261006-production-memory1" defer></script>
 <script src="./js/production-sheet-voice.js?v=20260930-production-dictation1" defer></script>
 <script src="./js/perfect-cut-bridge.js?v=20260919-manual-index2" defer></script>

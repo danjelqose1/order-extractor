@@ -56,12 +56,12 @@ def test_processing_and_production_documents_remain_available():
         assert f'./js/{script}' in html
 
 
-def test_manual_invoice_workspace_stays_inside_manual_orders():
+def test_invoice_workspace_is_navigable_and_manual_order_entry_is_preserved():
     html = INDEX_HTML.read_text(encoding="utf-8")
     js = (APP_JS.with_name("platform-workflows.js").read_text(encoding="utf-8") + "\n" + APP_JS.read_text(encoding="utf-8"))
 
-    assert 'data-tab="invoices"' not in html
-    assert 'id="tabInvoices"' not in html
+    assert 'data-tab="invoices"' in html
+    assert 'id="tabInvoices"' in html
     for element_id in (
         "manualInvoiceModal",
         "manualInvoiceClose",
@@ -87,7 +87,7 @@ def test_manual_invoice_workspace_stays_inside_manual_orders():
 
     new_job_branch = js[js.index("async function addInvoiceJobFromOrder"):js.index("async function createInvoiceJobFromOrder")]
     assert new_job_branch.index("appState.invoices.jobs.unshift(job)") < new_job_branch.index(
-        "await recalcInvoiceJob(job, { allowPrompt: true, allowAi })",
+        "await recalcInvoiceJob(job, { allowPrompt, allowAi })",
         new_job_branch.index("}else{"),
     )
     assert 'kind: "spacer",\n          thickness: th,\n          spacerKind: spacerMode' in js

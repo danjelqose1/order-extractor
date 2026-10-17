@@ -1967,12 +1967,14 @@ async function computeInvoiceLineFromGroup(group, index, options = {}){
 }
 
 function finalizeInvoiceTotals(job, lines){
+  const money = value => Math.round((value + Number.EPSILON) * 100) / 100;
   let subtotal = 0;
   let units = 0;
   let areaTotal = 0;
   let missing = null;
   lines.forEach(line=>{
-    const lineTotal = Number(line.lineTotal || 0);
+    const lineTotal = money(Number(line.lineTotal || 0));
+    line.lineTotal = lineTotal;
     const qty = Number(line.quantity || 0);
     const area = Number(line.area || line.lineAreaTotal || 0);
     subtotal += lineTotal;
@@ -1982,13 +1984,14 @@ function finalizeInvoiceTotals(job, lines){
       missing = line.missing;
     }
   });
+  subtotal = money(subtotal);
   const discountRaw = Math.max(0, Number(job.discountValue || 0));
-  const discountValue = job.discountMode === "absolute"
+  const discountValue = money(job.discountMode === "absolute"
     ? Math.min(discountRaw, subtotal)
-    : subtotal * (discountRaw / 100);
-  const taxable = Math.max(0, subtotal - discountValue);
-  const vatValue = taxable * (Math.max(0, Number(job.vatRate || 0)) / 100);
-  const total = taxable + vatValue;
+    : subtotal * (Math.min(discountRaw, 100) / 100));
+  const taxable = money(Math.max(0, subtotal - discountValue));
+  const vatValue = money(taxable * (Math.max(0, Number(job.vatRate || 0)) / 100));
+  const total = money(taxable + vatValue);
   job.calculated = {
     lines,
     subtotal,

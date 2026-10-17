@@ -466,11 +466,13 @@ const panels = {
   perfectcut: document.getElementById("tabPerfectCut"),
   spacer: document.getElementById("tabSpacer"),
   labels: document.getElementById("tabLabels"),
+  invoices: document.getElementById("tabInvoices"),
   analysis: document.getElementById("tabAnalysis"),
   settings: document.getElementById("tabSettings"),
 };
 
 const PAGE_META = Object.freeze({
+  invoices: { eyebrow: "Finance", title: "Invoices", subtitle: "Professional invoices, from first draft to final PDF." },
   extract: {
     eyebrow: "Operations",
     title: "Overview",
@@ -1470,6 +1472,8 @@ function activateTab(name){
   }else if (name === "history"){
     ensureHistoryLoaded();
     loadHistoryWorkQueue();
+  }else if (name === "invoices"){
+    window.InvoiceWorkspace?.load();
   }else if (name === "manual"){
     ensureManualOrdersReady();
   }else if (name === "awa"){
@@ -9155,9 +9159,12 @@ function nextInvoiceNumber(){
   const y = now.getFullYear();
   const m = String(now.getMonth() + 1).padStart(2, "0");
   const d = String(now.getDate()).padStart(2, "0");
-  const seq = String(appState.invoices.counter).padStart(3, "0");
-  const id = `INV-${y}${m}${d}-${seq}`;
-  appState.invoices.counter += 1;
+  const used = new Set((appState.invoices.jobs || []).map(job => job.invoiceNumber));
+  let id;
+  do {
+    const seq = String(appState.invoices.counter++).padStart(3, "0");
+    id = `INV-${y}${m}${d}-${seq}`;
+  } while (used.has(id));
   saveInvoiceCounter();
   return id;
 }
@@ -9324,6 +9331,7 @@ function addOrdersMetadata(job, entries = []){
 function normalizeInvoiceJob(job){
   if (!job || typeof job !== "object") return null;
   const orderNumbers = (() => {
+    if (job.source === "invoice") return [];
     if (Array.isArray(job.orderNumbers)){
       return job.orderNumbers.map(v => String(v || "").trim()).filter(Boolean);
     }
@@ -9464,7 +9472,8 @@ async function ensureInvoiceJobsLoaded(){
     try{
       jobs = await fetchInvoiceJobsFromServer();
     }catch(error){
-      console.warn("Failed to fetch invoices from server", error);
+      setInvoiceStatus("Could not load invoices. Check your connection and use Refresh to try again.");
+      throw error;
     }
     if (!jobs.length){
       const legacy = loadLegacyInvoiceJobs();
@@ -9481,6 +9490,7 @@ async function ensureInvoiceJobsLoaded(){
       await recalcInvoiceJob(job, { allowPrompt: false, allowAi: false });
     }
     invoiceRuntime.jobsLoaded = true;
+    invoiceRuntime.unsaved = false;
     updateInvoicesUI();
     return appState.invoices.jobs;
   })();
@@ -9493,31 +9503,41 @@ async function ensureInvoiceJobsLoaded(){
 
 // Invoice jobs now sync to the server (Render disk) instead of localStorage
 async function saveInvoiceJobs(jobsOverride){
-  const normalized = normalizeInvoiceJobs(jobsOverride || appState.invoices.jobs);
-  appState.invoices.jobs = normalized;
-  const serialized = normalized.map(job => {
-    const { calculated, ...rest } = job;
-    return rest;
-  });
-  try{
-    const res = await fetchInvoiceEndpoint(API_BASE + "/api/invoices", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jobs: serialized }),
+  // Keep whole-register saves in order when fields change in quick succession.
+  const save = async () => {
+    const normalized = normalizeInvoiceJobs(jobsOverride || appState.invoices.jobs);
+    const serialized = normalized.map(job => {
+      const { calculated, ...rest } = job;
+      return rest;
     });
-    if (!res.ok){
-      const text = await res.text().catch(()=> "");
-      throw new Error(text || `Server responded with ${res.status}`);
+    const body = JSON.stringify({ jobs: serialized });
+    try{
+      const res = await fetchInvoiceEndpoint(API_BASE + "/api/invoices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      });
+      if (!res.ok){
+        const text = await res.text().catch(()=> "");
+        throw new Error(text || `Server responded with ${res.status}`);
+      }
+      invoiceRuntime.jobsLoaded = true;
+      const current = normalizeInvoiceJobs(appState.invoices.jobs).map(({ calculated, ...rest }) => rest);
+      invoiceRuntime.unsaved = JSON.stringify({ jobs: current }) !== body;
+      return true;
+    }catch(error){
+      console.warn("Failed to save invoices to server", error);
+      invoiceRuntime.unsaved = true;
+      setInvoiceStatus("Could not sync invoices. Changes are kept in this session. Use Save invoice to retry.");
+      invoiceRuntime.jobsLoaded = true;
+      return false;
     }
-    invoiceRuntime.jobsLoaded = true;
-    return true;
-  }catch(error){
-    console.warn("Failed to save invoices to server", error);
-    setInvoiceStatus("Could not sync invoices. Changes are kept in this session.");
-    invoiceRuntime.jobsLoaded = true;
-    return false;
-  }
+  };
+  const pending = (invoiceRuntime.savePromise || Promise.resolve()).then(save, save);
+  invoiceRuntime.savePromise = pending;
+  return pending;
 }
+
 
 function ensureInvoicesLoaded(){
   if (invoiceRuntime.initialized) return;
@@ -9526,10 +9546,12 @@ function ensureInvoicesLoaded(){
   loadInvoiceCounter();
   invoiceRuntime.initialized = true;
   syncInvoiceConfigFromServer({ silent: true });
-  ensureInvoiceJobsLoaded();
+  ensureInvoiceJobsLoaded().catch(() => {});
 }
 
 function setInvoiceStatus(msg){
+  const workspaceStatus = document.getElementById("invoiceWorkspaceStatus");
+  if (workspaceStatus) workspaceStatus.textContent = msg || "";
   if (invoiceStatusEl){
     invoiceStatusEl.textContent = msg || "";
   }
@@ -9537,6 +9559,7 @@ function setInvoiceStatus(msg){
 
 function openManualInvoiceModal(){
   if (!manualInvoiceModal) return;
+  window.InvoiceWorkspace?.beforeOpen();
   manualInvoiceModal.hidden = false;
   manualInvoiceClose?.focus();
 }
@@ -9544,6 +9567,7 @@ function openManualInvoiceModal(){
 function closeManualInvoiceModal(){
   if (!manualInvoiceModal) return;
   manualInvoiceModal.hidden = true;
+  window.InvoiceWorkspace?.afterClose();
 }
 
 
@@ -9630,7 +9654,7 @@ function getSpacerThickness(typeString){
 
 async function addInvoiceJobFromOrder(order, options = {}){
   if (!order) return null;
-  const { allowAi = true } = options;
+  const { allowAi = true, allowPrompt = true } = options;
   ensureInvoicesLoaded();
   await ensureInvoiceJobsLoaded();
   const job = normalizeInvoiceJob(buildInvoiceJobFromOrder(order));
@@ -9664,16 +9688,16 @@ async function addInvoiceJobFromOrder(order, options = {}){
     ensureJobOrders(merged);
     appState.invoices.jobs.splice(existingIndex, 1, merged);
     appState.invoices.activeJobId = merged.id;
-    await recalcInvoiceJob(merged, { allowPrompt: true, allowAi });
+    await recalcInvoiceJob(merged, { allowPrompt, allowAi });
   }else{
     appState.invoices.activeJobId = job.id;
     appState.invoices.jobs.unshift(job);
-    await recalcInvoiceJob(job, { allowPrompt: true, allowAi });
+    await recalcInvoiceJob(job, { allowPrompt, allowAi });
   }
   updateInvoicesUI();
   setInvoiceStatus("Invoice job updated from History.");
   await saveInvoiceJobs();
-  return job;
+  return getActiveInvoiceJob();
 }
 
 async function createInvoiceJobFromOrder(order, options = {}){
@@ -10133,6 +10157,22 @@ function describeMissingPricing(missing){
 
 async function recalcInvoiceJob(job, options = {}){
   if (!job) return null;
+  if (job.status === "finalized" && job.finalizedSnapshot){
+    job.calculated = JSON.parse(JSON.stringify(job.finalizedSnapshot));
+    applyJobTotals(job, job.calculated);
+    return job.calculated;
+  }
+  if (job.status === "finalized"){
+    // Older records did not retain a line-price snapshot. Preserve their recorded
+    // total rather than silently applying today's catalog to an issued invoice.
+    job.calculated = {
+      lines: [], subtotal: null, discountValue: null, vatValue: null,
+      total: Number(job.totalAmount || 0), units: Number(job.totalUnits || 0),
+      area: Number(job.totalArea || 0), missing: { reason: "legacy_snapshot" },
+    };
+    return job.calculated;
+  }
+  if (job.source === "invoice") return window.InvoiceWorkspace.calculate(job);
   const { allowPrompt = false, allowAi = true } = options;
   const promptAllowedForJob = allowPrompt && appState.invoices.activeJobId === job.id;
   const rawRows = ensureInvoiceRawRows(job);
@@ -10173,25 +10213,7 @@ async function recalcAllInvoices(opts = {}){
 
 
 function updateInvoiceSummary(){
-  if (!invoiceSummaryEl) return;
-  const jobs = getVisibleInvoiceJobs();
-  if (!jobs.length){
-    invoiceSummaryEl.innerHTML = "";
-    return;
-  }
-  let units = 0;
-  let area = 0;
-  let amount = 0;
-  jobs.forEach(job=>{
-    const calc = job.calculated;
-    if (calc){
-      applyJobTotals(job, calc);
-    }
-    units += Number(job.totalUnits || 0);
-    area += Number(job.totalArea || 0);
-    amount += Number(job.totalAmount || 0);
-  });
-  invoiceSummaryEl.innerHTML = `<span class="pill">Jobs: ${jobs.length}</span><span class="pill">Units: ${units}</span><span class="pill">Area: ${formatArea(area)} m²</span><span class="pill">Total: ${formatMoney(amount)} ALL</span>`;
+  window.InvoiceWorkspace?.renderSummary();
 }
 
 function applyInvoiceFilters(jobs){
@@ -10202,7 +10224,7 @@ function applyInvoiceFilters(jobs){
   return (jobs || []).filter(job => !job.hidden).filter(job=>{
     const clientLabel = formatInvoiceClientLabel(job).toLowerCase();
     const clientMatch = !clientQuery || clientLabel.includes(clientQuery);
-    const orderLabel = (job.orderNumbers || []).join(", ").toLowerCase();
+    const orderLabel = [...(job.orderNumbers || []), job.invoiceNumber || ""].join(", ").toLowerCase();
     const orderMatch = !orderQuery || orderLabel.includes(orderQuery);
     const statusMatch = !statusFilter || (job.status || "").toLowerCase() === statusFilter;
     return clientMatch && orderMatch && statusMatch;
@@ -10229,110 +10251,7 @@ function findNextDraftInvoice(currentId){
 }
 
 function renderInvoiceJobs(){
-  if (!invoiceJobsWrap) return;
-  ensureInvoicesLoaded();
-  const pagination = ensureInvoicePaginationState();
-  const jobs = applyInvoiceFilters(appState.invoices.jobs || []);
-  if (!jobs.length){
-    appState.invoices.activeJobId = null;
-    invoiceJobsWrap.innerHTML = '<div class="invoice-empty">No invoice jobs yet. Use the Invoice button in Orders or Manual Orders.</div>';
-    pagination.currentPage = 1;
-    pagination.totalPages = 1;
-    updateInvoicePaginationControls(0, 1, 1);
-    return;
-  }
-  const filters = appState.invoices.filters || {};
-  const clientQuery = (filters.client || "").trim().toLowerCase();
-  const orderQuery = (filters.order || "").trim().toLowerCase();
-  const rows = [];
-  jobs.forEach(job=>{
-    const calc = job.calculated;
-    if (calc){
-      applyJobTotals(job, calc);
-    }
-    ensureJobOrders(job);
-    const statusClass = (job.status || "draft") === "finalized" ? "finalized" : "draft";
-    const fallbackClient = formatInvoiceClientLabel(job) || "—";
-    const fallbackDate = job.createdAt || new Date().toISOString();
-    const orderEntries = Array.isArray(job.orders) && job.orders.length
-      ? job.orders
-      : [createOrderMetadata({
-          orderNumber: job.orderNumbers && job.orderNumbers[0] ? job.orderNumbers[0] : "—",
-          clientName: fallbackClient,
-          createdAt: fallbackDate,
-          units: job.totalUnits || 0,
-          area: job.totalArea || 0,
-          amount: job.totalAmount || 0,
-        })];
-    orderEntries.forEach(entry=>{
-      const orderNumber = entry?.orderNumber || "—";
-      const client = entry?.clientName || fallbackClient;
-      const createdAt = entry?.createdAt || fallbackDate;
-      const units = Number(entry?.units ?? 0) || 0;
-      const areaValue = Number(entry?.area ?? 0) || 0;
-      const amountValue = Number(entry?.amount ?? 0) || 0;
-      const matchesClient = !clientQuery || client.toLowerCase().includes(clientQuery);
-      const matchesOrder = !orderQuery || orderNumber.toLowerCase().includes(orderQuery);
-      if (!matchesClient || !matchesOrder) return;
-      const invoiceBadge = job.invoiceNumber
-        ? `<div class="muted small">Invoice: ${escapeHtml(job.invoiceNumber)}</div>`
-        : "";
-      rows.push(`<tr data-job-id="${escapeHtml(job.id)}" data-order-number="${escapeHtml(orderNumber)}">
-        <td>${escapeHtml(client)}</td>
-        <td><div>${escapeHtml(orderNumber)}</div>${invoiceBadge}</td>
-        <td>${escapeHtml(formatDate(createdAt))}</td>
-        <td>${units}</td>
-        <td>${formatArea(areaValue)}</td>
-        <td>${formatMoney(amountValue)}</td>
-        <td><span class="pill invoice-status-badge ${statusClass}">${escapeHtml(job.status || "draft")}</span></td>
-        <td class="actions-cell">
-          <button class="btn small" data-invoice-action="open" data-job-id="${escapeHtml(job.id)}" data-order-number="${escapeHtml(orderNumber)}">Open</button>
-          <button class="btn small" data-invoice-action="pdf" data-job-id="${escapeHtml(job.id)}" data-order-number="${escapeHtml(orderNumber)}">Generate PDF</button>
-          <button class="btn small danger" data-invoice-action="delete" data-job-id="${escapeHtml(job.id)}">Delete</button>
-        </td>
-      </tr>`);
-    });
-  });
-  if (!rows.length){
-    invoiceJobsWrap.innerHTML = '<div class="invoice-empty">No invoice rows match your filters.</div>';
-    pagination.currentPage = 1;
-    pagination.totalPages = 1;
-    updateInvoicePaginationControls(0, 1, 1);
-    return;
-  }
-  const pageSize = Math.max(1, Number(pagination.pageSize) || 5);
-  pagination.pageSize = pageSize;
-  const totalRows = rows.length;
-  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
-  pagination.totalPages = totalPages;
-  if (pagination.currentPage > totalPages){
-    pagination.currentPage = totalPages;
-  }
-  if (pagination.currentPage < 1){
-    pagination.currentPage = 1;
-  }
-  const startIndex = (pagination.currentPage - 1) * pageSize;
-  const paginatedRows = rows.slice(startIndex, startIndex + pageSize);
-  invoiceJobsWrap.innerHTML = `<table>
-    <thead>
-      <tr>
-        <th>Client</th>
-        <th>Order number</th>
-        <th>Date</th>
-        <th>Units</th>
-        <th>Total area (m²)</th>
-        <th>Total amount (ALL)</th>
-        <th>Status</th>
-        <th>Actions</th>
-      </tr>
-    </thead>
-    <tbody>${paginatedRows.join("")}</tbody>
-  </table>`;
-  updateInvoicePaginationControls(totalRows, totalPages, pagination.currentPage);
-  const hasActive = jobs.some(job => job.id === appState.invoices.activeJobId);
-  if ((!appState.invoices.activeJobId || !hasActive) && jobs.length){
-    appState.invoices.activeJobId = jobs[0].id;
-  }
+  window.InvoiceWorkspace?.renderRegister();
 }
 
 function updateInvoicePaginationControls(totalRows, totalPages, currentPage){
@@ -10597,6 +10516,7 @@ function updateInvoicesUI(){
   renderInvoicePriceEditor();
   renderTypeCorrectionsTable();
   updateInvoiceSummary();
+  window.InvoiceWorkspace?.renderEditor();
 }
 
 function collectGlassPricesFromEditor(){
@@ -10876,188 +10796,9 @@ async function generateInvoicePdf(job){
   if (!lib || !lib.PDFDocument){
     throw new Error("PDF library not loaded. Please check your connection and try again.");
   }
-  const { PDFDocument, StandardFonts, rgb } = lib;
-  const labelColor = typeof rgb === "function" ? rgb(0.5, 0.5, 0.55) : undefined;
-  const mmToPtLocal = 2.83464567;
-  const pageWidth = 210 * mmToPtLocal;
-  const pageHeight = 297 * mmToPtLocal;
-  const margin = 28;
-  const lineHeight = 16;
-  const tableFontSize = 10;
-  const doc = await PDFDocument.create();
-  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-  const regular = await doc.embedFont(StandardFonts.Helvetica);
-  let page = doc.addPage([pageWidth, pageHeight]);
-  let y = pageHeight - margin;
-
-  const invoiceNumber = job.invoiceNumber || nextInvoiceNumber();
-  job.invoiceNumber = invoiceNumber;
-  const orderLabel = (job.orderNumbers || []).join(", ") || "—";
-  const headerDate = formatDate(new Date().toISOString());
-  const clientNames = (() => {
-    const names = new Set();
-    const addName = (value)=>{
-      const text = (value || "").trim();
-      if (text) names.add(text);
-    };
-    addName(job.client);
-    if (Array.isArray(job.clients)){
-      job.clients.forEach(addName);
-    }
-    const sourceRows = Array.isArray(job.rawRows) ? job.rawRows : job.rows;
-    if (Array.isArray(sourceRows)){
-      sourceRows.forEach(row=>{
-        addName(row?.client);
-        addName(row?.client_name);
-        addName(row?.clientName);
-        addName(row?.client_label);
-        addName(row?.customer);
-      });
-    }
-    const list = Array.from(names);
-    if (!list.length) return ["—"];
-    return list;
-  })();
-  const clientLabelText = clientNames.length > 1
-    ? `Clients: ${clientNames.join(", ")}`
-    : `Client: ${clientNames[0]}`;
-
-  const infoBlockX = margin;
-  let infoY = pageHeight - margin;
-  page.drawText("FATURA / INVOICE", { x: infoBlockX, y: infoY, size: 12, font: bold });
-  infoY -= lineHeight;
-  const metaLines = [
-    clientLabelText,
-    `Orders: ${orderLabel}`,
-    `Invoice: ${invoiceNumber}`,
-    `Date: ${headerDate}`,
-  ];
-  metaLines.forEach(line=>{
-    page.drawText(line, { x: infoBlockX, y: infoY, size: 11, font: regular });
-    infoY -= lineHeight;
-  });
-
-  y = infoY - 6;
-  page.drawLine({ start: { x: margin, y }, end: { x: pageWidth - margin, y }, thickness: 1 });
-  y -= lineHeight;
-
-  const columns = [
-    { key: "idx", title: "#", width: 20, align: "left" },
-    { key: "type", title: "Type", width: 190, align: "left" },
-    { key: "qty", title: "Qty", width: 50, align: "right" },
-    { key: "area", title: "Area (m²)", width: 70, align: "right" },
-    { key: "unit", title: "Unit (ALL/m²)", width: 90, align: "right" },
-    { key: "total", title: "Total (ALL)", width: 90, align: "right" },
-  ];
-  const colPositions = {};
-  let cursorX = margin;
-  columns.forEach(col=>{
-    colPositions[col.key] = { x: cursorX, width: col.width };
-    cursorX += col.width;
-  });
-
-  const drawHeaders = ()=>{
-    columns.forEach(col=>{
-      page.drawText(col.title, { x: colPositions[col.key].x, y, size: tableFontSize, font: bold });
-    });
-    y -= lineHeight * 0.85;
-    page.drawLine({ start: { x: margin, y }, end: { x: pageWidth - margin, y }, thickness: 0.5 });
-    y -= lineHeight;
-  };
-  drawHeaders();
-
-  const ensureSpace = (rowsNeeded)=>{
-    if (y - rowsNeeded * lineHeight < margin){
-      page = doc.addPage([pageWidth, pageHeight]);
-      y = pageHeight - margin;
-      drawHeaders();
-    }
-  };
-
-  const drawOrderHeader = (orderNumber)=>{
-    if (!orderNumber) return;
-    const headerText = `Order ${orderNumber}`;
-    const headerSize = Math.max(8, tableFontSize - 1);
-    const headerX = colPositions.type.x;
-    const headerOpts = { x: headerX, y, size: headerSize, font: regular };
-    if (labelColor) headerOpts.color = labelColor;
-    page.drawText(headerText, headerOpts);
-    y -= lineHeight;
-  };
-
-  let lastOrderLabel = null;
-
-  groupedLines.forEach(line=>{
-    const orderLabel = line.orderId ? String(line.orderId).trim() : "";
-    const normalizedOrder = orderLabel.toLowerCase();
-    const isNewOrder = orderLabel && normalizedOrder !== lastOrderLabel;
-    const rowsNeeded = 1 + (isNewOrder ? 1 : 0);
-    ensureSpace(rowsNeeded);
-    if (isNewOrder){
-      drawOrderHeader(orderLabel);
-    }
-    const rowValues = {
-      idx: String(line.index || ""),
-      type: line.type || "",
-      qty: String(line.quantity || 0),
-      area: formatArea(line.area || 0),
-      unit: formatMoney(line.unitPricePerM2 || 0),
-      total: formatMoney(line.lineTotal || 0),
-    };
-    columns.forEach(col=>{
-      const pos = colPositions[col.key];
-      const text = rowValues[col.key] || "";
-      let x = pos.x;
-      if (col.align === "center"){
-        const width = regular.widthOfTextAtSize(text, tableFontSize);
-        x = pos.x + (pos.width - width) / 2;
-      }else if (col.align === "right"){
-        const width = regular.widthOfTextAtSize(text, tableFontSize);
-        x = pos.x + pos.width - width;
-      }
-      page.drawText(text, { x, y, size: tableFontSize, font: regular });
-    });
-    lastOrderLabel = orderLabel ? normalizedOrder : lastOrderLabel;
-    y -= lineHeight;
-  });
-
-  y -= lineHeight;
-  page.drawLine({ start: { x: margin, y }, end: { x: pageWidth - margin, y }, thickness: 0.5 });
-  y -= lineHeight;
-  const summaryItems = [
-    ["Subtotal", formatMoney(calc?.subtotal || 0)],
-    ["Discount", formatMoney(calc?.discountValue || 0)],
-    [`VAT ${job.vatRate || 0}%`, formatMoney(calc?.vatValue || 0)],
-    ["Total", formatMoney(calc?.total || 0)],
-  ];
-  const totalsStartX = colPositions.total.x - 20;
-  y -= 6;
-  summaryItems.forEach((item, idx)=>{
-    ensureSpace(1);
-    const isTotal = idx === summaryItems.length - 1;
-    const size = isTotal ? 12 : 11;
-    const font = isTotal ? bold : bold;
-    const labelWidth = font.widthOfTextAtSize(item[0], size);
-    const valueWidth = font.widthOfTextAtSize(item[1], size);
-    const labelX = totalsStartX;
-    const valueX = colPositions.total.x + colPositions.total.width - valueWidth;
-    page.drawText(item[0], { x: labelX, y, size, font });
-    page.drawText(item[1], { x: valueX, y, size, font });
-    y -= lineHeight;
-  });
-
-  await saveInvoiceJobs();
-  const pdfBytes = await doc.save();
-  const blob = new Blob([pdfBytes], { type: "application/pdf" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  const safeOrder = orderLabel.replace(/\s+/g, "-") || "invoice";
-  a.href = url;
-  a.download = `${invoiceNumber || safeOrder}.pdf`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  await window.InvoiceWorkspace.prepareExport(job);
+  await window.InvoicePDF.download(job);
+  updateInvoicesUI();
 }
 
 
@@ -18055,57 +17796,6 @@ if (typeCorrectionsTable){
   });
 }
 
-if (invoiceJobsWrap){
-  invoiceJobsWrap.addEventListener("click", async (event)=>{
-    const btn = event.target.closest("[data-invoice-action]");
-    if (!btn) return;
-    ensureInvoicesLoaded();
-    await ensureInvoiceJobsLoaded();
-    const action = btn.dataset.invoiceAction;
-    const jobId = btn.dataset.jobId || btn.dataset.id || btn.closest("tr")?.dataset.jobId;
-    const orderNumber = btn.dataset.orderNumber || btn.closest("tr")?.dataset.orderNumber || "";
-    if (!action || !jobId) return;
-    const lowerOrder = (orderNumber || "").toLowerCase();
-    const job = appState.invoices.jobs.find(item => item.id === jobId)
-      || (lowerOrder ? appState.invoices.jobs.find(item => (item.orderNumbers || []).some(num => String(num || "").toLowerCase() === lowerOrder)) : null);
-    if (action === "open"){
-      if (!job){
-        setInvoiceStatus("Invoice job not found.");
-        return;
-      }
-      appState.invoices.activeJobId = job.id;
-      updateInvoicesUI();
-    }else if (action === "pdf"){
-      if (!job) return;
-      try{
-        await generateInvoicePdf(job);
-        setInvoiceStatus("Invoice PDF ready.");
-      }catch(error){
-        setInvoiceStatus(error?.message || "Failed to generate PDF.");
-      }
-    }else if (action === "delete"){
-      if (!job){
-        setInvoiceStatus("Invoice job not found.");
-        return;
-      }
-      const targetOrder = orderNumber || (job.orderNumbers && job.orderNumbers[0]) || "";
-      const label = targetOrder ? `Remove order ${targetOrder} from this invoice?` : "Remove this order from the invoice?";
-      if (!confirm(label)) return;
-      try{
-        const updated = await removeOrderFromInvoiceJob(job.id, targetOrder);
-        if (!updated){
-          setInvoiceStatus("Invoice job removed.");
-        }else{
-          setInvoiceStatus(targetOrder ? `Order ${targetOrder} removed from invoice.` : "Order removed from invoice.");
-        }
-        updateInvoicesUI();
-      }catch(error){
-        console.error("Failed to remove order from invoice", error);
-        setInvoiceStatus("Failed to remove order: " + (error?.message || error));
-      }
-    }
-  });
-}
 
 if (invoiceLinesWrap){
   invoiceLinesWrap.addEventListener("change", async event=>{
@@ -18117,7 +17807,7 @@ if (invoiceLinesWrap){
     const idx = Number((typeInput || spacerKindSelect).dataset.typeEdit || (typeInput || spacerKindSelect).dataset.spacerKind);
     if (!Number.isFinite(idx)) return;
     const job = getActiveInvoiceJob();
-    if (!job || !Array.isArray(job.rows)) return;
+    if (!job || job.status === "finalized" || !Array.isArray(job.rows)) return;
     const rawRows = ensureInvoiceRawRows(job);
     const lines = Array.isArray(job.calculated?.lines) ? job.calculated.lines : [];
     const line = lines.find(l => l.index === idx);
@@ -18206,61 +17896,9 @@ if (invoiceDeleteActiveBtn){
   });
 }
 
-if (invoiceDiscountMode){
-  invoiceDiscountMode.addEventListener("change", async event=>{
-    ensureInvoicesLoaded();
-    await ensureInvoiceJobsLoaded();
-    const job = getActiveInvoiceJob();
-    if (!job) return;
-    job.discountMode = event.target.value === "absolute" ? "absolute" : "percent";
-    await recalcInvoiceJob(job, { allowPrompt: true });
-    await saveInvoiceJobs();
-    updateInvoicesUI();
-  });
-}
-
-if (invoiceDiscountValue){
-  invoiceDiscountValue.addEventListener("change", async event=>{
-    ensureInvoicesLoaded();
-    await ensureInvoiceJobsLoaded();
-    const job = getActiveInvoiceJob();
-    if (!job) return;
-    job.discountValue = Math.max(0, Number(event.target.value) || 0);
-    await recalcInvoiceJob(job, { allowPrompt: true });
-    await saveInvoiceJobs();
-    updateInvoicesUI();
-  });
-}
-
-if (invoiceVatValue){
-  invoiceVatValue.addEventListener("change", async event=>{
-    ensureInvoicesLoaded();
-    await ensureInvoiceJobsLoaded();
-    const job = getActiveInvoiceJob();
-    if (!job) return;
-    job.vatRate = Math.max(0, Number(event.target.value) || 0);
-    await recalcInvoiceJob(job, { allowPrompt: true });
-    await saveInvoiceJobs();
-    updateInvoicesUI();
-  });
-}
-
 if (invoiceStatusSelect){
   invoiceStatusSelect.addEventListener("change", async event=>{
-    ensureInvoicesLoaded();
-    await ensureInvoiceJobsLoaded();
-    const job = getActiveInvoiceJob();
-    if (!job) return;
-    const newStatus = event.target.value === "finalized" ? "finalized" : "draft";
-    job.status = newStatus;
-    await saveInvoiceJobs();
-    if (newStatus === "finalized"){
-      const nextDraft = findNextDraftInvoice(job.id);
-      if (nextDraft){
-        appState.invoices.activeJobId = nextDraft.id;
-      }
-    }
-    updateInvoicesUI();
+    await window.InvoiceWorkspace?.changeStatus(event.target.value);
   });
 }
 
