@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="./css/styles.css?v=20260930-production-voice1">
   <link rel="stylesheet" href="./css/interface.css?v=20261004-tables1" media="screen">
   <link rel="stylesheet" href="./css/invoices.css?v=20261017-invoices1" media="screen">
+<link rel="stylesheet" href="./css/ai-decisions.css">
 </head>
 <body>
   <svg class="icon-sprite" aria-hidden="true">
@@ -51,6 +52,7 @@
     </div>
     <button type="button" id="sidebarCollapse" class="btn small sidebar-collapse" aria-controls="primaryNav" aria-expanded="true" aria-label="Collapse navigation" title="Collapse navigation">‹ <span>Collapse navigation</span></button>
     <nav id="primaryNav" class="tab-bar sidebar-nav">
+      <button class="tab" data-tab="aidecisions" id="aiDecisionsNav" hidden><span class="nav-icon" aria-hidden="true">◇</span><span>AI Decisions</span></button>
       <button class="tab active" data-tab="extract" aria-label="Overview" title="Overview"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-dashboard"></use></svg></span><span>Overview</span></button>
       <button class="tab" data-tab="history" aria-label="Orders" title="Orders"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-history"></use></svg></span><span>Orders</span></button>
       <button class="tab" data-tab="manual" aria-label="Manual Orders" title="Manual Orders"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-manual"></use></svg></span><span>Manual Orders</span></button>
@@ -789,7 +791,13 @@
       </div>
     </section>
 
-    <section id="tabHistory" class="tab-panel">
+    <section id="tabAiDecisions" class="tab-panel">
+        <div class="card"><h2>AI Decisions</h2><p class="muted">Production precision, with a human in control. Recommendations never change order values or approve production.</p>
+          <div class="ai-controls"><label>Backend access key <input type="password" id="aiAccessKey" autocomplete="off" placeholder="If APP_KEY is configured"></label><button class="btn" id="aiRefresh">Refresh</button><label>Order ID <input type="number" min="1" id="aiOrderId" aria-label="Order ID"></label><select id="aiOrderKind" aria-label="Order source"><option value="order">Extracted order</option><option value="manual">Manual order</option></select><button class="btn primary" id="aiEvaluate">Evaluate order</button></div>
+          <p id="aiStatus" role="status" aria-live="polite"></p><div id="aiSummary" class="ai-summary"></div>
+        </div><div id="aiCards" class="ai-cards"></div>
+      </section>
+      <section id="tabHistory" class="tab-panel">
       <section class="card order-work-queue" aria-labelledby="orderWorkQueueTitle">
         <div class="order-queue-header">
           <div>
@@ -2158,6 +2166,7 @@
 <script src="./js/platform-workflows.js?v=20261003-processing-units1" defer></script>
 <script src="./js/manual-dimension-groups.js?v=20260919-manual-group1" defer></script>
 <script src="./js/app.js?v=20261017-invoices1" defer></script>
+<script src="./js/ai-decisions.js" defer></script>
 <script src="./js/invoice-workspace.js?v=20261017-invoices1" defer></script>
 <script src="./js/invoice-pdf.js?v=20261017-invoices1" defer></script>
 <script src="./js/production-sheet.js?v=20261006-production-memory1" defer></script>

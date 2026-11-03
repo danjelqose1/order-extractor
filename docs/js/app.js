@@ -454,6 +454,7 @@ const scanStudioState = {
 
 const tabs = document.querySelectorAll(".tab-bar .tab");
 const panels = {
+  aidecisions: document.getElementById("tabAiDecisions"),
   extract: document.getElementById("tabExtract"),
   awa: document.getElementById("tabAwa"),
   telegram: document.getElementById("tabTelegram"),
@@ -472,6 +473,7 @@ const panels = {
 };
 
 const PAGE_META = Object.freeze({
+  aidecisions: { eyebrow: "Quality", title: "AI Decisions", subtitle: "Review evidence and recommendations before acting." },
   invoices: { eyebrow: "Finance", title: "Invoices", subtitle: "Professional invoices, from first draft to final PDF." },
   extract: {
     eyebrow: "Operations",
@@ -855,7 +857,7 @@ function overviewOrderRowHtml(order, options = {}){
     <span class="overview-order-main">
       <span class="overview-order-number mono">${escapeHtml(orderNumber)}</span>
       <span class="overview-order-client">${escapeHtml(client)}</span>
-      <span class="overview-order-meta">${escapeHtml(meta || options.emptyMeta || "Order ready")}</span>
+      <span class="overview-order-meta">${escapeHtml(meta || options.emptyMeta || "Order ready")} ${window.AIDecisions?.indicator(id) || ""}</span>
     </span>
     <span class="overview-order-status">${historyStatusBadgeHtml(order?.status)}</span>
     <span class="overview-order-arrow" aria-hidden="true">→</span>
@@ -1424,7 +1426,8 @@ const groupToggles = document.querySelectorAll("[data-group-toggle]");
 function activateTab(name){
       // Old saved routes and links to retired sections return to Overview.
       if (!Object.prototype.hasOwnProperty.call(panels, name) || !panels[name]) name = "extract";
-	  if (name !== "extract") stopOverviewPolling();
+	  if (name === "aidecisions") window.AIDecisions?.refresh();
+      if (name !== "extract") stopOverviewPolling();
 	  if (name === "extract"){
 	    setNewOrderWorkspaceOpen(false, { load: false });
 	  }else{
@@ -12002,6 +12005,7 @@ function renderTelegramFiles(){
           ${telegramHandlingProgressBadges(file)}
           ${telegramStatusBadge(file.extraction_status)}
           ${telegramDuplicateBadge(file)}
+          ${window.AIDecisions?.indicator(file.linked_order_id) || ""}
           <span>${escapeHtml(linkedLabel)}</span>
         </div>
         ${duplicateWarning}

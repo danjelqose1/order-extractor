@@ -391,8 +391,11 @@ def root():
 @app.get("/api/features")
 def get_frontend_features() -> Dict[str, bool]:
     """Return narrowly scoped, non-secret frontend feature flags."""
-    return {"living_dashboard": ENABLE_LIVING_DASHBOARD, "factory_agent": False}
+    return {"living_dashboard": ENABLE_LIVING_DASHBOARD, "factory_agent": False, "ai_decisions": __import__("ai_decisions").enabled()}
 
+
+from ai_decisions_service import install as install_ai_decisions
+install_ai_decisions(app, lambda: APP_KEY)
 
 # The retired section cannot start tasks, even with its old flag enabled.
 # Keep bounded cleanup for interrupted hosted sessions from earlier deployments.
@@ -2501,6 +2504,12 @@ def extract(inb: PasteIn, x_app_key: Optional[str] = Header(default=None)) -> Di
             else None,
         )
         draft_order_id = insert_result["order_id"]
+        # Advisory evaluation must never interrupt extraction or alter its workflow.
+        try:
+            from ai_decisions_service import evaluate_saved
+            evaluate_saved(draft_order_id)
+        except Exception:
+            logging.getLogger(__name__).warning("AI Decisions evaluation unavailable", exc_info=False)
         status = insert_result.get("status", "draft")
         saved_order_id = draft_order_id if status == "approved" else None
 
@@ -2839,6 +2848,12 @@ def _extract_order_file_bytes(
             source_metadata=metadata,
         )
         draft_order_id = insert_result["order_id"]
+        # Advisory evaluation must never interrupt extraction or alter its workflow.
+        try:
+            from ai_decisions_service import evaluate_saved
+            evaluate_saved(draft_order_id)
+        except Exception:
+            logging.getLogger(__name__).warning("AI Decisions evaluation unavailable", exc_info=False)
         status = insert_result.get("status", "draft")
         saved_order_id = draft_order_id if status == "approved" else None
         if source == "telegram" and telegram_file_record_id and possible_duplicate:
@@ -4428,7 +4443,10 @@ def update_manual_print_settings(payload: Dict[str, Any]) -> Dict[str, Any]:
 @app.post("/manual-orders", status_code=201)
 def add_manual_order(payload: ManualOrderPayload) -> Dict[str, Any]:
     try:
-        return db_module.create_manual_order(payload.model_dump(mode="json"))
+        order = db_module.create_manual_order(payload.model_dump(mode="json"))
+        from ai_decisions_service import safely_evaluate
+        safely_evaluate(order['id'], 'manual')
+        return order
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -4444,10 +4462,13 @@ def get_manual_order_detail(order_id: int) -> Dict[str, Any]:
 @app.put("/manual-orders/{order_id}")
 def replace_manual_order(order_id: int, payload: ManualOrderPayload) -> Dict[str, Any]:
     try:
-        return db_module.update_manual_order(
+        order = db_module.update_manual_order(
             order_id,
             payload.model_dump(mode="json"),
         )
+        from ai_decisions_service import safely_evaluate
+        safely_evaluate(order_id, 'manual')
+        return order
     except ValueError as exc:
         message = str(exc)
         raise HTTPException(
