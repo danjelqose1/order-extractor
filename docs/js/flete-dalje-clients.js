@@ -27,11 +27,13 @@
       const on=button.dataset.fdView===view; button.classList.toggle('primary',on);button.setAttribute('aria-pressed',String(on));
     });
   }
+  const totalClass = cents => cents>0?'fd-total-debt':'fd-total-clear';
+  const totalNote = cents => cents>0?'Për t’u paguar':cents<0?'Parapagim / tepricë':'E shlyer';
   function totals(card) {
-    return `<div class="fd-client-totals"><div><span>Totali i fletë-daljeve</span><strong>${money(card.documents_cents)}</strong></div><div><span>Pagesa gjithsej</span><strong>${money(card.paid_cents)}</strong></div><div><span>${card.balance_cents<0?'Parapagim / tepricë':'Për t’u paguar'}</span><strong>${money(Math.abs(card.balance_cents))}</strong></div></div>`;
+    return `<div class="fd-client-totals"><div><span>Totali i fletë-daljeve</span><strong>${money(card.documents_cents)}</strong></div><div><span>Pagesa gjithsej</span><strong>${money(card.paid_cents)}</strong></div><div class="${totalClass(card.balance_cents)}"><span>Totali</span><strong>${money(Math.abs(card.balance_cents))}</strong><small>${totalNote(card.balance_cents)}</small></div></div>`;
   }
   function rows(card, print=false) {
-    return card.entries.map(row=>`<tr class="${row.voided?'fd-payment-voided':''}"><td>${esc(row.date)}</td><td>${row.kind==='document'?(print?`Fletë nr. ${esc(row.number)}`:`<button class="btn small" data-ledger-open="${esc(row.id)}">Fletë nr. ${esc(row.number)}</button>`):`Pagesë${row.voided?' e anuluar':''}`}<small>${esc(row.kind==='document'?row.address:methods[row.method])}${row.notes?' · '+esc(row.notes):''}${row.voided?' · '+money(row.amount_cents):''}</small></td><td>${row.debit_cents?money(row.debit_cents):'—'}</td><td>${row.credit_cents?money(row.credit_cents):'—'}</td><td>${money(row.balance_cents)}</td>${print?'':`<td>${row.kind==='payment'?`<button class="btn small" data-print-payment="${esc(row.id)}">Printo mandatpagesën</button>`:''}${row.kind==='payment'&&!row.voided?`<button class="btn small danger" data-void-payment="${esc(row.id)}" data-version="${row.version}">Anulo pagesën</button>`:''}</td>`}</tr>`).join('');
+    return card.entries.map(row=>`<tr class="${row.voided?'fd-payment-voided':''}"><td>${esc(row.date)}</td><td>${row.kind==='document'?(print?`Fletë nr. ${esc(row.number)}`:`<button class="btn small" data-ledger-open="${esc(row.id)}">Fletë nr. ${esc(row.number)}</button>`):`Pagesë${row.voided?' e anuluar':''}`}<small>${esc(row.kind==='document'?row.address:methods[row.method])}${row.notes?' · '+esc(row.notes):''}${row.voided?' · '+money(row.amount_cents):''}</small></td><td>${row.debit_cents?money(row.debit_cents):'—'}</td><td>${row.credit_cents?money(row.credit_cents):'—'}</td><td class="${totalClass(row.balance_cents)}">${money(row.balance_cents)}</td>${print?'':`<td>${row.kind==='payment'?`<button class="btn small" data-print-payment="${esc(row.id)}">Printo mandatpagesën</button>`:''}${row.kind==='payment'&&!row.voided?`<button class="btn small danger" data-void-payment="${esc(row.id)}" data-version="${row.version}">Anulo pagesën</button>`:''}</td>`}</tr>`).join('');
   }
   function printReceipt(payment) {
     document.getElementById('fdPrint')?.remove();
@@ -40,12 +42,12 @@
     document.body.append(sheet);document.body.classList.add('fd-printing');window.print();
   }
   function ledger(card, print=false) {
-    return `<div class="fd-table-wrap"><table class="fd-ledger"><thead><tr>${['Data','Përshkrimi','Fletë-dalje','Pagesë','Gjendja',...(print?[]:['Veprime'])].map(label=>`<th>${label}</th>`).join('')}</tr></thead><tbody>${rows(card,print)}</tbody></table></div>`;
+    return `<div class="fd-table-wrap"><table class="fd-ledger"><thead><tr>${['Data','Përshkrimi','Fletë-dalje','Pagesë','Totali',...(print?[]:['Veprime'])].map(label=>`<th>${label}</th>`).join('')}</tr></thead><tbody>${rows(card,print)}</tbody></table></div>`;
   }
   function renderList() {
     const query=$('fdClientSearch').value.trim().toLocaleLowerCase('sq');
     const matches=cards.filter(card=>card.name.toLocaleLowerCase('sq').includes(query));
-    $('fdClientList').innerHTML=matches.length?matches.map(card=>`<button class="fd-client-choice ${card.key===selected?'active':''}" data-client="${esc(card.key)}"><strong>${esc(card.name)}</strong><span>${card.balance_cents<0?'Tepricë':'Gjendja'}: ${money(Math.abs(card.balance_cents))}</span></button>`).join(''):'<p>Nuk ka klientë. Ruani një fletë-dalje për të hapur kartelën.</p>';
+    $('fdClientList').innerHTML=matches.length?matches.map(card=>`<button class="fd-client-choice ${card.key===selected?'active':''}" data-client="${esc(card.key)}"><strong>${esc(card.name)}</strong><span class="${totalClass(card.balance_cents)}">Totali: ${money(Math.abs(card.balance_cents))}</span><small>${totalNote(card.balance_cents)}</small></button>`).join(''):'<p>Nuk ka klientë. Ruani një fletë-dalje për të hapur kartelën.</p>';
   }
   function renderDetail() {
     const card=active();

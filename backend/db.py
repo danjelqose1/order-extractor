@@ -933,6 +933,8 @@ def init_db() -> None:
     _ensure_data_dir()
     Base.metadata.create_all(engine, checkfirst=True)
     _ensure_schema()
+    from flete_dalje_schema import migrate_client_numbering
+    migrate_client_numbering(engine)
     # Reserve existing identifiers so deleting an order never lets SQLite reuse
     # its public MCP reference. No order contents are copied into these sequences.
     with engine.begin() as conn:
@@ -3377,7 +3379,9 @@ class FleteDaljeDocument(Base):
     """Standalone delivery archive. Deliberately has no foreign keys to orders."""
     __tablename__ = 'flete_dalje_documents'
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
-    number: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)
+    __table_args__ = (UniqueConstraint('client_key', 'number', name='uq_fd_client_number'),)
+    number: Mapped[int] = mapped_column(Integer, nullable=False)
+    client_key: Mapped[str] = mapped_column(String(1000), nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     content_json: Mapped[str] = mapped_column(Text, nullable=False)
 

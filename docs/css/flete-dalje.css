@@ -29,7 +29,7 @@
 #tabFleteDalje textarea { min-height:68px; resize:vertical; }
 #tabFleteDalje :is(input,textarea):focus { background:white; }
 #tabFleteDalje .fd-table-wrap { overflow-x:auto; margin-top:25px; }
-#tabFleteDalje table { width:100%; border-collapse:separate; border-spacing:0; table-layout:fixed; min-width:700px; }
+#tabFleteDalje table { width:100%; border-collapse:separate; border-spacing:0; table-layout:fixed; min-width:560px; }
 #tabFleteDalje th { background:var(--fd-navy); color:white; text-align:left; padding:11px 8px; font-size:12px; border:0; text-transform:none; }
 #tabFleteDalje th:first-child { border-radius:6px 0 0 0; width:5%; }
 #tabFleteDalje th:last-child { border-radius:0 6px 0 0; width:15%; }
@@ -120,3 +120,10 @@
   #fdPrint .fd-receipt-signatures { display:flex;justify-content:space-between;margin-top:12mm;break-inside:avoid; }
   #fdPrint .fd-receipt-void { border:2px solid black;padding:3mm;text-align:center;font-size:16px; }
 }
+#tabFleteDalje .fd-total-debt { color:#aa2434!important; }
+#tabFleteDalje .fd-total-clear { color:#087444!important; }
+#tabFleteDalje .fd-client-totals .fd-total-debt { background:#fff0f1;border:1px solid #edb4bc; }
+#tabFleteDalje .fd-client-totals .fd-total-clear { background:#eaf8f0;border:1px solid #9dcfb3; }
+#tabFleteDalje .fd-client-choice small { display:block;margin-top:4px; }
+#tabFleteDalje .fd-client-totals small { display:block;margin-top:5px; }
+@media print { #fdPrint .fd-total-debt,#fdPrint .fd-total-clear { color:black!important; } }

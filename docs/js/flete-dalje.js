@@ -4,7 +4,7 @@
   const root = document.getElementById('tabFleteDalje');
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const blankLine = () => ({ description: '', unit: 'm²', quantity: '', price: '' });
-  let archiveData = null, payments = [], records = [], current, baseline, loaded = false, busy = false;
+  let numberManual = false, lastSaved = null, archiveData = null, payments = [], records = [], current, baseline, loaded = false, busy = false;
   const snapshot = () => JSON.stringify(current);
   const dirty = () => current && snapshot() !== baseline;
   const canLeave = () => (!window.FleteDaljeClients || window.FleteDaljeClients.canLeave()) && (!dirty() || confirm('Ka ndryshime të paruajtura. Dëshironi t’i hidhni poshtë?'));
@@ -20,9 +20,11 @@
   const total = doc => doc.lines.reduce((sum, line) => sum + lineValue(line), 0);
   const hasData = line => line.description.trim() || number(line.quantity) || number(line.price);
   const pad = doc => { while (doc.lines.length < 1) doc.lines.push(blankLine()); return doc; };
-  const nextNumber = () => Math.max(48, ...records.map(doc => doc.number)) + 1;
+  const clientKey = name => String(name || '').normalize('NFKC').toLocaleLowerCase('sq').trim().replace(/\s+/g,' ');
+  const nextNumber = (recipient='') => Math.max(0, ...records.filter(doc=>clientKey(doc.recipient)===clientKey(recipient)).map(doc=>doc.number)) + 1;
   const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
   function fresh() {
+    numberManual=false;
     current = { number: nextNumber(), recipient: '', date: today(), address: '', notes: '', lines: [blankLine()] };
     baseline = snapshot(); renderEditor(); renderArchive();
   }
@@ -39,15 +41,18 @@
     } catch (error) { status(error.message); }
   }
   function renderEditor() {
-    $('fdEditor').innerHTML = `<div class="fd-topbrand"><h2>FLETË - DALJE</h2><span id="fdSaveState" class="fd-pill" aria-live="polite"></span></div><div class="fd-fields">${[['number','Nr. flete','number'],['recipient','Marrësi / Klienti','text'],['date','Data','date'],['address','Adresa ku shkon malli','text']].map(([key,label,type])=>`<label class="fd-field-${key}">${label}<input data-field="${key}" type="${type}" ${key==='number'?'min="1" step="1"':''} ${key==='recipient'?'placeholder="p.sh. Bledi Husi" autocomplete="off"':key==='address'?'placeholder="Adresa ose vendndodhja e dorëzimit"':''} value="${esc(current[key])}"></label>`).join('')}</div>
+    $('fdEditor').innerHTML = `<div class="fd-topbrand"><h2>FLETË - DALJE</h2><span id="fdSaveState" class="fd-pill" aria-live="polite"></span></div><div class="fd-fields">${[['number','Nr. flete','number'],['recipient','Marrësi / Klienti','text'],['date','Data','date'],['address','Adresa ku shkon malli','text']].map(([key,label,type])=>`<label class="fd-field-${key}">${label}<input data-field="${key}" type="${type}" ${key==='number'?'min="1" step="1"':''} ${key==='recipient'?'placeholder="p.sh. Bledi Husi" autocomplete="off" list="fdRecipientSuggestions"':key==='address'?'placeholder="Adresa ose vendndodhja e dorëzimit"':''} value="${esc(current[key])}"></label>`).join('')}</div>
       <div class="fd-table-wrap"><table><thead><tr>${['Nr.','Emërtimi i mallit','Njësia','Sasia','Çmimi','Vlefta'].map(v=>`<th>${v}</th>`).join('')}</tr></thead><tbody>${current.lines.map((line,i)=>`<tr><td>${i+1}</td>${['description','unit','quantity','price'].map(key=>`<td><input aria-label="${{description:'Emërtimi',unit:'Njësia',quantity:'Sasia',price:'Çmimi'}[key]} ${i+1}" data-line="${i}" data-key="${key}" value="${esc(line[key])}" type="text" ${['quantity','price'].includes(key)?'inputmode="decimal"':key==='description'?'placeholder="p.sh. TR + 12 + TR"':''}></td>`).join('')}<td data-amount="${i}"></td></tr>`).join('')}</tbody></table></div><div class="fd-toolbar"><button class="btn small" data-fd="add">+ Shto rresht</button><button class="btn small" data-fd="reset">Kthe në 1 rresht</button></div><div class="fd-footgrid"><label>Shënime (opsionale)<textarea data-field="notes" rows="3" placeholder="Shënime, porosi speciale, transport...">${esc(current.notes)}</textarea></label><div class="fd-totals"><span><strong>SHUMA</strong><br><small>Totali në lekë</small></span><b id="fdTotal"></b></div></div><div class="fd-signature">MARRËSI: ___________________________________________</div>`;
+    const suggestions=document.createElement('datalist');suggestions.id='fdRecipientSuggestions';
+    suggestions.innerHTML=(archiveData?.clients || []).filter(card=>card.key).map(card=>`<option value="${esc(card.name)}"></option>`).join('');
+    $('fdEditor').append(suggestions);
     updateTotals();
   }
   function renderArchive() {
     const query = $('fdSearch').value.trim().toLocaleLowerCase('sq');
     const matches = records.filter(doc => [doc.number, doc.recipient, doc.date, doc.address].some(v=>String(v).toLocaleLowerCase('sq').includes(query)));
     $('fdCount').textContent = `${records.length} fletë të ruajtura`;
-    $('fdRecords').innerHTML = matches.length ? matches.map(doc=>`<article class="fd-entry ${current?.id===doc.id?'active':''}"><button class="fd-entry-open" data-open="${esc(doc.id)}"><span class="fd-entry-main"><strong>#${esc(doc.number)} · ${esc(doc.recipient)}</strong><span class="fd-amount">${money(total(doc))} lekë</span></span><span class="fd-meta">${esc(doc.date)} ${doc.address?'· '+esc(doc.address):''}</span></button><button class="btn small danger" data-delete="${esc(doc.id)}" aria-label="Fshi fletën nr. ${esc(doc.number)}">Fshi</button></article>`).join('') : '<p class="fd-empty">Nuk ka fletë.</p>';
+    $('fdRecords').innerHTML = matches.length ? matches.map(doc=>`<article class="fd-entry ${current?.id===doc.id?'active':''}"><button class="fd-entry-open" data-open="${esc(doc.id)}"><span class="fd-entry-main"><strong>#${esc(doc.number)} · ${esc(doc.recipient)}</strong><span class="fd-amount">${money(total(doc))} lekë</span></span><span class="fd-meta">${esc(doc.date)} ${doc.address?'· '+esc(doc.address):''}</span></button><button class="btn small" data-print-document="${esc(doc.id)}">Printo / PDF</button> <button class="btn small danger" data-delete="${esc(doc.id)}" aria-label="Fshi fletën nr. ${esc(doc.number)}">Fshi</button></article>`).join('') : '<p class="fd-empty">Nuk ka fletë.</p>';
   }
   async function request(path = '', options = {}) {
     const response = await fetch(`${API_BASE}/api/flete-dalje${path}`, { ...options, headers: { 'Content-Type':'application/json', ...options.headers }, signal: AbortSignal.timeout(15000) });
@@ -71,11 +76,11 @@
     const url = URL.createObjectURL(new Blob([data], {type}));
     const a = document.createElement('a'); a.href=url; a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
   }
-  function print() {
-    if (dirty() && !confirm('Ka ndryshime të paruajtura. Printo pa i ruajtur?')) return;
+  function print(doc=current) {
+    if (doc===current && dirty() && !confirm('Ka ndryshime të paruajtura. Printo pa i ruajtur?')) return;
     document.getElementById('fdPrint')?.remove();
     const sheet = document.createElement('div'); sheet.id='fdPrint'; sheet.lang='sq';
-    sheet.innerHTML = `<h1>FLETË - DALJE</h1><div class="fd-print-fields">${[['number','Nr. flete'],['recipient','Marrësi / Klienti'],['date','Data'],['address','Adresa ku shkon malli']].map(([key,label])=>`<div class="fd-print-${key}"><span>${label}</span><p>${esc(current[key])}</p></div>`).join('')}</div><table><thead><tr>${['Nr.','Emërtimi i mallit','Njësia','Sasia','Çmimi','Vlefta'].map(x=>`<th>${x}</th>`).join('')}</tr></thead><tbody>${current.lines.map((line,i)=>`<tr><td>${i+1}</td><td>${esc(line.description)}</td><td>${esc(line.unit)}</td><td>${esc(line.quantity)}</td><td>${esc(line.price)}</td><td>${lineValue(line)?money(lineValue(line)):''}</td></tr>`).join('')}</tbody></table><div class="fd-print-total"><span><strong>SHUMA</strong><br>Totali në lekë</span><b>${money(total(current))}</b></div><div class="fd-print-sign"><span>MARRËSI: ____________________________</span><span>Nënshkrimi: ______________________</span></div>${current.notes?`<p class="fd-print-notes">Shënime: ${esc(current.notes)}</p>`:''}`;
+    sheet.innerHTML = `<h1>FLETË - DALJE</h1><div class="fd-print-fields">${[['number','Nr. flete'],['recipient','Marrësi / Klienti'],['date','Data'],['address','Adresa ku shkon malli']].map(([key,label])=>`<div class="fd-print-${key}"><span>${label}</span><p>${esc(doc[key])}</p></div>`).join('')}</div><table><thead><tr>${['Nr.','Emërtimi i mallit','Njësia','Sasia','Çmimi','Vlefta'].map(x=>`<th>${x}</th>`).join('')}</tr></thead><tbody>${doc.lines.map((line,i)=>`<tr><td>${i+1}</td><td>${esc(line.description)}</td><td>${esc(line.unit)}</td><td>${esc(line.quantity)}</td><td>${esc(line.price)}</td><td>${lineValue(line)?money(lineValue(line)):''}</td></tr>`).join('')}</tbody></table><div class="fd-print-total"><span><strong>SHUMA</strong><br>Totali në lekë</span><b>${money(total(doc))}</b></div><div class="fd-print-sign"><span>MARRËSI: ____________________________</span><span>Nënshkrimi: ______________________</span></div>${doc.notes?`<p class="fd-print-notes">Shënime: ${esc(doc.notes)}</p>`:''}`;
     document.body.append(sheet); document.body.classList.add('fd-printing'); window.print();
   }
   window.addEventListener('afterprint',()=>{ document.body.classList.remove('fd-printing'); document.getElementById('fdPrint')?.remove(); });
@@ -83,7 +88,11 @@
     const el=event.target;
     if (el.closest('#fdClients')) return;
     if(el.id==='fdSearch') return renderArchive();
+    if(el.dataset.field==='number') numberManual=true;
     if(el.dataset.field) current[el.dataset.field]=el.dataset.field==='number'?Number(el.value):el.value;
+    if(el.dataset.field==='recipient' && !current.id && !numberManual) {
+      current.number=nextNumber(current.recipient);root.querySelector('[data-field=number]').value=current.number;
+    }
     if(el.dataset.line!==undefined) current.lines[Number(el.dataset.line)][el.dataset.key]=el.value;
     updateTotals();
   });
@@ -92,6 +101,10 @@
     busy=true;
     $('fdEditor').inert=true;
     try {
+      if(button.dataset.printDocument) {
+        await refresh();const doc=records.find(row=>row.id===button.dataset.printDocument);
+        if(!doc) throw Error('Fleta nuk u gjet.');print(doc);return;
+      }
       if(button.dataset.open) {
         if(!canLeave()) return;
         await refresh(); const doc=records.find(d=>d.id===button.dataset.open);
@@ -122,10 +135,13 @@
           if(!payload.lines.length) throw Error('Shto të paktën një artikull.');
           if(payload.lines.some(line=>line.description.trim() && (!line.quantity || !line.price)) && !confirm('Disa rreshta nuk kanë sasi ose çmim. Ta ruaj gjithsesi?')) return;
           const saved=await request(current.id?`/${encodeURIComponent(current.id)}`:'',{method:current.id?'PUT':'POST',body:JSON.stringify(payload)});
-          current=pad(saved); baseline=snapshot(); renderEditor(); status('Fleta është ruajtur');
-          try { await refresh(); } catch { status('Fleta u ruajt. Historiku nuk u rifreskua; provoni përsëri.'); } break;
+          lastSaved=structuredClone(saved);
+          records=[saved,...records.filter(doc=>doc.id!==saved.id)];
+          let refreshed=true;try {await refresh();} catch {refreshed=false;}
+          fresh();
+          status(`Fleta nr. ${saved.number} për ${saved.recipient} u ruajt. U hap një fletë e re.${refreshed?'':' Historiku nuk u rifreskua; provoni përsëri.'}`);break;
         }
-        case 'print': print(); break;
+        case 'print': if(!current.id && !dirty() && !current.recipient.trim() && !current.lines.some(hasData) && lastSaved) print(lastSaved);else print(); break;
         case 'backup': await refresh(); download('flete-dalje-backup.json', JSON.stringify({format:'flete-dalje-v1',documents:records,payments,schema:1,exported:new Date().toISOString(),records:records.map(doc=>({num:doc.number,client:doc.recipient,date:doc.date,address:doc.address,notes:doc.notes,lines:doc.lines.filter(hasData).map(line=>({name:line.description,unit:line.unit,qty:line.quantity,price:line.price}))}))},null,2),'application/json'); break;
         case 'import': $('fdImport').click(); break;
         case 'csv': {

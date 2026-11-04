@@ -30,7 +30,7 @@ def payload(number=49):
 
 def test_crud_conflicts_and_backup(client):
     url = '/api/flete-dalje'
-    assert client.get(url).json() == {'documents': [], 'payments': [], 'clients': [], 'nextNumber': 49}
+    assert client.get(url).json() == {'documents': [], 'payments': [], 'clients': [], 'nextNumber': 1}
     a = client.post(url, json=payload()).json()
     assert a['total'] == '382'
     assert client.post(url, json=payload()).status_code == 409
@@ -39,9 +39,10 @@ def test_crud_conflicts_and_backup(client):
     edited = client.put(f"{url}/{a['id']}", json=changed).json()
     assert edited['version'] == 2
     assert client.put(f"{url}/{a['id']}", json=changed).status_code == 409
-    assert client.put(f"{url}/{a['id']}", json={**edited, 'number': 50}).status_code == 409
+    assert client.put(f"{url}/{a['id']}", json={**edited, 'number': 50, 'recipient':'Klienti'}).status_code == 409
     archive = client.get(url).json()
-    assert archive['nextNumber'] == 52
+    assert archive['nextNumber'] == 1
+    assert client.get(url+'?recipient=Ndryshuar').json()['nextNumber'] == 52
     backup = {'format': 'flete-dalje-v1', 'documents': archive['documents']}
     assert client.post(url+'/import', json=backup).status_code == 200
     conflicting = {'format':'flete-dalje-v1', 'documents': [{**b,'id':'new-one','number':60}, {**edited,'recipient':'Collision'}]}
@@ -83,7 +84,7 @@ def test_reference_backups_import_and_conflicts(client):
     assert doc['recipient'] == row['client'] and doc['total'] == '378'
     assert doc['lines'][0]['quantity'] == '3,782'
     assert client.post(url+'/import', json=[row]).status_code == 200
-    assert client.post(url+'/import', json=[{**row, 'client': 'Conflict'}]).status_code == 409
+    assert client.post(url+'/import', json=[{**row, 'notes': 'Conflict'}]).status_code == 409
     assert client.get(url).json()['documents'] == [doc]
     assert client.post(url+'/import', json={'schema':1,'records':[{**row,'lines':[None]}]}).status_code == 422
 
@@ -162,3 +163,60 @@ def test_complete_backup_restores_documents_and_payments(client):
     restored = client.post(url+'/import', json=backup)
     assert restored.status_code == 200
     assert restored.json() == original
+
+
+def test_numbering_is_per_client_and_normalized(client):
+    url = '/api/flete-dalje'
+    a = client.post(url,json=payload(1)).json()
+    b = client.post(url,json={**payload(1),'recipient':'Klient tjetër'}).json()
+    assert a['id'] != b['id']
+    assert client.post(url,json={**payload(1),'recipient':'  KLIENTI  '}).status_code == 409
+    assert client.get(url+'?recipient=KLIENTI').json()['nextNumber'] == 2
+    assert client.get(url+'?recipient=Iri').json()['nextNumber'] == 1
+    backup={'format':'flete-dalje-v1','documents':client.get(url).json()['documents']}
+    assert client.post(url+'/import',json=backup).status_code == 200
+    # Legacy-shaped backups may now also contain the same number for different clients.
+    original=[{'num':2,'client':name,'date':'2026-11-04','lines':[{'name':'Xham','qty':'1','price':'10'}]} for name in ['Klienti','Klient tjetër']]
+    assert client.post(url+'/import',json=original).status_code == 200
+    assert len(client.get(url).json()['documents']) == 4
+    assert client.get(url+'?recipient=klienti').json()['nextNumber'] == 3
+    assert client.put(url+'/'+a['id'],json={**a,'recipient':'Klient tjetër'}).status_code == 409
+
+
+def install_legacy_delivery_table(db, data):
+    import json
+    with db.engine.begin() as connection:
+        connection.exec_driver_sql('DROP TABLE flete_dalje_documents')
+        connection.exec_driver_sql('CREATE TABLE flete_dalje_documents (id VARCHAR(80) PRIMARY KEY, number INTEGER UNIQUE NOT NULL, version INTEGER NOT NULL, content_json TEXT NOT NULL)')
+        connection.exec_driver_sql('INSERT INTO flete_dalje_documents VALUES (?, ?, ?, ?)', ('legacy-record', 49, 3, data))
+
+
+def test_client_number_migration_preserves_legacy_documents_and_payments(client):
+    import json
+    db=importlib.import_module('db')
+    data=json.dumps({**payload(), 'total':'382'})
+    saved_payment=client.post('/api/flete-dalje/payments',json=payment()).json()
+    install_legacy_delivery_table(db,data)
+    db.init_db()
+    db.init_db()  # Repeated startup must be harmless.
+    archive=client.get('/api/flete-dalje').json()
+    assert archive['documents'][0]['id']=='legacy-record'
+    assert archive['documents'][0]['version']==3
+    assert archive['documents'][0]['number']==49
+    assert archive['payments']==[saved_payment]
+    assert client.get('/api/flete-dalje?recipient=Klienti').json()['nextNumber']==50
+    assert client.post('/api/flete-dalje',json={**payload(49),'recipient':'I ri'}).status_code==200
+    assert client.post('/api/flete-dalje',json=payload()).status_code==409
+
+
+def test_client_number_migration_rolls_back_on_invalid_legacy_data(client):
+    import json
+    db=importlib.import_module('db')
+    install_legacy_delivery_table(db,'invalid json')
+    with pytest.raises(json.JSONDecodeError):
+        db.init_db()
+    with db.engine.connect() as connection:
+        columns=connection.exec_driver_sql('PRAGMA table_info(flete_dalje_documents)').all()
+        assert 'client_key' not in [row[1] for row in columns]
+        assert connection.exec_driver_sql('SELECT content_json FROM flete_dalje_documents').scalar()=='invalid json'
+        assert connection.exec_driver_sql("SELECT name FROM sqlite_master WHERE name='flete_dalje_documents_scoped'").scalar() is None

@@ -4,7 +4,7 @@ import uuid
 from datetime import date
 import math
 import re
-import unicodedata
+from flete_dalje_schema import client_key
 from decimal import Decimal
 from datetime import datetime, timezone
 from typing import Literal
@@ -65,10 +65,6 @@ class Document(BaseModel):
 class SavedDocument(Document):
     id: str = Field(min_length=1, max_length=80, pattern=r'^[a-zA-Z0-9-]+$')
     version: int = Field(ge=1)
-
-
-def client_key(name):
-    return ' '.join(unicodedata.normalize('NFKC', name).lower().split())
 
 
 class Payment(BaseModel):
@@ -155,8 +151,10 @@ class Backup(BaseModel):
         for row in records:
             if not isinstance(row, dict) or not isinstance(row.get('lines'), list):
                 raise ValueError('Fletë e pavlefshme në backup.')
+            if not isinstance(row.get('client', ''), str):
+                raise ValueError('Emër klienti i pavlefshëm në backup.')
             documents.append({
-                'id': row.get('id', f"legacy-{row.get('num')}"), 'version': row.get('version', 1),
+                'id': row.get('id', f"legacy-{uuid.uuid5(uuid.NAMESPACE_URL, client_key(row.get('client', '')) + ':' + str(row.get('num')))}"), 'version': row.get('version', 1),
                 'number': row.get('num'), 'recipient': row.get('client', ''),
                 'date': row.get('date'), 'address': row.get('address', ''), 'notes': row.get('notes', ''),
                 'lines': [{'description': line.get('name', ''), 'unit': line.get('unit') or 'm²',
@@ -182,13 +180,13 @@ def serialize(row):
 
 
 @router.get('')
-def archive():
+def archive(recipient: str = ''):
     with db.read_session() as session:
         rows = session.scalars(select(db.FleteDaljeDocument).order_by(db.FleteDaljeDocument.number.desc())).all()
         documents = [serialize(row) for row in rows]
         payments = [serialize_payment(row) for row in session.scalars(select(db.FleteDaljePayment)).all()]
         return {'documents': documents, 'payments': payments, 'clients': client_cards(documents, payments),
-                'nextNumber': max([48] + [r.number for r in rows]) + 1}
+                'nextNumber': max([0] + [r.number for r in rows if r.client_key == client_key(recipient)]) + 1}
 
 
 @router.post('/payments')
@@ -227,7 +225,7 @@ def void_payment(payment_id: str, version: int):
 
 @router.post('')
 def create(doc: Document):
-    row = db.FleteDaljeDocument(id=str(uuid.uuid4()), number=doc.number, version=1, content_json=content(doc))
+    row = db.FleteDaljeDocument(id=str(uuid.uuid4()), number=doc.number, client_key=client_key(doc.recipient), version=1, content_json=content(doc))
     try:
         with db.get_session() as session:
             session.add(row)
@@ -235,7 +233,7 @@ def create(doc: Document):
             result = serialize(row)
         return result
     except IntegrityError:
-        raise HTTPException(409, 'Ky numër ekziston. Zgjidhni një numër tjetër.')
+        raise HTTPException(409, 'Ky numër ekziston për këtë klient. Zgjidhni një numër tjetër.')
 
 
 @router.put('/{document_id}')
@@ -246,12 +244,12 @@ def edit(document_id: str, doc: SavedDocument):
         with db.get_session() as session:
             result = session.execute(update(db.FleteDaljeDocument).where(
                 db.FleteDaljeDocument.id == document_id, db.FleteDaljeDocument.version == doc.version
-            ).values(number=doc.number, content_json=content(doc), version=doc.version + 1))
+            ).values(number=doc.number, client_key=client_key(doc.recipient), content_json=content(doc), version=doc.version + 1))
             if result.rowcount != 1:
                 raise HTTPException(409, 'Fleta është ndryshuar ose fshirë. Rihapeni nga historiku.')
         return {**json.loads(content(doc)), 'id': document_id, 'version': doc.version + 1}
     except IntegrityError:
-        raise HTTPException(409, 'Ky numër ekziston. Zgjidhni një numër tjetër.')
+        raise HTTPException(409, 'Ky numër ekziston për këtë klient. Zgjidhni një numër tjetër.')
 
 
 @router.delete('/{document_id}')
@@ -271,18 +269,20 @@ def restore(backup: Backup):
     try:
         with db.get_session() as session:
             for doc in backup.documents:
-                if doc.id in ids or doc.number in numbers:
+                scope = (client_key(doc.recipient), doc.number)
+                if doc.id in ids or scope in numbers:
                     raise HTTPException(409, 'Backup përmban numra ose identifikues të përsëritur.')
                 ids.add(doc.id)
-                numbers.add(doc.number)
+                numbers.add(scope)
                 existing = session.get(db.FleteDaljeDocument, doc.id)
                 if existing is None:
-                    existing = session.scalar(select(db.FleteDaljeDocument).where(db.FleteDaljeDocument.number == doc.number))
+                    existing = session.scalar(select(db.FleteDaljeDocument).where(db.FleteDaljeDocument.number == doc.number,
+                        db.FleteDaljeDocument.client_key == client_key(doc.recipient)))
                 if existing:
                     if content(Document.model_validate(json.loads(existing.content_json))) != content(doc):
                         raise HTTPException(409, f'Konflikt me fletën {doc.number}. Asnjë ndryshim nuk u ruajt.')
                     continue
-                session.add(db.FleteDaljeDocument(id=doc.id, number=doc.number, version=1, content_json=content(doc)))
+                session.add(db.FleteDaljeDocument(id=doc.id, number=doc.number, client_key=client_key(doc.recipient), version=1, content_json=content(doc)))
             payment_ids = set()
             for payment in backup.payments:
                 if payment.id in payment_ids:
