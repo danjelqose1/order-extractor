@@ -4,10 +4,10 @@
   const root = document.getElementById('tabFleteDalje');
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const blankLine = () => ({ description: '', unit: 'm²', quantity: '', price: '' });
-  let records = [], current, baseline, loaded = false, busy = false;
+  let archiveData = null, payments = [], records = [], current, baseline, loaded = false, busy = false;
   const snapshot = () => JSON.stringify(current);
   const dirty = () => current && snapshot() !== baseline;
-  const canLeave = () => !dirty() || confirm('Ka ndryshime të paruajtura. Dëshironi t’i hidhni poshtë?');
+  const canLeave = () => (!window.FleteDaljeClients || window.FleteDaljeClients.canLeave()) && (!dirty() || confirm('Ka ndryshime të paruajtura. Dëshironi t’i hidhni poshtë?'));
   // Keep the reference's Number parsing and Math.round per line, before summing.
   const number = value => {
     let text = String(value ?? '').trim().replace(/\s/g, '');
@@ -27,7 +27,7 @@
     baseline = snapshot(); renderEditor(); renderArchive();
   }
   root.innerHTML = `<div class="fd-header"><div><h2>FLETË–DALJE <span>DIGJITALE</span></h2><p>Blloku elektronik për fabrikën • pa letra • pa llogaritje me dorë</p></div><div class="fd-toolbar"><button class="btn" data-fd="new">+ Fletë e re</button><button class="btn primary" data-fd="save">Ruaj fletën</button><button class="btn" data-fd="print">Printo / PDF</button><button class="btn" data-fd="history">Historiku</button></div></div>
-    <p id="fdStatus" role="status" aria-live="polite"></p><div class="fd-layout"><div id="fdEditor" class="fd-paper"></div><aside class="fd-archive" id="fdArchive"><h3>Historiku i fletëve</h3><label class="fd-search-label">Kërko<input id="fdSearch" type="search" placeholder="Kërko nr., klientin, datën ose adresën..."></label><div class="fd-archive-heading"><span id="fdCount"></span><button class="btn small" data-fd="refresh">Rifresko</button></div><div id="fdRecords"></div><div class="fd-rule"></div><h3>Backup & eksport</h3><p>Fletët ruhen në server, veçmas nga porositë. Backup përfshin vetëm fletët e ruajtura.</p><div class="fd-toolbar"><button class="btn small" data-fd="backup">Eksporto backup</button><button class="btn small" data-fd="import">Importo backup</button><button class="btn small" data-fd="csv">Eksporto Excel / CSV</button></div><input id="fdImport" type="file" accept="application/json,.json" hidden><div class="fd-alert">Për ruajtje afatgjatë përdor <b>Eksporto backup</b>. Mund të importoni edhe backup nga blloku origjinal.</div></aside></div>`;
+    <div class="fd-toolbar fd-view-tabs"><button class="btn primary" data-fd-view="editor" aria-pressed="true">Fletë-Dalje</button><button class="btn" data-fd-view="clients" aria-pressed="false">Kartelat e klientëve</button></div><section id="fdClients" hidden aria-label="Kartelat e klientëve"></section><p id="fdStatus" role="status" aria-live="polite"></p><div class="fd-layout"><div id="fdEditor" class="fd-paper"></div><aside class="fd-archive" id="fdArchive"><h3>Historiku i fletëve</h3><label class="fd-search-label">Kërko<input id="fdSearch" type="search" placeholder="Kërko nr., klientin, datën ose adresën..."></label><div class="fd-archive-heading"><span id="fdCount"></span><button class="btn small" data-fd="refresh">Rifresko</button></div><div id="fdRecords"></div><div class="fd-rule"></div><h3>Backup & eksport</h3><p>Fletët ruhen në server, veçmas nga porositë. Backup përfshin fletët dhe pagesat e ruajtura.</p><div class="fd-toolbar"><button class="btn small" data-fd="backup">Eksporto backup</button><button class="btn small" data-fd="import">Importo backup</button><button class="btn small" data-fd="csv">Eksporto Excel / CSV</button></div><input id="fdImport" type="file" accept="application/json,.json" hidden><div class="fd-alert">Për ruajtje afatgjatë përdor <b>Eksporto backup</b>. Mund të importoni edhe backup nga blloku origjinal.</div></aside></div>`;
   const $ = id => root.querySelector(`#${id}`);
   function status(message) { $('fdStatus').textContent = message; }
   function updateTotals() {
@@ -55,7 +55,11 @@
     if (!response.ok) throw Error(typeof body.detail === 'string' ? body.detail : 'Të dhëna të pavlefshme. Kontrolloni fushat.');
     return body;
   }
-  async function refresh() { const data = await request(); records = data.documents; loaded = true; renderArchive(); }
+  function receive(data) {
+    archiveData = data; records = data.documents; payments = data.payments || []; loaded = true; renderArchive();
+    window.FleteDaljeClients?.receive(data);
+  }
+  async function refresh() { receive(await request()); }
   async function load() {
     if (loaded || busy) return;
     busy = true;
@@ -77,13 +81,14 @@
   window.addEventListener('afterprint',()=>{ document.body.classList.remove('fd-printing'); document.getElementById('fdPrint')?.remove(); });
   root.addEventListener('input',event=>{
     const el=event.target;
+    if (el.closest('#fdClients')) return;
     if(el.id==='fdSearch') return renderArchive();
     if(el.dataset.field) current[el.dataset.field]=el.dataset.field==='number'?Number(el.value):el.value;
     if(el.dataset.line!==undefined) current.lines[Number(el.dataset.line)][el.dataset.key]=el.value;
     updateTotals();
   });
   root.addEventListener('click', async event=>{
-    const button=event.target.closest('button'); if(!button || busy) return;
+    const button=event.target.closest('button'); if(!button || busy || button.closest('#fdClients') || button.dataset.fdView) return;
     busy=true;
     $('fdEditor').inert=true;
     try {
@@ -91,6 +96,7 @@
         if(!canLeave()) return;
         await refresh(); const doc=records.find(d=>d.id===button.dataset.open);
         if(!doc) throw Error('Fleta është fshirë.');
+        window.FleteDaljeClients?.showEditor();
         current=pad(structuredClone(doc)); baseline=snapshot(); renderEditor(); renderArchive(); return;
       }
       if(button.dataset.delete) {
@@ -120,7 +126,7 @@
           try { await refresh(); } catch { status('Fleta u ruajt. Historiku nuk u rifreskua; provoni përsëri.'); } break;
         }
         case 'print': print(); break;
-        case 'backup': await refresh(); download('flete-dalje-backup.json', JSON.stringify({format:'flete-dalje-v1',documents:records,schema:1,exported:new Date().toISOString(),records:records.map(doc=>({num:doc.number,client:doc.recipient,date:doc.date,address:doc.address,notes:doc.notes,lines:doc.lines.filter(hasData).map(line=>({name:line.description,unit:line.unit,qty:line.quantity,price:line.price}))}))},null,2),'application/json'); break;
+        case 'backup': await refresh(); download('flete-dalje-backup.json', JSON.stringify({format:'flete-dalje-v1',documents:records,payments,schema:1,exported:new Date().toISOString(),records:records.map(doc=>({num:doc.number,client:doc.recipient,date:doc.date,address:doc.address,notes:doc.notes,lines:doc.lines.filter(hasData).map(line=>({name:line.description,unit:line.unit,qty:line.quantity,price:line.price}))}))},null,2),'application/json'); break;
         case 'import': $('fdImport').click(); break;
         case 'csv': {
           await refresh();
@@ -139,11 +145,11 @@
     try {
       if(file.size>20000000) throw Error('Backup është tepër i madh (maksimumi 20 MB).');
       const backup=JSON.parse(await file.text());
-      if(!confirm('Të importohen fletët? Fletët ekzistuese nuk mbishkruhen; konfliktet e ndalojnë të gjithë importin.')) return;
-      const data=await request('/import',{method:'POST',body:JSON.stringify(backup)}); records=data.documents; renderArchive(); status('Backup u importua.');
+      if(!confirm('Të importohen fletët dhe pagesat? Regjistrimet ekzistuese nuk mbishkruhen; konfliktet e ndalojnë të gjithë importin.')) return;
+      const data=await request('/import',{method:'POST',body:JSON.stringify(backup)}); receive(data); status('Backup u importua.');
     } catch(error) { status(`Importi dështoi: ${error.message}`); } finally { event.target.value=''; busy=false; $('fdEditor').inert=false; }
   });
   window.addEventListener('beforeunload',event=>{if(dirty()){event.preventDefault();event.returnValue='';}});
-  window.FleteDalje={load,canLeave};
+  window.FleteDalje={load,canLeave,refresh,request,getArchive:()=>archiveData};
   if (!root.hidden) load();
 })();

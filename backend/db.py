@@ -3380,3 +3380,12 @@ class FleteDaljeDocument(Base):
     number: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     content_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class FleteDaljePayment(Base):
+    """Client payments belong exclusively to the standalone delivery module."""
+    __tablename__ = 'flete_dalje_payments'
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    voided: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    content_json: Mapped[str] = mapped_column(Text, nullable=False)

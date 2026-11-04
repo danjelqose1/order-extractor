@@ -85,3 +85,27 @@
   #fdPrint .fd-print-sign { margin-top:4mm; font-size:11px; display:flex; justify-content:space-between; break-inside:avoid; }
   #fdPrint .fd-print-notes { margin:2mm 0 0; font-size:9px; color:#555; }
 }
+#tabFleteDalje [hidden] { display:none!important; }
+#tabFleteDalje .fd-client-layout { display:grid;grid-template-columns:260px minmax(0,1fr);gap:20px; }
+#tabFleteDalje :is(.fd-client-list,.fd-client-detail) { background:white;border:1px solid var(--fd-line);border-radius:13px;padding:20px;min-width:0; }
+#tabFleteDalje .fd-client-help { color:var(--fd-muted);font-size:12px; }
+#tabFleteDalje .fd-client-choice { display:block;text-align:left;width:100%;padding:12px;margin-top:10px;border:1px solid var(--fd-line);border-radius:8px;background:white;color:var(--fd-text);cursor:pointer;overflow-wrap:anywhere; }
+#tabFleteDalje .fd-client-choice.active { background:#edf7f7;border-color:var(--fd-teal); }
+#tabFleteDalje .fd-client-choice span { display:block;margin-top:4px; }
+#tabFleteDalje .fd-client-heading { display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap; }
+#tabFleteDalje .fd-client-heading h2 { margin:0;color:var(--fd-navy); }
+#tabFleteDalje .fd-ledger { min-width:640px;table-layout:auto; }
+#tabFleteDalje .fd-ledger th { width:auto!important; }
+#tabFleteDalje .fd-ledger td { text-align:left;font-weight:400;vertical-align:top; }
+#tabFleteDalje .fd-ledger small { display:block;color:var(--fd-muted);margin-top:5px;overflow-wrap:anywhere; }
+#tabFleteDalje .fd-ledger td:nth-child(n+3) { white-space:nowrap; }
+#tabFleteDalje .fd-payment-voided { opacity:.6; }
+.fd-client-totals { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:20px 0; }
+.fd-client-totals > div { padding:15px;background:#edf7f7;border-radius:8px;overflow-wrap:anywhere; }
+.fd-client-totals strong { display:block;font-size:20px;margin-top:5px; }
+#tabFleteDalje .fd-payment-fields { display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0; }
+#tabFleteDalje select { padding:9px;border:1px solid var(--fd-line);border-radius:7px;background:white;color:var(--fd-text);font:inherit; }
+#fdPaymentStatus { color:#23795e; }
+@media(max-width:1100px) { #tabFleteDalje .fd-client-layout { grid-template-columns:1fr; } }
+@media(max-width:550px) { .fd-client-totals { grid-template-columns:1fr; } #tabFleteDalje .fd-payment-fields { grid-template-columns:1fr; } }
+@media print { #fdPrint.fd-client-print table { table-layout:auto; } #fdPrint.fd-client-print th { width:auto; } #fdPrint.fd-client-print td { height:auto;padding:4px; } #fdPrint .fd-client-totals { display:flex;justify-content:space-between;break-inside:avoid;font-size:10px; } #fdPrint .fd-client-totals > div { padding:4px;background:white;border:1px solid black; } #fdPrint .fd-client-totals strong { font-size:13px; } #fdPrint small { display:block;font-size:9px; } }

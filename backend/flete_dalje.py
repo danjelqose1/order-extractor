@@ -4,6 +4,10 @@ import uuid
 from datetime import date
 import math
 import re
+import unicodedata
+from decimal import Decimal
+from datetime import datetime, timezone
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -63,9 +67,80 @@ class SavedDocument(Document):
     version: int = Field(ge=1)
 
 
+def client_key(name):
+    return ' '.join(unicodedata.normalize('NFKC', name).lower().split())
+
+
+class Payment(BaseModel):
+    id: str = Field(min_length=1, max_length=80, pattern=r'^[a-zA-Z0-9-]+$')
+    recipient: str = Field(min_length=1, max_length=1000)
+    date: date
+    amount: Decimal = Field(gt=0, le=1000000000, max_digits=12, decimal_places=2)
+    method: Literal['cash', 'bank', 'other'] = 'cash'
+    notes: str = Field(default='', max_length=2000)
+
+    @field_validator('recipient')
+    @classmethod
+    def named_client(cls, value):
+        value = ' '.join(value.split())
+        if not client_key(value):
+            raise ValueError('Zgjidhni klientin.')
+        return value
+
+
+class SavedPayment(Payment):
+    version: int = Field(ge=1)
+    voided: bool = False
+    created_at: datetime
+
+
+def payment_content(payment):
+    return json.dumps(payment.model_dump(mode='json', exclude={'id', 'version', 'voided', 'created_at'}),
+                      ensure_ascii=False, sort_keys=True)
+
+
+def serialize_payment(row):
+    return {**json.loads(row.content_json), 'id': row.id, 'version': row.version, 'voided': row.voided}
+
+
+def client_cards(documents, payments):
+    cards = {}
+    def card(name):
+        key = client_key(name)
+        if key not in cards:
+            cards[key] = {'key': key, 'name': ' '.join(name.split()) or 'Pa emër',
+                          'documents_cents': 0, 'paid_cents': 0, 'balance_cents': 0, 'entries': []}
+        return cards[key]
+    for doc in documents:
+        entry = card(doc['recipient'])
+        cents = int(doc['total']) * 100
+        entry['documents_cents'] += cents
+        entry['entries'].append({'id': doc['id'], 'kind': 'document', 'date': doc['date'],
+                                 'number': doc['number'], 'address': doc['address'], 'debit_cents': cents,
+                                 'credit_cents': 0})
+    for payment in payments:
+        entry = card(payment['recipient'])
+        amount = int(Decimal(payment['amount']) * 100)
+        if not payment['voided']:
+            entry['paid_cents'] += amount
+        entry['entries'].append({'id': payment['id'], 'kind': 'payment', 'date': payment['date'],
+                                 'amount_cents': amount, 'method': payment['method'], 'notes': payment['notes'],
+                                 'version': payment['version'], 'voided': payment['voided'],
+                                 'debit_cents': 0, 'credit_cents': 0 if payment['voided'] else amount})
+    for entry in cards.values():
+        entry['entries'].sort(key=lambda row: (row['date'], row['kind'], row.get('number', 0), row['id']))
+        balance = 0
+        for row in entry['entries']:
+            balance += row['debit_cents'] - row['credit_cents']
+            row['balance_cents'] = balance
+        entry['balance_cents'] = balance
+    return sorted(cards.values(), key=lambda row: row['key'])
+
+
 class Backup(BaseModel):
     format: str = Field(pattern=r'^flete-dalje-v1$')
     documents: list[SavedDocument] = Field(max_length=10000)
+    payments: list[SavedPayment] = Field(default_factory=list, max_length=10000)
 
     @model_validator(mode='before')
     @classmethod
@@ -110,7 +185,44 @@ def serialize(row):
 def archive():
     with db.read_session() as session:
         rows = session.scalars(select(db.FleteDaljeDocument).order_by(db.FleteDaljeDocument.number.desc())).all()
-        return {'documents': [serialize(row) for row in rows], 'nextNumber': max([48] + [r.number for r in rows]) + 1}
+        documents = [serialize(row) for row in rows]
+        payments = [serialize_payment(row) for row in session.scalars(select(db.FleteDaljePayment)).all()]
+        return {'documents': documents, 'payments': payments, 'clients': client_cards(documents, payments),
+                'nextNumber': max([48] + [r.number for r in rows]) + 1}
+
+
+@router.post('/payments')
+def record_payment(payment: Payment):
+    # Client-generated immutable ID makes retries idempotent, including after a timeout.
+    data = json.loads(payment_content(payment))
+    data['created_at'] = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+    row = db.FleteDaljePayment(id=payment.id, version=1, voided=False,
+                              content_json=json.dumps(data, ensure_ascii=False, sort_keys=True))
+    try:
+        with db.get_session() as session:
+            existing = session.get(db.FleteDaljePayment, payment.id)
+            if existing:
+                if payment_content(Payment.model_validate(serialize_payment(existing))) != payment_content(payment):
+                    raise HTTPException(409, 'Pagesa me këtë identifikues ekziston me të dhëna të tjera.')
+                return serialize_payment(existing)
+            session.add(row)
+            session.flush()
+            result = serialize_payment(row)
+        return result
+    except IntegrityError:
+        raise HTTPException(409, 'Pagesa ekziston. Rifreskoni kartelën para se të provoni përsëri.')
+
+
+@router.post('/payments/{payment_id}/void')
+def void_payment(payment_id: str, version: int):
+    with db.get_session() as session:
+        result = session.execute(update(db.FleteDaljePayment).where(
+            db.FleteDaljePayment.id == payment_id, db.FleteDaljePayment.version == version,
+            db.FleteDaljePayment.voided == False
+        ).values(voided=True, version=version + 1))
+        if result.rowcount != 1:
+            raise HTTPException(409, 'Pagesa është ndryshuar ose anuluar. Rifreskoni kartelën.')
+    return {'ok': True}
 
 
 @router.post('')
@@ -171,6 +283,20 @@ def restore(backup: Backup):
                         raise HTTPException(409, f'Konflikt me fletën {doc.number}. Asnjë ndryshim nuk u ruajt.')
                     continue
                 session.add(db.FleteDaljeDocument(id=doc.id, number=doc.number, version=1, content_json=content(doc)))
+            payment_ids = set()
+            for payment in backup.payments:
+                if payment.id in payment_ids:
+                    raise HTTPException(409, 'Backup përmban pagesa të përsëritura.')
+                payment_ids.add(payment.id)
+                data = payment.model_dump(mode='json', exclude={'id', 'version', 'voided'})
+                encoded = json.dumps(data, ensure_ascii=False, sort_keys=True)
+                existing = session.get(db.FleteDaljePayment, payment.id)
+                if existing:
+                    if json.loads(existing.content_json) != data or existing.voided != payment.voided:
+                        raise HTTPException(409, 'Konflikt me pagesën. Asnjë ndryshim nuk u ruajt.')
+                    continue
+                session.add(db.FleteDaljePayment(id=payment.id, version=payment.version,
+                                                voided=payment.voided, content_json=encoded))
             session.flush()
     except IntegrityError:
         raise HTTPException(409, 'Numër ekzistues në arkiv. Asnjë ndryshim nuk u ruajt.')

@@ -30,7 +30,7 @@ def payload(number=49):
 
 def test_crud_conflicts_and_backup(client):
     url = '/api/flete-dalje'
-    assert client.get(url).json() == {'documents': [], 'nextNumber': 49}
+    assert client.get(url).json() == {'documents': [], 'payments': [], 'clients': [], 'nextNumber': 49}
     a = client.post(url, json=payload()).json()
     assert a['total'] == '382'
     assert client.post(url, json=payload()).status_code == 409
@@ -86,3 +86,79 @@ def test_reference_backups_import_and_conflicts(client):
     assert client.post(url+'/import', json=[{**row, 'client': 'Conflict'}]).status_code == 409
     assert client.get(url).json()['documents'] == [doc]
     assert client.post(url+'/import', json={'schema':1,'records':[{**row,'lines':[None]}]}).status_code == 422
+
+
+def payment(**changes):
+    return {**dict(id='payment-1', recipient='Klienti', date='2026-11-05', amount='100.50', method='cash', notes='Arkë'), **changes}
+
+
+def test_client_ledger_payments_and_void(client):
+    url = '/api/flete-dalje'
+    doc = client.post(url, json=payload()).json()
+    client.post(url, json={**payload(50), 'recipient':'  KLIENTI  '})
+    other = client.post(url, json={**payload(51), 'recipient':'Tjetër'}).json()
+    saved = client.post(url+'/payments', json=payment()).json()
+    assert client.post(url+'/payments', json=payment()).json() == saved  # Retry is idempotent.
+    assert client.post(url+'/payments', json=payment(amount='99')).status_code == 409
+    archive = client.get(url).json()
+    card = next(row for row in archive['clients'] if row['key']=='klienti')
+    assert len(card['entries']) == 3
+    assert card['documents_cents'] == 76400
+    assert card['paid_cents'] == 10050
+    assert card['balance_cents'] == 66350
+    assert card['entries'][-1]['balance_cents'] == 66350
+    assert next(row for row in archive['clients'] if row['key']=='tjetër')['balance_cents'] == 38200
+    assert client.get(url).json()['documents'][0] == other
+    assert client.post(url+'/payments/payment-1/void?version=99').status_code == 409
+    assert client.post(url+'/payments/payment-1/void?version=1').status_code == 200
+    assert client.post(url+'/payments/payment-1/void?version=1').status_code == 409
+    card = next(row for row in client.get(url).json()['clients'] if row['key']=='klienti')
+    assert card['balance_cents'] == 76400
+    assert card['entries'][-1]['voided'] is True
+    assert card['entries'][-1]['credit_cents'] == 0
+    # Renaming/deleting documents moves only their debit, never the payment history.
+    assert client.put(url+'/'+doc['id'], json={**doc, 'recipient':'Emër i ri'}).status_code == 200
+    assert client.delete(url+'/'+doc['id']+'?version=2').status_code == 200
+    assert any(row['key']=='klienti' for row in client.get(url).json()['clients'])
+
+
+def test_payment_backup_transaction_and_credit(client):
+    url = '/api/flete-dalje'
+    saved = client.post(url+'/payments', json=payment()).json()
+    archive = client.get(url).json()
+    assert archive['clients'][0]['balance_cents'] == -10050  # Advance payment, no document required.
+    backup = {'format':'flete-dalje-v1', 'documents':[], 'payments':[saved]}
+    assert client.post(url+'/import', json=backup).status_code == 200
+    # A conflict in a payment rolls back newly imported documents as well.
+    doc = {**payload(80),'id':'import-doc','version':1}
+    conflict = {**backup, 'documents':[doc], 'payments':[{**saved,'amount':'50'}]}
+    assert client.post(url+'/import', json=conflict).status_code == 409
+    assert client.get(url).json()['documents'] == []
+    assert client.get(url).json()['payments'] == [saved]
+    assert client.post(url+'/import',json={**backup, 'payments':[saved,saved]}).status_code == 409
+    # Restore a distinct payment, preserving its cancellation and creation timestamp.
+    restored = {**saved,'id':'restored-payment','voided':True,'version':2}
+    assert client.post(url+'/import', json={**backup,'payments':[restored]}).status_code == 200
+    assert client.get(url).json()['clients'][0]['balance_cents'] == -10050
+
+
+@pytest.mark.parametrize('changes', [{'amount':'0'},{'amount':'-1'},{'amount':'0.001'},{'amount':'NaN'}, {'recipient':'  '}, {'method':'invalid'}])
+def test_invalid_payment(client, changes):
+    assert client.post('/api/flete-dalje/payments',json=payment(**changes)).status_code == 422
+
+
+def test_complete_backup_restores_documents_and_payments(client):
+    from sqlalchemy import delete
+    db = importlib.import_module('db')
+    url = '/api/flete-dalje'
+    client.post(url, json=payload())
+    client.post(url+'/payments', json=payment())
+    original = client.get(url).json()
+    backup = {'format':'flete-dalje-v1', 'documents':original['documents'], 'payments':original['payments']}
+    with db.get_session() as session:
+        session.execute(delete(db.FleteDaljeDocument))
+        session.execute(delete(db.FleteDaljePayment))
+    assert client.get(url).json()['clients'] == []
+    restored = client.post(url+'/import', json=backup)
+    assert restored.status_code == 200
+    assert restored.json() == original
