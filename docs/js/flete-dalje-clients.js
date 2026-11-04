@@ -8,7 +8,7 @@
   const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
   const methods = {cash:'Para në dorë',bank:'Transfertë bankare',other:'Tjetër'};
   let cards = [], selected = null, pendingId = null, busy = false;
-  panel.innerHTML = `<div class="fd-client-layout"><aside class="fd-client-list"><h3>Kartelat e klientëve</h3><label>Kërko klientin<input id="fdClientSearch" type="search" placeholder="Emri i klientit"></label><p class="fd-client-help">Fletët grupohen sipas emrit të marrësit. Shkronjat e mëdha dhe hapësirat nuk krijojnë kartela të veçanta.</p><button class="btn small" id="fdClientsRefresh">Rifresko</button><div id="fdClientList"></div></aside><section class="fd-client-detail"><div id="fdClientDetail"></div><p id="fdPaymentStatus" role="status" aria-live="polite"></p><form id="fdPaymentForm" hidden><h3>Regjistro pagesë</h3><div class="fd-payment-fields"><label>Shuma (lekë)<input name="amount" type="text" inputmode="decimal" required placeholder="p.sh. 5000 ose 5000,50"></label><label>Data e pagesës<input name="date" type="date" required></label><label>Mënyra e pagesës<select name="method"><option value="cash">Para në dorë</option><option value="bank">Transfertë bankare</option><option value="other">Tjetër</option></select></label><label>Shënim / referencë<input name="notes" maxlength="2000" placeholder="Nr. transferte ose shënim"></label></div><button class="btn primary" type="submit">Ruaj pagesën</button><p class="fd-client-help">Pagesa zbritet nga gjendja e klientit. Fletë-daljet mbeten me vlerën e tyre origjinale.</p></form></section></div>`;
+  panel.innerHTML = `<div class="fd-client-layout"><aside class="fd-client-list"><h3>Kartelat e klientëve</h3><label>Kërko klientin<input id="fdClientSearch" type="search" placeholder="Emri i klientit"></label><p class="fd-client-help">Fletët grupohen sipas emrit të marrësit. Shkronjat e mëdha dhe hapësirat nuk krijojnë kartela të veçanta.</p><button class="btn small" id="fdClientsRefresh">Rifresko</button><div id="fdClientList"></div></aside><section class="fd-client-detail"><div id="fdClientDetail"></div><p id="fdPaymentStatus" role="status" aria-live="polite"></p><form id="fdPaymentForm" hidden><h3>Regjistro pagesë</h3><div class="fd-payment-fields"><label>Shuma (lekë)<input name="amount" type="text" inputmode="decimal" required placeholder="p.sh. 5000 ose 5000,50"></label><label>Data e pagesës<input name="date" type="date" required></label><label>Mënyra e pagesës<select name="method"><option value="cash">Para në dorë</option><option value="bank">Transfertë bankare</option><option value="other">Tjetër</option></select></label><label>Shënim / referencë<input name="notes" maxlength="2000" placeholder="Nr. transferte ose shënim"></label></div><div class="fd-toolbar"><button class="btn primary" type="submit">Ruaj pagesën</button><button class="btn" type="submit" value="print">Ruaj dhe printo</button></div><p class="fd-client-help">Pagesa zbritet nga gjendja e klientit. Fletë-daljet mbeten me vlerën e tyre origjinale.</p></form></section></div>`;
   const $ = id => panel.querySelector(`#${id}`);
   const form = $('fdPaymentForm');
   form.elements.date.value = today();
@@ -31,7 +31,13 @@
     return `<div class="fd-client-totals"><div><span>Totali i fletë-daljeve</span><strong>${money(card.documents_cents)}</strong></div><div><span>Pagesa gjithsej</span><strong>${money(card.paid_cents)}</strong></div><div><span>${card.balance_cents<0?'Parapagim / tepricë':'Për t’u paguar'}</span><strong>${money(Math.abs(card.balance_cents))}</strong></div></div>`;
   }
   function rows(card, print=false) {
-    return card.entries.map(row=>`<tr class="${row.voided?'fd-payment-voided':''}"><td>${esc(row.date)}</td><td>${row.kind==='document'?(print?`Fletë nr. ${esc(row.number)}`:`<button class="btn small" data-ledger-open="${esc(row.id)}">Fletë nr. ${esc(row.number)}</button>`):`Pagesë${row.voided?' e anuluar':''}`}<small>${esc(row.kind==='document'?row.address:methods[row.method])}${row.notes?' · '+esc(row.notes):''}${row.voided?' · '+money(row.amount_cents):''}</small></td><td>${row.debit_cents?money(row.debit_cents):'—'}</td><td>${row.credit_cents?money(row.credit_cents):'—'}</td><td>${money(row.balance_cents)}</td>${print?'':`<td>${row.kind==='payment'&&!row.voided?`<button class="btn small danger" data-void-payment="${esc(row.id)}" data-version="${row.version}">Anulo pagesën</button>`:''}</td>`}</tr>`).join('');
+    return card.entries.map(row=>`<tr class="${row.voided?'fd-payment-voided':''}"><td>${esc(row.date)}</td><td>${row.kind==='document'?(print?`Fletë nr. ${esc(row.number)}`:`<button class="btn small" data-ledger-open="${esc(row.id)}">Fletë nr. ${esc(row.number)}</button>`):`Pagesë${row.voided?' e anuluar':''}`}<small>${esc(row.kind==='document'?row.address:methods[row.method])}${row.notes?' · '+esc(row.notes):''}${row.voided?' · '+money(row.amount_cents):''}</small></td><td>${row.debit_cents?money(row.debit_cents):'—'}</td><td>${row.credit_cents?money(row.credit_cents):'—'}</td><td>${money(row.balance_cents)}</td>${print?'':`<td>${row.kind==='payment'?`<button class="btn small" data-print-payment="${esc(row.id)}">Printo mandatpagesën</button>`:''}${row.kind==='payment'&&!row.voided?`<button class="btn small danger" data-void-payment="${esc(row.id)}" data-version="${row.version}">Anulo pagesën</button>`:''}</td>`}</tr>`).join('');
+  }
+  function printReceipt(payment) {
+    document.getElementById('fdPrint')?.remove();
+    const sheet=document.createElement('div');sheet.id='fdPrint';sheet.lang='sq';sheet.className='fd-payment-receipt';
+    sheet.innerHTML=`<h1>MANDATPAGESË</h1>${payment.voided?'<p class="fd-receipt-void"><strong>E ANULUAR — NUK VLEN SI PAGESË</strong></p>':''}<p class="fd-receipt-id">Referenca e pagesës: ${esc(payment.id)}</p><div class="fd-receipt-fields"><div><span>Klienti / Paguesi</span><p>${esc(payment.recipient)}</p></div><div><span>Data e pagesës</span><p>${esc(payment.date)}</p></div><div><span>Mënyra e pagesës</span><p>${esc(methods[payment.method])}</p></div></div><div class="fd-receipt-amount"><span>Shuma e paguar</span><strong>${money(Math.round(Number(payment.amount)*100))}</strong></div>${payment.notes?`<p class="fd-receipt-notes"><strong>Shënim / referencë:</strong><br>${esc(payment.notes)}</p>`:''}<div class="fd-receipt-signatures"><div>Paguesi<br><br>____________________________</div><div>Marrësi i pagesës<br><br>____________________________</div></div>`;
+    document.body.append(sheet);document.body.classList.add('fd-printing');window.print();
   }
   function ledger(card, print=false) {
     return `<div class="fd-table-wrap"><table class="fd-ledger"><thead><tr>${['Data','Përshkrimi','Fletë-dalje','Pagesë','Gjendja',...(print?[]:['Veprime'])].map(label=>`<th>${label}</th>`).join('')}</tr></thead><tbody>${rows(card,print)}</tbody></table></div>`;
@@ -62,6 +68,7 @@
   }
   form.addEventListener('submit',event=>{
     event.preventDefault();
+    const printAfterSave=event.submitter?.value==='print';
     transact(async()=>{
       const card=active(); if(!card) return;
       const text=form.elements.amount.value.trim().replace(',','.');
@@ -70,9 +77,13 @@
       const amount=Number(whole)*100+Number(fraction.padEnd(2,'0'));
       if(amount>card.balance_cents && !confirm('Pagesa tejkalon gjendjen. Diferenca do të ruhet si parapagim. Vazhdo?')) return;
       pendingId ||= crypto.randomUUID();
-      await window.FleteDalje.request('/payments',{method:'POST',body:JSON.stringify({id:pendingId,recipient:card.name,date:form.elements.date.value,amount:text,method:form.elements.method.value,notes:form.elements.notes.value.trim()})});
+      const saved=await window.FleteDalje.request('/payments',{method:'POST',body:JSON.stringify({id:pendingId,recipient:card.name,date:form.elements.date.value,amount:text,method:form.elements.method.value,notes:form.elements.notes.value.trim()})});
       clearDraft();$('fdPaymentStatus').textContent='Pagesa u ruajt.';
       try {await window.FleteDalje.refresh();} catch { $('fdPaymentStatus').textContent='Pagesa u ruajt. Rifreskoni kartelën për gjendjen e fundit.'; }
+      if(printAfterSave) {
+        const payment=window.FleteDalje.getArchive()?.payments?.find(row=>row.id===saved.id) || saved;
+        printReceipt(payment);
+      }
     });
   });
   panel.addEventListener('click',event=>{
@@ -86,6 +97,14 @@
       const search=root.querySelector('#fdSearch');search.value='';search.dispatchEvent(new Event('input',{bubbles:true}));
       root.querySelector(`[data-open="${CSS.escape(button.dataset.ledgerOpen)}"]`)?.click();
       return;
+    }
+    if(button.dataset.printPayment) {
+      transact(async()=>{
+        await window.FleteDalje.refresh();
+        const payment=window.FleteDalje.getArchive()?.payments?.find(row=>row.id===button.dataset.printPayment);
+        if(!payment) throw Error('Pagesa nuk u gjet. Rifreskoni kartelën.');
+        printReceipt(payment);
+      });return;
     }
     if(button.dataset.voidPayment) {
       if(!confirm('Të anulohet kjo pagesë? Ajo do të mbetet në historik dhe shuma do t’i shtohet përsëri gjendjes.')) return;
