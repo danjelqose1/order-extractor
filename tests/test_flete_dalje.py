@@ -30,7 +30,7 @@ def payload(number=49):
 
 def test_crud_conflicts_and_backup(client):
     url = '/api/flete-dalje'
-    assert client.get(url).json() == {'documents': [], 'payments': [], 'clients': [], 'nextNumber': 1}
+    assert client.get(url).json() == {'documents': [], 'payments': [], 'opening_balances': [], 'clients': [], 'nextNumber': 1}
     a = client.post(url, json=payload()).json()
     assert a['total'] == '382'
     assert client.post(url, json=payload()).status_code == 409
@@ -220,3 +220,61 @@ def test_client_number_migration_rolls_back_on_invalid_legacy_data(client):
         assert 'client_key' not in [row[1] for row in columns]
         assert connection.exec_driver_sql('SELECT content_json FROM flete_dalje_documents').scalar()=='invalid json'
         assert connection.exec_driver_sql("SELECT name FROM sqlite_master WHERE name='flete_dalje_documents_scoped'").scalar() is None
+
+
+def opening(**changes):
+    return {**dict(recipient='Klienti', amount='1000.50', side='debt', date='2026-11-01', notes='Blloku i vjetër', version=0), **changes}
+
+
+def test_opening_balance_starts_card_and_combines_with_activity(client):
+    url='/api/flete-dalje'
+    saved=client.post(url+'/opening-balances',json=opening()).json()
+    assert saved['version']==1
+    card=client.get(url).json()['clients'][0]
+    assert card['opening_cents']==100050 and card['balance_cents']==100050
+    assert card['entries'][0]['kind']=='opening'
+    assert client.post(url+'/opening-balances',json=opening(recipient=' KLIENTI ')).status_code==409
+    client.post(url,json=payload(1))
+    client.post(url+'/payments',json=payment(amount='100.25'))
+    card=client.get(url).json()['clients'][0]
+    assert card['documents_cents']==38200 and card['paid_cents']==10025
+    assert card['balance_cents']==128225
+    # Editing sets the amount instead of adding another balance, and is version guarded.
+    changed=client.post(url+'/opening-balances',json=opening(amount='200',version=1))
+    assert changed.status_code==200 and changed.json()['version']==2
+    assert client.post(url+'/opening-balances',json=opening(amount='300',version=1)).status_code==409
+    assert client.get(url).json()['clients'][0]['balance_cents']==48175
+    assert client.get(url).json()['documents'][0]['total']=='382'
+    assert len(client.get(url).json()['payments'])==1
+    assert client.post(url+'/opening-balances',json=opening(amount='0',version=2)).status_code==200
+    assert client.get(url).json()['clients'][0]['balance_cents']==28175
+
+
+def test_opening_credit_and_complete_restore(client):
+    from sqlalchemy import delete
+    db=importlib.import_module('db')
+    url='/api/flete-dalje'
+    assert client.post(url+'/opening-balances',json=opening(side='credit')).status_code==200
+    client.post(url,json=payload(1))
+    client.post(url+'/payments',json=payment())
+    data=client.get(url).json()
+    assert data['clients'][0]['balance_cents']==-71900
+    assert data['clients'][0]['paid_cents']==10050  # Opening credit is not a payment.
+    backup={'format':'flete-dalje-v1',**{key:data[key] for key in ['documents','payments','opening_balances']}}
+    assert client.post(url+'/import',json=backup).status_code==200
+    conflict={**backup,'documents':[{**payload(2),'id':'pending-opening-conflict','version':1}],
+              'opening_balances':[{**data['opening_balances'][0],'amount':'200'}]}
+    assert client.post(url+'/import',json=conflict).status_code==409
+    assert len(client.get(url).json()['documents'])==1
+    with db.get_session() as session:
+        for model in [db.FleteDaljeDocument,db.FleteDaljePayment,db.FleteDaljeOpeningBalance]:
+            session.execute(delete(model))
+    assert client.post(url+'/import',json=backup).json()==data
+    # An older backup cannot clear current opening balances.
+    assert client.post(url+'/import',json={'format':'flete-dalje-v1','documents':[]}).status_code==200
+    assert client.get(url).json()['opening_balances']==data['opening_balances']
+
+
+@pytest.mark.parametrize('changes',[{'amount':'-1'},{'amount':'1.001'},{'amount':'Infinity'},{'recipient':' '},{'side':'bad'}])
+def test_invalid_opening_balance(client,changes):
+    assert client.post('/api/flete-dalje/opening-balances',json=opening(**changes)).status_code==422

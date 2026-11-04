@@ -127,3 +127,5 @@
 #tabFleteDalje .fd-client-choice small { display:block;margin-top:4px; }
 #tabFleteDalje .fd-client-totals small { display:block;margin-top:5px; }
 @media print { #fdPrint .fd-total-debt,#fdPrint .fd-total-clear { color:black!important; } }
+#tabFleteDalje .fd-client-totals { grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); }
+#fdOpeningForm { padding:16px;border:1px solid #9dcfb3;border-radius:10px;background:#f5fbf7;margin-bottom:20px; }

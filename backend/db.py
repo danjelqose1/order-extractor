@@ -3393,3 +3393,11 @@ class FleteDaljePayment(Base):
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     voided: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     content_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class FleteDaljeOpeningBalance(Base):
+    """One starting balance per normalized client, separate from documents/payments."""
+    __tablename__ = 'flete_dalje_opening_balances'
+    client_key: Mapped[str] = mapped_column(String(1000), primary_key=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    content_json: Mapped[str] = mapped_column(Text, nullable=False)

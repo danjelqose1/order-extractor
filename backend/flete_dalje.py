@@ -99,14 +99,48 @@ def serialize_payment(row):
     return {**json.loads(row.content_json), 'id': row.id, 'version': row.version, 'voided': row.voided}
 
 
-def client_cards(documents, payments):
+class OpeningBalance(BaseModel):
+    recipient: str = Field(min_length=1, max_length=1000)
+    amount: Decimal = Field(ge=0, le=1000000000, max_digits=12, decimal_places=2)
+    side: Literal['debt', 'credit'] = 'debt'
+    date: date
+    notes: str = Field(default='', max_length=2000)
+    version: int = Field(default=0, ge=0)
+
+    @field_validator('recipient')
+    @classmethod
+    def named_client(cls, value):
+        value = ' '.join(value.split())
+        if not client_key(value):
+            raise ValueError('Shkruani emrin e klientit.')
+        return value
+
+
+class SavedOpeningBalance(OpeningBalance):
+    version: int = Field(ge=1)
+    updated_at: datetime
+
+
+def serialize_opening(row):
+    return {**json.loads(row.content_json), 'version': row.version}
+
+
+def client_cards(documents, payments, openings=()):
     cards = {}
     def card(name):
         key = client_key(name)
         if key not in cards:
             cards[key] = {'key': key, 'name': ' '.join(name.split()) or 'Pa emër',
-                          'documents_cents': 0, 'paid_cents': 0, 'balance_cents': 0, 'entries': []}
+                          'opening_cents': 0, 'opening_balance': None, 'documents_cents': 0, 'paid_cents': 0, 'balance_cents': 0, 'entries': []}
         return cards[key]
+    for opening in openings:
+        entry = card(opening['recipient'])
+        amount = int(Decimal(opening['amount']) * 100) * (-1 if opening['side']=='credit' else 1)
+        entry['opening_cents'] = amount
+        entry['opening_balance'] = opening
+        entry['entries'].append({'id': entry['key'], 'kind': 'opening', 'date': opening['date'],
+                                 'notes': opening['notes'], 'debit_cents': max(amount, 0),
+                                 'credit_cents': max(-amount, 0)})
     for doc in documents:
         entry = card(doc['recipient'])
         cents = int(doc['total']) * 100
@@ -124,7 +158,7 @@ def client_cards(documents, payments):
                                  'version': payment['version'], 'voided': payment['voided'],
                                  'debit_cents': 0, 'credit_cents': 0 if payment['voided'] else amount})
     for entry in cards.values():
-        entry['entries'].sort(key=lambda row: (row['date'], row['kind'], row.get('number', 0), row['id']))
+        entry['entries'].sort(key=lambda row: (row['kind']!='opening', row['date'], row['kind'], row.get('number', 0), row['id']))
         balance = 0
         for row in entry['entries']:
             balance += row['debit_cents'] - row['credit_cents']
@@ -137,6 +171,7 @@ class Backup(BaseModel):
     format: str = Field(pattern=r'^flete-dalje-v1$')
     documents: list[SavedDocument] = Field(max_length=10000)
     payments: list[SavedPayment] = Field(default_factory=list, max_length=10000)
+    opening_balances: list[SavedOpeningBalance] = Field(default_factory=list, max_length=10000)
 
     @model_validator(mode='before')
     @classmethod
@@ -185,8 +220,35 @@ def archive(recipient: str = ''):
         rows = session.scalars(select(db.FleteDaljeDocument).order_by(db.FleteDaljeDocument.number.desc())).all()
         documents = [serialize(row) for row in rows]
         payments = [serialize_payment(row) for row in session.scalars(select(db.FleteDaljePayment)).all()]
-        return {'documents': documents, 'payments': payments, 'clients': client_cards(documents, payments),
+        openings = [serialize_opening(row) for row in session.scalars(select(db.FleteDaljeOpeningBalance)).all()]
+        return {'documents': documents, 'payments': payments, 'opening_balances': openings, 'clients': client_cards(documents, payments, openings),
                 'nextNumber': max([0] + [r.number for r in rows if r.client_key == client_key(recipient)]) + 1}
+
+
+@router.post('/opening-balances')
+def set_opening_balance(opening: OpeningBalance):
+    key = client_key(opening.recipient)
+    data = opening.model_dump(mode='json', exclude={'version'})
+    data['updated_at'] = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+    encoded = json.dumps(data, ensure_ascii=False, sort_keys=True)
+    try:
+        with db.get_session() as session:
+            if opening.version == 0:
+                row = db.FleteDaljeOpeningBalance(client_key=key, version=1, content_json=encoded)
+                session.add(row)
+                session.flush()
+                result = serialize_opening(row)
+            else:
+                changed = session.execute(update(db.FleteDaljeOpeningBalance).where(
+                    db.FleteDaljeOpeningBalance.client_key == key,
+                    db.FleteDaljeOpeningBalance.version == opening.version
+                ).values(content_json=encoded, version=opening.version+1))
+                if changed.rowcount != 1:
+                    raise HTTPException(409, 'Gjendja fillestare është ndryshuar. Rifreskoni dhe hapeni përsëri.')
+                result = {**data, 'version': opening.version+1}
+        return result
+    except IntegrityError:
+        raise HTTPException(409, 'Klienti ka një gjendje fillestare. Rifreskoni dhe përdorni Ndrysho gjendjen fillestare.')
 
 
 @router.post('/payments')
@@ -297,6 +359,20 @@ def restore(backup: Backup):
                     continue
                 session.add(db.FleteDaljePayment(id=payment.id, version=payment.version,
                                                 voided=payment.voided, content_json=encoded))
+            opening_keys = set()
+            for opening in backup.opening_balances:
+                key = client_key(opening.recipient)
+                if key in opening_keys:
+                    raise HTTPException(409, 'Backup përmban gjendje fillestare të përsëritura.')
+                opening_keys.add(key)
+                data = opening.model_dump(mode='json', exclude={'version'})
+                existing = session.get(db.FleteDaljeOpeningBalance, key)
+                if existing:
+                    if json.loads(existing.content_json) != data:
+                        raise HTTPException(409, 'Konflikt me gjendjen fillestare. Asnjë ndryshim nuk u ruajt.')
+                    continue
+                session.add(db.FleteDaljeOpeningBalance(client_key=key, version=opening.version,
+                    content_json=json.dumps(data, ensure_ascii=False, sort_keys=True)))
             session.flush()
     except IntegrityError:
         raise HTTPException(409, 'Numër ekzistues në arkiv. Asnjë ndryshim nuk u ruajt.')

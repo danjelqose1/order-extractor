@@ -64,3 +64,13 @@ On backend startup, `flete_dalje_schema.migrate_client_numbering` transactionall
 Verification: 60 focused checks passed, including scoped numbering, legacy data preservation and migration rollback. Browser checks passed for fresh sheets after save, same-client number suggestions, red/green totals, archive reopening, payments, receipts and printing.
 
 Full regression run after these changes: 779 passed; the same four baseline failures remain. Saved numbering was not rewritten during migration, and original IDs/versions/payment history were verified intact.
+
+## Gjendja fillestare
+
+The client card supports “Shto gjendjen fillestare” / “Ndrysho gjendjen fillestare”. Use “Hap kartelë me gjendje fillestare” to start a client before recording any delivery documents. Enter the remaining prior amount, its date, an optional reference, and whether it is a debt or a prepaid credit. Do not include amounts already represented by delivery documents in this module.
+
+Each normalized client has at most one opening balance in the separate `flete_dalje_opening_balances` SQLite table. Zero can be used to clear an incorrect opening amount. Saving an edit replaces the previous starting amount, recalculates the ledger, and leaves documents/payments untouched. Versions reject stale corrections and duplicate creation attempts. The opening entry always appears first in the statement, followed by saved delivery documents and payments. Total = opening debt (or negative opening credit) + delivery totals − active payments. Actual payment totals exclude the opening amount.
+
+Opening balances are included in client PDF statements and native JSON backups. Restore merges identical openings, rejects conflicts atomically with document/payment changes, and never removes existing openings when importing older backups without that field. The original standalone HTML cannot preserve opening balances; use the integrated module's backup system.
+
+Verification: 67 focused checks passed, including opening debt/credit, zeroing and versioned corrections, invalid inputs, transactional backup conflicts, and complete restore. Chromium checks passed for adding an opening to an existing client, creating a new card with prior credit, correcting the opening, exporting backup, mobile layout, and printing a one-page A5 statement containing the initial amount.
