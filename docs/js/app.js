@@ -467,6 +467,7 @@ const panels = {
   perfectcut: document.getElementById("tabPerfectCut"),
   spacer: document.getElementById("tabSpacer"),
   labels: document.getElementById("tabLabels"),
+  fletedalje: document.getElementById("tabFleteDalje"),
   invoices: document.getElementById("tabInvoices"),
   analysis: document.getElementById("tabAnalysis"),
   settings: document.getElementById("tabSettings"),
@@ -474,6 +475,7 @@ const panels = {
 
 const PAGE_META = Object.freeze({
   aidecisions: { eyebrow: "Quality", title: "AI Decisions", subtitle: "Review evidence and recommendations before acting." },
+  fletedalje: { eyebrow: "Dokumente", title: "Fletë-Dalje", subtitle: "Përgatitni dhe ruani fletët e daljes së mallit." },
   invoices: { eyebrow: "Finance", title: "Invoices", subtitle: "Professional invoices, from first draft to final PDF." },
   extract: {
     eyebrow: "Operations",
@@ -1424,6 +1426,8 @@ const typeCorrectionsCancelBtn = document.getElementById("typeCorrectionsCancel"
 const groupToggles = document.querySelectorAll("[data-group-toggle]");
 
 function activateTab(name){
+  if (name !== "fletedalje" && !panels.fletedalje?.hidden && window.FleteDalje && !window.FleteDalje.canLeave()) return;
+  if (name === "fletedalje") window.FleteDalje?.load();
       // Old saved routes and links to retired sections return to Overview.
       if (!Object.prototype.hasOwnProperty.call(panels, name) || !panels[name]) name = "extract";
 	  if (name === "aidecisions") window.AIDecisions?.refresh();

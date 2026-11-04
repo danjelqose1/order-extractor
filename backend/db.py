@@ -3371,3 +3371,12 @@ def _reserve_order_id(session, model):
     session.add(reservation)
     session.flush()
     return reservation.id
+
+
+class FleteDaljeDocument(Base):
+    """Standalone delivery archive. Deliberately has no foreign keys to orders."""
+    __tablename__ = 'flete_dalje_documents'
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    number: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    content_json: Mapped[str] = mapped_column(Text, nullable=False)

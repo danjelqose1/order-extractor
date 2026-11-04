@@ -1423,6 +1423,9 @@ def _prepare_analysis_dataset(dataset: Dict[str, Any], max_chars: int) -> Tuple[
 
 init_db()
 
+from flete_dalje import router as flete_dalje_router
+app.include_router(flete_dalje_router)
+
 
 # Invoice pricing/type corrections now persist on the server (shared across devices)
 @app.get("/api/prices")

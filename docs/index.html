@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="./css/interface.css?v=20261004-tables1" media="screen">
   <link rel="stylesheet" href="./css/invoices.css?v=20261017-invoices1" media="screen">
 <link rel="stylesheet" href="./css/ai-decisions.css">
+  <link rel="stylesheet" href="./css/flete-dalje.css">
 </head>
 <body>
   <svg class="icon-sprite" aria-hidden="true">
@@ -65,6 +66,7 @@
         <button class="tab" data-tab="pdfeditor" data-nav-parent="documents" aria-label="PDF Editor" title="PDF Editor"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-pdf"></use></svg></span><span>PDF Editor</span></button>
         <button class="tab" data-tab="scanstudio" data-nav-parent="documents" aria-label="Scan Studio" title="Scan Studio"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-scan"></use></svg></span><span>Scan Studio</span></button>
       </div>
+      <button class="tab" data-tab="fletedalje" aria-label="Fletë-Dalje" title="Fletë-Dalje"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-manual"></use></svg></span><span>Fletë-Dalje</span></button>
       <button class="tab" data-tab="invoices" aria-label="Invoices" title="Invoices"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-manual"></use></svg></span><span>Invoices</span></button>
       <button class="tab" data-tab="analysis" aria-label="Analytics" title="Analytics"><span class="nav-icon" aria-hidden="true"><svg><use href="#icon-analysis"></use></svg></span><span>Analytics</span></button>
       <div class="sidebar-section-label">System</div>
@@ -1967,6 +1969,7 @@
       <p class="invoice-workspace-footnote">Start with a blank invoice or bring in an approved order. Your existing invoices and material prices are available here.</p>
     </section>
 
+    <section id="tabFleteDalje" class="tab-panel" hidden lang="sq" aria-labelledby="pageTitle"></section>
   </main>
 
   <div id="manualInvoiceModal" class="modal-layer" hidden>
@@ -2173,5 +2176,6 @@
 <script src="./js/production-sheet-voice.js?v=20260930-production-dictation1" defer></script>
 <script src="./js/perfect-cut-bridge.js?v=20260919-manual-index2" defer></script>
 <script src="./js/workspace-layout.js?v=20261003-workspace1" defer></script>
+<script src="./js/flete-dalje.js" defer></script>
 </body>
 </html>
