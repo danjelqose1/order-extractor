@@ -4,7 +4,7 @@ Native standalone tab in Order Extractor. Records are stored in the existing bac
 
 Numbers start at 49 and are suggested from the highest archived number, with 48 as the floor. Numbers are unique database integers. Record IDs remain stable when numbers change. Conditional updates/deletes reject stale versions. Import merges missing records in a transaction, skips identical records, and rejects conflicts without overwriting anything. Backups contain saved records only. Browser storage is not used for document records. A backend deployment is needed for the new API before using it with the hosted frontend.
 
-The module now follows the supplied HTML reference (preserved unchanged as `tests/fixtures/flete_dalje_reference.html` for regression comparisons). Navy/teal styling, field order, editable rows, status pill, totals panel, compact archive and print signature areas follow that design. Returning to eight rows preserves the first eight, confirming removal of populated extra rows. Saving requires a recipient and at least one populated line; incomplete named lines prompt for confirmation.
+The module now follows the supplied HTML reference (preserved unchanged as `tests/fixtures/flete_dalje_reference.html` for regression comparisons). Navy/teal styling, field order, editable rows, status pill, totals panel, compact archive and print signature areas follow that design. New sheets start with one row; users add more with “Shto rresht”. Returning to one row preserves the first row, confirming removal of populated extra rows. Reopening saved sheets preserves all saved lines without adding blank rows. Saving requires a recipient and at least one populated line; incomplete named lines prompt for confirmation.
 
 Arithmetic matches the reference: parse comma decimals, remove dot grouping when both separators occur, apply JavaScript `Math.round(quantity * price)` to each line, then sum the whole-lek results. For example, `3.782 × 100 = 378` and `0.312 × 12.5 = 4`, totaling 382 lekë. Zero line values remain visually blank. The server mirrors rounding ties toward positive infinity. Previous saved records recalculate using this rule on read.
 
@@ -35,6 +35,6 @@ Use a fresh DB_DIR for each browser run. Set CHROMIUM_PATH if Chromium is not at
 
 - Focused backend/navigation/security/theme checks after reference adaptation: 30 passed.
 - Before reference adaptation, `pytest tests`: 739 passed, 4 failed. All four failures reproduced against an untouched HEAD snapshot: obsolete `frontend/index.html` path, removed Production Copilot, removed workspace queue search, and unavailable Agents SDK engine. Existing order and production tests otherwise passed.
-- Real-API Chromium test passed, including comparisons against the actual HTML reference, original backup compatibility, first-eight-row preservation, mobile width and CSV/JSON downloads.
+- Real-API Chromium test passed, including comparisons against the actual HTML reference, original backup compatibility, single-row defaults and first-row preservation, mobile width and CSV/JSON downloads.
 - Generated PDF: one page, 594.96 × 420 points (A5 landscape), with document contents and no platform navigation.
 - JavaScript syntax and `git diff --check` passed. No production deployment performed.

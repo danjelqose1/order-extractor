@@ -19,11 +19,11 @@
   const money = value => new Intl.NumberFormat('sq-AL', { maximumFractionDigits: 0 }).format(value || 0);
   const total = doc => doc.lines.reduce((sum, line) => sum + lineValue(line), 0);
   const hasData = line => line.description.trim() || number(line.quantity) || number(line.price);
-  const pad = doc => { while (doc.lines.length < 8) doc.lines.push(blankLine()); return doc; };
+  const pad = doc => { while (doc.lines.length < 1) doc.lines.push(blankLine()); return doc; };
   const nextNumber = () => Math.max(48, ...records.map(doc => doc.number)) + 1;
   const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
   function fresh() {
-    current = { number: nextNumber(), recipient: '', date: today(), address: '', notes: '', lines: Array.from({length:8}, blankLine) };
+    current = { number: nextNumber(), recipient: '', date: today(), address: '', notes: '', lines: [blankLine()] };
     baseline = snapshot(); renderEditor(); renderArchive();
   }
   root.innerHTML = `<div class="fd-header"><div><h2>FLETË–DALJE <span>DIGJITALE</span></h2><p>Blloku elektronik për fabrikën • pa letra • pa llogaritje me dorë</p></div><div class="fd-toolbar"><button class="btn" data-fd="new">+ Fletë e re</button><button class="btn primary" data-fd="save">Ruaj fletën</button><button class="btn" data-fd="print">Printo / PDF</button><button class="btn" data-fd="history">Historiku</button></div></div>
@@ -40,7 +40,7 @@
   }
   function renderEditor() {
     $('fdEditor').innerHTML = `<div class="fd-topbrand"><h2>FLETË - DALJE</h2><span id="fdSaveState" class="fd-pill" aria-live="polite"></span></div><div class="fd-fields">${[['number','Nr. flete','number'],['recipient','Marrësi / Klienti','text'],['date','Data','date'],['address','Adresa ku shkon malli','text']].map(([key,label,type])=>`<label class="fd-field-${key}">${label}<input data-field="${key}" type="${type}" ${key==='number'?'min="1" step="1"':''} ${key==='recipient'?'placeholder="p.sh. Bledi Husi" autocomplete="off"':key==='address'?'placeholder="Adresa ose vendndodhja e dorëzimit"':''} value="${esc(current[key])}"></label>`).join('')}</div>
-      <div class="fd-table-wrap"><table><thead><tr>${['Nr.','Emërtimi i mallit','Njësia','Sasia','Çmimi','Vlefta'].map(v=>`<th>${v}</th>`).join('')}</tr></thead><tbody>${current.lines.map((line,i)=>`<tr><td>${i+1}</td>${['description','unit','quantity','price'].map(key=>`<td><input aria-label="${{description:'Emërtimi',unit:'Njësia',quantity:'Sasia',price:'Çmimi'}[key]} ${i+1}" data-line="${i}" data-key="${key}" value="${esc(line[key])}" type="text" ${['quantity','price'].includes(key)?'inputmode="decimal"':key==='description'?'placeholder="p.sh. TR + 12 + TR"':''}></td>`).join('')}<td data-amount="${i}"></td></tr>`).join('')}</tbody></table></div><div class="fd-toolbar"><button class="btn small" data-fd="add">+ Shto rresht</button><button class="btn small" data-fd="reset">Kthe në 8 rreshta</button></div><div class="fd-footgrid"><label>Shënime (opsionale)<textarea data-field="notes" rows="3" placeholder="Shënime, porosi speciale, transport...">${esc(current.notes)}</textarea></label><div class="fd-totals"><span><strong>SHUMA</strong><br><small>Totali në lekë</small></span><b id="fdTotal"></b></div></div><div class="fd-signature">MARRËSI: ___________________________________________</div>`;
+      <div class="fd-table-wrap"><table><thead><tr>${['Nr.','Emërtimi i mallit','Njësia','Sasia','Çmimi','Vlefta'].map(v=>`<th>${v}</th>`).join('')}</tr></thead><tbody>${current.lines.map((line,i)=>`<tr><td>${i+1}</td>${['description','unit','quantity','price'].map(key=>`<td><input aria-label="${{description:'Emërtimi',unit:'Njësia',quantity:'Sasia',price:'Çmimi'}[key]} ${i+1}" data-line="${i}" data-key="${key}" value="${esc(line[key])}" type="text" ${['quantity','price'].includes(key)?'inputmode="decimal"':key==='description'?'placeholder="p.sh. TR + 12 + TR"':''}></td>`).join('')}<td data-amount="${i}"></td></tr>`).join('')}</tbody></table></div><div class="fd-toolbar"><button class="btn small" data-fd="add">+ Shto rresht</button><button class="btn small" data-fd="reset">Kthe në 1 rresht</button></div><div class="fd-footgrid"><label>Shënime (opsionale)<textarea data-field="notes" rows="3" placeholder="Shënime, porosi speciale, transport...">${esc(current.notes)}</textarea></label><div class="fd-totals"><span><strong>SHUMA</strong><br><small>Totali në lekë</small></span><b id="fdTotal"></b></div></div><div class="fd-signature">MARRËSI: ___________________________________________</div>`;
     updateTotals();
   }
   function renderArchive() {
@@ -105,7 +105,7 @@
         case 'new': if(canLeave()) { await refresh(); fresh(); } break;
         case 'history': $('fdArchive').scrollIntoView({behavior:'smooth'}); $('fdSearch').focus(); break;
         case 'add': if(current.lines.length>=500) throw Error('Lejohen deri në 500 rreshta.'); current.lines.push(blankLine()); renderEditor(); break;
-        case 'reset': if(!current.lines.slice(8).some(hasData) || confirm('Rreshtat shtesë kanë të dhëna. T’i heq?')) { current.lines=current.lines.slice(0,8); renderEditor(); } break;
+        case 'reset': if(!current.lines.slice(1).some(hasData) || confirm('Rreshtat shtesë kanë të dhëna. T’i heq?')) { current.lines=current.lines.slice(0,1); renderEditor(); } break;
         case 'save': {
           total(current);
           if(!Number.isInteger(current.number) || current.number<1 || !current.date) throw Error('Plotësoni numrin dhe datën.');
