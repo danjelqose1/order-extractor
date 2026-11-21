@@ -380,7 +380,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["X-Manual-Dimension-Grouping"],
+    expose_headers=["X-Manual-Dimension-Grouping", "X-Manual-Mother-Sheet-Layout"],
 )
 
 # Root route for basic health/info, quiets 404s on /
@@ -4540,18 +4540,19 @@ def _manual_pdf_response(
 
 
 @app.get("/manual-orders/{order_id}/mother-sheet.pdf")
-def preview_manual_mother_sheet(order_id: int) -> Response:
+def preview_manual_mother_sheet(order_id: int, layout: str = "a4_portrait") -> Response:
     order = db_module.get_manual_order(order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Manual order not found")
     if order.get("status") not in {"approved", "processing", "finished"}:
         raise HTTPException(status_code=400, detail="Approve the manual order before printing.")
     try:
-        content = build_manual_mother_sheet_pdf(order)
+        content = build_manual_mother_sheet_pdf(order, layout=layout)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return Response(content=content, media_type="application/pdf", headers={
         "Content-Disposition": 'inline; filename="manual-mother-sheet.pdf"',
+        "X-Manual-Mother-Sheet-Layout": layout,
     })
 
 

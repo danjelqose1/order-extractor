@@ -1276,6 +1276,32 @@
         </div>
       </div>
 
+      <div id="manualMotherSheetLayoutModal" class="modal-layer" hidden>
+        <div class="modal-card manual-processing-layout-modal-card" role="dialog" aria-modal="true" aria-labelledby="manualMotherSheetLayoutTitle">
+          <div class="manual-settings-modal-header">
+            <div>
+              <h3 id="manualMotherSheetLayoutTitle">Print Mother Sheet</h3>
+              <p>Choose the number of copies and page orientation. Two-copy layouts require the complete order to fit in each half.</p>
+            </div>
+            <button type="button" class="btn tertiary manual-settings-close-btn" id="manualMotherSheetLayoutClose" aria-label="Close Mother Sheet print options">×</button>
+          </div>
+          <div class="manual-processing-layout-choices">
+            <button type="button" class="manual-processing-layout-choice" data-manual-mother-sheet-layout="a4_portrait">
+              <strong>A4 portrait — 1 copy</strong>
+              <span>Full-page Mother Sheet. Long orders continue on more pages.</span>
+            </button>
+            <button type="button" class="manual-processing-layout-choice" data-manual-mother-sheet-layout="a4_landscape_2up">
+              <strong>A4 landscape — 2 copies</strong>
+              <span>Two identical copies side by side on one page.</span>
+            </button>
+            <button type="button" class="manual-processing-layout-choice" data-manual-mother-sheet-layout="a4_portrait_2up">
+              <strong>A4 portrait — 2 copies</strong>
+              <span>Two identical copies, one above the other, on one page.</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div id="manualProcessingLayoutModal" class="modal-layer" hidden>
         <div class="modal-card manual-processing-layout-modal-card" role="dialog" aria-modal="true" aria-labelledby="manualProcessingLayoutTitle">
           <div class="manual-settings-modal-header">
@@ -2168,7 +2194,7 @@
 <script src="./js/living-dashboard.js?v=20260908-compact" defer></script>
 <script src="./js/platform-workflows.js?v=20261003-processing-units1" defer></script>
 <script src="./js/manual-dimension-groups.js?v=20260919-manual-group1" defer></script>
-<script src="./js/app.js?v=20261121-manual-mother-sheet1" defer></script>
+<script src="./js/app.js?v=20261121-manual-mother-sheet-2up1" defer></script>
 <script src="./js/ai-decisions.js" defer></script>
 <script src="./js/invoice-workspace.js?v=20261017-invoices1" defer></script>
 <script src="./js/invoice-pdf.js?v=20261017-invoices1" defer></script>

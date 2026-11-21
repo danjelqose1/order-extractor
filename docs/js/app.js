@@ -23017,18 +23017,49 @@ function initManualOrders(){
     }
   });
   manualOrderStatus?.addEventListener("change", syncManualFormatUi);
-  manualRedIndexPrint?.addEventListener("click", async () => {
+  const motherSheetModal = document.getElementById("manualMotherSheetLayoutModal");
+  const motherSheetClose = document.getElementById("manualMotherSheetLayoutClose");
+  const closeMotherSheetOptions = () => {
+    motherSheetModal.hidden = true;
+    delete motherSheetModal.dataset.orderId;
+    manualRedIndexPrint?.focus();
+  };
+  manualRedIndexPrint?.addEventListener("click", () => {
     if (!manualOrdersState.editingId) return;
+    setManualFormError("");
+    motherSheetModal.dataset.orderId = String(manualOrdersState.editingId);
+    motherSheetModal.hidden = false;
+    motherSheetClose?.focus();
+  });
+  motherSheetClose?.addEventListener("click", closeMotherSheetOptions);
+  document.addEventListener("keydown", event => {
+    if (event.key === "Escape" && motherSheetModal && !motherSheetModal.hidden){
+      closeMotherSheetOptions();
+    }
+  });
+  motherSheetModal?.addEventListener("click", async event => {
+    if (event.target === motherSheetModal){
+      closeMotherSheetOptions();
+      return;
+    }
+    const choice = event.target.closest("[data-manual-mother-sheet-layout]");
+    if (!choice || !motherSheetModal.dataset.orderId) return;
+    const orderId = motherSheetModal.dataset.orderId;
+    const layout = choice.dataset.manualMotherSheetLayout;
+    closeMotherSheetOptions();
     const preview = window.open("", "_blank");
     if (!preview){
       setManualFormError("Allow popups to open the Mother Sheet print preview.");
       return;
     }
     try{
-      const response = await fetch(API_BASE + `/manual-orders/${manualOrdersState.editingId}/mother-sheet.pdf`);
+      const response = await fetch(API_BASE + `/manual-orders/${orderId}/mother-sheet.pdf?layout=${encodeURIComponent(layout)}`);
       if (!response.ok){
         const error = await response.json();
         throw new Error(manualErrorMessage(error?.detail, "Unable to open print preview."));
+      }
+      if (layout !== "a4_portrait" && response.headers.get("X-Manual-Mother-Sheet-Layout") !== layout){
+        throw new Error("Two-copy printing is not available yet. Refresh and try again shortly.");
       }
       const url = URL.createObjectURL(await response.blob());
       preview.location.href = url;

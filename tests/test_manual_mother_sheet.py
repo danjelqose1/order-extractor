@@ -101,6 +101,13 @@ def test_print_route_is_read_only_and_independent_of_processing_and_grouping():
     assert response.headers["content-type"] == "application/pdf"
     assert response.headers["content-disposition"].startswith("inline;")
     assert "7 – 31,0" in fitz.open(stream=response.content, filetype="pdf")[0].get_text()
+    for layout in ["a4_portrait_2up", "a4_landscape_2up"]:
+        two_up = client.get(f"/manual-orders/1/mother-sheet.pdf?layout={layout}")
+        assert two_up.status_code == 200
+        assert two_up.headers["X-Manual-Mother-Sheet-Layout"] == layout
+        pdf = fitz.open(stream=two_up.content, filetype="pdf")
+        assert len(pdf) == 1 and pdf[0].get_text().count("Mother Sheet") == 2
+    assert client.get("/manual-orders/1/mother-sheet.pdf?layout=invalid").status_code == 400
     assert order == before
     order["status"] = "draft"
     assert client.get("/manual-orders/1/mother-sheet.pdf").status_code == 400
@@ -111,3 +118,53 @@ def test_print_route_is_read_only_and_independent_of_processing_and_grouping():
 def test_empty_order_rejected():
     with pytest.raises(ValueError, match="no rows"):
         build_manual_mother_sheet_pdf({"rows": []})
+
+
+@pytest.mark.parametrize("layout", ["a4_portrait_2up", "a4_landscape_2up"])
+@pytest.mark.parametrize("row_count", [3, 12])
+def test_two_complete_identical_copies_fit_in_separate_halves(layout, row_count):
+    order = sample_order()
+    if row_count == 12:
+        order["rows"] = [{**order["rows"][0], "position": str(i), "index_number": i,
+                          "client_position": "P-12" if i == 1 else ""} for i in range(1, 13)]
+    before = deepcopy(order)
+    pdf = fitz.open(stream=build_manual_mother_sheet_pdf(order, layout), filetype="pdf")
+    assert len(pdf) == 1
+    page = pdf[0]
+    w, h = page.rect.width, page.rect.height
+    if layout == "a4_landscape_2up":
+        assert w > h
+        slots = [fitz.Rect(0, 0, w/2, h), fitz.Rect(w/2, 0, w, h)]
+    else:
+        assert h > w
+        slots = [fitz.Rect(0, 0, w, h/2), fitz.Rect(0, h/2, w, h)]
+    texts = [" ".join(page.get_text(clip=slot).split()) for slot in slots]
+    assert texts[0] == texts[1]
+    assert texts[0].count("Mother Sheet") == 1
+    assert "Date: 20/11/2026" in texts[0] and "Dimensions: cm" in texts[0]
+    if row_count == 12:
+        assert "1 (P-12) – 31,0 × 144,8 × 2" in texts[0]
+        assert "12 – 31,0 × 144,8 × 2" in texts[0]
+        assert "Area: 30,240 m²" in texts[0]
+    else:
+        assert "Area: 5,520 m²" in texts[0] and "4F — Area: 1,234 m²" in texts[0]
+        assert "A-3 – 31,0125 × 140,55 × 3" in texts[0]
+    # Every text span is fully inside one half, with readable unscaled type.
+    for block in page.get_text("dict")["blocks"]:
+        for line in block.get("lines", []):
+            for span in line["spans"]:
+                assert any(slot.contains(fitz.Rect(span["bbox"])) for slot in slots)
+                assert span["size"] >= 10
+                assert span["color"] == 0
+    assert order == before
+
+
+@pytest.mark.parametrize("layout", ["a4_portrait_2up", "a4_landscape_2up"])
+def test_oversized_order_rejected_instead_of_clipped_or_split_copies(layout):
+    order = sample_order()
+    order["rows"] = [{**order["rows"][0], "position": str(i)} for i in range(100)]
+    before = deepcopy(order)
+    with pytest.raises(ValueError, match="too long for two complete copies"):
+        build_manual_mother_sheet_pdf(order, layout)
+    assert order == before
+    assert len(fitz.open(stream=build_manual_mother_sheet_pdf(order), filetype="pdf")) > 1
