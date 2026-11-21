@@ -80,6 +80,7 @@ from db import (
     get_telegram_file,
 )
 import db as db_module
+from manual_mother_sheet import build_manual_mother_sheet_pdf
 from manual_documents import (
     build_manual_labels_pdf,
     build_manual_processing_pdf,
@@ -4536,6 +4537,22 @@ def _manual_pdf_response(
             "X-Manual-Dimension-Grouping": "grouped-v1" if group_dimensions else "original",
         },
     )
+
+
+@app.get("/manual-orders/{order_id}/mother-sheet.pdf")
+def preview_manual_mother_sheet(order_id: int) -> Response:
+    order = db_module.get_manual_order(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Manual order not found")
+    if order.get("status") not in {"approved", "processing", "finished"}:
+        raise HTTPException(status_code=400, detail="Approve the manual order before printing.")
+    try:
+        content = build_manual_mother_sheet_pdf(order)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return Response(content=content, media_type="application/pdf", headers={
+        "Content-Disposition": 'inline; filename="manual-mother-sheet.pdf"',
+    })
 
 
 @app.get("/manual-orders/{order_id}/processing-sheet.pdf")

@@ -23017,9 +23017,26 @@ function initManualOrders(){
     }
   });
   manualOrderStatus?.addEventListener("change", syncManualFormatUi);
-  manualRedIndexPrint?.addEventListener("click", () => {
+  manualRedIndexPrint?.addEventListener("click", async () => {
     if (!manualOrdersState.editingId) return;
-    openManualProcessingLayoutChoice(manualOrdersState.editingId, "processing-download");
+    const preview = window.open("", "_blank");
+    if (!preview){
+      setManualFormError("Allow popups to open the Mother Sheet print preview.");
+      return;
+    }
+    try{
+      const response = await fetch(API_BASE + `/manual-orders/${manualOrdersState.editingId}/mother-sheet.pdf`);
+      if (!response.ok){
+        const error = await response.json();
+        throw new Error(manualErrorMessage(error?.detail, "Unable to open print preview."));
+      }
+      const url = URL.createObjectURL(await response.blob());
+      preview.location.href = url;
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    }catch(error){
+      preview.close();
+      setManualFormError(error.message || String(error));
+    }
   });
   manualRedIndexSendProcessing?.addEventListener("click", async () => {
     if (!manualOrdersState.editingId) return;
