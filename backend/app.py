@@ -80,7 +80,7 @@ from db import (
     get_telegram_file,
 )
 import db as db_module
-from manual_mother_sheet import build_manual_mother_sheet_pdf
+from manual_mother_sheet import build_manual_mother_sheet_pdf, build_manual_production_source
 from manual_documents import (
     build_manual_labels_pdf,
     build_manual_processing_pdf,
@@ -122,7 +122,7 @@ from analysis_signals import generate_analysis_signals
 from analytics_summary import ANALYTICS_STATUSES, build_analysis_summary
 from services.pdf_native_text_editor import native_text_replace
 from invoice_ai import analyze_invoice_line, match_invoice_glass_type
-from production_sheets import SheetRequest, SheetAIRequest, SheetFeedbackRequest, render_sheet, suggest_sheet
+from production_sheets import SheetSource, SheetRequest, SheetAIRequest, SheetFeedbackRequest, render_sheet, suggest_sheet
 from production_sheet_memory import remember_sheet, similar_sheets
 from production_sheet_voice import VoiceOffer, VoiceOwnership, create_session, close_session
 ENV_PATH = Path(__file__).parent / ".env"
@@ -4554,6 +4554,20 @@ def preview_manual_mother_sheet(order_id: int, layout: str = "a4_portrait") -> R
         "Content-Disposition": 'inline; filename="manual-mother-sheet.pdf"',
         "X-Manual-Mother-Sheet-Layout": layout,
     })
+
+
+@app.get("/manual-orders/{order_id}/production-sheet-source")
+def manual_production_sheet_source(order_id: int):
+    order = db_module.get_manual_order(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Manual order not found")
+    if order.get("status") not in {"approved", "processing", "finished"}:
+        raise HTTPException(status_code=400, detail="Approve the manual order before preparing a production sheet.")
+    try:
+        source = SheetSource.model_validate(build_manual_production_source(order))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"source": source, "order_number": order["order_number"]}
 
 
 @app.get("/manual-orders/{order_id}/processing-sheet.pdf")

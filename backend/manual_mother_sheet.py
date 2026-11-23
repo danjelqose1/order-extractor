@@ -24,6 +24,61 @@ def _dimension_cm(value):
     return text.replace(".", ",")
 
 
+def build_manual_production_source(order):
+    """Prepare the saved order for the shared production-sheet renderer."""
+    rows = order.get("rows") or []
+    if not rows:
+        raise ValueError("Manual order has no rows")
+
+    order_number = " ".join(order["order_number"].split())
+    client = " ".join(order["client_name"].split())
+    display_date = date.fromisoformat(order["order_date"]).strftime("%d/%m/%Y")
+    lines = [f"Mother Sheet – {order_number}", f"Client: {client}",
+             f"Date: {display_date}", "Dimensions: cm"]
+    glass_headers, section_headers, row_indexes = [], [], []
+    groups = OrderedDict()
+    for row in rows:
+        glass = " ".join((row.get("glass_type") or "Unspecified glass").split())
+        groups.setdefault(glass, []).append(row)
+
+    piece_count = 0
+    for glass, members in groups.items():
+        area = sum((Decimal(str(row["final_area_m2"])) for row in members), Decimal(0))
+        area_text = format(area, ".3f").replace(".", ",")
+        heading = f"{glass} — Area: {area_text} m²"
+        glass_headers.append(heading)
+        lines.append(heading)
+        last_section = None
+        for row in members:
+            section = " ".join((row.get("section") or "").split())
+            if section and section != last_section:
+                heading = f"[Section {section}]"
+                section_headers.append(heading)
+                lines.append(heading)
+            last_section = section
+
+            width, height = (Decimal(str(row[key])) for key in ("width_mm", "height_mm"))
+            quantity = row["quantity"]
+            if (not all(value.is_finite() and value > 0 for value in (width, height))
+                    or type(quantity) is not int or quantity <= 0):
+                raise ValueError("Review invalid dimensions or quantities in the manual order before printing.")
+            index = row.get("index_number")
+            position = str(index) if index not in (None, "") else " ".join((row.get("position") or "").split())
+            client_position = " ".join((row.get("client_position") or "").split())
+            if client_position:
+                position = f"{position} ({client_position})".strip()
+            row_indexes.append(len(lines))
+            lines.append(f"{position} – {_dimension_cm(width)} × {_dimension_cm(height)} × {quantity}")
+            note = " ".join((row.get("notes") or "").split())
+            if note:
+                lines.append(f"Note: {note}")
+            piece_count += quantity
+
+    return {"text": "\n".join(lines), "glass_headers": glass_headers,
+            "order_headers": list(dict.fromkeys(section_headers)), "row_line_numbers": row_indexes,
+            "row_count": len(rows), "piece_count": piece_count}
+
+
 def build_manual_mother_sheet_pdf(order, layout="a4_portrait"):
     if layout == "a4_portrait":
         return _build_single_copy(order)

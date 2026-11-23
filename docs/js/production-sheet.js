@@ -3,6 +3,7 @@
   "use strict";
   const defaults = Object.freeze({layout:"auto", columns:"auto", orientation:"auto", font_size:14,
     line_spacing:1.15, margin_mm:12.7, section_gap_pt:7, glass_after_pt:0, note:"", cut_guide:true});
+  const manualDefaults = Object.freeze({...defaults, orientation:"portrait", font_size:12, margin_mm:10});
   function capture(processing, busy=false){
     if (busy || processing?.loading || processing?.recalculating) throw new Error("Processing is busy. Wait until preparation finishes.");
     const preview = processing?.preview;
@@ -30,9 +31,10 @@
   const fields = [...dialog.querySelectorAll("[data-sheet-setting]")];
   const state = {snapshot:null, settings:{...defaults}, current:null, proposal:null, shown:null,
     pdf:null, page:1, canvas:null, generation:0, controller:null, busy:"", dirty:false, stale:false, draft:null, zoom:false,
-    sourceAvailable:false, aiResult:null, baseline:{...defaults}, remembered:null};
+    sourceAvailable:false, aiResult:null, baseline:{...defaults}, remembered:null, manual:null};
   const status = message => { el("productionSheetStatus").textContent = message; };
-  const take = () => capture(appState.processing, processingBridgeBusy > 0);
+  const take = () => state.manual || capture(appState.processing, processingBridgeBusy > 0);
+  const defaultsForSource = () => state.manual ? manualDefaults : defaults;
   function form(settings){
     fields.forEach(field => {
       const value = settings[field.dataset.sheetSetting];
@@ -67,7 +69,6 @@
     fields.forEach(field => { field.disabled = !!state.busy || pending || state.stale; });
     if (el("productionSheetLayout").value === "cuttable"){
       el("productionSheetColumns").disabled = true;
-      el("productionSheetOrientation").disabled = true;
     }
     el("productionSheetProposal").hidden = !pending && !state.aiResult;
     el("productionSheetResultTitle").textContent = pending ? "AI proposal" : "AI chosen layout";
@@ -168,16 +169,20 @@
       if (generation === state.generation){ state.busy = ""; controls(); }
     }
   }
-  async function open(refresh=false, automatic=false){
+  async function open(refresh=false, automatic=false, manual=null){
     if (state.busy) return;
     try{
-      const snapshot = take();
+      const snapshot = manual || capture(appState.processing, processingBridgeBusy > 0);
       stop();
+      state.manual = manual;
       state.snapshot = snapshot; state.stale = false; state.proposal = null; state.aiResult = null; state.current = null;
       const draft = !refresh && !automatic && state.draft?.signature === snapshot.signature ? state.draft : null;
-      const saved = draft?.settings || defaults;
+      const saved = draft?.settings || defaultsForSource();
       state.baseline = {...(draft?.baseline || saved)};
       state.settings = {...saved}; form(state.settings);
+      el("productionSheetSourceHint").textContent = manual
+        ? "AI reviews page images. Dimensions and quantities come from the saved manual order."
+        : "AI reviews page images. Dimensions and quantities come from Processing.";
       el("productionSheetMemory").textContent = "AI uses your finished sheets to learn your text size and spacing preferences. Save PDF or Print to remember your final adjustments.";
       state.zoom=false; el("productionSheetPages").classList.remove("is-zoomed"); el("productionSheetZoom").textContent="Zoom in";
       if (!dialog.open) dialog.showModal();
@@ -185,8 +190,16 @@
       if (await render(state.settings) && (automatic || !draft)) await askAI(true,automatic);
     }catch(error){
       if (dialog.open) status(error.message);
+      else if (manual) throw error;
       else setStatusMessage(error.message);
     }
+  }
+  function openManual(orderId, sheet){
+    if (!sheet?.source?.row_line_numbers?.length) throw new Error("This server could not prepare a manual production sheet.");
+    return open(false, false, {
+      source:sheet.source, orderNumber:sheet.order_number,
+      signature:JSON.stringify({manualOrderId:orderId, source:sheet.source}),
+    });
   }
   async function askAI(automatic=false, download=false){
     if (state.busy || state.stale || state.dirty || !state.pdf || state.proposal) return;
@@ -248,7 +261,7 @@
     }
   }
   function filename(){
-    const orders = appState.processing.preview?.meta?.orders || [];
+    const orders = state.manual ? [state.manual.orderNumber] : appState.processing.preview?.meta?.orders || [];
     return `Mother Sheet ${orders.join(" ") || "production"}`.replace(/[<>:"/\\|?*]/g,"-") + ".pdf";
   }
   function applyResult(result, automatic=false){
@@ -292,13 +305,18 @@
   el("productionSheetOpen").addEventListener("click",() => open());
   el("productionSheetAuto").addEventListener("click",() => open(false,true));
   el("productionSheetClose").addEventListener("click",() => dialog.close());
-  dialog.addEventListener("close",() => { root.ProductionSheetVoice?.end(undefined,true); stop(); state.busy = ""; state.proposal = null; controls(); });
-  el("productionSheetRefresh").addEventListener("click",() => open(true));
-  el("productionSheetReset").addEventListener("click",() => {state.proposal=null; form(defaults); render({...defaults});});
+  dialog.addEventListener("close",() => { root.ProductionSheetVoice?.end(undefined,true); stop(); state.busy = ""; state.proposal = null; state.manual = null; controls(); });
+  el("productionSheetRefresh").addEventListener("click",() => open(true,false,state.manual));
+  el("productionSheetReset").addEventListener("click",() => {
+    state.proposal=null;
+    const settings = {...defaultsForSource()};
+    form(settings);
+    render(settings);
+  });
   fields.forEach(field => field.addEventListener("change",() => {
     if (state.busy || state.stale || state.proposal) return;
     const settings = readForm();
-    if (settings.layout === "cuttable"){settings.columns="1"; settings.orientation="landscape"; form(settings);}
+    if (settings.layout === "cuttable"){settings.columns="1"; form(settings);}
     render(settings);
   }));
   el("productionSheetAsk").addEventListener("click",async () => {
@@ -378,7 +396,7 @@
     // release their busy guard after their final UI update.
     try{snapshot=capture(appState.processing); state.sourceAvailable=true;}
     catch{state.sourceAvailable=false;}
-    if(dialog.open && (!snapshot || snapshot.signature!==state.snapshot?.signature)){
+    if(dialog.open && !state.manual && (!snapshot || snapshot.signature!==state.snapshot?.signature)){
       root.ProductionSheetVoice?.end("Processing changed. Start dictation again after refreshing the sheet.",true);
       stop(); state.busy=""; state.stale=true; state.proposal=null; state.aiResult=null;
       status("Processing changed. Refresh to prepare the current orders.");
@@ -390,6 +408,6 @@
     if (!dialog.open || state.stale || state.dirty || state.busy || state.proposal || !state.current) throw new Error("Wait until the sheet is ready.");
     return {source_digest:state.current.source_digest};
   }
-  root.ProductionSheetUI={sourceChanged,dictationContext};
+  root.ProductionSheetUI={sourceChanged,dictationContext,openManual};
   sourceChanged();
 })(typeof window !== "undefined" ? window : globalThis);

@@ -21088,6 +21088,8 @@ const manualOrderRenumber = document.getElementById("manualOrderRenumber");
 const manualAutoNumberFrom = document.getElementById("manualAutoNumberFrom");
 const manualRedIndexRowControls = document.getElementById("manualRedIndexRowControls");
 const manualRedIndexOutputActions = document.getElementById("manualRedIndexOutputActions");
+const manualProductionSheet = document.getElementById("manualProductionSheet");
+let manualProductionSheetRequest = null;
 const manualRedIndexPrint = document.getElementById("manualRedIndexPrint");
 const manualRedIndexSendProcessing = document.getElementById("manualRedIndexSendProcessing");
 const manualRedIndexLabels = document.getElementById("manualRedIndexLabels");
@@ -22101,6 +22103,10 @@ function syncManualFormatUi(){
   const saved = !!manualOrdersState.editingId;
   const canOutput = saved && ["approved", "processing", "finished"].includes(manualOrderStatus?.value);
   const canProcess = saved && ["approved", "processing"].includes(manualOrderStatus?.value);
+  if (manualProductionSheet){
+    manualProductionSheet.hidden = !manualOrdersState.viewOnly || !canOutput;
+    manualProductionSheet.disabled = manualProductionSheetRequest?.orderId === manualOrdersState.editingId;
+  }
   if (manualRedIndexPrint) manualRedIndexPrint.disabled = !canOutput;
   if (manualRedIndexLabels) manualRedIndexLabels.disabled = !canOutput;
   if (manualRedIndexSendProcessing) manualRedIndexSendProcessing.disabled = !canProcess;
@@ -23024,6 +23030,27 @@ function initManualOrders(){
     delete motherSheetModal.dataset.orderId;
     manualRedIndexPrint?.focus();
   };
+  manualProductionSheet?.addEventListener("click", async () => {
+    const orderId = manualOrdersState.editingId;
+    if (!orderId || !manualOrdersState.viewOnly) return;
+    const request = {orderId};
+    manualProductionSheetRequest = request;
+    syncManualFormatUi();
+    setManualFormError("");
+    const isCurrent = () => manualProductionSheetRequest === request
+      && manualOrdersState.editingId === orderId && manualOrdersState.viewOnly;
+    try{
+      const sheet = await manualApi(`/manual-orders/${orderId}/production-sheet-source`);
+      if (isCurrent()) await window.ProductionSheetUI.openManual(orderId, sheet);
+    }catch(error){
+      if (isCurrent()) setManualFormError(error.message || String(error));
+    }finally{
+      if (manualProductionSheetRequest === request){
+        manualProductionSheetRequest = null;
+        syncManualFormatUi();
+      }
+    }
+  });
   manualRedIndexPrint?.addEventListener("click", () => {
     if (!manualOrdersState.editingId) return;
     setManualFormError("");

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import base64
+import ast
 import json
 import re
 import sys
+from copy import deepcopy
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,10 +16,13 @@ import pytest
 from openai import OpenAI
 from PIL import Image
 from pydantic import ValidationError
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 from production_sheets import (SheetSource, SheetSettings, SheetRequest, SheetAIRequest,
                                render_sheet, plan_sheet, suggest_sheet)
+from manual_mother_sheet import build_manual_production_source
 
 TITLE = "Mother Sheet – Client: Ëldi | Orders: R-26-0883 | Date: 9/30/2026"
 GLASS = "3 VETRI 33.1F +14CALDO+ 4F +16CALDO+ 33.1LOWE (44MM) — Area: 9,890 m²"
@@ -66,6 +71,75 @@ def test_small_sheet_is_two_independent_copies_on_one_cuttable_a4():
     center = pdf[0].rect.width / 2
     for block in pdf[0].get_text("blocks"):
         assert block[2] < center or block[0] > center
+
+
+def test_manual_sheet_source_and_portrait_pdf_preserve_saved_order():
+    order = {
+        "status": "approved", "order_number": "MANUAL-19", "client_name": "Sample", "order_date": "2026-11-23",
+        "rows": [
+            dict(position=f"P-{i}", index_number=i if i != 19 else None, client_position="C-8" if i == 8 else "",
+                 section="K1" if i < 10 else "K2", width_mm=505.125 if i == 8 else 505,
+                 height_mm=1670, quantity=2, glass_type="Termik + 16 + TR" if i < 18 else "Termik + 16 + Satin",
+                 final_area_m2=1.7, notes="Satin replaces TR" if i == 18 else "")
+            for i in range(1, 20)
+        ],
+    }
+    before = deepcopy(order)
+    app = FastAPI()
+    tree = ast.parse((Path(__file__).resolve().parents[1] / "backend/app.py").read_text())
+    route = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+                 and node.name == "manual_production_sheet_source")
+    env = dict(app=app, HTTPException=HTTPException, SheetSource=SheetSource,
+               build_manual_production_source=build_manual_production_source,
+               db_module=SimpleNamespace(get_manual_order=lambda order_id: order if order_id == 19 else None))
+    exec(compile(ast.Module(body=[route], type_ignores=[]), "app.py", "exec"), env)
+    client = TestClient(app)
+    response = client.get("/manual-orders/19/production-sheet-source")
+    assert response.status_code == 200
+    assert response.json()["order_number"] == "MANUAL-19"
+    src = SheetSource.model_validate(response.json()["source"])
+    assert (src.row_count, src.piece_count) == (19, 38)
+    assert src.text.splitlines()[src.row_line_numbers[7]] == "8 (C-8) – 50,5125 × 167,0 × 2"
+    assert client.get("/manual-orders/20/production-sheet-source").status_code == 404
+
+    settings = SheetSettings(orientation="portrait", font_size=12, margin_mm=10)
+    baseline = render_sheet(SheetRequest(source=src, settings=settings))
+    request = SheetAIRequest(
+        source=src, settings=settings, instruction="Fill the portrait page.", images=[image()], mode="automatic",
+        rendered={"layout":"cuttable","columns":1,"orientation":"portrait","pages_per_copy":1,
+                  "sheet_count":1,"sampled_pages":[1]},
+    )
+    fake, _, _ = fake_client({
+        "typography":{"font_size":15, "line_spacing":1.3, "section_gap_pt":10, "glass_after_pt":5},
+        "explanation":"Increased legibility.", "warnings":[],
+    })
+    result = suggest_sheet(fake, request)["preview"]
+    assert result["source_digest"] == baseline["source_digest"]
+    assert result["measurements"]["mean_used_fraction"] > baseline["measurements"]["mean_used_fraction"]
+    with doc(result) as pdf:
+        assert len(pdf) == 1
+        page = pdf[0]
+        width, height = page.rect.width, page.rect.height
+        assert (round(width), round(height)) == (595, 842)
+        left, right = (page.get_text(clip=fitz.Rect(x, 0, x + width / 2, height)) for x in (0, width / 2))
+        assert left == right
+        for index in src.row_line_numbers:
+            assert src.text.splitlines()[index] in normalized(left)
+        assert "[Section K1]" in left and "[Section K2]" in left
+        assert "Note: Satin replaces TR" in left
+    assert order == before
+    order["status"] = "draft"
+    assert client.get("/manual-orders/19/production-sheet-source").status_code == 400
+
+    order["rows"] *= 8
+    long_src = SheetSource.model_validate(build_manual_production_source(order))
+    long_result = render_sheet(SheetRequest(source=long_src, settings=settings))
+    assert long_result["layout"] == "full" and long_result["row_count"] == 152
+    with doc(long_result) as pdf:
+        pages_per_copy = long_result["pages_per_copy"]
+        assert len(pdf) == 2 * pages_per_copy
+        for index in range(pages_per_copy):
+            assert pdf[index].get_text() == pdf[index + pages_per_copy].get_text()
 
 
 @pytest.mark.parametrize("columns", ["1", "2", "3"])

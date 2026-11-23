@@ -1117,6 +1117,7 @@
           <div class="manual-order-form-footer">
             <div id="manualOrderFormSummary" class="muted small">0 rows · 0 pieces · 0.000 m²</div>
             <div class="manual-order-form-actions">
+              <button type="button" class="btn primary" id="manualProductionSheet" hidden>Prepare production sheet</button>
               <div id="manualRedIndexOutputActions" class="manual-red-index-output-actions" hidden>
                 <button type="button" class="btn tertiary" id="manualRedIndexPrint">Print</button>
                 <button type="button" class="btn tertiary" id="manualRedIndexSendProcessing">Send to Processing</button>
@@ -1600,7 +1601,7 @@
             <textarea id="productionSheetRequest" rows="3" maxlength="2000" placeholder="Use three columns, make the text larger…"></textarea>
             <p class="muted small">Kontrolloni tekstin, pastaj shtypni Dërgo. / Review the text, then tap Send. Leave it blank to let AI choose.</p>
             <button type="button" class="btn primary" id="productionSheetAsk">Dërgo te AI / Send to AI</button>
-            <p class="muted small">AI reviews page images. Dimensions and quantities come from Processing.</p>
+            <p class="muted small" id="productionSheetSourceHint">AI reviews page images. Dimensions and quantities come from Processing.</p>
           </section>
           <label>Production note<textarea data-sheet-setting="note" rows="2" maxlength="1000" placeholder="Optional note for this sheet"></textarea></label>
           <button type="button" class="btn tertiary" id="productionSheetReset">Reset formatting</button>
@@ -2194,11 +2195,11 @@
 <script src="./js/living-dashboard.js?v=20260908-compact" defer></script>
 <script src="./js/platform-workflows.js?v=20261003-processing-units1" defer></script>
 <script src="./js/manual-dimension-groups.js?v=20260919-manual-group1" defer></script>
-<script src="./js/app.js?v=20261121-manual-mother-sheet-2up1" defer></script>
+<script src="./js/app.js?v=20261123-manual-production-sheet" defer></script>
 <script src="./js/ai-decisions.js" defer></script>
 <script src="./js/invoice-workspace.js?v=20261017-invoices1" defer></script>
 <script src="./js/invoice-pdf.js?v=20261017-invoices1" defer></script>
-<script src="./js/production-sheet.js?v=20261006-production-memory1" defer></script>
+<script src="./js/production-sheet.js?v=20261123-manual-production-sheet" defer></script>
 <script src="./js/production-sheet-voice.js?v=20260930-production-dictation1" defer></script>
 <script src="./js/perfect-cut-bridge.js?v=20260919-manual-index2" defer></script>
 <script src="./js/workspace-layout.js?v=20261003-workspace1" defer></script>

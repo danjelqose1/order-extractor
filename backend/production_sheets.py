@@ -30,6 +30,8 @@ class SheetSource(BaseModel):
     order_headers: list[str] = Field(default_factory=list, max_length=2000)
     row_count: int = Field(ge=1, le=3000)
     piece_count: int = Field(ge=1, le=1000000)
+    # Manual orders may use position labels that don't start with a number.
+    row_line_numbers: list[int] | None = Field(default=None, min_length=1, max_length=3000)
 
 
 class SheetSettings(BaseModel):
@@ -111,7 +113,8 @@ def _fonts():
 
 
 def source_digest(source: SheetSource) -> str:
-    return hashlib.sha256(json.dumps(source.model_dump(), ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+    data = source.model_dump(exclude_none=True)
+    return hashlib.sha256(json.dumps(data, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
 
 
 @dataclass
@@ -126,21 +129,31 @@ def _blocks(source: SheetSource):
     if not lines or not lines[0].strip():
         raise ValueError("The prepared sheet has no title.")
     glasses, orders = set(source.glass_headers), set(source.order_headers)
+    explicit_rows = source.row_line_numbers
+    row_indexes = set(explicit_rows or [])
+    if explicit_rows is not None and (
+        len(row_indexes) != source.row_count or len(explicit_rows) != source.row_count
+        or any(index < 1 or index >= len(lines) or not lines[index].strip() for index in row_indexes)
+    ):
+        raise ValueError("The saved manual rows do not match the sheet. Reopen the order.")
     blocks, count = [], 0
-    for line in lines[1:]:
+    for index, line in enumerate(lines[1:], 1):
         if not line.strip():
             continue
-        if line in glasses:
+        if index in row_indexes:
+            kind = "row"
+        elif line in glasses:
             kind = "glass"
         elif line in orders:
             kind = "order"
-        elif re.match(r"^\d+\s*[–-]\s*", line):
+        elif explicit_rows is None and re.match(r"^\d+\s*[–-]\s*", line):
             kind = "row"
-            count += 1
         else:
             kind = "detail"
-        if kind == "row" and "⚠" in line:
-            raise ValueError("Review invalid dimensions in Processing before printing.")
+        if kind == "row":
+            count += 1
+            if explicit_rows is None and "⚠" in line:
+                raise ValueError("Review invalid dimensions in Processing before printing.")
         blocks.append(Block(kind, line, count if kind == "row" else None))
     if count != source.row_count:
         raise ValueError("The prepared row count does not match the sheet. Refresh Processing.")
@@ -188,7 +201,12 @@ def _plan(source, settings, columns, orientation, cuttable=False, column_height=
     def metrics(block, width=column_width):
         bold = block.kind in ("title", "glass")
         font = "ProductionSansBold" if bold else "ProductionSans"
-        lines = _wrap(block.text, width, size, font, block.kind == "row")
+        if (block.kind == "row" and source.row_line_numbers is not None
+                and pdfmetrics.stringWidth(block.text, font, size) > width):
+            position, separator, dimensions = block.text.rpartition(" – ")
+            lines = _wrap(position + separator, width, size, font) + _wrap(dimensions, width, size, font, row=True)
+        else:
+            lines = _wrap(block.text, width, size, font, block.kind == "row")
         before = settings.section_gap_pt if block.kind == "glass" else (3 if block.kind == "order" else 0)
         after = settings.glass_after_pt if block.kind == "glass" else 0
         return lines, font, before, len(lines) * step + before + after
@@ -283,13 +301,16 @@ def plan_sheet(source: SheetSource, settings: SheetSettings):
     if any(ord(char) not in supported for char in source.text + settings.note if not char.isspace()):
         raise ValueError("This sheet contains characters unsupported by the print font. Review the text before printing.")
     _blocks(source)
+    cuttable_orientation = "portrait" if settings.orientation == "portrait" else "landscape"
     if settings.layout == "cuttable":
-        if settings.columns not in ("auto", "1") or settings.orientation == "portrait":
-            raise ValueError("Cuttable copies use one column per half on landscape A4.")
-        return _plan(source, settings, 1, "landscape", True)
-    if settings.layout == "auto" and settings.columns in ("auto", "1") and settings.orientation != "portrait":
+        if settings.columns not in ("auto", "1"):
+            raise ValueError("Cuttable copies use one column per half of A4.")
+        return _plan(source, settings, 1, cuttable_orientation, True)
+    if settings.layout == "auto" and settings.columns in ("auto", "1") and (
+        settings.orientation != "portrait" or source.row_line_numbers is not None
+    ):
         try:
-            return _plan(source, settings, 1, "landscape", True)
+            return _plan(source, settings, 1, cuttable_orientation, True)
         except ValueError:
             pass
     candidates, errors = [], []
@@ -309,7 +330,9 @@ def render_sheet(request: SheetRequest):
     plan = plan_sheet(request.source, request.settings)
     output = BytesIO()
     pdf = canvas.Canvas(output, pagesize=(plan["page_width"], plan["page_height"]), pageCompression=1)
-    pdf.setTitle("Mother Sheet – " + ", ".join(re.findall(r"R-\d{2}-\d+", request.source.text.splitlines()[0])))
+    title = request.source.text.splitlines()[0]
+    pdf.setTitle(title if request.source.row_line_numbers is not None
+                 else "Mother Sheet – " + ", ".join(re.findall(r"R-\d{2}-\d+", title)))
     cuttable = plan["layout"] == "cuttable"
     for _copy in range(1 if cuttable else 2):
         for page_index, instructions in enumerate(plan["pages"]):
@@ -428,7 +451,8 @@ def suggest_sheet(client, request: SheetAIRequest, memory=()):
             "You format production sheets for a glass factory. Inspect the supplied rendered page images for readability, "
             "heading wrapping, spacing and density. Images show sampled pages, not necessarily every page. "
             "Return a complete proposed settings object, an explanation in the user's language and any warnings. "
-            "Small jobs can have two independent copies on cuttable landscape A4 (one column per half). "
+            "Small jobs can have two independent copies on cuttable portrait or landscape A4 (one column per half). "
+            "Keep the current page orientation unless the user asks to change it. "
             "Larger jobs use 1, 2 or 3 columns WITHIN one complete copy, then two complete collated page sets. "
             "Keep text at 12 pt or larger; prefer 14 pt. The deterministic renderer verifies actual fit. "
             "Make one practical choice promptly and keep the explanation brief. "

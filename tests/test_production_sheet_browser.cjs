@@ -7,6 +7,15 @@ const http = require('node:http');
 const {spawn} = require('node:child_process');
 const fixture = require('./fixtures/perfect_cut_order.json');
 const voiceQA = require('./production_sheet_voice_browser.cjs');
+const manualFixture = {
+  id:19, order_number:'MANUAL-19', client_name:'Sample', order_date:'2026-11-23',
+  status:'approved', manual_format:'client_positions_red_index',
+  rows:Array.from({length:19}, (_,index)=>({
+    index_number:index+1, client_position:`P-${index+1}`, section:index<10?'K1':'K2',
+    width_mm:505, height_mm:1670, quantity:2, final_area_m2:1.7,
+    glass_type:index<16?'Termik + 16 + TR':'Termik + 16 + Satin',
+  })),
+};
 const root = path.resolve(__dirname,'..');
 const output = process.env.PRODUCTION_SHEET_QA_OUTPUT || '/tmp/production-sheet-browser-qa';
 fs.mkdirSync(output,{recursive:true});
@@ -22,10 +31,15 @@ from fastapi import FastAPI,HTTPException
 from fastapi.staticfiles import StaticFiles
 from production_sheets import SheetRequest,SheetAIRequest,SheetFeedbackRequest,render_sheet,_validate_images,suggest_sheet,TYPOGRAPHY_FIELDS
 from production_sheet_memory import remember_sheet,similar_sheets
+from manual_mother_sheet import build_manual_production_source
 from db import engine,ProductionSheetExample
 ProductionSheetExample.__table__.create(engine)
 import uvicorn
 app=FastAPI()
+@app.get('/manual-orders/19/production-sheet-source')
+def manual_source():
+    order=json.loads(sys.argv[4])
+    return {'source':build_manual_production_source(order),'order_number':order['order_number']}
 @app.post('/qa/reset')
 def reset():
     with engine.begin() as conn:conn.execute(ProductionSheetExample.__table__.delete())
@@ -73,7 +87,7 @@ async function run(engine,name,base){
       window.print=()=>{document.documentElement.dataset.printCalled='yes';};
     },base);
     const page=await context.newPage();
-    const errors=[], aiBodies=[], feedbackBodies=[];
+    const errors=[], aiBodies=[], feedbackBodies=[], manualRequests=[];
     page.on('pageerror',error=>errors.push(error.message));
     let aiFailure=false, aiTimeout=false, aiGate=null, feedbackFailure=false;
     const downloads=[];
@@ -87,6 +101,11 @@ async function run(engine,name,base){
           body:fs.readFileSync(path.join(pdfjs,'build',filename))});
       }
       if(url.origin===base){
+        if(url.pathname.startsWith('/manual-orders/19')){
+          manualRequests.push([route.request().method(),url.pathname]);
+          if(url.pathname.endsWith('/production-sheet-source')) return route.continue();
+          if(url.pathname==='/manual-orders/19') return route.fulfill({json:manualFixture});
+        }
         if(url.pathname==='/api/production-sheets/ai'){
           aiBodies.push(route.request().postDataJSON());
           if(aiGate){
@@ -330,13 +349,40 @@ async function run(engine,name,base){
     assert.equal(feedbackBodies.length,beforeNewSheet,'AI must not teach itself from its own output');
     assert(await page.locator('#productionSheetReview').isHidden());
     await voiceQA(page,name,output,aiBodies);
+    await page.locator('[data-tab="manual"]').click();
+    await page.evaluate(()=>openManualOrder(19,true));
+    const manualBefore=await page.evaluate(()=>JSON.stringify({
+      processing:appState.processing, rows:manualOrdersState.rows, status:document.getElementById('manualOrderStatus').value,
+    }));
+    const beforeManualAI=aiBodies.length;
+    await page.locator('#manualProductionSheet').click();
+    await page.waitForFunction(()=>document.getElementById('productionSheetDialog').open
+      && document.getElementById('productionSheetSourceHint').textContent.includes('saved manual order')
+      && document.getElementById('productionSheetStatus').textContent.includes('AI adjusted'));
+    assert.equal(aiBodies.length,beforeManualAI+1);
+    assert.equal(aiBodies.at(-1).source.row_count,19);
+    assert.equal(aiBodies.at(-1).source.piece_count,38);
+    assert.equal(aiBodies.at(-1).rendered.orientation,'portrait');
+    assert.equal(aiBodies.at(-1).rendered.sheet_count,1);
+    assert.match(await page.locator('#productionSheetSourceHint').innerText(),/saved manual order/);
+    const manualDownload=page.waitForEvent('download');
+    await page.locator('#productionSheetSave').click();
+    assert.equal((await manualDownload).suggestedFilename(),'Mother Sheet MANUAL-19.pdf');
+    assert.deepEqual(manualRequests,[
+      ['GET','/manual-orders/19'],['GET','/manual-orders/19/production-sheet-source'],
+    ]);
+    assert.equal(await page.evaluate(()=>JSON.stringify({
+      processing:appState.processing, rows:manualOrdersState.rows, status:document.getElementById('manualOrderStatus').value,
+    })),manualBefore);
+    await page.locator('#productionSheetClose').click();
     assert.equal(errors.length,0,errors.join('\n'));
-    console.log(`${name}: preview, PDF, Print, visual AI proposal, Apply/Discard, one-click AI downloads, cancellation, failure recovery, stale source, large jobs, reset and responsive themes passed`);
+    console.log(`${name}: Processing and manual-order previews, PDF, Print, AI formatting, cancellation, failure recovery, stale source, large jobs, reset and responsive themes passed`);
   }finally{await browser.close();}
 }
 (async()=>{
   const port=await availablePort(),base=`http://127.0.0.1:${port}`;
-  const server=spawn(python,['-c',serverCode,path.join(root,'backend'),path.join(root,'docs'),String(port)],{stdio:['ignore','ignore','pipe']});
+  const server=spawn(python,['-c',serverCode,path.join(root,'backend'),path.join(root,'docs'),String(port),
+    JSON.stringify(manualFixture)],{stdio:['ignore','ignore','pipe']});
   let stderr='';server.stderr.on('data',data=>{stderr+=data;});
   try{
     for(let attempt=0;attempt<100;attempt++){
