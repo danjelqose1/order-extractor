@@ -29,25 +29,43 @@ def build_manual_mother_sheet_pdf(order, layout="a4_portrait"):
         return _build_single_copy(order)
     if layout not in {"a4_portrait_2up", "a4_landscape_2up"}:
         raise ValueError("Unsupported Mother Sheet print layout.")
-    width, height = landscape(A4) if layout == "a4_landscape_2up" else A4
-    if layout == "a4_landscape_2up":
-        copy_size = (width / 2, height)
-        slots = [fitz.Rect(0, 0, width / 2, height), fitz.Rect(width / 2, 0, width, height)]
-    else:
-        copy_size = (width, height / 2)
-        slots = [fitz.Rect(0, 0, width, height / 2), fitz.Rect(0, height / 2, width, height)]
-    with fitz.open(stream=_build_single_copy(order, copy_size, compact=True), filetype="pdf") as source:
+    portrait = layout == "a4_portrait_2up"
+    width, height = A4 if portrait else landscape(A4)
+    column_width = width / 2
+    copy_size = (column_width, height)
+    content = _fit_two_copy_sheet(order, copy_size, portrait=portrait)
+    slots = [fitz.Rect(0, 0, column_width, height), fitz.Rect(column_width, 0, width, height)]
+    with fitz.open(stream=content, filetype="pdf") as source, fitz.open() as output:
+        page = output.new_page(width=width, height=height)
+        for slot in slots:
+            page.show_pdf_page(slot, source, 0)
+        output.set_metadata({"title": source.metadata.get("title", "Mother Sheet")})
+        return output.tobytes(garbage=4, deflate=True)
+
+
+def _fit_two_copy_sheet(order, copy_size, *, portrait):
+    content = _build_single_copy(order, copy_size, compact_scale=1, column_header=portrait)
+    with fitz.open(stream=content, filetype="pdf") as source:
         if len(source) != 1:
             raise ValueError("This order is too long for two complete copies on one page. Choose 1 copy or try the other orientation.")
-        with fitz.open() as output:
-            page = output.new_page(width=width, height=height)
-            for slot in slots:
-                page.show_pdf_page(slot, source, 0)
-            output.set_metadata({"title": source.metadata.get("title", "Mother Sheet")})
-            return output.tobytes(garbage=4, deflate=True)
+    if not portrait:
+        return content
+
+    # Use the largest scale that fits after wrapping, up to 22 pt for item text.
+    low, high = 21, 42
+    while low <= high:
+        step = (low + high) // 2
+        candidate = _build_single_copy(order, copy_size, compact_scale=step / 20, column_header=True)
+        with fitz.open(stream=candidate, filetype="pdf") as source:
+            if len(source) == 1:
+                content = candidate
+                low = step + 1
+            else:
+                high = step - 1
+    return content
 
 
-def _build_single_copy(order, page_size=A4, compact=False):
+def _build_single_copy(order, page_size=A4, compact_scale=None, *, column_header=False):
     rows = order.get("rows") or []
     if not rows:
         raise ValueError("Manual order has no rows")
@@ -62,6 +80,7 @@ def _build_single_copy(order, page_size=A4, compact=False):
         glass = str(row.get("glass_type") or "Unspecified glass")
         groups.setdefault(glass, []).append(row)
 
+    compact = compact_scale is not None
     output = BytesIO()
     doc = SimpleDocTemplate(
         output, pagesize=page_size,
@@ -78,23 +97,37 @@ def _build_single_copy(order, page_size=A4, compact=False):
     item = ParagraphStyle("item", fontName="Helvetica", fontSize=13,
                           leading=20, textColor=colors.black, spaceAfter=3)
     if compact:
-        # Typeset to the half-page at readable sizes; never shrink or clip an oversized order.
-        for style, size, leading, after in [
-            (header, 12, 16, 12), (heading, 11, 15, 7),
-            (reference, 10, 14, 4), (item, 10.5, 14, 1),
+        for style, size, leading, after, max_scale in [
+            (header, 12, 16, 12, 1.25), (heading, 11, 15, 7, 1.45),
+            (reference, 10, 14, 4, 1.3), (item, 10.5, 14, 1, 2.1),
         ]:
-            style.fontSize, style.leading, style.spaceAfter = size, leading, after
-    story = [Paragraph(escape(
+            scale = min(compact_scale, max_scale)
+            style.fontSize = size * scale
+            style.leading = leading * scale
+            style.spaceAfter = after * scale
+        if column_header:
+            item.spaceAfter = 16 * (compact_scale - 1) + 1
+
+    header_text = escape(
         f"Mother Sheet – Client: {client} | Order: {order_number} | "
         f"Date: {display_date} | Dimensions: cm"
-    ), header)]
+    )
+    if column_header:
+        header_text = "<br/>".join(map(escape, (
+            "Mother Sheet", f"Client: {client}", f"Order: {order_number}",
+            f"Date: {display_date}", "Dimensions: cm",
+        )))
+    story = [Paragraph(header_text, header)]
     for glass, members in groups.items():
         if len(story) > 1:
-            story.append(Spacer(1, (6 if compact else 10) * mm))
+            story.append(Spacer(1, (6 * compact_scale if compact else 10) * mm))
         # Use saved final areas, including overrides, rather than recomputing geometry.
         area = sum((Decimal(str(row["final_area_m2"])) for row in members), Decimal(0))
         area_text = format(area, ".3f").replace(".", ",")
-        story.append(Paragraph(escape(f"{glass} — Area: {area_text} m²"), heading))
+        glass_heading = escape(f"{glass} — Area: {area_text} m²")
+        if column_header:
+            glass_heading = f"{escape(glass)}<br/>Area: {area_text} m²"
+        story.append(Paragraph(glass_heading, heading))
         story.append(Paragraph(escape(f"[Order {order_number} — {client}]"), reference))
         for row in members:
             index = row.get("index_number")
@@ -102,8 +135,13 @@ def _build_single_copy(order, page_size=A4, compact=False):
             client_position = str(row.get("client_position") or "").strip()
             if client_position:
                 position += f" ({client_position})"
-            line = (f'{position} – {_dimension_cm(row["width_mm"])} × '
-                    f'{_dimension_cm(row["height_mm"])} × {row["quantity"]}')
-            story.append(Paragraph(escape(line), item))
+            dimensions = (f'{_dimension_cm(row["width_mm"])} × '
+                          f'{_dimension_cm(row["height_mm"])} × {row["quantity"]}')
+            if column_header:
+                formatted_dimensions = escape(dimensions).replace(" ", "&#160;")
+                line = f"{escape(position)} – {formatted_dimensions}"
+            else:
+                line = escape(f"{position} – {dimensions}")
+            story.append(Paragraph(line, item))
     doc.build(story)
     return output.getvalue()

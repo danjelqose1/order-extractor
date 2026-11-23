@@ -121,23 +121,22 @@ def test_empty_order_rejected():
 
 
 @pytest.mark.parametrize("layout", ["a4_portrait_2up", "a4_landscape_2up"])
-@pytest.mark.parametrize("row_count", [3, 12])
+@pytest.mark.parametrize("row_count", [3, 12, 19])
 def test_two_complete_identical_copies_fit_in_separate_halves(layout, row_count):
     order = sample_order()
-    if row_count == 12:
-        order["rows"] = [{**order["rows"][0], "position": str(i), "index_number": i,
-                          "client_position": "P-12" if i == 1 else ""} for i in range(1, 13)]
+    if row_count > 3:
+        order["rows"] = [
+            {**order["rows"][0 if row_count == 12 or i % 3 else 2],
+             "position": str(i), "index_number": i, "client_position": "P-12" if i == 1 else ""}
+            for i in range(1, row_count + 1)
+        ]
     before = deepcopy(order)
     pdf = fitz.open(stream=build_manual_mother_sheet_pdf(order, layout), filetype="pdf")
     assert len(pdf) == 1
     page = pdf[0]
     w, h = page.rect.width, page.rect.height
-    if layout == "a4_landscape_2up":
-        assert w > h
-        slots = [fitz.Rect(0, 0, w/2, h), fitz.Rect(w/2, 0, w, h)]
-    else:
-        assert h > w
-        slots = [fitz.Rect(0, 0, w, h/2), fitz.Rect(0, h/2, w, h)]
+    assert (w > h) == (layout == "a4_landscape_2up")
+    slots = [fitz.Rect(0, 0, w/2, h), fitz.Rect(w/2, 0, w, h)]
     texts = [" ".join(page.get_text(clip=slot).split()) for slot in slots]
     assert texts[0] == texts[1]
     assert texts[0].count("Mother Sheet") == 1
@@ -146,16 +145,27 @@ def test_two_complete_identical_copies_fit_in_separate_halves(layout, row_count)
         assert "1 (P-12) – 31,0 × 144,8 × 2" in texts[0]
         assert "12 – 31,0 × 144,8 × 2" in texts[0]
         assert "Area: 30,240 m²" in texts[0]
+    elif row_count == 19:
+        for row in order["rows"]:
+            width, height, quantity = (
+                "31,0125", "140,55", 3
+            ) if row["glass_type"] == "4F" else ("31,0", "144,8", 2)
+            index = row["index_number"]
+            position = "1 (P-12)" if index == 1 else str(index)
+            assert f"{position} – {width} × {height} × {quantity}" in texts[0]
     else:
-        assert "Area: 5,520 m²" in texts[0] and "4F — Area: 1,234 m²" in texts[0]
+        assert "Area: 5,520 m²" in texts[0]
+        assert "4F" in texts[0] and "Area: 1,234 m²" in texts[0]
         assert "A-3 – 31,0125 × 140,55 × 3" in texts[0]
-    # Every text span is fully inside one half, with readable unscaled type.
+    # Every text span is fully inside one half, with readable type.
     for block in page.get_text("dict")["blocks"]:
         for line in block.get("lines", []):
             for span in line["spans"]:
                 assert any(slot.contains(fitz.Rect(span["bbox"])) for slot in slots)
                 assert span["size"] >= 10
                 assert span["color"] == 0
+    if layout == "a4_portrait_2up" and row_count in (12, 19):
+        assert max(block[3] for block in page.get_text("blocks")) > h * 0.85
     assert order == before
 
 
