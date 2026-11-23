@@ -56,6 +56,7 @@ def ai(request:SheetAIRequest):
         typography={key:getattr(request.settings,key) for key in TYPOGRAPHY_FIELDS}
         if request.source.row_count<12:typography.update(font_size=16,line_spacing=1.25,section_gap_pt=10,glass_after_pt=6)
         if memory:typography=memory[0]['typography']
+        if request.source.row_line_numbers:typography['margin_mm']=12.7
         client=SimpleNamespace()
         client.with_options=lambda **kw:client
         client.responses=SimpleNamespace(create=lambda **kw:SimpleNamespace(status='completed',output_text=json.dumps({'typography':typography,'explanation':'Used space and saved preferences.','warnings':[]})))
@@ -364,6 +365,7 @@ async function run(engine,name,base){
     assert.equal(aiBodies.at(-1).source.piece_count,38);
     assert.equal(aiBodies.at(-1).rendered.orientation,'portrait');
     assert.equal(aiBodies.at(-1).rendered.sheet_count,1);
+    assert.equal(await page.locator('[data-sheet-setting="margin_mm"]').inputValue(),'12.7');
     assert.match(await page.locator('#productionSheetSourceHint').innerText(),/saved manual order/);
     const manualDownload=page.waitForEvent('download');
     await page.locator('#productionSheetSave').click();

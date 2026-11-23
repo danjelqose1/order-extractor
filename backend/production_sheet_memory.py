@@ -14,6 +14,11 @@ from production_sheets import (TYPOGRAPHY_FIELDS, SheetFeedbackRequest, measure_
 MAX_EXAMPLES = 200
 
 
+def _saved_typography(example):
+    # Before margins were adjustable by AI, examples stored them only with the layout.
+    return {"margin_mm": example["layout"]["margin_mm"], **example["typography"]}
+
+
 def _layout(plan, settings):
     return {"layout": plan["layout"], "columns": plan["columns"], "orientation": plan["orientation"],
             "margin_mm": settings.margin_mm, "pages_per_copy": len(plan["pages"]),
@@ -35,7 +40,7 @@ def remember_sheet(request: SheetFeedbackRequest):
         previous = session.get(ProductionSheetExample, request.source_digest)
         if previous and not changes:
             old = json.loads(previous.example_json)
-            if old.get("typography") == typography:
+            if _saved_typography(old) == typography:
                 example["manual_corrections"] = old.get("manual_corrections", {})
         values = {"source_digest": request.source_digest, "example_json": json.dumps(example, sort_keys=True),
                   "updated_at": datetime.now(timezone.utc)}
@@ -69,5 +74,6 @@ def similar_sheets(source, settings):
             continue
         # Similarity leads; manual corrections are stronger than accepting an AI default.
         rank = distance + (0 if example["manual_corrections"] else .4)
-        scored.append((rank, {**example, "similarity": round(1 / (1 + distance), 3)}))
+        scored.append((rank, {**example, "typography": _saved_typography(example),
+                              "similarity": round(1 / (1 + distance), 3)}))
     return [example for _, example in sorted(scored, key=lambda item: item[0])[:6]]

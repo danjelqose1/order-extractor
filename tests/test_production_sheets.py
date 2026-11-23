@@ -110,10 +110,12 @@ def test_manual_sheet_source_and_portrait_pdf_preserve_saved_order():
                   "sheet_count":1,"sampled_pages":[1]},
     )
     fake, _, _ = fake_client({
-        "typography":{"font_size":15, "line_spacing":1.3, "section_gap_pt":10, "glass_after_pt":5},
+        "typography":{"font_size":15, "line_spacing":1.3, "section_gap_pt":10, "glass_after_pt":5, "margin_mm":8},
         "explanation":"Increased legibility.", "warnings":[],
     })
-    result = suggest_sheet(fake, request)["preview"]
+    formatted = suggest_sheet(fake, request)
+    assert formatted["proposal"]["settings"]["margin_mm"] == 8
+    result = formatted["preview"]
     assert result["source_digest"] == baseline["source_digest"]
     assert result["measurements"]["mean_used_fraction"] > baseline["measurements"]["mean_used_fraction"]
     with doc(result) as pdf:

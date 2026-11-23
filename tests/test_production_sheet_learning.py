@@ -51,7 +51,8 @@ def feedback(src=None, **settings):
 
 
 def test_finished_corrections_persist_are_deduplicated_and_exclude_order_content(memory_db):
-    request = feedback(font_size=18, line_spacing=1.4, section_gap_pt=12, glass_after_pt=8, note="private note")
+    request = feedback(font_size=18, line_spacing=1.4, section_gap_pt=12, glass_after_pt=8,
+                       margin_mm=10, note="private note")
     assert remember_sheet(request)["learned_from_corrections"]
     request.action = "print"
     request.baseline_settings = request.settings
@@ -64,10 +65,29 @@ def test_finished_corrections_persist_are_deduplicated_and_exclude_order_content
     examples = similar_sheets(source(5), SheetSettings())
     assert len(examples) == 1
     assert examples[0]["typography"]["font_size"] == 18
-    assert examples[0]["manual_corrections"] == {"font_size": 4, "line_spacing": .25, "section_gap_pt": 5, "glass_after_pt": 8}
+    assert examples[0]["typography"]["margin_mm"] == 10
+    assert examples[0]["manual_corrections"] == {
+        "font_size": 4, "line_spacing": .25, "section_gap_pt": 5, "glass_after_pt": 8, "margin_mm": -2.7,
+    }
     # Different layout and density do not inherit this small-order preference.
     assert similar_sheets(source(160), SheetSettings()) == []
     assert similar_sheets(source(4), SheetSettings(layout="full", columns="1")) == []
+
+
+def test_legacy_margin_is_available_without_erasing_saved_corrections(memory_db):
+    request = feedback(font_size=16)
+    remember_sheet(request)
+    with memory_db.get_session() as session:
+        record = session.get(memory_db.ProductionSheetExample, request.source_digest)
+        legacy = json.loads(record.example_json)
+        del legacy["typography"]["margin_mm"]
+        record.example_json = json.dumps(legacy)
+
+    assert similar_sheets(request.source, request.settings)[0]["typography"]["margin_mm"] == 12.7
+    request.baseline_settings = request.settings
+    assert remember_sheet(request)["learned_from_corrections"]
+    example = similar_sheets(request.source, request.settings)[0]
+    assert example["manual_corrections"] == {"font_size": 2}
 
 
 def test_invalid_or_stale_finalizations_do_not_teach(memory_db):
@@ -103,6 +123,9 @@ def test_agent_refines_spare_space_and_receives_real_measurements_and_memory(mem
     second = json.loads(calls[1]["input"][0]["content"][0]["text"])
     assert first["similar_finished_sheets"][0]["typography"]["font_size"] == 18
     assert first["measurements"]["min_free_height_pt"] > 100
+    narrow, tighter = first["fitting_margin_examples"]
+    assert narrow["margin_mm"] == 12.7 and tighter["margin_mm"] == 8
+    assert narrow["column_width_pt"] < tighter["column_width_pt"]
     assert second["attempts"][0]["individually_fitting_increases"]["font_size"] == 15
     assert calls[1]["input"][0]["content"][1]["image_url"] != request.images[0]
     assert result["proposal"]["settings"]["font_size"] == 18
@@ -137,10 +160,11 @@ def test_agent_rejects_added_pages_and_has_bounded_failure():
 
 def test_last_fitting_ai_result_survives_a_later_bad_proposal():
     request = ai_request().model_copy(update={"mode": "automatic", "source": source(4)})
-    client, calls = agent_client(typography(font_size=16), typography(font_size=999))
+    client, calls = agent_client(typography(font_size=16, margin_mm=10), typography(margin_mm=7.9))
     result = suggest_sheet(client, request)
     assert len(calls) == 3
     assert result["proposal"]["settings"]["font_size"] == 16
+    assert result["proposal"]["settings"]["margin_mm"] == 10
     assert result["response_id"] == "response-1"
 
 
