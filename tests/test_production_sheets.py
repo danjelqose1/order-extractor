@@ -80,7 +80,8 @@ def test_manual_sheet_source_and_portrait_pdf_preserve_saved_order():
             dict(position=f"P-{i}", index_number=i if i != 19 else None, client_position="C-8" if i == 8 else "",
                  section="K1" if i < 10 else "K2", width_mm=505.125 if i == 8 else 505,
                  height_mm=1670, quantity=2, glass_type="Termik + 16 + TR" if i < 18 else "Termik + 16 + Satin",
-                 final_area_m2=1.7, notes="Satin replaces TR" if i == 18 else "")
+                 final_area_m2=1.7,
+                 notes="Satin replaces TR; Handwritten corrected dimensions" if i == 18 else "")
             for i in range(1, 20)
         ],
     }
@@ -99,6 +100,7 @@ def test_manual_sheet_source_and_portrait_pdf_preserve_saved_order():
     assert response.json()["order_number"] == "MANUAL-19"
     src = SheetSource.model_validate(response.json()["source"])
     assert (src.row_count, src.piece_count) == (19, 38)
+    assert order["rows"][17]["notes"] not in src.text
     assert src.text.splitlines()[src.row_line_numbers[7]] == "8 (C-8) – 50,5125 × 167,0 × 2"
     assert client.get("/manual-orders/20/production-sheet-source").status_code == 404
 
@@ -128,7 +130,9 @@ def test_manual_sheet_source_and_portrait_pdf_preserve_saved_order():
         for index in src.row_line_numbers:
             assert src.text.splitlines()[index] in normalized(left)
         assert "[Section K1]" in left and "[Section K2]" in left
-        assert "Note: Satin replaces TR" in left
+        assert "Termik + 16 + Satin" in left
+        assert "Note:" not in left
+        assert "Handwritten corrected dimensions" not in normalized(left)
     assert order == before
     order["status"] = "draft"
     assert client.get("/manual-orders/19/production-sheet-source").status_code == 400

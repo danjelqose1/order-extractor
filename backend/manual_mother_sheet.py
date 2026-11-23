@@ -69,9 +69,6 @@ def build_manual_production_source(order):
                 position = f"{position} ({client_position})".strip()
             row_indexes.append(len(lines))
             lines.append(f"{position} – {_dimension_cm(width)} × {_dimension_cm(height)} × {quantity}")
-            note = " ".join((row.get("notes") or "").split())
-            if note:
-                lines.append(f"Note: {note}")
             piece_count += quantity
 
     return {"text": "\n".join(lines), "glass_headers": glass_headers,
