@@ -424,6 +424,7 @@ class ApprovePayload(BaseModel):
     client_name: Optional[str] = None
     client: Optional[str] = None
     clientName: Optional[str] = None
+    expected_updated_at: Optional[str] = None
 
 
 class ExtractionRowDiagnosisPayload(BaseModel):
@@ -462,6 +463,11 @@ class StatusUpdatePayload(BaseModel):
 
 class ReopenOrderPayload(BaseModel):
     reason: str = Field(min_length=3, max_length=500)
+
+
+class ChangeOrderNumberPayload(BaseModel):
+    order_number: str = Field(min_length=1, max_length=120)
+    expected_updated_at: str = Field(min_length=1)
 
 
 class AnalysisAskPayload(BaseModel):
@@ -2526,6 +2532,7 @@ def extract(inb: PasteIn, x_app_key: Optional[str] = Header(default=None)) -> Di
             "saved_order_id": saved_order_id,
             "status": status,
             "version": insert_result.get("version", 1),
+            "updated_at": insert_result.get("updated_at"),
             "source_hash": insert_result.get("source_hash"),
             "created_new_version": bool(insert_result.get("created_new_version")),
             "protected_order_id": insert_result.get("protected_order_id"),
@@ -2880,6 +2887,7 @@ def _extract_order_file_bytes(
             "saved_order_id": saved_order_id,
             "status": status,
             "version": insert_result.get("version", 1),
+            "updated_at": insert_result.get("updated_at"),
             "source_hash": insert_result.get("source_hash"),
             "created_new_version": bool(insert_result.get("created_new_version")),
             "protected_order_id": insert_result.get("protected_order_id"),
@@ -4795,6 +4803,22 @@ def remove_order(order_id: int) -> Dict[str, bool]:
     return {"ok": True}
 
 
+@app.patch("/orders/{order_id}/order-number")
+def change_order_number(order_id: int, payload: ChangeOrderNumberPayload) -> Dict[str, Any]:
+    try:
+        return db_module.change_order_number(
+            order_id,
+            order_number=payload.order_number,
+            expected_updated_at=payload.expected_updated_at,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except db_module.OrderEditConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 def _rows_to_csv(rows: List[Dict[str, Any]]) -> str:
     output = StringIO()
     writer = csv.writer(output)
@@ -4855,7 +4879,10 @@ def approve_order(order_id: int, payload: ApprovePayload) -> Dict[str, Any]:
             status="approved",
             notes=payload.notes,
             client_name=client_name,
+            expected_updated_at=payload.expected_updated_at or snapshot.get("updated_at"),
         )
+    except db_module.OrderEditConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:

@@ -1206,10 +1206,11 @@ def _record_status_event(
     to_status: str,
     note: Optional[str] = None,
     reason: Optional[str] = None,
+    allow_same_status: bool = False,
 ) -> None:
     normalized_to = normalize_order_status(to_status)
     normalized_from = normalize_order_status(from_status) if from_status else None
-    if normalized_from == normalized_to:
+    if normalized_from == normalized_to and not allow_same_status:
         return
     session.add(
         OrderStatusEvent(
@@ -1391,6 +1392,7 @@ def insert_extraction_with_rows(
             "client_name": order.client_name,
             "client_hint": order.client_hint,
             "version": int(order.version or 1),
+            "updated_at": utc_isoformat(order.updated_at),
             "source_hash": order.source_hash or order.hash,
             "created_new_version": created_new_version,
             "protected_order_id": protected_order_id,
@@ -1699,6 +1701,56 @@ def _mark_telegram_file_handling(
         return _serialize_telegram_file(record, linked_order)
 
 
+class OrderEditConflict(ValueError):
+    pass
+
+
+def change_order_number(order_id: int, *, order_number: str, expected_updated_at: str) -> Dict[str, Any]:
+    """Change the saved reference in place, alongside a single activity entry."""
+    new_number = normalize_order_number(order_number)
+    if not new_number or any(ord(char) < 32 or ord(char) == 127 for char in order_number):
+        raise ValueError("Enter a valid order number.")
+
+    with atomic_workflow() as session:
+        order = session.get(Order, order_id)
+        if not order:
+            raise LookupError("Order not found.")
+        status = normalize_order_status(order.status)
+        if status not in APPROVABLE_STATUSES:
+            raise OrderEditConflict("Only Draft or Reviewed orders can be edited.")
+        if utc_isoformat(order.updated_at or order.created_at) != expected_updated_at:
+            raise OrderEditConflict("This order changed. Reopen it from Orders and try again.")
+        if not order.rows:
+            raise OrderEditConflict("This order has no extracted items.")
+
+        previous_numbers = sorted({row.order_number or "" for row in order.rows})
+        count = len(order.rows)
+        if previous_numbers != [new_number] or order.order_numbers != [new_number]:
+            for row in order.rows:
+                row.order_number = new_number
+            order.order_numbers = [new_number]
+            order.updated_at = datetime.now(timezone.utc)
+            previous_label = ", ".join(number or "(blank)" for number in previous_numbers)
+            entries = "entry" if count == 1 else "entries"
+            _record_status_event(
+                session,
+                order_id=order.id,
+                from_status=status,
+                to_status=status,
+                note=f"{previous_label} → {new_number} · {count} {entries}",
+                reason="order_number_changed",
+                allow_same_status=True,
+            )
+            session.flush()
+
+        return {
+            "order_numbers": order.order_numbers,
+            "updated_at": utc_isoformat(order.updated_at or order.created_at),
+            "status_history": _serialize_status_events(order.status_events),
+            "affected_count": count,
+        }
+
+
 def update_order_rows(
     order_id: int,
     rows: List[Dict[str, Any]],
@@ -1706,13 +1758,17 @@ def update_order_rows(
     status: Optional[str] = None,
     notes: Optional[str] = None,
     client_name: Optional[str] = None,
+    expected_updated_at: Optional[str] = None,
 ) -> Dict[str, Any]:
     totals = _compute_totals(rows)
     normalized_client_name = _normalize_client_name(client_name)
-    with get_session() as session:
+    session_context = atomic_workflow() if expected_updated_at is not None else get_session()
+    with session_context as session:
         order = session.get(Order, order_id)
         if not order:
             raise ValueError(f"Order {order_id} not found")
+        if expected_updated_at is not None and utc_isoformat(order.updated_at or order.created_at) != expected_updated_at:
+            raise OrderEditConflict("This order changed. Reopen it from Orders before approving.")
 
         session.execute(delete(OrderRow).where(OrderRow.order_id == order_id))
         for row in rows:

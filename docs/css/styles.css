@@ -271,6 +271,7 @@
     .history-detail-header{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:12px}
     .history-detail-actions{display:flex;gap:8px}
     .history-detail-subheader{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:10px}
+    .order-detail-item-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:12px}
     .history-empty,.empty-state{padding:16px;border-radius:12px;background:#f8f9ff;border:1px dashed var(--border);text-align:center;color:var(--muted);font-size:14px}
     .history-empty.error{border-color:#fecaca;background:#fff1f2;color:#b91c1c}
     .history-status-badge{display:inline-flex;align-items:center;justify-content:center;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:700;letter-spacing:.02em;text-transform:uppercase}
@@ -622,6 +623,9 @@
     .modal-card{background:#fff;padding:18px;border-radius:14px;box-shadow:var(--shadow);max-width:460px;width:92%;border:1px solid var(--border)}
     .modal-card.wide{max-width:960px;width:96%;max-height:80vh;display:flex;flex-direction:column}
     .modal-card h3{margin-top:0;margin-bottom:6px}
+    #historyOrderNumberDialog::backdrop{background:rgba(17,24,39,0.45);backdrop-filter:blur(2px)}
+    #historyOrderNumberDialog p{overflow-wrap:anywhere}
+    #historyOrderNumberDialog #historyOrderNumberError{color:var(--danger)}
     .modal-card p{margin-top:0;color:var(--muted);font-size:13px}
     .modal-card label{display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:600;color:var(--muted);margin-bottom:10px}
     .modal-card label.inline-check{flex-direction:row;align-items:center;color:var(--text);font-weight:600}

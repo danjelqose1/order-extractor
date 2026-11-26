@@ -8,7 +8,7 @@
   <meta name="theme-color" content="#10151d" media="(prefers-color-scheme: dark)" />
   <link rel="icon" href="data:," />
   <title>Overview — Order Extractor</title>
-  <link rel="stylesheet" href="./css/styles.css?v=20260930-production-voice1">
+  <link rel="stylesheet" href="./css/styles.css?v=20261126-bulk-order-number">
   <link rel="stylesheet" href="./css/interface.css?v=20261004-tables1" media="screen">
   <link rel="stylesheet" href="./css/invoices.css?v=20261017-invoices1" media="screen">
 <link rel="stylesheet" href="./css/ai-decisions.css">
@@ -1423,8 +1423,28 @@
                   <span>Group identical sizes</span>
                 </label>
               </div>
-              <div style="margin-bottom:12px"><button type="button" id="historyFixAllAreas" class="btn small" hidden>Fix all areas</button></div>
+              <div class="order-detail-item-actions">
+                <button type="button" id="historyChangeOrderNumber" class="btn small" disabled>Change Order Number</button>
+                <button type="button" id="historyFixAllAreas" class="btn small" hidden>Fix all areas</button>
+                <span id="historyOrderNumberStatus" class="muted small" role="status"></span>
+              </div>
               <div class="table-responsive" id="historyTableWrap"></div>
+              <dialog id="historyOrderNumberDialog" class="modal-card" aria-labelledby="historyOrderNumberTitle">
+                <form id="historyOrderNumberForm">
+                  <h3 id="historyOrderNumberTitle">Change Order Number</h3>
+                  <p>Current saved order number<br><strong id="historyOrderNumberCurrent"></strong></p>
+                  <p>Saved entries affected <strong id="historyOrderNumberCount"></strong></p>
+                  <p id="historyOrderNumberPending" hidden>Added or removed rows stay pending until approval.</p>
+                  <label for="historyOrderNumberInput">New order number
+                    <input type="text" id="historyOrderNumberInput" required maxlength="120" autocomplete="off" autofocus>
+                  </label>
+                  <p id="historyOrderNumberError" class="error" role="alert" hidden></p>
+                  <div class="modal-actions">
+                    <button type="button" id="historyOrderNumberCancel" class="btn tertiary">Cancel</button>
+                    <button type="submit" id="historyOrderNumberApply" class="btn primary">Apply to all entries</button>
+                  </div>
+                </form>
+              </dialog>
             </div>
           </section>
 
@@ -1435,6 +1455,7 @@
                   <div>
                     <h3>Original document</h3>
                     <p class="muted small" id="orderDetailSourceMeta">Saved extraction source</p>
+                    <p class="muted small" id="orderDetailSourceNumber" hidden></p>
                   </div>
                 </div>
                 <div id="orderDetailSourceEmpty" class="order-source-empty">No source PDF is stored for this order.</div>
@@ -1465,7 +1486,7 @@
 
           <section class="order-detail-view" data-order-detail-panel="activity" hidden>
             <div class="card">
-              <h3 style="margin-top:0">Status history</h3>
+              <h3 style="margin-top:0">Activity history</h3>
               <div id="historyStatusTimeline" class="history-status-timeline history-empty">No status history available.</div>
             </div>
           </section>
@@ -2195,7 +2216,7 @@
 <script src="./js/living-dashboard.js?v=20260908-compact" defer></script>
 <script src="./js/platform-workflows.js?v=20261003-processing-units1" defer></script>
 <script src="./js/manual-dimension-groups.js?v=20260919-manual-group1" defer></script>
-<script src="./js/app.js?v=20261123-manual-production-sheet" defer></script>
+<script src="./js/app.js?v=20261126-bulk-order-number" defer></script>
 <script src="./js/ai-decisions.js" defer></script>
 <script src="./js/invoice-workspace.js?v=20261017-invoices1" defer></script>
 <script src="./js/invoice-pdf.js?v=20261017-invoices1" defer></script>

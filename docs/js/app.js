@@ -1189,6 +1189,14 @@ const historyCsvBtn = document.getElementById("historyCsv");
 const historyMetaEl = document.getElementById("historyMeta");
 const historyProcessingBtn = document.getElementById("historyProcessing");
 const historyReopenBtn = document.getElementById("historyReopen");
+const historyChangeOrderNumberBtn = document.getElementById("historyChangeOrderNumber");
+const historyOrderNumberDialog = document.getElementById("historyOrderNumberDialog");
+const historyOrderNumberForm = document.getElementById("historyOrderNumberForm");
+const historyOrderNumberInput = document.getElementById("historyOrderNumberInput");
+const historyOrderNumberCancel = document.getElementById("historyOrderNumberCancel");
+const historyOrderNumberApply = document.getElementById("historyOrderNumberApply");
+const historyOrderNumberError = document.getElementById("historyOrderNumberError");
+const historyOrderNumberStatus = document.getElementById("historyOrderNumberStatus");
 const historyInvoiceBtn = document.getElementById("historyInvoice");
 const historyArchiveBtn = document.getElementById("historyArchive");
 const historyInvoiceAllBtn = document.getElementById("historyInvoiceAll");
@@ -7244,6 +7252,9 @@ function addLabelJobsFromProcessing(options = {}){
       skipped.push(sectionKey);
       return;
     }
+    job.processingOrderIds = [...new Set(section.lines.flatMap(line =>
+      (line.originRows || []).map(origin => origin.bridgeSource?.orderId).filter(Boolean),
+    ))];
     addedJobs.push(job);
     existingKeys.add(sectionKey);
     totalRows += Array.isArray(job.rows) ? job.rows.length : 0;
@@ -11175,6 +11186,7 @@ function updateHistoryDetailUI(){
     const invoiceBtn = document.getElementById("historyInvoice");
     const archiveBtn = document.getElementById("historyArchive");
     const order = appState.historyDetail.order;
+    historyChangeOrderNumberBtn.disabled = !order?.updated_at || !order.rows?.length || !canApproveStatus(order.status);
     recalcParsedTotals(appState.historyDetail);
     const fixAllBtn = document.getElementById("historyFixAllAreas");
 	    if (!appState.historyDetail.order){
@@ -16339,6 +16351,8 @@ async function openOrderFromList(id){
   historyDetailEmpty.style.display = "none";
   historyPrintBtn.disabled = true;
   historyCsvBtn.disabled = true;
+  historyChangeOrderNumberBtn.disabled = true;
+  historyOrderNumberStatus.textContent = "";
   if (historyRawTextEl) historyRawTextEl.textContent = "Loading raw extraction text…";
   if (historyStatusTimelineEl){
     historyStatusTimelineEl.className = "history-status-timeline history-empty";
@@ -16387,10 +16401,17 @@ function renderHistoryStatusTimeline(events){
     .slice()
     .sort((a, b)=> platformTimestamp(b.changed_at) - platformTimestamp(a.changed_at))
     .map(event => {
-      const toLabel = historyStatusLabel(event.to_status || event.status);
-      const fromLabel = event.from_status ? historyStatusLabel(event.from_status) : "Created";
       const when = formatDate(event.changed_at);
       const note = event.note ? `<div>${escapeHtml(event.note)}</div>` : "";
+      if (event.reason === "order_number_changed"){
+        return `<div class="history-status-timeline-item">
+          <div><strong>Order number changed</strong></div>
+          <div class="meta">${escapeHtml(when)}</div>
+          ${note}
+        </div>`;
+      }
+      const toLabel = historyStatusLabel(event.to_status || event.status);
+      const fromLabel = event.from_status ? historyStatusLabel(event.from_status) : "Created";
       const reasonLabel = event.reason === "correction_reopen" ? "Reopened for correction" : event.reason;
       const reason = reasonLabel ? `<div class="meta">Reason: ${escapeHtml(reasonLabel)}</div>` : "";
       return `<div class="history-status-timeline-item">
@@ -16646,6 +16667,10 @@ function renderOrderSource(order){
     const method = extraction.extraction_method || order?.extraction_method || order?.source || "Saved extraction";
     orderDetailSourceMeta.textContent = isPdf ? `${method} · original PDF` : `${method} · text source`;
   }
+  const sourceNumber = document.getElementById("orderDetailSourceNumber");
+  const supplierNumber = order?.source_metadata?.supplier_document_number;
+  sourceNumber.hidden = !supplierNumber;
+  sourceNumber.textContent = supplierNumber ? `Original document number: ${supplierNumber}` : "";
   if (orderDetailSourceFrame){
     orderDetailSourceFrame.hidden = !isPdf;
     if (isPdf) loadSourcePdf("order", source);
@@ -16714,8 +16739,7 @@ async function loadOrderDetailFiles(order){
   }
 }
 
-function renderOrderDetailEnhancements(order){
-  if (!order) return;
+function renderOrderDetailIdentity(order){
   const label = getOrderLabel(order);
   const client = getClientName(order);
   const status = normalizeHistoryStatusValue(order.status);
@@ -16726,6 +16750,12 @@ function renderOrderDetailEnhancements(order){
   if (pageSubtitle) pageSubtitle.textContent = `${client === "—" ? "Unknown client" : client} · ${historyStatusLabel(status)}`;
   if (mobilePageTitle) mobilePageTitle.textContent = label === "—" ? "Order Detail" : label;
   document.title = `${label === "—" ? "Order Detail" : label} — Order Extractor`;
+}
+
+function renderOrderDetailEnhancements(order){
+  if (!order) return;
+  renderOrderDetailIdentity(order);
+  const status = normalizeHistoryStatusValue(order.status);
   renderOrderLifecycle(order);
   renderOrderReviewSummary(order);
   renderOrderSource(order);
@@ -16825,6 +16855,17 @@ async function reopenOrderForCorrectionRequest(orderId, reason){
   return res.json();
 }
 
+function invalidatePreparedOrder(orderId){
+  const key = String(orderId);
+  const jobs = appState.labels.jobs;
+  appState.labels.jobs = jobs.filter(job => !job.processingOrderIds?.includes(key));
+  if (appState.processing.cart.some(entry => String(entry.id) === key)){
+    removeOrderFromProcessing(orderId);
+  }else if (appState.labels.jobs.length !== jobs.length){
+    updateLabelsUI();
+  }
+}
+
 async function reopenApprovedOrderForCorrection(orderOrId){
   const order = typeof orderOrId === "object" && orderOrId
     ? orderOrId
@@ -16848,6 +16889,7 @@ async function reopenApprovedOrderForCorrection(orderOrId){
   setHistoryStatus("Saving the approved copy and reopening the order…");
   const payload = await reopenOrderForCorrectionRequest(order.id, reason);
   const updated = payload?.order || payload;
+  invalidatePreparedOrder(order.id);
   historyState.selectedOrder = updated;
   historyState.needsRefresh = true;
   analysisState.allOrdersDirty = true;
@@ -17312,6 +17354,82 @@ if (historyArchiveBtn){
   });
 }
 
+historyChangeOrderNumberBtn.addEventListener("click", ()=>{
+  const order = historyState.selectedOrder;
+  document.getElementById("historyOrderNumberCurrent").textContent = order.order_numbers?.join(", ") || "—";
+  document.getElementById("historyOrderNumberCount").textContent = order.rows.length;
+  document.getElementById("historyOrderNumberPending").hidden =
+    order.rows.length === appState.historyDetail.rows.length &&
+    appState.historyDetail.rows.every(row => row.id != null);
+  historyOrderNumberForm.reset();
+  historyOrderNumberError.hidden = true;
+  historyOrderNumberStatus.textContent = "";
+  historyOrderNumberDialog.showModal();
+});
+
+historyOrderNumberCancel.addEventListener("click", ()=> historyOrderNumberDialog.close());
+historyOrderNumberDialog.addEventListener("cancel", event=>{
+  if (historyOrderNumberApply.disabled) event.preventDefault();
+});
+
+historyOrderNumberForm.addEventListener("submit", async event=>{
+  event.preventDefault();
+  if (historyOrderNumberApply.disabled) return;
+  const order = historyState.selectedOrder;
+  const newNumber = historyOrderNumberInput.value.trim();
+  if (!newNumber){
+    historyOrderNumberError.textContent = "Enter a new order number.";
+    historyOrderNumberError.hidden = false;
+    historyOrderNumberInput.focus();
+    return;
+  }
+  const expectedUpdatedAt = order.updated_at;
+  historyOrderNumberApply.disabled = historyOrderNumberCancel.disabled = historyOrderNumberInput.disabled = true;
+  historyOrderNumberError.hidden = true;
+  try{
+    const response = await fetch(`${API_BASE}/orders/${order.id}/order-number`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ order_number: newNumber, expected_updated_at: expectedUpdatedAt }),
+    });
+    const result = await response.json();
+    if (!response.ok){
+      throw new Error(typeof result.detail === "string" ? result.detail : "Unable to save the order number.");
+    }
+    const [savedNumber] = result.order_numbers;
+    const applyNumber = rows => rows.forEach(row => { row.order_number = savedNumber; });
+    order.order_numbers = result.order_numbers;
+    order.updated_at = result.updated_at;
+    order.status_history = result.status_history;
+    applyNumber(order.rows);
+    applyNumber(appState.historyDetail.rows);
+    applyNumber(appState.historyDetail.originalRows);
+    if (String(appState.extract.draftId) === String(order.id) && appState.extract.updated_at === expectedUpdatedAt){
+      applyNumber(appState.extract.rows);
+      applyNumber(appState.extract.originalRows);
+      appState.extract.orderNumber = savedNumber;
+      appState.extract.updated_at = result.updated_at;
+      updateExtractUI();
+    }
+    invalidatePreparedOrder(order.id);
+    historyState.needsRefresh = true;
+    analysisState.allOrdersDirty = true;
+    analysisState.orderRowCache.delete(order.id);
+    renderOrderDetailIdentity(order);
+    renderHistoryStatusTimeline(order.status_history);
+    updateHistoryDetailUI();
+    historyOrderNumberDialog.close();
+    const count = result.affected_count;
+    historyOrderNumberStatus.textContent = `Order number saved for ${count} ${count === 1 ? "entry" : "entries"}.`;
+  }catch(error){
+    historyOrderNumberError.textContent = error.message || "Unable to save the order number.";
+    historyOrderNumberError.hidden = false;
+  }finally{
+    historyOrderNumberApply.disabled = historyOrderNumberCancel.disabled = historyOrderNumberInput.disabled = false;
+    if (historyOrderNumberDialog.open) historyOrderNumberInput.focus();
+  }
+});
+
 if (historyDrawerClose){
   historyDrawerClose.addEventListener("click", ()=> closeHistoryDrawer());
 }
@@ -17321,7 +17439,7 @@ document.querySelectorAll("[data-order-detail-view]").forEach(button => {
 });
 
 document.addEventListener("keydown", event=>{
-  if (event.key === "Escape" && panels.orderdetail?.classList.contains("active")){
+  if (event.key === "Escape" && !historyOrderNumberDialog.open && panels.orderdetail?.classList.contains("active")){
     closeHistoryDrawer();
   }
 });
@@ -18173,6 +18291,7 @@ async function approveDraft(orderId, rows, notes, clientSource = {}){
     rows,
     notes: notes || undefined,
     client_name: clientName || undefined,
+    expected_updated_at: clientSource.updated_at || undefined,
   };
   const res = await fetch(`${API_BASE}/orders/${orderId}/approve`, {
     method: "POST",
@@ -18218,6 +18337,7 @@ function applyExtractionResult(data){
     ];
   }
   appState.extract.draftId = data?.draft_order_id || null;
+  appState.extract.updated_at = data?.updated_at || null;
   appState.extract.status = status;
   appState.extract.savedOrderId = data?.saved_order_id || null;
   appState.extract.source_hash = data?.source_hash || "";

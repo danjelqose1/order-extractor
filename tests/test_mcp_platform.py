@@ -270,6 +270,80 @@ def test_pdf_existing_validation_and_processing(api):
     call("create_manual_order_draft",draft(order_number="PDF-001"),error="DUPLICATE_ORDER_NUMBER")
 
 
+def test_bulk_extracted_order_number_preserves_source_and_flows_into_documents(api):
+    module, client, _, call, headers = api
+    db = module.db_module
+    original_number, new_number = "26-0184", "R-26-0929"
+    source_text = f"KELI\nOrdine di vetro {original_number}\nDocumento correlato {new_number}"
+    rows = [
+        dict(order_number=original_number, type="4F", dimension="500x600", position="1-1", quantity=2, area=0.6),
+        dict(order_number="26-0185", type="6F", dimension="700x800", position="2-1", quantity=1, area=0.56),
+    ]
+    order_id = db.insert_extraction_with_rows(
+        source="pdf", rows=rows, raw_input=source_text, prepared_text=source_text,
+        llm_output_json=json.dumps({"rows": rows}), model_used="test", hash_value="test-bulk-order-number",
+        confidence=1, client_name="KELI", source_metadata={"supplier_document_number": original_number},
+    )["order_id"]
+    path = f"/orders/{order_id}"
+    edit_path = f"{path}/order-number"
+    db.update_order_rows(order_id, rows, status="approved")
+    approved = db.get_order_with_extraction(order_id)
+    assert client.patch(edit_path, json={
+        "order_number": new_number, "expected_updated_at": approved["updated_at"],
+    }).status_code == 409
+    assert client.post(f"{path}/reopen", json={"reason": "Use related document number"}).status_code == 200
+    before = db.get_order_with_extraction(order_id)
+    mcp_before = call("get_order", {"order_id": f"pdf:{order_id}"})
+
+    change = {"order_number": new_number, "expected_updated_at": before["updated_at"]}
+    assert client.patch(edit_path, json={**change, "order_number": " "}).status_code == 422
+    response = client.patch(edit_path, json=change)
+    assert response.status_code == 200, response.text
+    assert response.json()["affected_count"] == 2
+    assert client.patch(edit_path, json=change).status_code == 409
+    assert client.post(f"{path}/approve", json={
+        "rows": rows, "expected_updated_at": before["updated_at"],
+    }).status_code == 409
+    call("approve_order", {
+        "order_id": mcp_before["order_id"], "expected_version": mcp_before["version"], "confirmed": True,
+    }, error="VERSION_CONFLICT")
+
+    refreshed = client.get(path).json()
+    assert refreshed["order_numbers"] == [new_number]
+    assert refreshed["rows"] and {row["order_number"] for row in refreshed["rows"]} == {new_number}
+    stored = db.get_order_with_extraction(order_id)
+    assert stored["rows"] == [{**row, "order_number": new_number} for row in before["rows"]]
+    for field in ("id", "version", "parent_order_id", "hash", "source_hash", "source_metadata", "extraction",
+                  "status", "units_total", "area_total", "notes"):
+        assert stored[field] == before[field]
+    assert [order["id"] for order in db.get_orders(year="all")] == [order_id]
+    events = [event for event in refreshed["status_history"] if event["reason"] == "order_number_changed"]
+    assert [event["note"] for event in events] == [f"{original_number}, 26-0185 → {new_number} · 2 entries"]
+    assert db.list_order_revisions(order_id, include_snapshot=True)[0]["snapshot"]["rows"] == approved["rows"]
+    assert client.get(f"{path}/csv").status_code == 400
+
+    assert client.post(f"{path}/approve", json={
+        "rows": refreshed["rows"], "expected_updated_at": refreshed["updated_at"],
+    }).status_code == 200
+    csv_text = client.get(f"{path}/csv").text
+    assert csv_text.count(new_number) == 2 and original_number not in csv_text
+    bulk_csv = client.get("/orders/export.csv", params={"year": "all", "query": new_number})
+    assert bulk_csv.status_code == 200
+    assert bulk_csv.text.count(new_number) == 4 and original_number not in bulk_csv.text
+    job = process(call, call("get_order", {"order_id": f"pdf:{order_id}"}))
+    assert {row["orderId"] for row in job["rows"]} == {new_number}
+    for tool in ("generate_processing_sheet", "generate_labels"):
+        artifact = call(tool, {
+            "processing_job_id": job["processing_job_id"], "expected_version": job["version"],
+            "idempotency_key": f"bulk-order-{tool}",
+        })["artifacts"][0]
+        response = client.get(artifact["download_path"], headers=headers)
+        assert response.status_code == 200
+        with fitz.open(stream=response.content, filetype="pdf") as pdf:
+            pdf_text = " ".join(page.get_text() for page in pdf)
+        assert new_number in pdf_text and original_number not in pdf_text
+
+
 def test_filters_pagination_summary_and_audit_no_contents(api):
     module, _, _, call, _ = api
     for i in range(3):
